@@ -19,13 +19,32 @@ export type Offering = {
   takeaway: string | null;
   offering_type: string;
   media_url: string | null;
+  media_type?: string | null;
   is_anonymous: boolean;
+  allow_reflections?: boolean;
+  location_label?: string | null;
   bless_count: number;
   inspired_count: number;
   carried_forward_count: number;
   reflection_count: number;
   bless_score: number;
   published_at: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
   theme_name?: string | null;
   author_name?: string | null;
+};
+
+export type AdminOffering = Offering & {
+  status: "draft" | "pending" | "approved" | "rejected" | "needs_edit" | "hidden";
+  moderation_note: string | null;
+  open_report_count?: number;
+};
+
+export type ProfileSummary = {
+  user_id: string;
+  display_name: string;
+  username: string | null;
+  avatar_url: string | null;
+  role?: string;
 };

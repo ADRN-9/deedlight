@@ -12,19 +12,29 @@ export default async function OfferingsPage() {
           <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#8D681D]">Offerings</p>
           <h1 className="mt-3 font-[var(--font-heading)] text-5xl font-semibold">Goodness shared by people.</h1>
           <p className="mt-3 max-w-2xl leading-8 text-[#7C715F]">
-            Offerings rise when they bless, inspire, and lead others to act.
+            Offerings rise when they bless, inspire, and lead others to act. New Offerings are reviewed before appearing here.
           </p>
         </div>
         <PrimaryLink href="/offerings/new">Share an Offering</PrimaryLink>
       </div>
       <div className="mb-7 flex flex-wrap gap-2 text-sm font-bold text-[#5F5548]">
-        {['Rising', 'Latest', 'Good Deeds', 'Gratitude', 'Quiet', 'Community'].map((chip) => (
+        {["Rising", "Latest", "Good Deeds", "Gratitude", "Quiet", "Community"].map((chip) => (
           <span key={chip} className="rounded-full border border-[rgba(217,164,65,0.25)] bg-white/70 px-4 py-2">{chip}</span>
         ))}
       </div>
-      <div className="grid gap-6 md:grid-cols-2">
-        {offerings.map((offering) => <OfferingCard key={offering.id} offering={offering} />)}
-      </div>
+
+      {offerings.length === 0 ? (
+        <div className="deed-card p-8 text-center">
+          <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-[#FFF4DC] text-3xl">🔥</div>
+          <h2 className="font-[var(--font-heading)] text-3xl font-semibold">No Offerings here yet.</h2>
+          <p className="mx-auto mt-3 max-w-xl leading-8 text-[#7C715F]">Be the first to share a little light. Your Offering will be reviewed before it becomes public.</p>
+          <PrimaryLink href="/offerings/new" className="mt-6">Share an Offering</PrimaryLink>
+        </div>
+      ) : (
+        <div className="grid gap-6 md:grid-cols-2">
+          {offerings.map((offering) => <OfferingCard key={offering.id} offering={offering} />)}
+        </div>
+      )}
     </section>
   );
 }
