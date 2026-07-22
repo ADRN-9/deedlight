@@ -1,35 +1,24 @@
-# Deedlight Sprint 1
+# Deedlight Runtime Hotfix
 
-Deedlight is where good deeds become light.
+Replace these files in your repository:
 
-This starter contains Sprint 1 foundation:
+- wrangler.jsonc
+- components/layout/public-header.tsx
+- lib/data/daily-posts.ts
+- lib/data/offerings.ts
+- lib/supabase/middleware.ts
+- app/api/health/route.ts
 
-- Next.js App Router
-- Tailwind CSS design tokens
-- Supabase SSR auth utilities
-- Login/signup/signout
-- Homepage
-- Today page
-- Offerings page
-- Create Offering foundation
-- Journey placeholder
-- Admin shell
-- Cloudflare OpenNext/Wrangler config
-- Supabase migrations, RLS policies, buckets, and seed data
-
-## Quick start
+Then commit and push:
 
 ```bash
-npm install
-cp .env.local.example .env.local
-cp .dev.vars.example .dev.vars
-npm run dev
+git add wrangler.jsonc components/layout/public-header.tsx lib/data/daily-posts.ts lib/data/offerings.ts lib/supabase/middleware.ts app/api/health/route.ts
+git commit -m "Fix Cloudflare runtime crash and add health check"
+git push
 ```
 
-## Full setup
+After deployment, open:
 
-See `docs/setup.md`.
+https://deedlight.engsystems-org.workers.dev/api/health
 
-## Sprint 1 notes
-
-This is intentionally a foundation. Sprint 2 should implement the real Daily Lights admin editor and daily deed actions. Sprint 3 should complete Offerings media upload and detail interactions. Sprint 4 should wire reaction buttons as server actions and update Rising Goodness.
+All boolean fields should be true.
