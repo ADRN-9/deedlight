@@ -1,0 +1,56 @@
+@import "tailwindcss";
+
+:root {
+  --color-bg: #fff8ea;
+  --color-surface: #ffffff;
+  --color-text: #26231f;
+  --color-muted: #7c715f;
+  --color-gold: #d9a441;
+  --color-amber: #f4c76b;
+  --color-sage: #a8bfa3;
+  --color-dawn-blue: #dce9f5;
+  --color-clay: #c9826b;
+  --radius-sm: 12px;
+  --radius-md: 20px;
+  --radius-lg: 28px;
+  --radius-pill: 999px;
+  --shadow-card: 0 18px 45px rgba(38, 35, 31, 0.08);
+  --shadow-glow: 0 0 32px rgba(217, 164, 65, 0.28);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at top, rgba(244, 199, 107, 0.25), transparent 36%),
+    linear-gradient(180deg, #fff8ea 0%, #ffffff 54%, #fff8ea 100%);
+  color: var(--color-text);
+}
+
+::selection {
+  background: rgba(217, 164, 65, 0.28);
+}
+
+.deed-card {
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(217, 164, 65, 0.16);
+  border-radius: 28px;
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(12px);
+}
+
+.gold-glow {
+  box-shadow: var(--shadow-glow);
+}
+
+.focus-ring:focus-visible {
+  outline: 3px solid rgba(217, 164, 65, 0.55);
+  outline-offset: 3px;
+}
