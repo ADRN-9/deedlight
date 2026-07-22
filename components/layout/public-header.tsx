@@ -2,11 +2,22 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { DeedlightLogo } from "@/components/brand/deedlight-logo";
 import { SignOutButton } from "@/components/auth/sign-out-button";
+import type { User } from "@supabase/supabase-js";
 
 export async function PublicHeader() {
-  const supabase = await createClient({ allowMissingEnv: true });
-  const { data } = supabase ? await supabase.auth.getUser() : { data: { user: null } };
-  const user = data.user;
+  let user: User | null = null;
+
+  try {
+    const supabase = await createClient({ allowMissingEnv: true });
+    if (supabase) {
+      const { data } = await supabase.auth.getUser();
+      user = data.user;
+    }
+  } catch (error) {
+    // Do not let auth/session refresh problems crash public pages.
+    // The app can still render as logged out while we inspect runtime logs.
+    console.error("PublicHeader auth check failed", error);
+  }
 
   return (
     <header className="sticky top-0 z-40 border-b border-[rgba(217,164,65,0.14)] bg-[#FFF8EA]/85 backdrop-blur-xl">
