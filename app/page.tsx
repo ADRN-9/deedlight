@@ -4,9 +4,21 @@ import { OfferingCard } from "@/components/offerings/offering-card";
 import { PrimaryLink, SecondaryLink } from "@/components/ui/button-link";
 import { getTodayPost } from "@/lib/data/daily-posts";
 import { getApprovedOfferings } from "@/lib/data/offerings";
+import { fallbackDailyPost, fallbackOfferings } from "@/lib/data/fallback";
+
+export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const [today, offerings] = await Promise.all([getTodayPost(), getApprovedOfferings(2)]);
+  const [todayResult, offeringsResult] = await Promise.allSettled([
+    getTodayPost(),
+    getApprovedOfferings(2)
+  ]);
+
+  if (todayResult.status === "rejected") console.error("Home getTodayPost failed", todayResult.reason);
+  if (offeringsResult.status === "rejected") console.error("Home getApprovedOfferings failed", offeringsResult.reason);
+
+  const today = todayResult.status === "fulfilled" ? todayResult.value : fallbackDailyPost;
+  const offerings = offeringsResult.status === "fulfilled" ? offeringsResult.value : fallbackOfferings.slice(0, 2);
 
   return (
     <>
@@ -54,13 +66,12 @@ export default async function HomePage() {
           <SecondaryLink href="/offerings" className="hidden sm:inline-flex">See all</SecondaryLink>
         </div>
         <div className="grid gap-6 md:grid-cols-2">
-          {offerings.map((offering) => <OfferingCard key={offering.id} offering={offering} />)}
+          {offerings.slice(0, 2).map((offering) => <OfferingCard key={offering.id} offering={offering} />)}
         </div>
       </section>
     </>
   );
 }
-
 
 type Step = { Icon: LucideIcon; title: string; body: string };
 

@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { CreateOfferingForm } from "@/components/offerings/create-offering-form";
 import { createClient } from "@/lib/supabase/server";
 
 type SearchParamsValue = {
@@ -28,7 +27,11 @@ async function getCurrentUserSafely() {
       error
     } = await supabase.auth.getUser();
 
-    if (error) return null;
+    if (error) {
+      console.error("Offerings new getUser returned error", error);
+      return null;
+    }
+
     return user;
   } catch (error) {
     console.error("Offerings new auth check failed", error);
@@ -68,17 +71,37 @@ export default async function NewOfferingPage({ searchParams }: PageProps) {
     );
   }
 
-  return (
-    <section className="mx-auto max-w-4xl px-4 py-12 sm:px-6">
-      <div className="mb-8">
-        <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#8D681D]">Share an Offering</p>
-        <h1 className="mt-3 font-[var(--font-heading)] text-5xl font-semibold">Prepare a light with care.</h1>
-        <p className="mt-4 max-w-2xl leading-8 text-[#7C715F]">
-          Offerings are reviewed before they become public so Deedlight stays safe, dignified, and sincere.
-        </p>
-      </div>
+  try {
+    const { CreateOfferingForm } = await import("@/components/offerings/create-offering-form");
 
-      <CreateOfferingForm error={params.error} />
-    </section>
-  );
+    return (
+      <section className="mx-auto max-w-4xl px-4 py-12 sm:px-6">
+        <div className="mb-8">
+          <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#8D681D]">Share an Offering</p>
+          <h1 className="mt-3 font-[var(--font-heading)] text-5xl font-semibold">Prepare a light with care.</h1>
+          <p className="mt-4 max-w-2xl leading-8 text-[#7C715F]">
+            Offerings are reviewed before they become public so Deedlight stays safe, dignified, and sincere.
+          </p>
+        </div>
+
+        <CreateOfferingForm error={params.error} />
+      </section>
+    );
+  } catch (error) {
+    console.error("CreateOfferingForm failed to load", error);
+    return (
+      <section className="mx-auto max-w-3xl px-4 py-16 sm:px-6">
+        <div className="deed-card p-8 text-center sm:p-10">
+          <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#8D681D]">Share an Offering</p>
+          <h1 className="mt-3 font-[var(--font-heading)] text-4xl font-semibold">The Offering form could not load.</h1>
+          <p className="mx-auto mt-4 max-w-2xl leading-8 text-[#7C715F]">
+            Please try again after the latest deployment finishes. Your account is safe.
+          </p>
+          <Link href="/" className="focus-ring mt-8 inline-flex rounded-full bg-[#D9A441] px-6 py-3 text-sm font-extrabold text-[#26231F]">
+            Return home
+          </Link>
+        </div>
+      </section>
+    );
+  }
 }
