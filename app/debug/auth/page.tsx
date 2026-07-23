@@ -1,61 +1,54 @@
-"use client";
-
-import { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
 import { getSupabaseConfig } from "@/lib/supabase/config";
 
-function readableError(error: unknown) {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "string") return error;
-  try {
-    return JSON.stringify(error, null, 2);
-  } catch {
-    return "Unknown error";
-  }
-}
+export const dynamic = "force-dynamic";
 
-export default function AuthDebugPage() {
-  const [result, setResult] = useState<Record<string, unknown>>({ loading: true });
+export default function DebugAuthPage() {
+  const config = getSupabaseConfig();
+  const rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+  const rawAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
 
-  useEffect(() => {
-    async function run() {
-      try {
-        const config = getSupabaseConfig();
-        const supabase = createClient();
-        const { data, error } = await supabase.auth.getSession();
+  const safeRawUrl = String(rawUrl || "");
+  const safeAnonKey = String(rawAnonKey || "");
 
-        setResult({
-          ok: !error,
-          browserConfig: config.debug,
-          sessionExists: Boolean(data.session),
-          userEmail: data.session?.user?.email ?? null,
-          error: error ? readableError(error) : null
-        });
-      } catch (error) {
-        const config = getSupabaseConfig();
-        setResult({
-          ok: false,
-          exception: readableError(error),
-          browserConfig: config.debug
-        });
-      }
-    }
-
-    run();
-  }, []);
+  const diagnostics = {
+    ok: true,
+    serverEnv: {
+      supabaseUrlSet: safeRawUrl.length > 0,
+      supabaseAnonKeySet: safeAnonKey.length > 0,
+      serviceRoleKeySet: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
+      siteUrl: process.env.NEXT_PUBLIC_SITE_URL ?? null
+    },
+    browserConfig: {
+      isConfigured: config.isConfigured,
+      normalizedUrl: config.url,
+      rawUrlIsValid:
+        safeRawUrl.startsWith("http://") || safeRawUrl.startsWith("https://"),
+      urlFallbackUsed: config.debug.urlFallbackUsed,
+      anonKeyPresent: Boolean(config.anonKey),
+      anonKeyPrefix: config.debug.anonKeyPrefix
+    },
+    notes: [
+      "This page intentionally never prints the full anon key or service role key.",
+      "If urlFallbackUsed is true, check NEXT_PUBLIC_SUPABASE_URL in Cloudflare variables."
+    ]
+  };
 
   return (
-    <section className="mx-auto max-w-3xl px-4 py-16 sm:px-6">
-      <div className="deed-card p-7 sm:p-9">
-        <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#8D681D]">Diagnostics</p>
-        <h1 className="mt-3 font-[var(--font-heading)] text-4xl font-semibold">Browser auth check</h1>
-        <p className="mt-3 text-sm leading-6 text-[#7C715F]">
-          This page does not show secret keys. It confirms whether the browser bundle can create a Supabase client.
-        </p>
-        <pre className="mt-6 overflow-auto rounded-2xl bg-[#26231F] p-4 text-xs leading-6 text-[#FFF8EA]">
-          {JSON.stringify(result, null, 2)}
-        </pre>
-      </div>
-    </section>
+    <main style={{ padding: "32px", fontFamily: "system-ui, sans-serif" }}>
+      <h1>Deedlight Auth Debug</h1>
+      <p>This page verifies Supabase runtime configuration without exposing secrets.</p>
+      <pre
+        style={{
+          background: "#111",
+          color: "#f7f7f7",
+          padding: "20px",
+          borderRadius: "12px",
+          overflowX: "auto",
+          whiteSpace: "pre-wrap"
+        }}
+      >
+        {JSON.stringify(diagnostics, null, 2)}
+      </pre>
+    </main>
   );
 }

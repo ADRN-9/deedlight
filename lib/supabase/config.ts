@@ -1,53 +1,55 @@
-const DEEDLIGHT_SUPABASE_URL_FALLBACK = "https://xaipiovflxomcbfwtwmu.supabase.co";
+const FALLBACK_SUPABASE_URL = "https://xaipiovflxomcbfwtwmu.supabase.co";
 
-function cleanEnvValue(value: string | undefined) {
-  if (!value) return undefined;
-
-  const cleaned = value.trim().replace(/^['"]|['"]$/g, "");
-
-  if (!cleaned) return undefined;
-  if (["undefined", "null"].includes(cleaned.toLowerCase())) return undefined;
-
-  return cleaned;
+function stripWrappingQuotes(value: string) {
+  return value.trim().replace(/^['\"]|['\"]$/g, "");
 }
 
-function isValidHttpUrl(value: string | undefined) {
-  if (!value) return false;
+function normalizeSupabaseUrl(value: string | null | undefined) {
+  const raw = stripWrappingQuotes(value ?? "");
 
-  try {
-    const parsed = new URL(value);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
-  } catch {
-    return false;
+  if (raw.startsWith("http://") || raw.startsWith("https://")) {
+    try {
+      const parsed = new URL(raw);
+      return parsed.toString().replace(/\/$/, "");
+    } catch {
+      return FALLBACK_SUPABASE_URL;
+    }
   }
+
+  // Common mistake: dashboard value pasted without https://
+  if (raw.endsWith(".supabase.co")) {
+    return `https://${raw}`;
+  }
+
+  return FALLBACK_SUPABASE_URL;
 }
 
 export function getSupabaseConfig() {
-  const rawUrl = cleanEnvValue(process.env.NEXT_PUBLIC_SUPABASE_URL);
-  const rawAnonKey = cleanEnvValue(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+  const rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+  const rawAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
 
-  // Cloudflare/OpenNext can occasionally leave client-side NEXT_PUBLIC_* values malformed
-  // while server-side runtime variables are correct. The Supabase URL is public, so we
-  // keep a safe project-url fallback for the browser bundle. Do not do this for secrets.
-  const url = isValidHttpUrl(rawUrl) ? rawUrl : DEEDLIGHT_SUPABASE_URL_FALLBACK;
-  const anonKey = rawAnonKey;
+  const url = normalizeSupabaseUrl(rawUrl);
+  const anonKey = stripWrappingQuotes(rawAnonKey);
+
+  const isConfigured = Boolean(
+    url &&
+      anonKey &&
+      !anonKey.includes("YOUR_SUPABASE_ANON_KEY") &&
+      !anonKey.includes("YOUR_ANON_KEY")
+  );
 
   return {
     url,
     anonKey,
-    isConfigured: Boolean(
-      isValidHttpUrl(url) &&
-        anonKey &&
-        !url.includes("YOUR_PROJECT_REF") &&
-        !anonKey.includes("YOUR_SUPABASE_ANON_KEY")
-    ),
+    isConfigured,
     debug: {
+      rawUrlPresent: Boolean(rawUrl),
       rawUrl,
       normalizedUrl: url,
-      urlFallbackUsed: rawUrl !== url,
-      rawUrlIsValid: isValidHttpUrl(rawUrl),
-      anonKeySet: Boolean(anonKey),
-      anonKeyPrefix: anonKey ? `${anonKey.slice(0, 14)}...` : null
+      rawUrlIsValid: rawUrl ? url === normalizeSupabaseUrl(rawUrl) : false,
+      urlFallbackUsed: rawUrl ? url === FALLBACK_SUPABASE_URL && rawUrl !== FALLBACK_SUPABASE_URL : true,
+      anonKeyPresent: Boolean(anonKey),
+      anonKeyPrefix: anonKey ? anonKey.slice(0, 14) : null
     }
   };
 }
