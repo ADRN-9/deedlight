@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { getSupabaseConfig } from "@/lib/supabase/config";
 
 function readableError(error: unknown) {
   if (error instanceof Error) return error.message;
@@ -19,26 +20,23 @@ export default function AuthDebugPage() {
   useEffect(() => {
     async function run() {
       try {
-        const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-        const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+        const config = getSupabaseConfig();
         const supabase = createClient();
         const { data, error } = await supabase.auth.getSession();
 
         setResult({
           ok: !error,
-          supabaseUrlSetInBrowser: Boolean(url),
-          supabaseAnonKeySetInBrowser: Boolean(key),
-          supabaseAnonKeyPrefix: key ? `${key.slice(0, 14)}...` : null,
+          browserConfig: config.debug,
           sessionExists: Boolean(data.session),
           userEmail: data.session?.user?.email ?? null,
           error: error ? readableError(error) : null
         });
       } catch (error) {
+        const config = getSupabaseConfig();
         setResult({
           ok: false,
           exception: readableError(error),
-          supabaseUrlSetInBrowser: Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL),
-          supabaseAnonKeySetInBrowser: Boolean(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
+          browserConfig: config.debug
         });
       }
     }
@@ -52,7 +50,7 @@ export default function AuthDebugPage() {
         <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#8D681D]">Diagnostics</p>
         <h1 className="mt-3 font-[var(--font-heading)] text-4xl font-semibold">Browser auth check</h1>
         <p className="mt-3 text-sm leading-6 text-[#7C715F]">
-          This page does not show secret keys. It only confirms whether the browser bundle can read the public Supabase URL/key and create a Supabase client.
+          This page does not show secret keys. It confirms whether the browser bundle can create a Supabase client.
         </p>
         <pre className="mt-6 overflow-auto rounded-2xl bg-[#26231F] p-4 text-xs leading-6 text-[#FFF8EA]">
           {JSON.stringify(result, null, 2)}
