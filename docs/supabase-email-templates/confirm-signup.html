@@ -1,0 +1,39 @@
+<!doctype html>
+<html>
+  <body style="margin:0;background:#fff8ea;font-family:Inter,Arial,sans-serif;color:#26231f;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#fff8ea;padding:32px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#ffffff;border:1px solid #ead7ad;border-radius:28px;overflow:hidden;box-shadow:0 18px 45px rgba(38,35,31,0.08);">
+            <tr>
+              <td style="padding:34px 34px 8px 34px;text-align:center;">
+                <div style="display:inline-block;background:#fff4dc;border-radius:999px;padding:10px 14px;color:#9a6a10;font-weight:800;letter-spacing:.16em;text-transform:uppercase;font-size:12px;">Deedlight</div>
+                <h1 style="font-size:34px;line-height:1.15;margin:24px 0 12px 0;color:#26231f;">Confirm your email address</h1>
+                <p style="font-size:16px;line-height:1.7;margin:0;color:#6f665b;">Welcome to Deedlight — where good deeds become light. Confirm your email to begin your Goodness Journey.</p>
+              </td>
+            </tr>
+            <tr>
+              <td align="center" style="padding:26px 34px;">
+                <a href="{{ .ConfirmationURL }}" style="display:inline-block;background:#d9a441;color:#26231f;text-decoration:none;border-radius:999px;padding:15px 28px;font-weight:800;font-size:16px;">Confirm my email</a>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 34px 28px 34px;">
+                <div style="background:#fff8ea;border:1px solid #ead7ad;border-radius:20px;padding:18px;color:#6f665b;font-size:14px;line-height:1.7;">
+                  A new light can begin today. Thank you for joining a space for goodness, beauty, and better deeds.
+                </div>
+                <p style="font-size:13px;line-height:1.6;color:#8a7d6d;margin:22px 0 0 0;">If the button does not work, copy and paste this link into your browser:<br><span style="word-break:break-all;color:#9a6a10;">{{ .ConfirmationURL }}</span></p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:22px 34px;background:#fff8ea;border-top:1px solid #ead7ad;color:#8a7d6d;font-size:12px;line-height:1.6;text-align:center;">
+                Deedlight · Where good deeds become light.<br>
+                You are receiving this because {{ .Email }} signed up at Deedlight.
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

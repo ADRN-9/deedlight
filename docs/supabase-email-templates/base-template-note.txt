@@ -1,0 +1,7 @@
+Deedlight email tone rules:
+
+- Warm, calm, and trustworthy
+- No guilt or pressure
+- Use “Goodness Journey”, “light”, “Offering”, and “Deedlight” language
+- Keep the button obvious and accessible
+- Do not over-complicate auth emails

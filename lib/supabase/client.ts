@@ -1,12 +1,22 @@
+"use client";
+
 import { createBrowserClient } from "@supabase/ssr";
-import { getSupabaseConfig } from "./config";
+import { getSupabaseBrowserConfig } from "./config";
+
+type BrowserClient = ReturnType<typeof createBrowserClient>;
+
+let browserClient: BrowserClient | null = null;
 
 export function createClient() {
-  const { url, anonKey, isConfigured } = getSupabaseConfig();
+  const { url, anonKey, isConfigured } = getSupabaseBrowserConfig();
 
-  if (!isConfigured || !url || !anonKey) {
-    throw new Error("Missing Supabase environment variables.");
+  if (!isConfigured) {
+    throw new Error("Missing Supabase browser configuration.");
   }
 
-  return createBrowserClient(url, anonKey);
+  if (!browserClient) {
+    browserClient = createBrowserClient(url, anonKey);
+  }
+
+  return browserClient;
 }

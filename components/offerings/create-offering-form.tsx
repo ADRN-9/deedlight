@@ -1,230 +1,349 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CheckCircle2, Eye, ImageIcon, ShieldCheck, Sparkles } from "lucide-react";
-import { createOffering } from "@/app/offerings/new/actions";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 
-const offeringTypes = [
-  ["good_deed", "Good Deed", "Something good you did."],
-  ["goodness_invitation", "Goodness Invitation", "A deed you invite others to try."],
-  ["gratitude", "Gratitude", "Goodness you received or witnessed."],
-  ["beauty_reminder", "Beauty Reminder", "A moment that restored hope."],
-  ["quiet_goodness", "Quiet Goodness", "Share without showing yourself."],
-  ["community_need", "Community Need", "A need that should receive extra review."]
-] as const;
+type OfferingType =
+  | "good_deed"
+  | "goodness_invitation"
+  | "gratitude"
+  | "beauty_reminder"
+  | "quiet_goodness"
+  | "community_need";
 
-const themes = [
-  ["kindness", "Kindness"],
-  ["courage", "Courage"],
-  ["mercy", "Mercy"],
-  ["honesty", "Honesty"],
-  ["patience", "Patience"],
-  ["gratitude", "Gratitude"],
-  ["beauty", "Beauty"],
-  ["community", "Community"]
-] as const;
+type Step = 1 | 2 | 3 | 4;
 
-type Props = {
-  error?: string;
+const OFFERING_TYPES: Array<{ value: OfferingType; title: string; description: string }> = [
+  { value: "good_deed", title: "Good Deed", description: "Something good you did." },
+  { value: "goodness_invitation", title: "Goodness Invitation", description: "A deed you invite others to try." },
+  { value: "gratitude", title: "Gratitude", description: "Goodness you received or witnessed." },
+  { value: "beauty_reminder", title: "Beauty Reminder", description: "A moment that restored hope." },
+  { value: "quiet_goodness", title: "Quiet Goodness", description: "Share without showing yourself." },
+  { value: "community_need", title: "Community Need", description: "A need that should receive extra review." }
+];
+
+const TYPE_LABELS: Record<OfferingType, string> = {
+  good_deed: "Good Deed",
+  goodness_invitation: "Goodness Invitation",
+  gratitude: "Gratitude",
+  beauty_reminder: "Beauty Reminder",
+  quiet_goodness: "Quiet Goodness",
+  community_need: "Community Need"
 };
 
-export function CreateOfferingForm({ error }: Props) {
-  const [step, setStep] = useState(1);
-  const [offeringType, setOfferingType] = useState("good_deed");
-  const [themeSlug, setThemeSlug] = useState("kindness");
+function normalizeMediaType(url: string) {
+  const clean = url.trim().toLowerCase();
+  if (!clean) return null;
+  if (/\.(mp4|mov|webm|m4v)(\?.*)?$/.test(clean)) return "video";
+  return "image";
+}
+
+function validateDraft(input: {
+  offeringType: OfferingType;
+  title: string;
+  body: string;
+  takeaway: string;
+  mediaUrl: string;
+}) {
+  const errors: string[] = [];
+  const title = input.title.trim();
+  const body = input.body.trim();
+  const takeaway = input.takeaway.trim();
+  const mediaUrl = input.mediaUrl.trim();
+
+  if (!input.offeringType) errors.push("Choose what kind of Offering this is.");
+  if (title.length < 8) errors.push("Write a clearer title, at least 8 characters.");
+  if (body.length < 40) errors.push("Share the story with a little more detail, at least 40 characters.");
+  if (takeaway.length < 15) errors.push("Add a small deed others can try, at least 15 characters.");
+
+  if (mediaUrl && !/^https?:\/\//i.test(mediaUrl)) {
+    errors.push("Media URL must start with http:// or https://.");
+  }
+
+  return errors;
+}
+
+export function CreateOfferingForm() {
+  const router = useRouter();
+  const [step, setStep] = useState<Step>(1);
+  const [offeringType, setOfferingType] = useState<OfferingType>("good_deed");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [takeaway, setTakeaway] = useState("");
   const [mediaUrl, setMediaUrl] = useState("");
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [allowReflections, setAllowReflections] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [errors, setErrors] = useState<string[]>([]);
+  const [success, setSuccess] = useState<string | null>(null);
 
-  const selectedType = useMemo(
-    () => offeringTypes.find(([value]) => value === offeringType) || offeringTypes[0],
-    [offeringType]
+  const validationErrors = useMemo(
+    () => validateDraft({ offeringType, title, body, takeaway, mediaUrl }),
+    [offeringType, title, body, takeaway, mediaUrl]
   );
 
+  function nextFromType() {
+    setErrors([]);
+    setStep(2);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function goToWriteStep() {
+    setErrors([]);
+    setStep(3);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function goToPreview() {
+    const nextErrors = validateDraft({ offeringType, title, body, takeaway, mediaUrl });
+    setErrors(nextErrors);
+
+    if (nextErrors.length === 0) {
+      setStep(4);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }
+
+  async function submitOffering() {
+    const nextErrors = validateDraft({ offeringType, title, body, takeaway, mediaUrl });
+    if (nextErrors.length > 0) {
+      setErrors(nextErrors);
+      setStep(3);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+
+    setSubmitting(true);
+    setErrors([]);
+    setSuccess(null);
+
+    try {
+      const supabase = createClient();
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+
+      if (userError || !userData.user) {
+        setErrors(["Please sign in again before submitting your Offering."]);
+        setSubmitting(false);
+        return;
+      }
+
+      const trimmedMediaUrl = mediaUrl.trim();
+      const { error } = await supabase.from("offerings").insert({
+        user_id: userData.user.id,
+        offering_type: offeringType,
+        title: title.trim(),
+        body: body.trim(),
+        takeaway: takeaway.trim(),
+        media_url: trimmedMediaUrl || null,
+        media_type: trimmedMediaUrl ? normalizeMediaType(trimmedMediaUrl) : null,
+        is_anonymous: isAnonymous,
+        allow_reflections: allowReflections,
+        status: "pending"
+      });
+
+      if (error) {
+        setErrors([error.message || "Offering could not be submitted. Please try again."]);
+        setSubmitting(false);
+        return;
+      }
+
+      setSuccess("Thank you. Your Offering is being reviewed so Deedlight remains safe, dignified, and sincere.");
+      setSubmitting(false);
+
+      setTimeout(() => {
+        router.push("/journey?offering=submitted");
+        router.refresh();
+      }, 900);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Offering could not be submitted. Please try again.";
+      setErrors([message]);
+      setSubmitting(false);
+    }
+  }
+
   return (
-    <form action={createOffering} className="deed-card overflow-hidden">
-      <input type="hidden" name="offering_type" value={offeringType} />
-      <input type="hidden" name="theme_slug" value={themeSlug} />
-      <input type="hidden" name="is_anonymous" value={isAnonymous ? "on" : ""} />
-      <input type="hidden" name="allow_reflections" value={allowReflections ? "on" : ""} />
+    <section className="mx-auto max-w-4xl rounded-[28px] border border-[#ead7ad] bg-white/90 p-8 shadow-[0_24px_70px_rgba(38,35,31,0.10)]">
+      <div className="mb-8">
+        <p className="text-xs font-bold uppercase tracking-[0.35em] text-[#9a6a10]">Share an Offering</p>
+        <h1 className="mt-3 text-4xl font-bold tracking-tight text-[#26231F]">Prepare a light with care.</h1>
+        <p className="mt-3 max-w-2xl text-[#7C715F]">
+          Share goodness to inspire, not to impress. Your Offering will be reviewed before it becomes public.
+        </p>
+      </div>
 
-      <div className="border-b border-[rgba(217,164,65,0.16)] bg-white/60 px-6 py-4 sm:px-8">
-        <div className="flex flex-wrap gap-2 text-xs font-extrabold uppercase tracking-[0.16em] text-[#8D681D]">
-          {["Type", "Dignity", "Write", "Preview"].map((label, index) => {
-            const active = step === index + 1;
-            const done = step > index + 1;
-            return (
-              <span key={label} className={`rounded-full px-3 py-1 ${active || done ? "bg-[#FFF4DC] text-[#8D681D]" : "bg-white text-[#9A8D7D]"}`}>
-                {done ? "✓ " : ""}{index + 1}. {label}
-              </span>
-            );
-          })}
+      {errors.length > 0 && (
+        <div className="mb-6 rounded-2xl border border-[#f0c88f] bg-[#fff4dc] p-4 text-sm font-semibold text-[#9a3d1a]">
+          <p className="font-bold">Please fix this before submitting:</p>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            {errors.map((error) => (
+              <li key={error}>{error}</li>
+            ))}
+          </ul>
         </div>
-      </div>
+      )}
 
-      {error ? <div className="mx-6 mt-6 rounded-2xl bg-[#FFF4DC] p-4 text-sm font-semibold text-[#8D381D] sm:mx-8">{error}</div> : null}
+      {success && (
+        <div className="mb-6 rounded-2xl border border-[#b7d9ae] bg-[#eff9ec] p-4 text-sm font-semibold text-[#315d2b]">
+          {success}
+        </div>
+      )}
 
-      <div className="p-6 sm:p-8">
-        {step === 1 ? (
-          <section>
-            <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#8D681D]">Step 1</p>
-            <h2 className="mt-2 font-[var(--font-heading)] text-3xl font-semibold">What kind of light are you sharing?</h2>
-            <div className="mt-6 grid gap-3 sm:grid-cols-2">
-              {offeringTypes.map(([value, label, description]) => {
-                const active = offeringType === value;
-                return (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setOfferingType(value)}
-                    className={`focus-ring rounded-3xl border p-5 text-left transition ${active ? "border-[#D9A441] bg-[#FFF4DC] shadow-[0_0_24px_rgba(217,164,65,0.20)]" : "border-[rgba(217,164,65,0.20)] bg-white/70 hover:bg-white"}`}
-                  >
-                    <p className="font-[var(--font-heading)] text-xl font-semibold">{label}</p>
-                    <p className="mt-2 text-sm leading-6 text-[#7C715F]">{description}</p>
-                  </button>
-                );
-              })}
-            </div>
-            <div className="mt-7 flex justify-end">
-              <button type="button" onClick={() => setStep(2)} className="focus-ring rounded-full bg-[#D9A441] px-6 py-3 font-extrabold text-[#26231F]">
-                Continue
+      {step === 1 && (
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.28em] text-[#9a6a10]">Step 1</p>
+          <h2 className="mt-2 text-3xl font-bold text-[#26231F]">What kind of light are you sharing?</h2>
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            {OFFERING_TYPES.map((type) => (
+              <button
+                key={type.value}
+                type="button"
+                onClick={() => setOfferingType(type.value)}
+                className={`rounded-3xl border p-6 text-left transition ${
+                  offeringType === type.value
+                    ? "border-[#D9A441] bg-[#FFF4DC] shadow-[0_10px_28px_rgba(217,164,65,0.16)]"
+                    : "border-[#ead7ad] bg-white hover:bg-[#FFF8EA]"
+                }`}
+              >
+                <h3 className="text-xl font-bold text-[#26231F]">{type.title}</h3>
+                <p className="mt-2 text-sm text-[#7C715F]">{type.description}</p>
               </button>
-            </div>
-          </section>
-        ) : null}
+            ))}
+          </div>
+          <div className="mt-8 flex justify-end">
+            <button type="button" onClick={nextFromType} className="rounded-full bg-[#D9A441] px-8 py-3 font-bold text-[#26231F]">
+              Continue
+            </button>
+          </div>
+        </div>
+      )}
 
-        {step === 2 ? (
-          <section>
-            <div className="rounded-3xl border border-[rgba(217,164,65,0.25)] bg-[#FFF8EA] p-6">
-              <div className="flex items-start gap-4">
-                <div className="rounded-full bg-[#FFF4DC] p-3 text-[#8D681D]"><ShieldCheck className="h-6 w-6" /></div>
-                <div>
-                  <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#8D681D]">Before you share</p>
-                  <h2 className="mt-2 font-[var(--font-heading)] text-3xl font-semibold">Share with dignity.</h2>
-                  <p className="mt-3 leading-8 text-[#5F5548]">
-                    Share to inspire, not to show superiority. Protect the dignity of people you helped. Goodness is most beautiful when it does not humiliate anyone.
-                  </p>
-                  <ul className="mt-5 space-y-2 text-sm font-semibold text-[#5F5548]">
-                    <li className="flex gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 text-[#6F816A]" /> Avoid showing vulnerable people without permission.</li>
-                    <li className="flex gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 text-[#6F816A]" /> Share the lesson, not someone else’s private pain.</li>
-                    <li className="flex gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 text-[#6F816A]" /> Anonymous goodness is welcome.</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-            <div className="mt-7 flex justify-between gap-3">
-              <button type="button" onClick={() => setStep(1)} className="focus-ring rounded-full border border-[rgba(217,164,65,0.30)] bg-white px-6 py-3 font-extrabold text-[#26231F]">
-                Back
-              </button>
-              <button type="button" onClick={() => setStep(3)} className="focus-ring rounded-full bg-[#D9A441] px-6 py-3 font-extrabold text-[#26231F]">
-                I understand
-              </button>
-            </div>
-          </section>
-        ) : null}
+      {step === 2 && (
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.28em] text-[#9a6a10]">Step 2</p>
+          <h2 className="mt-2 text-3xl font-bold text-[#26231F]">Before you share</h2>
+          <div className="mt-6 rounded-3xl border border-[#ead7ad] bg-[#FFF8EA] p-6">
+            <p className="text-lg font-bold text-[#26231F]">Share to inspire, not to show superiority.</p>
+            <p className="mt-3 leading-7 text-[#7C715F]">
+              Protect the dignity of people you helped. Goodness is most beautiful when it does not humiliate anyone.
+            </p>
+          </div>
+          <div className="mt-8 flex flex-wrap justify-between gap-3">
+            <button type="button" onClick={() => setStep(1)} className="rounded-full border border-[#ead7ad] bg-white px-7 py-3 font-bold text-[#26231F]">
+              Back
+            </button>
+            <button type="button" onClick={goToWriteStep} className="rounded-full bg-[#D9A441] px-8 py-3 font-bold text-[#26231F]">
+              I understand
+            </button>
+          </div>
+        </div>
+      )}
 
-        {step === 3 ? (
-          <section className="space-y-5">
-            <div>
-              <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#8D681D]">Step 3</p>
-              <h2 className="mt-2 font-[var(--font-heading)] text-3xl font-semibold">Write your Offering.</h2>
-              <p className="mt-2 text-sm leading-6 text-[#7C715F]">Selected: <strong>{selectedType[1]}</strong></p>
-            </div>
-
-            <label className="block text-sm font-bold text-[#5F5548]">
-              Theme
-              <select value={themeSlug} onChange={(event) => setThemeSlug(event.target.value)} className="mt-2 w-full rounded-2xl border border-[rgba(217,164,65,0.25)] bg-white px-4 py-3 outline-none focus:border-[#D9A441]">
-                {themes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-              </select>
+      {step === 3 && (
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.28em] text-[#9a6a10]">Step 3</p>
+          <h2 className="mt-2 text-3xl font-bold text-[#26231F]">Write your Offering</h2>
+          <div className="mt-6 space-y-5">
+            <label className="block">
+              <span className="font-bold text-[#4a4033]">Title</span>
+              <input
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                className="mt-2 w-full rounded-2xl border border-[#ead7ad] bg-white px-4 py-3 outline-none focus:border-[#D9A441]"
+                placeholder="Call someone who feels forgotten"
+              />
             </label>
-
-            <label className="block text-sm font-bold text-[#5F5548]">
-              Title
-              <input name="title" value={title} onChange={(event) => setTitle(event.target.value)} className="mt-2 w-full rounded-2xl border border-[rgba(217,164,65,0.25)] bg-white px-4 py-3 outline-none focus:border-[#D9A441]" placeholder="A small kindness at the bus stop" required />
+            <label className="block">
+              <span className="font-bold text-[#4a4033]">What happened or what are you inviting others to try?</span>
+              <textarea
+                value={body}
+                onChange={(event) => setBody(event.target.value)}
+                className="mt-2 min-h-36 w-full rounded-2xl border border-[#ead7ad] bg-white px-4 py-3 outline-none focus:border-[#D9A441]"
+                placeholder="Share the story in a way that protects dignity."
+              />
             </label>
-
-            <label className="block text-sm font-bold text-[#5F5548]">
-              What happened?
-              <textarea name="body" value={body} onChange={(event) => setBody(event.target.value)} className="mt-2 min-h-40 w-full rounded-2xl border border-[rgba(217,164,65,0.25)] bg-white px-4 py-3 outline-none focus:border-[#D9A441]" placeholder="Share the story in a way that protects dignity." required />
+            <label className="block">
+              <span className="font-bold text-[#4a4033]">Small deed others can try</span>
+              <textarea
+                value={takeaway}
+                onChange={(event) => setTakeaway(event.target.value)}
+                className="mt-2 min-h-24 w-full rounded-2xl border border-[#ead7ad] bg-white px-4 py-3 outline-none focus:border-[#D9A441]"
+                placeholder="One short call can remind someone that they still matter."
+              />
             </label>
-
-            <label className="block text-sm font-bold text-[#5F5548]">
-              What can others take from this?
-              <textarea name="takeaway" value={takeaway} onChange={(event) => setTakeaway(event.target.value)} className="mt-2 min-h-24 w-full rounded-2xl border border-[rgba(217,164,65,0.25)] bg-white px-4 py-3 outline-none focus:border-[#D9A441]" placeholder="What small deed could others try?" />
+            <label className="block">
+              <span className="font-bold text-[#4a4033]">Optional image/video URL</span>
+              <input
+                value={mediaUrl}
+                onChange={(event) => setMediaUrl(event.target.value)}
+                className="mt-2 w-full rounded-2xl border border-[#ead7ad] bg-white px-4 py-3 outline-none focus:border-[#D9A441]"
+                placeholder="https://..."
+              />
             </label>
-
-            <label className="block text-sm font-bold text-[#5F5548]">
-              Optional image/video URL
-              <div className="mt-2 flex items-center gap-3 rounded-2xl border border-[rgba(217,164,65,0.25)] bg-white px-4 py-3">
-                <ImageIcon className="h-5 w-5 text-[#8D681D]" />
-                <input name="media_url" value={mediaUrl} onChange={(event) => setMediaUrl(event.target.value)} className="w-full bg-transparent outline-none" placeholder="https://example.com/image.jpg" />
-              </div>
-            </label>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="flex items-center gap-3 rounded-2xl border border-[rgba(217,164,65,0.25)] bg-white/75 p-4 text-sm font-bold text-[#5F5548]">
-                <input checked={isAnonymous} onChange={(event) => setIsAnonymous(event.target.checked)} type="checkbox" />
-                Post as Anonymous Light
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="flex items-start gap-3 rounded-2xl border border-[#ead7ad] bg-[#FFF8EA] p-4">
+                <input type="checkbox" checked={isAnonymous} onChange={(event) => setIsAnonymous(event.target.checked)} className="mt-1" />
+                <span>
+                  <span className="block font-bold text-[#26231F]">Post as Anonymous Light</span>
+                  <span className="text-sm text-[#7C715F]">Goodness can be shared quietly.</span>
+                </span>
               </label>
-              <label className="flex items-center gap-3 rounded-2xl border border-[rgba(217,164,65,0.25)] bg-white/75 p-4 text-sm font-bold text-[#5F5548]">
-                <input checked={allowReflections} onChange={(event) => setAllowReflections(event.target.checked)} type="checkbox" />
-                Allow Reflections
+              <label className="flex items-start gap-3 rounded-2xl border border-[#ead7ad] bg-[#FFF8EA] p-4">
+                <input type="checkbox" checked={allowReflections} onChange={(event) => setAllowReflections(event.target.checked)} className="mt-1" />
+                <span>
+                  <span className="block font-bold text-[#26231F]">Allow Reflections</span>
+                  <span className="text-sm text-[#7C715F]">Let others leave kind reflections.</span>
+                </span>
               </label>
             </div>
+          </div>
+          <div className="mt-8 flex flex-wrap justify-between gap-3">
+            <button type="button" onClick={() => setStep(2)} className="rounded-full border border-[#ead7ad] bg-white px-7 py-3 font-bold text-[#26231F]">
+              Back
+            </button>
+            <button type="button" onClick={goToPreview} className="rounded-full bg-[#D9A441] px-8 py-3 font-bold text-[#26231F]">
+              Preview Offering
+            </button>
+          </div>
+        </div>
+      )}
 
-            <div className="flex justify-between gap-3 pt-2">
-              <button type="button" onClick={() => setStep(2)} className="focus-ring rounded-full border border-[rgba(217,164,65,0.30)] bg-white px-6 py-3 font-extrabold text-[#26231F]">
-                Back
-              </button>
-              <button type="button" onClick={() => setStep(4)} className="focus-ring rounded-full bg-[#D9A441] px-6 py-3 font-extrabold text-[#26231F]">
-                Preview Offering
-              </button>
-            </div>
-          </section>
-        ) : null}
-
-        {step === 4 ? (
-          <section>
-            <div className="mb-5 flex items-center gap-3">
-              <Eye className="h-5 w-5 text-[#8D681D]" />
-              <div>
-                <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#8D681D]">Preview</p>
-                <h2 className="font-[var(--font-heading)] text-3xl font-semibold">Does this inspire goodness and protect dignity?</h2>
-              </div>
-            </div>
-
-            <article className="rounded-3xl border border-[rgba(217,164,65,0.18)] bg-white p-5">
-              {mediaUrl ? (
-                <div className="mb-4 h-52 rounded-3xl bg-cover bg-center" style={{ backgroundImage: `url(${mediaUrl})` }} />
-              ) : (
-                <div className="mb-4 flex h-40 items-center justify-center rounded-3xl bg-[radial-gradient(circle_at_30%_15%,rgba(244,199,107,0.55),transparent_34%),linear-gradient(135deg,#FFF4DC,#F8EFE0)] text-[#8D681D]">
-                  <Sparkles className="h-8 w-8" />
-                </div>
+      {step === 4 && (
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.28em] text-[#9a6a10]">Preview</p>
+          <h2 className="mt-2 text-3xl font-bold text-[#26231F]">Does this inspire goodness and protect dignity?</h2>
+          <article className="mt-6 rounded-3xl border border-[#ead7ad] bg-white p-5">
+            <div className="flex h-44 items-center justify-center rounded-3xl bg-[#FFF4DC] text-3xl text-[#9a6a10]">✣</div>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <span className="rounded-full bg-[#FFF4DC] px-3 py-1 text-xs font-bold uppercase tracking-[0.15em] text-[#9a6a10]">
+                {TYPE_LABELS[offeringType]}
+              </span>
+              {isAnonymous && (
+                <span className="rounded-full bg-[#FFF4DC] px-3 py-1 text-xs font-bold uppercase tracking-[0.15em] text-[#9a6a10]">Anonymous Light</span>
               )}
-              <div className="mb-4 flex flex-wrap gap-2">
-                <span className="rounded-full bg-[#FFF4DC] px-3 py-1 text-xs font-extrabold uppercase tracking-[0.14em] text-[#8D681D]">{selectedType[1]}</span>
-                <span className="rounded-full bg-[#FFF8EA] px-3 py-1 text-xs font-extrabold uppercase tracking-[0.14em] text-[#8D681D]">{themes.find(([value]) => value === themeSlug)?.[1]}</span>
-              </div>
-              <p className="text-sm font-extrabold text-[#26231F]">{isAnonymous ? "Anonymous Light" : "Your name"}</p>
-              <h3 className="mt-3 font-[var(--font-heading)] text-3xl font-semibold">{title || "Your Offering title"}</h3>
-              <p className="mt-3 whitespace-pre-line leading-8 text-[#5F5548]">{body || "Your story will appear here."}</p>
-              {takeaway ? <p className="mt-5 rounded-2xl bg-[#FFF8EA] p-4 text-sm font-bold text-[#5F5548]">Small deed others can try: {takeaway}</p> : null}
-            </article>
-
-            <div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
-              <button type="button" onClick={() => setStep(3)} className="focus-ring rounded-full border border-[rgba(217,164,65,0.30)] bg-white px-6 py-3 font-extrabold text-[#26231F]">
-                Edit first
-              </button>
-              <button type="submit" className="focus-ring rounded-full bg-[#D9A441] px-6 py-3 font-extrabold text-[#26231F] shadow-[0_10px_25px_rgba(217,164,65,0.30)]">
-                Submit Offering for Review
-              </button>
             </div>
-          </section>
-        ) : null}
-      </div>
-    </form>
+            <p className="mt-5 text-sm font-bold text-[#26231F]">{isAnonymous ? "Anonymous Light" : "Your name"}</p>
+            <h3 className="mt-3 text-2xl font-bold text-[#26231F]">{title.trim()}</h3>
+            <p className="mt-3 leading-7 text-[#5f564b]">{body.trim()}</p>
+            <div className="mt-5 rounded-2xl bg-[#FFF8EA] p-4 text-sm font-semibold text-[#4a4033]">
+              Small deed others can try: {takeaway.trim()}
+            </div>
+          </article>
+          <div className="mt-8 flex flex-wrap justify-between gap-3">
+            <button type="button" onClick={() => setStep(3)} className="rounded-full border border-[#ead7ad] bg-white px-7 py-3 font-bold text-[#26231F]">
+              Edit first
+            </button>
+            <button
+              type="button"
+              onClick={submitOffering}
+              disabled={submitting}
+              className="rounded-full bg-[#D9A441] px-8 py-3 font-bold text-[#26231F] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {submitting ? "Submitting..." : "Submit Offering for Review"}
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }

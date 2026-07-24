@@ -1,107 +1,54 @@
 import Link from "next/link";
+import { CreateOfferingForm } from "@/components/offerings/create-offering-form";
 import { createClient } from "@/lib/supabase/server";
-
-type SearchParamsValue = {
-  error?: string;
-  submitted?: string;
-};
-
-type PageProps = {
-  searchParams?: Promise<SearchParamsValue> | SearchParamsValue;
-};
 
 export const dynamic = "force-dynamic";
 
-async function getSearchParams(searchParams: PageProps["searchParams"]): Promise<SearchParamsValue> {
-  if (!searchParams) return {};
-  return await Promise.resolve(searchParams);
-}
-
-async function getCurrentUserSafely() {
+async function getCurrentUser() {
   try {
     const supabase = await createClient({ allowMissingEnv: true });
     if (!supabase) return null;
-
-    const {
-      data: { user },
-      error
-    } = await supabase.auth.getUser();
-
-    if (error) {
-      console.error("Offerings new getUser returned error", error);
-      return null;
-    }
-
-    return user;
+    const { data, error } = await supabase.auth.getUser();
+    if (error) return null;
+    return data.user ?? null;
   } catch (error) {
     console.error("Offerings new auth check failed", error);
     return null;
   }
 }
 
-export default async function NewOfferingPage({ searchParams }: PageProps) {
-  const params = await getSearchParams(searchParams);
-  const user = await getCurrentUserSafely();
-
-  if (!user) {
-    return (
-      <section className="mx-auto max-w-3xl px-4 py-16 sm:px-6">
-        <div className="deed-card p-8 text-center sm:p-10">
-          <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#8D681D]">Share an Offering</p>
-          <h1 className="mt-3 font-[var(--font-heading)] text-5xl font-semibold">Sign in to prepare a light.</h1>
-          <p className="mx-auto mt-4 max-w-2xl leading-8 text-[#7C715F]">
-            Offerings are connected to your Goodness Journey and reviewed before they become public, so please sign in first.
-          </p>
-          <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
-            <Link
-              href="/login?next=/offerings/new"
-              className="focus-ring rounded-full bg-[#D9A441] px-6 py-3 text-sm font-extrabold text-[#26231F]"
-            >
-              Sign in
-            </Link>
-            <Link
-              href="/signup?next=/offerings/new"
-              className="focus-ring rounded-full border border-[rgba(217,164,65,0.30)] bg-white px-6 py-3 text-sm font-extrabold text-[#26231F]"
-            >
-              Join Deedlight
-            </Link>
-          </div>
-        </div>
-      </section>
-    );
-  }
-
-  try {
-    const { CreateOfferingForm } = await import("@/components/offerings/create-offering-form");
-
-    return (
-      <section className="mx-auto max-w-4xl px-4 py-12 sm:px-6">
-        <div className="mb-8">
-          <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#8D681D]">Share an Offering</p>
-          <h1 className="mt-3 font-[var(--font-heading)] text-5xl font-semibold">Prepare a light with care.</h1>
-          <p className="mt-4 max-w-2xl leading-8 text-[#7C715F]">
-            Offerings are reviewed before they become public so Deedlight stays safe, dignified, and sincere.
-          </p>
-        </div>
-
-        <CreateOfferingForm error={params.error} />
-      </section>
-    );
-  } catch (error) {
-    console.error("CreateOfferingForm failed to load", error);
-    return (
-      <section className="mx-auto max-w-3xl px-4 py-16 sm:px-6">
-        <div className="deed-card p-8 text-center sm:p-10">
-          <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#8D681D]">Share an Offering</p>
-          <h1 className="mt-3 font-[var(--font-heading)] text-4xl font-semibold">The Offering form could not load.</h1>
-          <p className="mx-auto mt-4 max-w-2xl leading-8 text-[#7C715F]">
-            Please try again after the latest deployment finishes. Your account is safe.
-          </p>
-          <Link href="/" className="focus-ring mt-8 inline-flex rounded-full bg-[#D9A441] px-6 py-3 text-sm font-extrabold text-[#26231F]">
-            Return home
+function SignInPrompt() {
+  return (
+    <main className="mx-auto max-w-5xl px-6 py-16">
+      <section className="mx-auto max-w-2xl rounded-[28px] border border-[#ead7ad] bg-white/90 p-10 text-center shadow-[0_24px_70px_rgba(38,35,31,0.10)]">
+        <p className="text-xs font-bold uppercase tracking-[0.35em] text-[#9a6a10]">Share an Offering</p>
+        <h1 className="mt-4 text-4xl font-bold tracking-tight text-[#26231F]">Sign in to prepare a light.</h1>
+        <p className="mt-4 text-[#7C715F]">
+          Offerings are connected to your Goodness Journey and reviewed before they become public, so please sign in first.
+        </p>
+        <div className="mt-8 flex flex-wrap justify-center gap-3">
+          <Link href="/login" className="rounded-full bg-[#D9A441] px-7 py-3 font-bold text-[#26231F] shadow-[0_12px_28px_rgba(217,164,65,0.28)]">
+            Sign in
+          </Link>
+          <Link href="/signup" className="rounded-full border border-[#ead7ad] bg-white px-7 py-3 font-bold text-[#26231F]">
+            Join Deedlight
           </Link>
         </div>
       </section>
-    );
+    </main>
+  );
+}
+
+export default async function NewOfferingPage() {
+  const user = await getCurrentUser();
+
+  if (!user) {
+    return <SignInPrompt />;
   }
+
+  return (
+    <main className="mx-auto max-w-5xl px-6 py-10">
+      <CreateOfferingForm />
+    </main>
+  );
 }

@@ -1,71 +1,94 @@
-const DEEDLIGHT_SUPABASE_URL = "https://xaipiovflxomcbfwtwmu.supabase.co";
+const FALLBACK_SUPABASE_URL = "https://xaipiovflxomcbfwtwmu.supabase.co";
 
-function clean(value?: string | null) {
-  return (value ?? "").trim().replace(/^['\"]|['\"]$/g, "");
+function stripWrappingQuotes(value: string) {
+  return value.replace(/^['\"]+|['\"]+$/g, "").trim();
 }
 
-export function normalizeSupabaseUrl(value?: string | null) {
-  let url = clean(value);
+export function normalizeSupabaseUrl(rawValue?: string | null) {
+  const raw = stripWrappingQuotes(rawValue ?? "");
 
-  // Common copy/paste mistakes seen in Cloudflare variables.
-  // Example: ttps://project.supabase.co  -> https://project.supabase.co
-  if (url.startsWith("ttps://")) url = `h${url}`;
+  if (!raw || raw.includes("YOUR_PROJECT_REF")) {
+    return {
+      url: FALLBACK_SUPABASE_URL,
+      rawUrlIsValid: false,
+      fallbackUsed: true
+    };
+  }
 
-  // Example created by older normalizers: https://ttps://project.supabase.co
-  if (url.startsWith("https://ttps://")) url = url.replace("https://ttps://", "https://");
-  if (url.startsWith("http://ttps://")) url = url.replace("http://ttps://", "https://");
-  if (url.startsWith("https://https://")) url = url.replace("https://https://", "https://");
-  if (url.startsWith("http://https://")) url = url.replace("http://https://", "https://");
+  // If the correct project ref is present, always recover to the canonical URL.
+  // This protects the browser bundle from cached/malformed values such as:
+  //   ttps://xaipiovflxomcbfwtwmu.supabase.co
+  //   https://ttps://xaipiovflxomcbfwtwmu.supabase.co
+  if (raw.includes("xaipiovflxomcbfwtwmu.supabase.co")) {
+    const canonical = FALLBACK_SUPABASE_URL;
+    return {
+      url: canonical,
+      rawUrlIsValid: raw === canonical,
+      fallbackUsed: raw !== canonical
+    };
+  }
 
-  if (url && !/^https?:\/\//i.test(url)) {
-    url = `https://${url}`;
+  let candidate = raw;
+
+  // Common copy/paste mistakes.
+  candidate = candidate.replace(/^https:\/\/https:\/\//i, "https://");
+  candidate = candidate.replace(/^https:\/\/ttps:\/\//i, "https://");
+  candidate = candidate.replace(/^ttps:\/\//i, "https://");
+  candidate = candidate.replace(/^http:\/\/https:\/\//i, "https://");
+
+  if (!/^https?:\/\//i.test(candidate) && candidate.includes(".supabase.co")) {
+    candidate = `https://${candidate.replace(/^\/+/, "")}`;
   }
 
   try {
-    const parsed = new URL(url);
-    const isValid = parsed.protocol === "https:" || parsed.protocol === "http:";
-    const looksLikeSupabase = parsed.hostname.endsWith(".supabase.co");
+    const parsed = new URL(candidate);
+    const isHttp = parsed.protocol === "https:" || parsed.protocol === "http:";
+    const isSupabase = parsed.hostname.endsWith(".supabase.co");
 
-    if (isValid && looksLikeSupabase) {
+    if (isHttp && isSupabase) {
       return {
-        url: parsed.toString().replace(/\/$/, ""),
-        isValid: true,
+        url: parsed.origin,
+        rawUrlIsValid: raw === parsed.origin,
         fallbackUsed: false
       };
     }
   } catch {
-    // Fall back below.
+    // fall through to fallback
   }
 
   return {
-    url: DEEDLIGHT_SUPABASE_URL,
-    isValid: false,
+    url: FALLBACK_SUPABASE_URL,
+    rawUrlIsValid: false,
     fallbackUsed: true
   };
 }
 
+function isPlaceholder(value?: string | null) {
+  return !value || value.includes("YOUR_") || value.includes("REPLACE_");
+}
+
 export function getSupabaseConfig() {
   const normalized = normalizeSupabaseUrl(process.env.NEXT_PUBLIC_SUPABASE_URL);
-  const anonKey = clean(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
-  const serviceRoleKey = clean(process.env.SUPABASE_SERVICE_ROLE_KEY);
-  const siteUrl = clean(process.env.NEXT_PUBLIC_SITE_URL) || "https://deedlight.com";
+  const anonKey = stripWrappingQuotes(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "");
 
   return {
     url: normalized.url,
     anonKey,
-    serviceRoleKey,
-    siteUrl,
-    isConfigured: Boolean(normalized.url && anonKey),
-    debug: {
-      rawUrlPresent: Boolean(clean(process.env.NEXT_PUBLIC_SUPABASE_URL)),
-      rawUrlIsValid: normalized.isValid,
-      urlFallbackUsed: normalized.fallbackUsed,
-      anonKeyPresent: Boolean(anonKey),
-      anonKeyPrefix: anonKey ? anonKey.slice(0, 14) : null
-    }
+    isConfigured: Boolean(normalized.url && anonKey && !isPlaceholder(anonKey)),
+    rawUrlIsValid: normalized.rawUrlIsValid,
+    urlFallbackUsed: normalized.fallbackUsed
   };
 }
 
-export function getBrowserSupabaseConfig() {
-  return getSupabaseConfig();
+export function getSupabaseBrowserConfig() {
+  const normalized = normalizeSupabaseUrl(process.env.NEXT_PUBLIC_SUPABASE_URL);
+  const anonKey = stripWrappingQuotes(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "");
+
+  return {
+    url: normalized.url,
+    anonKey,
+    isConfigured: Boolean(normalized.url && anonKey && !isPlaceholder(anonKey)),
+    rawUrlIsValid: normalized.rawUrlIsValid,
+    urlFallbackUsed: normalized.fallbackUsed
+  };
 }
