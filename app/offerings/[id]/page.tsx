@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { notFound } from "next/navigation";
 import { CheckCircle2, Heart, MessageCircle, Sparkles } from "lucide-react";
 import { ReactionButtons } from "@/components/offerings/reaction-buttons";
+import { ReportOfferingForm } from "@/components/offerings/report-offering-form";
 import { getOffering } from "@/lib/data/offerings";
 
 export default async function OfferingDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -14,7 +15,7 @@ export default async function OfferingDetailPage({ params }: { params: Promise<{
   const author = offering.is_anonymous ? "Anonymous Light" : offering.author_name || "Deedlight member";
 
   return (
-    <section className="mx-auto max-w-4xl px-4 py-12 sm:px-6">
+    <section className="mx-auto max-w-5xl px-4 py-12 sm:px-6">
       <Link href="/offerings" className="focus-ring mb-6 inline-flex rounded-full border border-[rgba(217,164,65,0.30)] bg-white px-5 py-3 text-sm font-extrabold text-[#26231F]">
         ← Back to Offerings
       </Link>
@@ -37,7 +38,7 @@ export default async function OfferingDetailPage({ params }: { params: Promise<{
             ) : null}
           </div>
           <p className="text-sm font-extrabold text-[#26231F]">{author}</p>
-          <h1 className="mt-3 font-[var(--font-heading)] text-5xl font-semibold leading-tight">{offering.title}</h1>
+          <h1 className="mt-3 font-[var(--font-heading)] text-4xl font-semibold leading-tight sm:text-5xl">{offering.title}</h1>
           <p className="mt-6 whitespace-pre-line leading-8 text-[#5F5548]">{offering.body}</p>
           {offering.takeaway ? (
             <div className="mt-7 rounded-3xl border border-[rgba(217,164,65,0.20)] bg-[#FFF8EA] p-5">
@@ -70,6 +71,8 @@ export default async function OfferingDetailPage({ params }: { params: Promise<{
             }}
           />
         </div>
+
+        <ReportOfferingForm offeringId={offering.id} />
       </div>
     </section>
   );

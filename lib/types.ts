@@ -45,9 +45,38 @@ export type Offering = {
 };
 
 export type AdminOffering = Offering & {
+  theme_id?: string | null;
   status: "draft" | "pending" | "approved" | "rejected" | "needs_edit" | "hidden";
   moderation_note: string | null;
   open_report_count?: number;
+};
+
+export type ReportReason =
+  | "exposes_vulnerable_person"
+  | "hate_or_prejudice"
+  | "fake_charity_or_fraud"
+  | "harassment"
+  | "graphic_or_disturbing"
+  | "self_promotion"
+  | "privacy_concern"
+  | "other";
+
+export type ReportStatus = "open" | "reviewing" | "resolved" | "dismissed";
+
+export type ReportItem = {
+  id: string;
+  offering_id: string | null;
+  reflection_id: string | null;
+  reported_by: string | null;
+  reason: ReportReason;
+  details: string | null;
+  status: ReportStatus;
+  admin_note: string | null;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  created_at: string;
+  reporter_name?: string | null;
+  offering?: AdminOffering | null;
 };
 
 export type ProfileSummary = {

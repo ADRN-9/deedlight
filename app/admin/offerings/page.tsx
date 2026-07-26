@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { AlertTriangle, CheckCircle2, Clock, EyeOff, PencilLine, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock, EyeOff, Flag, PencilLine, XCircle } from "lucide-react";
 import { requireAdmin } from "@/lib/auth/admin";
 import { getAdminOfferings } from "@/lib/data/offerings";
 import type { AdminOffering } from "@/lib/types";
@@ -27,12 +27,17 @@ export default async function AdminOfferingsPage({ searchParams }: { searchParam
           <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#8D681D]">Admin · Offerings Review</p>
           <h1 className="mt-3 font-[var(--font-heading)] text-5xl font-semibold">Protect the stream of goodness.</h1>
           <p className="mt-3 max-w-2xl leading-8 text-[#7C715F]">
-            Review Offerings before they appear publicly. Approve what inspires goodness and protects dignity.
+            Review, edit, approve, and hide Offerings. Reported posts are lifted to the top of the queue.
           </p>
         </div>
-        <Link href="/admin" className="focus-ring rounded-full border border-[rgba(217,164,65,0.30)] bg-white px-5 py-3 text-sm font-extrabold text-[#26231F]">
-          Back to Admin
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link href="/admin/reports" className="focus-ring rounded-full bg-[#D9A441] px-5 py-3 text-sm font-extrabold text-[#26231F]">
+            Reports queue
+          </Link>
+          <Link href="/admin" className="focus-ring rounded-full border border-[rgba(217,164,65,0.30)] bg-white px-5 py-3 text-sm font-extrabold text-[#26231F]">
+            Back to Admin
+          </Link>
+        </div>
       </div>
 
       <div className="mb-7 flex flex-wrap gap-2">
@@ -50,7 +55,7 @@ export default async function AdminOfferingsPage({ searchParams }: { searchParam
       {offerings.length === 0 ? (
         <div className="deed-card p-8 text-center">
           <p className="font-[var(--font-heading)] text-3xl font-semibold">No Offerings here yet.</p>
-          <p className="mt-3 text-[#7C715F]">When members submit Offerings, they will appear in this review queue.</p>
+          <p className="mt-3 text-[#7C715F]">When members submit or report Offerings, they will appear in the review tools.</p>
         </div>
       ) : (
         <div className="grid gap-5">
@@ -62,7 +67,7 @@ export default async function AdminOfferingsPage({ searchParams }: { searchParam
 }
 
 function AdminOfferingRow({ offering }: { offering: AdminOffering }) {
-  const author = offering.is_anonymous ? "Anonymous Light" : offering.author_name || "Deedlight member";
+  const author = offering.is_anonymous ? "Anonymous publicly" : offering.author_name || "Deedlight member";
 
   return (
     <article className="deed-card p-5 sm:p-6">
@@ -74,8 +79,8 @@ function AdminOfferingRow({ offering }: { offering: AdminOffering }) {
               {formatOfferingType(offering.offering_type)}
             </span>
             {offering.open_report_count ? (
-              <span className="rounded-full bg-[#FFF0EC] px-3 py-1 text-xs font-extrabold uppercase tracking-[0.14em] text-[#8D381D]">
-                {offering.open_report_count} report{offering.open_report_count === 1 ? "" : "s"}
+              <span className="inline-flex items-center gap-1 rounded-full bg-[#FFF0EC] px-3 py-1 text-xs font-extrabold uppercase tracking-[0.14em] text-[#8D381D]">
+                <Flag className="h-3.5 w-3.5" /> {offering.open_report_count} report{offering.open_report_count === 1 ? "" : "s"}
               </span>
             ) : null}
           </div>
@@ -88,7 +93,7 @@ function AdminOfferingRow({ offering }: { offering: AdminOffering }) {
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
           <Link href={`/admin/offerings/${offering.id}`} className="focus-ring rounded-full bg-[#D9A441] px-5 py-3 text-sm font-extrabold text-[#26231F]">
-            Review
+            Review / Edit
           </Link>
           {offering.status === "approved" ? (
             <Link href={`/offerings/${offering.id}`} className="focus-ring rounded-full border border-[rgba(217,164,65,0.30)] bg-white px-5 py-3 text-sm font-extrabold text-[#26231F]">
