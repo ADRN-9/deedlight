@@ -83,7 +83,19 @@ export function ReactionButtons({ offeringId, initialCounts, compact = false }: 
           return;
         }
 
-        setActive(new Set((data ?? []).map((row) => row.reaction_type as ReactionType)));
+        type ReactionRow = {
+  reaction_type: ReactionType | string | null;
+};
+
+const reactionRows = (data ?? []) as ReactionRow[];
+
+const validReactionTypes = reactionRows
+  .map((row: ReactionRow) => row.reaction_type)
+  .filter((value): value is ReactionType =>
+    value === "bless" || value === "inspired" || value === "did_too"
+  );
+
+setActive(new Set(validReactionTypes));
       } catch (error) {
         console.error("Reaction auth check failed", error);
       }
