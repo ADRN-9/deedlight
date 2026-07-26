@@ -20,6 +20,8 @@ const editSchema = z.object({
   allow_reflections: z.boolean()
 });
 
+type OfferingUpdate = Record<string, string | number | boolean | null>;
+
 function readId(formData: FormData) {
   return idSchema.parse(String(formData.get("id") || ""));
 }
@@ -34,7 +36,7 @@ function cleanOptional(value: string | undefined) {
   return clean.length ? clean : null;
 }
 
-export async function editOfferingContent(formData: FormData) {
+function parseEditedOffering(formData: FormData) {
   const parsed = editSchema.safeParse({
     id: String(formData.get("id") || ""),
     title: String(formData.get("title") || ""),
@@ -54,50 +56,90 @@ export async function editOfferingContent(formData: FormData) {
     redirect(`/admin/offerings/${fallbackId}?error=${encodeURIComponent(firstError)}`);
   }
 
-  const value = parsed.data;
-  const { supabase } = await requireAdmin(`/admin/offerings/${value.id}`);
+  return parsed.data;
+}
 
-  const { error } = await supabase
+function editedOfferingPayload(value: z.infer<typeof editSchema>): OfferingUpdate {
+  return {
+    title: value.title,
+    body: value.body,
+    takeaway: cleanOptional(value.takeaway),
+    offering_type: value.offering_type,
+    media_url: cleanOptional(value.media_url),
+    media_type: cleanOptional(value.media_type),
+    location_label: cleanOptional(value.location_label),
+    is_anonymous: value.is_anonymous,
+    allow_reflections: value.allow_reflections
+  };
+}
+
+async function updateOfferingOrRedirect(
+  supabase: Awaited<ReturnType<typeof requireAdmin>>["supabase"],
+  id: string,
+  payload: OfferingUpdate,
+  updatedSlug: string
+) {
+  const { data, error } = await supabase
     .from("offerings")
-    .update({
-      title: value.title,
-      body: value.body,
-      takeaway: cleanOptional(value.takeaway),
-      offering_type: value.offering_type,
-      media_url: cleanOptional(value.media_url),
-      media_type: cleanOptional(value.media_type),
-      location_label: cleanOptional(value.location_label),
-      is_anonymous: value.is_anonymous,
-      allow_reflections: value.allow_reflections
-    })
-    .eq("id", value.id);
+    .update({ ...payload, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .select("id,status")
+    .maybeSingle();
 
-  if (error) redirect(`/admin/offerings/${value.id}?error=${encodeURIComponent(error.message)}`);
+  if (error) redirect(`/admin/offerings/${id}?error=${encodeURIComponent(error.message)}`);
+
+  if (!data) {
+    redirect(
+      `/admin/offerings/${id}?error=${encodeURIComponent(
+        "No Offering row was updated. Please confirm this account is admin and the Sprint 5 RLS migration has been applied."
+      )}`
+    );
+  }
 
   revalidatePath("/offerings");
-  revalidatePath(`/offerings/${value.id}`);
+  revalidatePath(`/offerings/${id}`);
   revalidatePath("/rising");
+  revalidatePath("/admin");
   revalidatePath("/admin/offerings");
-  revalidatePath(`/admin/offerings/${value.id}`);
-  redirect(`/admin/offerings/${value.id}?updated=edited`);
+  revalidatePath(`/admin/offerings/${id}`);
+  revalidatePath("/admin/reports");
+  redirect(`/admin/offerings/${id}?updated=${updatedSlug}`);
+}
+
+export async function editOfferingContent(formData: FormData) {
+  const value = parseEditedOffering(formData);
+  const { supabase } = await requireAdmin(`/admin/offerings/${value.id}`);
+
+  await updateOfferingOrRedirect(supabase, value.id, editedOfferingPayload(value), "edited");
+}
+
+export async function editAndApproveOffering(formData: FormData) {
+  const value = parseEditedOffering(formData);
+  const { supabase } = await requireAdmin(`/admin/offerings/${value.id}`);
+
+  await updateOfferingOrRedirect(
+    supabase,
+    value.id,
+    {
+      ...editedOfferingPayload(value),
+      status: "approved",
+      published_at: new Date().toISOString(),
+      moderation_note: null
+    },
+    "edited_and_approved"
+  );
 }
 
 export async function approveOffering(formData: FormData) {
   const id = readId(formData);
   const { supabase } = await requireAdmin(`/admin/offerings/${id}`);
 
-  const { error } = await supabase
-    .from("offerings")
-    .update({ status: "approved", published_at: new Date().toISOString(), moderation_note: null })
-    .eq("id", id);
-
-  if (error) redirect(`/admin/offerings/${id}?error=${encodeURIComponent(error.message)}`);
-
-  revalidatePath("/offerings");
-  revalidatePath(`/offerings/${id}`);
-  revalidatePath("/rising");
-  revalidatePath("/admin/offerings");
-  redirect(`/admin/offerings/${id}?updated=approved`);
+  await updateOfferingOrRedirect(
+    supabase,
+    id,
+    { status: "approved", published_at: new Date().toISOString(), moderation_note: null },
+    "approved"
+  );
 }
 
 export async function rejectOffering(formData: FormData) {
@@ -105,17 +147,7 @@ export async function rejectOffering(formData: FormData) {
   const note = readNote(formData);
   const { supabase } = await requireAdmin(`/admin/offerings/${id}`);
 
-  const { error } = await supabase
-    .from("offerings")
-    .update({ status: "rejected", moderation_note: note })
-    .eq("id", id);
-
-  if (error) redirect(`/admin/offerings/${id}?error=${encodeURIComponent(error.message)}`);
-
-  revalidatePath("/offerings");
-  revalidatePath("/rising");
-  revalidatePath("/admin/offerings");
-  redirect(`/admin/offerings/${id}?updated=rejected`);
+  await updateOfferingOrRedirect(supabase, id, { status: "rejected", moderation_note: note }, "rejected");
 }
 
 export async function requestOfferingEdit(formData: FormData) {
@@ -123,15 +155,15 @@ export async function requestOfferingEdit(formData: FormData) {
   const note = readNote(formData);
   const { supabase } = await requireAdmin(`/admin/offerings/${id}`);
 
-  const { error } = await supabase
-    .from("offerings")
-    .update({ status: "needs_edit", moderation_note: note || "Please revise this Offering so it better protects dignity and inspires goodness." })
-    .eq("id", id);
-
-  if (error) redirect(`/admin/offerings/${id}?error=${encodeURIComponent(error.message)}`);
-
-  revalidatePath("/admin/offerings");
-  redirect(`/admin/offerings/${id}?updated=needs_edit`);
+  await updateOfferingOrRedirect(
+    supabase,
+    id,
+    {
+      status: "needs_edit",
+      moderation_note: note || "Please revise this Offering so it better protects dignity and inspires goodness."
+    },
+    "needs_edit"
+  );
 }
 
 export async function hideOffering(formData: FormData) {
@@ -139,18 +171,12 @@ export async function hideOffering(formData: FormData) {
   const note = readNote(formData);
   const { supabase } = await requireAdmin(`/admin/offerings/${id}`);
 
-  const { error } = await supabase
-    .from("offerings")
-    .update({ status: "hidden", moderation_note: note || "Hidden by admin review." })
-    .eq("id", id);
-
-  if (error) redirect(`/admin/offerings/${id}?error=${encodeURIComponent(error.message)}`);
-
-  revalidatePath("/offerings");
-  revalidatePath(`/offerings/${id}`);
-  revalidatePath("/rising");
-  revalidatePath("/admin/offerings");
-  redirect(`/admin/offerings/${id}?updated=hidden`);
+  await updateOfferingOrRedirect(
+    supabase,
+    id,
+    { status: "hidden", moderation_note: note || "Hidden by admin review." },
+    "hidden"
+  );
 }
 
 export async function resolveReportsForOffering(formData: FormData) {
@@ -186,7 +212,7 @@ export async function dismissReportsForOffering(formData: FormData) {
     .from("reports")
     .update({
       status: "dismissed",
-      admin_note: note || "Dismissed after admin review.",
+      admin_note: note || "Dismissed after review.",
       resolved_by: user.id,
       resolved_at: new Date().toISOString()
     })

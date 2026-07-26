@@ -7,12 +7,15 @@ import type { ReportItem } from "@/lib/types";
 import {
   approveOffering,
   dismissReportsForOffering,
+  editAndApproveOffering,
   editOfferingContent,
   hideOffering,
   rejectOffering,
   requestOfferingEdit,
   resolveReportsForOffering
 } from "./actions";
+
+export const dynamic = "force-dynamic";
 
 const offeringTypeOptions = [
   ["good_deed", "Good Deed"],
@@ -152,9 +155,19 @@ export default async function AdminOfferingDetailPage({
                 <label className="flex items-center gap-2 text-sm font-extrabold text-[#5F5548]"><input type="checkbox" name="is_anonymous" defaultChecked={offering.is_anonymous} /> Keep author anonymous publicly</label>
                 <label className="flex items-center gap-2 text-sm font-extrabold text-[#5F5548]"><input type="checkbox" name="allow_reflections" defaultChecked={offering.allow_reflections ?? true} /> Allow reflections</label>
               </div>
-              <button className="focus-ring inline-flex items-center gap-2 rounded-full bg-[#D9A441] px-5 py-3 font-extrabold text-[#26231F]" type="submit">
-                <Save className="h-4 w-4" /> Save content edits
-              </button>
+              <div className="rounded-3xl border border-[rgba(217,164,65,0.22)] bg-[#FFF8EA] p-4">
+                <p className="text-sm font-bold leading-6 text-[#5F5548]">
+                  Changes above are not applied until you press one of these buttons. Use “Save edits and publish” when you corrected a typo and want the public Offering updated immediately.
+                </p>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <button className="focus-ring inline-flex items-center gap-2 rounded-full border border-[rgba(217,164,65,0.35)] bg-white px-5 py-3 font-extrabold text-[#26231F]" type="submit">
+                    <Save className="h-4 w-4" /> Save edits only
+                  </button>
+                  <button formAction={editAndApproveOffering} className="focus-ring inline-flex items-center gap-2 rounded-full bg-[#D9A441] px-5 py-3 font-extrabold text-[#26231F]" type="submit">
+                    <CheckCircle2 className="h-4 w-4" /> {offering.status === "approved" ? "Save edits and keep public" : "Save edits and publish"}
+                  </button>
+                </div>
+              </div>
             </form>
           </div>
         </div>
@@ -182,12 +195,14 @@ export default async function AdminOfferingDetailPage({
 
           <div className="deed-card p-6">
             <h2 className="font-[var(--font-heading)] text-2xl font-semibold">Decision</h2>
-            <p className="mt-2 text-sm leading-6 text-[#7C715F]">Use request edit, reject, or hide when dignity or safety needs more care.</p>
+            <p className="mt-2 text-sm leading-6 text-[#7C715F]">
+              These actions use the currently saved Offering. If you changed text in the editor, press “Save edits and publish” in the editor first.
+            </p>
             <div className="mt-5 grid gap-3">
               <form action={approveOffering}>
                 <input type="hidden" name="id" value={offering.id} />
                 <button className="focus-ring flex w-full items-center justify-center gap-2 rounded-full bg-[#D9A441] px-5 py-3 font-extrabold text-[#26231F]" type="submit">
-                  <CheckCircle2 className="h-4 w-4" /> Approve and publish
+                  <CheckCircle2 className="h-4 w-4" /> Approve saved version
                 </button>
               </form>
 
@@ -210,9 +225,12 @@ export default async function AdminOfferingDetailPage({
               <form action={hideOffering} className="rounded-3xl border border-[rgba(38,35,31,0.16)] bg-white p-3">
                 <input type="hidden" name="id" value={offering.id} />
                 <textarea name="moderation_note" className="min-h-20 w-full rounded-2xl border border-[rgba(38,35,31,0.12)] px-3 py-2 text-sm outline-none focus:border-[#D9A441]" placeholder="Reason for hiding…" />
-                <button className="focus-ring mt-2 flex w-full items-center justify-center gap-2 rounded-full border border-[rgba(38,35,31,0.16)] bg-white px-5 py-3 font-extrabold text-[#5F5548]" type="submit">
-                  <EyeOff className="h-4 w-4" /> Hide from public
+                <button className="focus-ring mt-2 flex w-full items-center justify-center gap-2 rounded-full bg-[#26231F] px-5 py-3 font-extrabold text-white shadow-lg" type="submit">
+                  <EyeOff className="h-4 w-4" /> Hide saved Offering from public
                 </button>
+                <p className="mt-2 text-xs font-semibold leading-5 text-[#7C715F]">
+                  This changes the status to hidden and removes it from /offerings and /rising.
+                </p>
               </form>
             </div>
           </div>
