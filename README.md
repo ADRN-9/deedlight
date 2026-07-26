@@ -1,27 +1,31 @@
-# Deedlight Sprint 4 — Reactions + Rising Goodness
+# Deedlight Sprint 5 — Admin Content Quality + Moderation Upgrade
 
-This patch implements the Sprint 4 social engine:
+This patch adds the moderation and content-quality layer needed after reactions:
 
-- Bless reaction
-- Inspired reaction
-- Did too reaction
-- Duplicate reaction prevention through the existing unique constraint
-- Optimistic client UI for faster feedback
-- Reaction count triggers and count repair SQL
-- Safer RLS for reactions
-- Real `/rising` ranking using a new `offerings_rising` view
-- Reaction buttons on Offering cards and Offering detail pages
+- Admin edit-before-approval and edit-after-approval
+- Admin typo/content correction for title, body, takeaway, media URL, type, anonymity, and reflections
+- Admin hide/reject/request-edit actions with notes
+- Public report form on Offering detail pages
+- Reports queue at `/admin/reports`
+- Reported Offerings are lifted in `/admin/offerings`
+- Admin can resolve or dismiss reports from the Offering review page
+- `/debug/auth` becomes admin-only
+- Improved admin dashboard links
 
 ## Files to add/replace
 
 ```text
-components/offerings/reaction-buttons.tsx
-components/offerings/offering-card.tsx
+app/admin/page.tsx
+app/admin/offerings/page.tsx
+app/admin/offerings/[id]/page.tsx
+app/admin/offerings/[id]/actions.ts
+app/admin/reports/page.tsx
+app/debug/auth/page.tsx
 app/offerings/[id]/page.tsx
-app/rising/page.tsx
+components/offerings/report-offering-form.tsx
 lib/data/offerings.ts
 lib/types.ts
-supabase/migrations/202607260004_sprint4_reactions.sql
+supabase/migrations/202607260005_sprint5_moderation.sql
 ```
 
 ## Apply
@@ -29,8 +33,8 @@ supabase/migrations/202607260004_sprint4_reactions.sql
 Copy the files into your existing Deedlight repo, then run:
 
 ```bash
-git add components/offerings/reaction-buttons.tsx components/offerings/offering-card.tsx app/offerings/[id]/page.tsx app/rising/page.tsx lib/data/offerings.ts lib/types.ts supabase/migrations/202607260004_sprint4_reactions.sql
-git commit -m "Implement Sprint 4 reactions and rising ranking"
+git add app/admin/page.tsx app/admin/offerings/page.tsx app/admin/offerings/[id]/page.tsx app/admin/offerings/[id]/actions.ts app/admin/reports/page.tsx app/debug/auth/page.tsx app/offerings/[id]/page.tsx components/offerings/report-offering-form.tsx lib/data/offerings.ts lib/types.ts supabase/migrations/202607260005_sprint5_moderation.sql
+git commit -m "Implement Sprint 5 moderation and content quality"
 git push
 ```
 
@@ -40,47 +44,26 @@ Then apply the Supabase migration:
 npx supabase db push
 ```
 
-Or paste this file into Supabase SQL Editor and run it:
+Or paste and run this file in Supabase SQL Editor:
 
 ```text
-supabase/migrations/202607260004_sprint4_reactions.sql
+supabase/migrations/202607260005_sprint5_moderation.sql
 ```
 
 ## Test checklist
 
-1. Open `/offerings` while logged out.
-2. Click Bless/Inspired/Did too on an approved Offering.
-   - Expected: a sign-in message appears.
-3. Sign in.
-4. Click Bless.
-   - Expected: button becomes active and count increases by 1.
-5. Click Bless again.
-   - Expected: button becomes inactive and count decreases by 1.
-6. Click Inspired and Did too.
-   - Expected: both can be active together.
-7. Refresh the page.
-   - Expected: your active reactions remain active.
-8. Open `/offerings/[id]`.
-   - Expected: detail page shows the same counts and active reaction state.
-9. Open `/rising`.
-   - Expected: approved Offerings are ranked by reaction score.
-10. Check Supabase:
+1. Open `/admin/offerings` as admin.
+2. Open an approved Offering in admin review.
+3. Correct a typo in the title and click **Save content edits**.
+4. Open the public Offering and confirm the corrected title appears.
+5. Open an Offering detail page as a signed-in normal user and submit a report.
+6. Open `/admin/reports` and confirm the report appears.
+7. Open the reported Offering in admin, hide it, and confirm it disappears from `/offerings`.
+8. Test resolving or dismissing the report.
+9. Open `/debug/auth` while logged out or as a non-admin and confirm it is not public anymore.
 
-```sql
-select
-  o.title,
-  o.bless_count,
-  o.inspired_count,
-  o.carried_forward_count,
-  o.bless_score
-from public.offerings o
-where o.status = 'approved'
-order by o.bless_score desc;
-```
+## Notes
 
-## Important notes
-
-- Users can choose multiple reactions on the same Offering: Bless, Inspired, and Did too are separate signals.
-- The unique constraint prevents duplicate reactions of the same type by the same user.
-- The public only sees aggregate counts, not individual reaction rows.
-- Logged-in users can read only their own reaction rows so the UI can show active/inactive state.
+- Reports are private to admins and the reporting user.
+- Anonymous Offerings still hide the author publicly, but admins can see the internal user id.
+- This patch does not yet add full user notifications for request-edit messages; that can be Sprint 6 or 7.
