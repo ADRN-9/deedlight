@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { notFound } from "next/navigation";
 import { CheckCircle2, Heart, MessageCircle, Sparkles } from "lucide-react";
+import { ReactionButtons } from "@/components/offerings/reaction-buttons";
 import { getOffering } from "@/lib/data/offerings";
 
 export default async function OfferingDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -52,10 +53,23 @@ export default async function OfferingDetailPage({ params }: { params: Promise<{
         <div className="mt-4 grid gap-3 sm:grid-cols-4">
           <Stat icon={<Sparkles className="h-5 w-5" />} label="Blessed" value={offering.bless_count} />
           <Stat icon={<Heart className="h-5 w-5" />} label="Inspired" value={offering.inspired_count} />
-          <Stat icon={<CheckCircle2 className="h-5 w-5" />} label="Carried forward" value={offering.carried_forward_count} />
+          <Stat icon={<CheckCircle2 className="h-5 w-5" />} label="Did too" value={offering.carried_forward_count} />
           <Stat icon={<MessageCircle className="h-5 w-5" />} label="Reflections" value={offering.reflection_count} />
         </div>
-        <p className="mt-5 text-sm leading-7 text-[#7C715F]">Bless, Inspired Me, Reflections, and I Did This Too become active in Sprint 4.</p>
+
+        <div className="mt-6 rounded-3xl border border-[rgba(217,164,65,0.20)] bg-[#FFFDF7] p-5">
+          <p className="mb-3 text-sm font-bold leading-7 text-[#7C715F]">
+            React to this Offering only if it genuinely blesses, inspires, or invites you to carry the deed forward.
+          </p>
+          <ReactionButtons
+            offeringId={offering.id}
+            initialCounts={{
+              bless_count: offering.bless_count || 0,
+              inspired_count: offering.inspired_count || 0,
+              carried_forward_count: offering.carried_forward_count || 0
+            }}
+          />
+        </div>
       </div>
     </section>
   );

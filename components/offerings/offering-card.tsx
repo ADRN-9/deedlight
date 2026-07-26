@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { CheckCircle2, Heart, Sparkles } from "lucide-react";
+import { ReactionButtons } from "@/components/offerings/reaction-buttons";
 import type { Offering } from "@/lib/types";
 
-export function OfferingCard({ offering }: { offering: Offering }) {
+export function OfferingCard({ offering, showRank }: { offering: Offering; showRank?: number }) {
   const author = offering.is_anonymous ? "Anonymous Light" : offering.author_name || "Deedlight member";
 
   return (
@@ -12,9 +12,16 @@ export function OfferingCard({ offering }: { offering: Offering }) {
           <p className="text-sm font-extrabold text-[#26231F]">{author}</p>
           <p className="text-xs font-bold text-[#8D7C66]">{offering.theme_name || formatOfferingType(offering.offering_type)}</p>
         </div>
-        <span className="rounded-full bg-[#FFF4DC] px-3 py-1 text-xs font-extrabold text-[#8D681D]">
-          {formatOfferingType(offering.offering_type)}
-        </span>
+        <div className="flex items-center gap-2">
+          {showRank ? (
+            <span className="rounded-full bg-[#26231F] px-3 py-1 text-xs font-extrabold text-white">
+              #{showRank}
+            </span>
+          ) : null}
+          <span className="rounded-full bg-[#FFF4DC] px-3 py-1 text-xs font-extrabold text-[#8D681D]">
+            {formatOfferingType(offering.offering_type)}
+          </span>
+        </div>
       </div>
       {offering.media_url ? (
         <div className="mb-4 h-52 rounded-3xl bg-cover bg-center" style={{ backgroundImage: `url(${offering.media_url})` }} />
@@ -28,19 +35,17 @@ export function OfferingCard({ offering }: { offering: Offering }) {
       </Link>
       <p className="mt-3 line-clamp-3 text-sm leading-7 text-[#5F5548]">{offering.body}</p>
       <p className="mt-5 text-xs font-bold text-[#7C715F]">
-        {offering.bless_count || 0} blessed this · {offering.inspired_count || 0} were inspired · {offering.carried_forward_count || 0} carried it forward
+        {offering.bless_count || 0} blessed this · {offering.inspired_count || 0} were inspired · {offering.carried_forward_count || 0} did this too
       </p>
-      <div className="mt-4 grid grid-cols-3 gap-2 text-xs font-extrabold text-[#5F5548]">
-        <button className="focus-ring flex items-center justify-center gap-1 rounded-full border border-[rgba(217,164,65,0.25)] bg-white/70 px-3 py-2">
-          <Sparkles className="h-4 w-4 text-[#D9A441]" /> Bless
-        </button>
-        <button className="focus-ring flex items-center justify-center gap-1 rounded-full border border-[rgba(217,164,65,0.25)] bg-white/70 px-3 py-2">
-          <Heart className="h-4 w-4 text-[#C9826B]" /> Inspired
-        </button>
-        <button className="focus-ring flex items-center justify-center gap-1 rounded-full border border-[rgba(217,164,65,0.25)] bg-white/70 px-3 py-2">
-          <CheckCircle2 className="h-4 w-4 text-[#6F816A]" /> Did too
-        </button>
-      </div>
+      <ReactionButtons
+        offeringId={offering.id}
+        compact
+        initialCounts={{
+          bless_count: offering.bless_count || 0,
+          inspired_count: offering.inspired_count || 0,
+          carried_forward_count: offering.carried_forward_count || 0
+        }}
+      />
     </article>
   );
 }

@@ -11,6 +11,14 @@ export type DailyPost = {
   theme_name?: string | null;
 };
 
+export type ReactionType = "bless" | "inspired_me" | "i_did_this_too";
+
+export type ReactionCounts = {
+  bless_count: number;
+  inspired_count: number;
+  carried_forward_count: number;
+};
+
 export type Offering = {
   id: string;
   user_id: string;
@@ -28,6 +36,7 @@ export type Offering = {
   carried_forward_count: number;
   reflection_count: number;
   bless_score: number;
+  rising_score?: number | null;
   published_at: string | null;
   created_at?: string | null;
   updated_at?: string | null;
