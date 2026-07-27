@@ -1,69 +1,61 @@
-# Deedlight Sprint 5 — Admin Content Quality + Moderation Upgrade
+# Deedlight Sprint 7 Build/Run Patch
 
-This patch adds the moderation and content-quality layer needed after reactions:
+This patch updates Sprint 7 with build-safe source files for:
 
-- Admin edit-before-approval and edit-after-approval
-- Admin typo/content correction for title, body, takeaway, media URL, type, anonymity, and reflections
-- Admin hide/reject/request-edit actions with notes
-- Public report form on Offering detail pages
-- Reports queue at `/admin/reports`
-- Reported Offerings are lifted in `/admin/offerings`
-- Admin can resolve or dismiss reports from the Offering review page
-- `/debug/auth` becomes admin-only
-- Improved admin dashboard links
-
-## Files to add/replace
-
-```text
-app/admin/page.tsx
-app/admin/offerings/page.tsx
-app/admin/offerings/[id]/page.tsx
-app/admin/offerings/[id]/actions.ts
-app/admin/reports/page.tsx
-app/debug/auth/page.tsx
-app/offerings/[id]/page.tsx
-components/offerings/report-offering-form.tsx
-lib/data/offerings.ts
-lib/types.ts
-supabase/migrations/202607260005_sprint5_moderation.sql
-```
+- PWA manifest and installable app assets
+- Mobile bottom navigation
+- Today’s Deedlight sharing
+- Offering detail sharing metadata and share button
+- Daily reflection/check-in submission
+- Journey reflection history/progress
+- Admin-only debug page
+- Robust Supabase migration for `daily_lights` and `daily_reflections`
 
 ## Apply
 
-Copy the files into your existing Deedlight repo, then run:
+From your project root:
 
-```bash
-git add app/admin/page.tsx app/admin/offerings/page.tsx app/admin/offerings/[id]/page.tsx app/admin/offerings/[id]/actions.ts app/admin/reports/page.tsx app/debug/auth/page.tsx app/offerings/[id]/page.tsx components/offerings/report-offering-form.tsx lib/data/offerings.ts lib/types.ts supabase/migrations/202607260005_sprint5_moderation.sql
-git commit -m "Implement Sprint 5 moderation and content quality"
+```powershell
+Copy-Item -Recurse -Force .\deedlight-sprint7-build-run-patch\* .\
+```
+
+Or copy the patch contents over the matching project folders manually.
+
+## Run migration
+
+Open Supabase SQL editor and run:
+
+```text
+supabase/migrations/202607260007_sprint7_pwa_daily_engagement.sql
+```
+
+## Build locally
+
+```powershell
+npm run build
+```
+
+Then test:
+
+```powershell
+npm run dev
+```
+
+## Verify
+
+- `/manifest.webmanifest` loads JSON
+- `/today` shows a daily light
+- signed-in users can complete one reflection and see confirmation
+- `/journey` shows reflection history and progress
+- `/offerings/[id]` has a working share button
+- `/debug/auth` is 404 for normal users and visible only for admin
+
+## Commit and deploy
+
+```powershell
+git add .
+git commit -m "Fix Sprint 7 PWA and daily reflection build"
 git push
 ```
 
-Then apply the Supabase migration:
-
-```bash
-npx supabase db push
-```
-
-Or paste and run this file in Supabase SQL Editor:
-
-```text
-supabase/migrations/202607260005_sprint5_moderation.sql
-```
-
-## Test checklist
-
-1. Open `/admin/offerings` as admin.
-2. Open an approved Offering in admin review.
-3. Correct a typo in the title and click **Save content edits**.
-4. Open the public Offering and confirm the corrected title appears.
-5. Open an Offering detail page as a signed-in normal user and submit a report.
-6. Open `/admin/reports` and confirm the report appears.
-7. Open the reported Offering in admin, hide it, and confirm it disappears from `/offerings`.
-8. Test resolving or dismissing the report.
-9. Open `/debug/auth` while logged out or as a non-admin and confirm it is not public anymore.
-
-## Notes
-
-- Reports are private to admins and the reporting user.
-- Anonymous Offerings still hide the author publicly, but admins can see the internal user id.
-- This patch does not yet add full user notifications for request-edit messages; that can be Sprint 6 or 7.
+Security: do not expose `SUPABASE_SERVICE_ROLE_KEY` or admin diagnostics in client components.
