@@ -2,60 +2,57 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-
 import { createClient } from "@/lib/supabase/server";
 
-function textValue(formData: FormData, key: string): string | null {
-  const value = formData.get(key);
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
+function cleanText(value: FormDataEntryValue | null, maxLength: number) {
+  return String(value ?? "").trim().slice(0, maxLength);
 }
 
-export async function submitDailyReflectionAction(formData: FormData) {
-  const supabase = await createClient();
+export async function submitDailyReflection(formData: FormData) {
+  const supabase = await createClient({ allowMissingEnv: true });
+
   if (!supabase) {
-    redirect("/login?error=Supabase%20is%20not%20configured");
+    redirect("/today?error=Daily reflection is temporarily unavailable.");
   }
 
   const {
-    data: { user },
+    data: { user }
   } = await supabase.auth.getUser();
 
   if (!user) {
     redirect("/login?next=/today");
   }
 
-  const dailyPostId = textValue(formData, "daily_post_id");
-  const reflectionText = textValue(formData, "reflection_text");
-  const moodLabel = textValue(formData, "mood_label");
-  const didTodayDeed = formData.get("did_today_deed") === "yes";
+  const dailyLightId = cleanText(formData.get("daily_light_id"), 80);
+  const reflection = cleanText(formData.get("reflection"), 500);
+  const intention = cleanText(formData.get("intention"), 180);
 
-  if (!dailyPostId || dailyPostId === "fallback-today") {
-    redirect("/today?error=Today%E2%80%99s%20Deedlight%20is%20not%20saved%20yet");
+  if (!dailyLightId) {
+    redirect("/today?error=Today’s light is not ready for reflection yet.");
   }
 
-  if (!reflectionText && !didTodayDeed && !moodLabel) {
-    redirect("/today?error=Please%20add%20a%20reflection%20or%20check%20in");
+  if (!reflection && !intention) {
+    redirect("/today?error=Write a short reflection or intention first.");
   }
 
   const { error } = await supabase.from("daily_reflections").upsert(
     {
-      daily_post_id: dailyPostId,
+      daily_light_id: dailyLightId,
       user_id: user.id,
-      reflection_text: reflectionText,
-      mood_label: moodLabel,
-      did_today_deed: didTodayDeed,
-      is_private: true,
-      updated_at: new Date().toISOString(),
+      reflection,
+      intention,
+      updated_at: new Date().toISOString()
     },
-    { onConflict: "user_id,daily_post_id" }
+    { onConflict: "daily_light_id,user_id" }
   );
 
   if (error) {
-    redirect(`/today?error=${encodeURIComponent(error.message)}`);
+    redirect(`/today?error=${encodeURIComponent("Reflection could not be saved. Please try again.")}`);
   }
 
   revalidatePath("/today");
-  redirect("/today?reflection=saved");
+  revalidatePath("/journey");
+  redirect("/today?reflected=1");
 }
+
+export { submitDailyReflection as submitDailyReflectionAction };

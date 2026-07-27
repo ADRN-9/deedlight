@@ -1,134 +1,136 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+import { DailyReflectionForm } from "@/components/daily-light/daily-reflection-form";
+import { ShareButton } from "@/components/share-button";
+import { getMyDailyReflection, getPublishedDailyLightForToday } from "@/lib/data/daily-lights";
+import { createClient } from "@/lib/supabase/server";
 
-import { DailyReflectionForm } from "@/components/daily/daily-reflection-form";
-import {
-  getCurrentUser,
-  getDailyReflectionCounts,
-  getMyReflectionForDailyPost,
-  getTodayDailyPost,
-} from "@/lib/data/daily";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-type TodayPageProps = {
-  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+export const metadata: Metadata = {
+  title: "Today’s Deedlight",
+  description: "A daily invitation to goodness, beauty, and better deeds.",
+  openGraph: {
+    title: "Today’s Deedlight",
+    description: "A daily invitation to goodness, beauty, and better deeds.",
+    url: "/today",
+    images: ["/og/deedlight-og.png"]
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Today’s Deedlight",
+    description: "A daily invitation to goodness, beauty, and better deeds.",
+    images: ["/og/deedlight-og.png"]
+  }
 };
 
-function getMessage(params: Record<string, string | string[] | undefined>, key: string): string | null {
-  const value = params[key];
-  if (typeof value !== "string") return null;
-  return value;
-}
+type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
-export default async function TodayPage({ searchParams }: TodayPageProps) {
-  const params = (await searchParams) ?? {};
-  const post = await getTodayDailyPost();
-  const [{ user }, reflection, counts] = await Promise.all([
-    getCurrentUser(),
-    getMyReflectionForDailyPost(post.id),
-    getDailyReflectionCounts(post.id),
-  ]);
+type FeaturedOffering = {
+  id: string;
+  title: string;
+  body: string | null;
+  offering_type: string | null;
+  author_name: string | null;
+  display_name?: string | null;
+};
 
-  const error = getMessage(params, "error");
-  const reflectionSaved = getMessage(params, "reflection") === "saved";
+export default async function TodayPage({ searchParams }: { searchParams?: SearchParams }) {
+  const params = searchParams ? await searchParams : {};
+  const { light, isFallback } = await getPublishedDailyLightForToday();
+  const supabase = await createClient({ allowMissingEnv: true });
+
+  const { data: authData } = supabase ? await supabase.auth.getUser() : { data: { user: null } };
+  const user = authData.user;
+
+  const reflection = user && light.id ? await getMyDailyReflection(light.id, user.id) : null;
+  let featuredOffering: FeaturedOffering | null = null;
+
+  if (supabase && light.featured_offering_id) {
+    const { data } = await supabase
+      .from("offerings")
+      .select("id,title,body,offering_type,author_name,display_name")
+      .eq("id", light.featured_offering_id)
+      .eq("status", "approved")
+      .maybeSingle();
+
+    featuredOffering = (data as FeaturedOffering | null) ?? null;
+  }
+
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://deedlight.com";
+  const shareUrl = `${siteUrl.replace(/\/$/, "")}/today`;
 
   return (
-    <main className="mx-auto max-w-6xl px-6 py-14 md:py-20">
-      {error ? (
-        <div className="mb-6 rounded-3xl border border-[#f0c7a8] bg-[#fff3e8] px-6 py-4 text-sm font-bold text-[#9a3f1d]">
-          {error}
-        </div>
-      ) : null}
-      {reflectionSaved ? (
-        <div className="mb-6 rounded-3xl border border-[#cfe7c6] bg-[#f1faed] px-6 py-4 text-sm font-bold text-[#426534]">
-          Your private check-in was saved.
+    <section className="mx-auto max-w-5xl px-4 py-12 sm:px-6 sm:py-16">
+      {params.reflected ? (
+        <div className="mb-8 rounded-3xl border border-emerald-100 bg-emerald-50 p-5 text-sm font-extrabold text-emerald-900">
+          Reflection saved. Thank you for carrying today’s light.
         </div>
       ) : null}
 
-      <section className="text-center">
-        <p className="text-xs font-black uppercase tracking-[0.4em] text-[#8a641a]">
-          {post.kicker ?? "TODAY’S DEEDLIGHT"}
-        </p>
-        <h1 className="mt-4 text-5xl font-black leading-tight text-[#2a241c] md:text-7xl">{post.title}</h1>
-        {post.summary ? <p className="mx-auto mt-5 max-w-3xl text-lg text-[#756b5f]">{post.summary}</p> : null}
-      </section>
+      {params.error ? (
+        <div className="mb-8 rounded-3xl border border-red-100 bg-red-50 p-5 text-sm font-extrabold text-red-900">
+          {String(params.error)}
+        </div>
+      ) : null}
 
-      <section className="mx-auto mt-10 max-w-4xl overflow-hidden rounded-[2rem] border border-[#efd9a8] bg-white shadow-[0_24px_80px_rgba(110,79,33,0.10)]">
-        {post.image_url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={post.image_url} alt="Today’s Deedlight" className="h-80 w-full object-cover" />
-        ) : (
-          <div className="h-80 bg-[linear-gradient(135deg,#ffe3a6,#eaf4f8)]" />
-        )}
-        <div className="p-8 md:p-10">
-          <span className="inline-flex rounded-full bg-[#fff1c8] px-4 py-2 text-xs font-black uppercase tracking-[0.22em] text-[#8a641a]">
-            {post.theme ?? "goodness"}
-          </span>
-          {post.body ? <p className="mt-6 whitespace-pre-wrap text-lg leading-8 text-[#4b4034]">{post.body}</p> : null}
-          {post.small_deed ? (
-            <div className="mt-8 rounded-3xl border border-[#efd9a8] bg-[#fff8e8] p-6">
-              <p className="text-xs font-black uppercase tracking-[0.28em] text-[#8a641a]">Today’s small deed</p>
-              <p className="mt-3 text-xl font-black text-[#2a241c]">{post.small_deed}</p>
+      {isFallback ? (
+        <div className="mb-8 rounded-3xl border border-[rgba(217,164,65,0.24)] bg-[#FFF4DC] p-5 text-sm font-bold text-[#8D681D]">
+          Today’s published Deedlight is not scheduled yet, so the fallback light is showing.
+        </div>
+      ) : null}
+
+      <div className="text-center">
+        <p className="text-xs font-extrabold uppercase tracking-[0.32em] text-[#8D681D]">{light.kicker || "TODAY’S DEEDLIGHT"}</p>
+        <h1 className="mx-auto mt-4 max-w-4xl font-[var(--font-heading)] text-5xl font-semibold leading-tight sm:text-7xl">
+          {light.title}
+        </h1>
+      </div>
+
+      <article className="deed-card mx-auto mt-10 max-w-4xl overflow-hidden">
+        <div className="h-72 bg-[radial-gradient(circle_at_30%_15%,rgba(244,199,107,0.55),transparent_34%),linear-gradient(135deg,#FFF4DC,#DCE9F5)]" />
+        <div className="p-6 sm:p-8">
+          {light.theme ? (
+            <span className="rounded-full bg-[#FFF4DC] px-3 py-1 text-xs font-extrabold uppercase tracking-[0.14em] text-[#8D681D]">
+              {light.theme}
+            </span>
+          ) : null}
+
+          <h2 className="mt-5 font-[var(--font-heading)] text-4xl font-semibold leading-tight">{light.title}</h2>
+
+          {light.summary ? <p className="mt-5 whitespace-pre-line leading-8 text-[#5F5548]">{light.summary}</p> : null}
+
+          {light.small_deed ? (
+            <div className="mt-7 rounded-3xl border border-[rgba(217,164,65,0.20)] bg-[#FFF8EA] p-5">
+              <p className="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8D681D]">Today’s small deed</p>
+              <p className="mt-2 font-bold leading-7 text-[#26231F]">{light.small_deed}</p>
             </div>
           ) : null}
-        </div>
-      </section>
 
-      {post.featured_offering ? (
-        <section className="mx-auto mt-8 max-w-4xl rounded-[2rem] border border-[#efd9a8] bg-white p-8 shadow-[0_24px_80px_rgba(110,79,33,0.08)]">
-          <p className="text-xs font-black uppercase tracking-[0.35em] text-[#8a641a]">Featured Offering</p>
-          <h2 className="mt-3 text-3xl font-black text-[#2a241c]">{post.featured_offering.title}</h2>
-          {post.featured_offering.story ? (
-            <p className="mt-3 text-[#756b5f]">{post.featured_offering.story}</p>
+          {featuredOffering ? (
+            <div className="mt-7 rounded-3xl border border-[rgba(217,164,65,0.20)] bg-[#FFFDF7] p-5">
+              <p className="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8D681D]">Inspired by the community</p>
+              <h3 className="mt-2 font-[var(--font-heading)] text-2xl font-semibold">{featuredOffering.title}</h3>
+              {featuredOffering.body ? <p className="mt-2 line-clamp-3 leading-7 text-[#5F5548]">{featuredOffering.body}</p> : null}
+              <Link href={`/offerings/${featuredOffering.id}`} className="focus-ring mt-4 inline-flex rounded-full border border-[rgba(217,164,65,0.30)] px-4 py-2 text-sm font-extrabold">
+                Open inspiration
+              </Link>
+            </div>
           ) : null}
-          <Link
-            href={`/offerings/${post.featured_offering.id}`}
-            className="mt-5 inline-flex rounded-full border border-[#efd9a8] px-5 py-3 text-sm font-extrabold text-[#4b4034]"
-          >
-            Open featured Offering
-          </Link>
-        </section>
-      ) : null}
 
-      <section className="mx-auto mt-8 grid max-w-4xl gap-4 md:grid-cols-2">
-        <div className="rounded-3xl border border-[#efd9a8] bg-[#fff8e8] p-6">
-          <p className="text-4xl font-black text-[#2a241c]">{counts.completedCount}</p>
-          <p className="text-xs font-black uppercase tracking-[0.2em] text-[#8a641a]">people checked in</p>
-        </div>
-        <div className="rounded-3xl border border-[#efd9a8] bg-[#fff8e8] p-6">
-          <p className="text-4xl font-black text-[#2a241c]">{counts.reflectionCount}</p>
-          <p className="text-xs font-black uppercase tracking-[0.2em] text-[#8a641a]">private reflections saved</p>
-        </div>
-      </section>
-
-      <div className="mx-auto mt-8 max-w-4xl">
-        <DailyReflectionForm post={post} reflection={reflection} isSignedIn={Boolean(user)} />
-      </div>
-
-      <section className="mx-auto mt-8 max-w-4xl rounded-[2rem] border border-[#efd9a8] bg-[#fffaf0] p-8">
-        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.35em] text-[#8a641a]">Short video seed</p>
-            <h2 className="mt-3 text-3xl font-black text-[#2a241c]">{post.video_title ?? post.title}</h2>
-            {post.video_hook ? <p className="mt-3 font-bold text-[#4b4034]">{post.video_hook}</p> : null}
-            {post.video_caption ? <p className="mt-3 text-sm text-[#756b5f]">{post.video_caption}</p> : null}
+          <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+            <ShareButton title="Today’s Deedlight" text={light.title} url={shareUrl} label="Share Today’s Deedlight" />
+            <Link href="/offerings/new" className="focus-ring inline-flex items-center justify-center rounded-full bg-[#D9A441] px-5 py-3 text-sm font-extrabold text-[#26231F] shadow-[0_12px_25px_rgba(217,164,65,0.30)]">
+              Share an Offering
+            </Link>
           </div>
-          {post.youtube_url ? (
-            <a
-              href={post.youtube_url}
-              target="_blank"
-              rel="noreferrer"
-              className="rounded-full bg-[#2a241c] px-5 py-3 text-sm font-extrabold text-white"
-            >
-              Watch video
-            </a>
-          ) : null}
         </div>
-      </section>
+      </article>
 
-      <div className="mx-auto mt-8 max-w-4xl text-center">
-        <Link href="/today/archive" className="text-sm font-extrabold text-[#8a641a] underline decoration-[#efd9a8] underline-offset-4">
-          View past Deedlights
-        </Link>
+      <div className="mx-auto mt-10 max-w-2xl">
+        <DailyReflectionForm dailyLightId={light.id} hasReflected={Boolean(reflection)} isSignedIn={Boolean(user)} prompt={light.reflection_prompt} />
       </div>
-    </main>
+    </section>
   );
 }

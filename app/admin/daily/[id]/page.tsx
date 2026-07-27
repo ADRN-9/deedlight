@@ -10,6 +10,9 @@ import {
 } from "@/app/admin/daily/[id]/actions";
 import { getAdminDailyPostById, getApprovedOfferingsForFeature } from "@/lib/data/daily";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 type AdminDailyEditPageProps = {
   params: Promise<{ id: string }>;
   searchParams?: Promise<Record<string, string | string[] | undefined>>;

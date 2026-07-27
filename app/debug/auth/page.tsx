@@ -1,50 +1,64 @@
-import { requireAdmin } from "@/lib/auth/admin";
-import { getSupabaseBrowserConfig, getSupabaseConfig } from "@/lib/supabase/config";
+import { notFound } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+import { getSupabaseConfig } from "@/lib/supabase/config";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export default async function DebugAuthPage() {
-  await requireAdmin("/debug/auth");
+  const supabase = await createClient({ allowMissingEnv: true });
 
-  const serverConfig = getSupabaseConfig();
-  const browserConfig = getSupabaseBrowserConfig();
+  if (!supabase) notFound();
 
-  const safePayload = {
-    ok: true,
-    protected: "admin_only",
-    serverEnv: {
-      supabaseUrlSet: Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL),
-      supabaseAnonKeySet: Boolean(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
-      serviceRoleKeySet: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
-      siteUrl: process.env.NEXT_PUBLIC_SITE_URL || null
-    },
-    browserConfig: {
-      isConfigured: browserConfig.isConfigured,
-      normalizedUrl: browserConfig.url,
-      rawUrlIsValid: browserConfig.rawUrlIsValid,
-      urlFallbackUsed: browserConfig.urlFallbackUsed,
-      anonKeyPresent: Boolean(browserConfig.anonKey),
-      anonKeyPrefix: browserConfig.anonKey ? browserConfig.anonKey.slice(0, 14) : null
-    },
-    serverConfig: {
-      isConfigured: serverConfig.isConfigured,
-      normalizedUrl: serverConfig.url,
-      rawUrlIsValid: serverConfig.rawUrlIsValid,
-      urlFallbackUsed: serverConfig.urlFallbackUsed
-    },
-    notes: [
-      "This page is now admin-only.",
-      "This page intentionally never prints the full anon key or service role key."
-    ]
-  };
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+
+  if (!user) notFound();
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role,is_suspended")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  const isAdmin = profile?.role === "admin" && profile?.is_suspended !== true;
+
+  if (!isAdmin) notFound();
+
+  const config = getSupabaseConfig();
 
   return (
-    <section className="mx-auto max-w-6xl px-4 py-12 sm:px-6">
-      <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#8D681D]">Admin · Debug</p>
-      <h1 className="mt-3 font-[var(--font-heading)] text-4xl font-semibold">Deedlight Auth Debug</h1>
-      <p className="mt-3 leading-8 text-[#7C715F]">This protected page verifies Supabase runtime configuration without exposing secrets.</p>
-      <pre className="mt-6 overflow-x-auto rounded-3xl bg-[#111] p-6 text-sm leading-7 text-white">
-        {JSON.stringify(safePayload, null, 2)}
+    <section className="mx-auto max-w-4xl px-4 py-12 sm:px-6">
+      <h1 className="font-[var(--font-heading)] text-4xl font-semibold">Deedlight Auth Debug</h1>
+      <p className="mt-3 leading-7 text-[#5F5548]">This protected page verifies Supabase runtime configuration without exposing secrets.</p>
+
+      <pre className="mt-7 overflow-auto rounded-3xl bg-[#111] p-6 text-sm leading-7 text-white">
+        {JSON.stringify(
+          {
+            ok: true,
+            protected: "admin_only",
+            serverEnv: {
+              supabaseUrlSet: Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL),
+              supabaseAnonKeySet: Boolean(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
+              serviceRoleKeySet: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
+              siteUrl: process.env.NEXT_PUBLIC_SITE_URL || null
+            },
+            browserConfig: {
+              isConfigured: config.isConfigured,
+              normalizedUrl: config.url || null,
+              rawUrlIsValid: Boolean(config.url && /^https?:\/\//.test(config.url)),
+              anonKeyPresent: Boolean(config.anonKey),
+              anonKeyPrefix: config.anonKey ? config.anonKey.slice(0, 14) : null
+            },
+            notes: [
+              "This page is admin-only.",
+              "This page intentionally never prints the full anon key or service role key."
+            ]
+          },
+          null,
+          2
+        )}
       </pre>
     </section>
   );

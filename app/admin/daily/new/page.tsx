@@ -3,6 +3,9 @@ import Link from "next/link";
 import { createDailyPostAction } from "@/app/admin/daily/[id]/actions";
 import { getApprovedOfferingsForFeature, requireAdmin } from "@/lib/data/daily";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 type NewDailyPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };

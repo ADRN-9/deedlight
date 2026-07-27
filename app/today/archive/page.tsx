@@ -2,6 +2,9 @@ import Link from "next/link";
 
 import { getDailyArchive } from "@/lib/data/daily";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default async function TodayArchivePage() {
   const posts = await getDailyArchive();
 

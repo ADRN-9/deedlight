@@ -1,18 +1,60 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { notFound } from "next/navigation";
 import { CheckCircle2, Heart, MessageCircle, Sparkles } from "lucide-react";
 import { ReactionButtons } from "@/components/offerings/reaction-buttons";
 import { ReportOfferingForm } from "@/components/offerings/report-offering-form";
+import { ShareButton } from "@/components/share-button";
 import { getOffering } from "@/lib/data/offerings";
 
-export default async function OfferingDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+type OfferingPageProps = {
+  params: Promise<{ id: string }>;
+};
+
+export async function generateMetadata({ params }: OfferingPageProps): Promise<Metadata> {
+  const { id } = await params;
+  const offering = await getOffering(id);
+
+  if (!offering) {
+    return {
+      title: "Offering not found"
+    };
+  }
+
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://deedlight.com";
+  const description = offering.body ? offering.body.slice(0, 155) : "A Deedlight Offering.";
+
+  return {
+    title: offering.title,
+    description,
+    openGraph: {
+      title: offering.title,
+      description,
+      url: `${siteUrl.replace(/\/$/, "")}/offerings/${offering.id}`,
+      images: ["/og/deedlight-og.png"]
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: offering.title,
+      description,
+      images: ["/og/deedlight-og.png"]
+    }
+  };
+}
+
+export default async function OfferingDetailPage({ params }: OfferingPageProps) {
   const { id } = await params;
   const offering = await getOffering(id);
 
   if (!offering) notFound();
 
   const author = offering.is_anonymous ? "Anonymous Light" : offering.author_name || "Deedlight member";
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://deedlight.com";
+  const shareUrl = `${siteUrl.replace(/\/$/, "")}/offerings/${offering.id}`;
 
   return (
     <section className="mx-auto max-w-5xl px-4 py-12 sm:px-6">
@@ -46,6 +88,10 @@ export default async function OfferingDetailPage({ params }: { params: Promise<{
               <p className="mt-2 font-bold leading-7 text-[#5F5548]">{offering.takeaway}</p>
             </div>
           ) : null}
+
+          <div className="mt-7">
+            <ShareButton title={offering.title} text={offering.body ? offering.body.slice(0, 120) : "A Deedlight Offering"} url={shareUrl} label="Share this Offering" />
+          </div>
         </div>
       </article>
 

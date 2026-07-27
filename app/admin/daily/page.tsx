@@ -3,6 +3,9 @@ import Link from "next/link";
 import { getAdminDailyPosts } from "@/lib/data/daily";
 import type { DailyStatus } from "@/lib/types-daily";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 type AdminDailyPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
