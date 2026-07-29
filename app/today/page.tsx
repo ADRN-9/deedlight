@@ -47,23 +47,17 @@ type DailyLightRow = {
   summary: string | null;
   body: string | null;
   small_deed: string | null;
-  deed_prompt: string | null;
   reflection_prompt: string | null;
   featured_offering_id: string | null;
   video_title: string | null;
   video_caption: string | null;
   youtube_url: string | null;
   short_video_public: boolean | null;
-  offerings: FeaturedOffering | FeaturedOffering[] | null;
+  video_status: string | null;
 };
 
 function getString(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
-}
-
-function getFeaturedOffering(value: DailyLightRow["offerings"]) {
-  if (Array.isArray(value)) return value[0] ?? null;
-  return value ?? null;
 }
 
 export default async function TodayPage({ searchParams }: TodayPageProps) {
@@ -71,34 +65,13 @@ export default async function TodayPage({ searchParams }: TodayPageProps) {
   const supabase = await createClient();
   const today = new Date().toISOString().slice(0, 10);
 
-  const { data: dailyLight } = await supabase
+  // Keep this primary query simple. Do not embed the featured Offering here.
+  // Supabase can return null data if the relationship cache is stale, which made
+  // /today fall back even when the Daily Light row existed and /videos worked.
+  const { data: dailyLight, error: dailyLightError } = await supabase
     .from("daily_lights")
     .select(
-      `
-      id,
-      scheduled_date,
-      status,
-      kicker,
-      title,
-      theme,
-      summary,
-      body,
-      small_deed,
-      deed_prompt,
-      reflection_prompt,
-      featured_offering_id,
-      video_title,
-      video_caption,
-      youtube_url,
-      short_video_public,
-      offerings:featured_offering_id (
-        id,
-        title,
-        body,
-        offering_type,
-        display_name
-      )
-    `,
+      "id,scheduled_date,status,kicker,title,theme,summary,body,small_deed,reflection_prompt,featured_offering_id,video_title,video_caption,youtube_url,short_video_public,video_status",
     )
     .eq("status", "published")
     .lte("scheduled_date", today)
@@ -123,6 +96,19 @@ export default async function TodayPage({ searchParams }: TodayPageProps) {
     hasReflected = Boolean(reflection);
   }
 
+  let featuredOffering: FeaturedOffering | null = null;
+
+  if (dailyLight?.featured_offering_id) {
+    const { data } = await supabase
+      .from("offerings")
+      .select("id,title,body,offering_type,display_name")
+      .eq("id", dailyLight.featured_offering_id)
+      .eq("status", "approved")
+      .maybeSingle();
+
+    featuredOffering = data as FeaturedOffering | null;
+  }
+
   const fallback: DailyLightRow = {
     id: "",
     scheduled_date: null,
@@ -136,19 +122,19 @@ export default async function TodayPage({ searchParams }: TodayPageProps) {
       "Goodness does not prevail by accident. It grows when someone chooses it in a real moment.",
     small_deed:
       "Say one gentle sentence in defense of someone who is being judged unfairly.",
-    deed_prompt: null,
     reflection_prompt: "Where can you protect dignity today?",
     featured_offering_id: null,
     video_title: null,
     video_caption: null,
     youtube_url: null,
     short_video_public: false,
-    offerings: null,
+    video_status: null,
   };
 
   const light = (dailyLight ?? fallback) as DailyLightRow;
-  const featuredOffering = getFeaturedOffering(light.offerings);
-  const showVideo = Boolean(light.short_video_public && light.youtube_url);
+  const showVideo = Boolean(
+    light.short_video_public && light.youtube_url && light.video_status === "posted",
+  );
   const isExactToday = light.scheduled_date === today;
   const reflected = getString(params.reflected);
   const error = getString(params.error);
@@ -156,13 +142,19 @@ export default async function TodayPage({ searchParams }: TodayPageProps) {
 
   return (
     <div className="mx-auto max-w-5xl px-5 py-12 md:py-20">
+      {dailyLightError ? (
+        <div className="mb-8 rounded-3xl border border-red-100 bg-red-50 p-5 text-sm font-bold text-red-900">
+          Today’s Deedlight query failed: {dailyLightError.message}
+        </div>
+      ) : null}
+
       {dailyLight && !isExactToday ? (
         <div className="mb-8 rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm font-bold text-amber-900">
           Today’s exact Deedlight is not scheduled yet, so the latest published light is showing.
         </div>
       ) : null}
 
-      {!dailyLight ? (
+      {!dailyLight && !dailyLightError ? (
         <div className="mb-8 rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm font-bold text-amber-900">
           Today’s published Deedlight is not scheduled yet, so the fallback light is showing.
         </div>
