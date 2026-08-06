@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { hasAdminAccess } from "@/lib/auth/admin-access";
 
 const allowedVideoStatuses = new Set([
   "not_started",
@@ -48,13 +49,17 @@ async function getAdminSupabase(next = "/admin/video-studio") {
     redirect(`/login?next=${encodeURIComponent(next)}`);
   }
 
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select("role,is_suspended")
     .eq("user_id", user.id)
     .maybeSingle();
 
-  const isAdmin = profile?.role === "admin" && profile?.is_suspended !== true;
+  const isAdmin = hasAdminAccess({
+    email: user.email,
+    profile,
+    profileError,
+  });
 
   if (!isAdmin) {
     redirect("/today");

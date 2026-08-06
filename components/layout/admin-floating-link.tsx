@@ -1,14 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-
-function isAdminEmail(email?: string | null) {
-  const adminEmails = (process.env.ADMIN_EMAILS ?? "")
-    .split(",")
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
-
-  return Boolean(email && adminEmails.includes(email.toLowerCase()));
-}
+import { hasAdminAccess } from "@/lib/auth/admin-access";
 
 export async function AdminFloatingLink() {
   try {
@@ -21,15 +13,17 @@ export async function AdminFloatingLink() {
       return null;
     }
 
-    const { data: profile } = await supabase
+    const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("role,is_suspended")
       .eq("user_id", user.id)
       .maybeSingle();
 
-    const isAdmin =
-      (profile?.role === "admin" && profile?.is_suspended !== true) ||
-      isAdminEmail(user.email);
+    const isAdmin = hasAdminAccess({
+      email: user.email,
+      profile,
+      profileError,
+    });
 
     if (!isAdmin) {
       return null;

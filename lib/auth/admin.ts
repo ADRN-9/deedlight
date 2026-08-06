@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { hasAdminAccess } from "@/lib/auth/admin-access";
 
 export async function requireAdmin(nextPath = "/admin") {
   const supabase = await createClient();
@@ -9,13 +10,15 @@ export async function requireAdmin(nextPath = "/admin") {
 
   if (!user) redirect(`/login?next=${encodeURIComponent(nextPath)}`);
 
-  const { data: profile, error } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select("role, is_suspended")
     .eq("user_id", user.id)
     .maybeSingle();
 
-  if (error || profile?.role !== "admin" || profile?.is_suspended) redirect("/today");
+  if (!hasAdminAccess({ email: user.email, profile, profileError })) {
+    redirect("/today");
+  }
 
   return { supabase, user, profile };
 }

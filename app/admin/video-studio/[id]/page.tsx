@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { hasAdminAccess } from "@/lib/auth/admin-access";
 import { CopyButton } from "@/components/video-studio/copy-button";
 import { VideoStatusBadge, videoStatusOptions } from "@/components/video-studio/video-status-badge";
 import { YouTubeEmbed } from "@/components/video-studio/youtube-embed";
@@ -65,13 +66,17 @@ async function requireAdmin(next: string) {
     redirect(`/login?next=${encodeURIComponent(next)}`);
   }
 
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select("role,is_suspended")
     .eq("user_id", user.id)
     .maybeSingle();
 
-  const isAdmin = profile?.role === "admin" && profile?.is_suspended !== true;
+  const isAdmin = hasAdminAccess({
+    email: user.email,
+    profile,
+    profileError,
+  });
 
   if (!isAdmin) {
     redirect("/today");

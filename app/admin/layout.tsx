@@ -2,18 +2,10 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { hasAdminAccess } from "@/lib/auth/admin-access";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-function isAdminEmail(email?: string | null) {
-  const adminEmails = (process.env.ADMIN_EMAILS ?? "")
-    .split(",")
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
-
-  return Boolean(email && adminEmails.includes(email.toLowerCase()));
-}
 
 const adminLinks = [
   { href: "/admin", label: "Admin Home" },
@@ -34,15 +26,17 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     redirect("/login?next=/admin");
   }
 
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select("role,is_suspended,display_name")
     .eq("user_id", user.id)
     .maybeSingle();
 
-  const isAdmin =
-    (profile?.role === "admin" && profile?.is_suspended !== true) ||
-    isAdminEmail(user.email);
+  const isAdmin = hasAdminAccess({
+    email: user.email,
+    profile,
+    profileError,
+  });
 
   if (!isAdmin) {
     notFound();

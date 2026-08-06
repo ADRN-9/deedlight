@@ -2,6 +2,7 @@ import { cache } from "react";
 import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
+import { hasAdminAccess } from "@/lib/auth/admin-access";
 import type { DailyPost, DailyReflection, DailyStatus, FeaturedOffering } from "@/lib/types-daily";
 
 type SupabaseLike = Awaited<ReturnType<typeof createClient>>;
@@ -112,13 +113,13 @@ export async function requireAdmin() {
     redirect("/login?next=/admin/daily");
   }
 
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select("role,is_suspended")
     .eq("user_id", user.id)
     .maybeSingle();
 
-  if (profile?.role !== "admin" || profile?.is_suspended) {
+  if (!hasAdminAccess({ email: user.email, profile, profileError })) {
     redirect("/today?error=admin_required");
   }
 

@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getSupabaseConfig } from "@/lib/supabase/config";
+import { hasAdminAccess } from "@/lib/auth/admin-access";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -16,13 +17,17 @@ export default async function DebugAuthPage() {
 
   if (!user) notFound();
 
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select("role,is_suspended")
     .eq("user_id", user.id)
     .maybeSingle();
 
-  const isAdmin = profile?.role === "admin" && profile?.is_suspended !== true;
+  const isAdmin = hasAdminAccess({
+    email: user.email,
+    profile,
+    profileError,
+  });
 
   if (!isAdmin) notFound();
 
