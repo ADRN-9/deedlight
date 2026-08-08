@@ -79,7 +79,16 @@ export default async function OfferingDetailPage({ params }: OfferingPageProps) 
               </span>
             ) : null}
           </div>
-          <p className="text-sm font-extrabold text-[#26231F]">{author}</p>
+          {!offering.is_anonymous && offering.author_username ? (
+            <Link
+              className="text-sm font-extrabold text-[#26231F] hover:text-[#8D681D]"
+              href={`/people/${offering.author_username}`}
+            >
+              {author}
+            </Link>
+          ) : (
+            <p className="text-sm font-extrabold text-[#26231F]">{author}</p>
+          )}
           <h1 className="mt-3 font-[var(--font-heading)] text-4xl font-semibold leading-tight sm:text-5xl">{offering.title}</h1>
           <p className="mt-6 whitespace-pre-line leading-8 text-[#5F5548]">{offering.body}</p>
           {offering.takeaway ? (

@@ -21,7 +21,8 @@ const publicOfferingColumns = `
   bless_score,
   published_at,
   theme_name,
-  author_name
+  author_name,
+  author_username
 `;
 
 const risingOfferingColumns = `
@@ -44,7 +45,8 @@ const risingOfferingColumns = `
   rising_score,
   published_at,
   theme_name,
-  author_name
+  author_name,
+  author_username
 `;
 
 const adminOfferingColumns = `
@@ -244,11 +246,17 @@ export async function getAdminReports(status = "open", limit = 80): Promise<Repo
   }));
 }
 
-async function addAuthorNames<T extends { user_id: string; is_anonymous?: boolean; author_name?: string | null }>(items: T[]): Promise<T[]> {
+async function addAuthorNames<T extends { user_id: string | null; is_anonymous?: boolean; author_name?: string | null }>(items: T[]): Promise<T[]> {
   const supabase = await createClient({ allowMissingEnv: true });
   if (!supabase || items.length === 0) return items;
 
-  const userIds = Array.from(new Set(items.map((item) => item.user_id).filter(Boolean)));
+  const userIds = Array.from(
+    new Set(
+      items
+        .map((item) => item.user_id)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
   if (userIds.length === 0) return items;
 
   const { data: profiles } = await supabase
@@ -259,7 +267,9 @@ async function addAuthorNames<T extends { user_id: string; is_anonymous?: boolea
   const profileByUserId = new Map(((profiles || []) as ProfileSummary[]).map((profile) => [profile.user_id, profile]));
 
   return items.map((item) => {
-    const profile = profileByUserId.get(item.user_id);
+    const profile = item.user_id
+      ? profileByUserId.get(item.user_id)
+      : undefined;
     return {
       ...item,
       author_name: item.is_anonymous ? null : profile?.display_name || item.author_name || "Deedlight member"

@@ -58,6 +58,9 @@ export default async function JourneyPage({ searchParams }: { searchParams?: Sea
           <Link href="/today" className="focus-ring rounded-full border border-[rgba(217,164,65,0.30)] bg-white px-6 py-3 text-center text-sm font-extrabold text-[#26231F]">
             Reflect today
           </Link>
+          <Link href="/settings/profile" className="focus-ring rounded-full border border-[rgba(217,164,65,0.30)] bg-white px-6 py-3 text-center text-sm font-extrabold text-[#26231F]">
+            Profile settings
+          </Link>
         </div>
       </div>
 

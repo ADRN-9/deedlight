@@ -9,7 +9,16 @@ export function OfferingCard({ offering, showRank }: { offering: Offering; showR
     <article className="deed-card p-5 sm:p-6">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
-          <p className="text-sm font-extrabold text-[#26231F]">{author}</p>
+          {!offering.is_anonymous && offering.author_username ? (
+            <Link
+              className="text-sm font-extrabold text-[#26231F] hover:text-[#8D681D]"
+              href={`/people/${offering.author_username}`}
+            >
+              {author}
+            </Link>
+          ) : (
+            <p className="text-sm font-extrabold text-[#26231F]">{author}</p>
+          )}
           <p className="text-xs font-bold text-[#8D7C66]">{offering.theme_name || formatOfferingType(offering.offering_type)}</p>
         </div>
         <div className="flex items-center gap-2">

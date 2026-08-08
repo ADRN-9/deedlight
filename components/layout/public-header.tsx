@@ -34,6 +34,9 @@ export async function PublicHeader() {
         <div className="flex items-center gap-3">
           {user ? (
             <>
+              <Link className="hidden text-sm font-semibold text-[#5F5548] hover:text-[#26231F] sm:inline" href="/settings/profile">
+                Profile
+              </Link>
               <Link className="hidden text-sm font-semibold text-[#5F5548] hover:text-[#26231F] sm:inline" href="/journey">
                 Journey
               </Link>

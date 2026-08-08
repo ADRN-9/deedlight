@@ -64,7 +64,11 @@ function validateDraft(input: {
   return errors;
 }
 
-export function CreateOfferingForm() {
+export function CreateOfferingForm({
+  defaultAnonymous = false,
+}: {
+  defaultAnonymous?: boolean;
+}) {
   const router = useRouter();
   const [step, setStep] = useState<Step>(1);
   const [offeringType, setOfferingType] = useState<OfferingType>("good_deed");
@@ -72,7 +76,7 @@ export function CreateOfferingForm() {
   const [body, setBody] = useState("");
   const [takeaway, setTakeaway] = useState("");
   const [mediaUrl, setMediaUrl] = useState("");
-  const [isAnonymous, setIsAnonymous] = useState(false);
+  const [isAnonymous, setIsAnonymous] = useState(defaultAnonymous);
   const [allowReflections, setAllowReflections] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);

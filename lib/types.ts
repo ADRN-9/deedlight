@@ -21,7 +21,7 @@ export type ReactionCounts = {
 
 export type Offering = {
   id: string;
-  user_id: string;
+  user_id: string | null;
   title: string;
   body: string;
   takeaway: string | null;
@@ -42,6 +42,7 @@ export type Offering = {
   updated_at?: string | null;
   theme_name?: string | null;
   author_name?: string | null;
+  author_username?: string | null;
 };
 
 export type AdminOffering = Offering & {

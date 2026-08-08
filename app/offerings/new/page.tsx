@@ -4,13 +4,23 @@ import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-async function getCurrentUser() {
+async function getCurrentUserContext() {
   try {
     const supabase = await createClient({ allowMissingEnv: true });
     if (!supabase) return null;
+
     const { data, error } = await supabase.auth.getUser();
-    if (error) return null;
-    return data.user ?? null;
+    if (error || !data.user) return null;
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("default_offering_anonymous")
+      .eq("user_id", data.user.id)
+      .maybeSingle();
+
+    return {
+      defaultAnonymous: profile?.default_offering_anonymous === true,
+    };
   } catch (error) {
     console.error("Offerings new auth check failed", error);
     return null;
@@ -40,15 +50,17 @@ function SignInPrompt() {
 }
 
 export default async function NewOfferingPage() {
-  const user = await getCurrentUser();
+  const context = await getCurrentUserContext();
 
-  if (!user) {
+  if (!context) {
     return <SignInPrompt />;
   }
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
-      <CreateOfferingForm />
+      <CreateOfferingForm
+        defaultAnonymous={context.defaultAnonymous}
+      />
     </main>
   );
 }
