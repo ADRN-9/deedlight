@@ -118,6 +118,15 @@ export async function getRisingOfferings(limit = 12): Promise<Offering[]> {
 
   if (!rising.error && rising.data) return rising.data as Offering[];
 
+  if (rising.error) {
+    console.error("[getRisingOfferings] offerings_rising query failed", {
+      code: rising.error.code,
+      message: rising.error.message,
+      details: rising.error.details,
+      hint: rising.error.hint,
+    });
+  }
+
   const fallback = await supabase
     .from("offerings_public")
     .select(publicOfferingColumns)
@@ -126,6 +135,15 @@ export async function getRisingOfferings(limit = 12): Promise<Offering[]> {
     .limit(limit);
 
   if (fallback.error || !fallback.data) {
+    if (fallback.error) {
+      console.error("[getRisingOfferings] fallback query failed", {
+        code: fallback.error.code,
+        message: fallback.error.message,
+        details: fallback.error.details,
+        hint: fallback.error.hint,
+      });
+    }
+
     return [...fallbackOfferings].sort((a, b) => (b.bless_score || 0) - (a.bless_score || 0));
   }
 
