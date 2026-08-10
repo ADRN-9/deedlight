@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getMyDailyReflectionHistory } from "@/lib/data/daily-lights";
 import { getMyOfferings } from "@/lib/data/offerings";
 import { DailyPractice } from "@/components/journey/daily-practice";
+import { SavedLights } from "@/components/journey/saved-lights";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -10,8 +11,15 @@ export const revalidate = 0;
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
+function getString(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
 export default async function JourneyPage({ searchParams }: { searchParams?: SearchParams }) {
   const params = searchParams ? await searchParams : {};
+  const offeringStatus = getString(params.offering);
+  const savedStatus = getString(params.saved);
+  const error = getString(params.error);
   const supabase = await createClient({ allowMissingEnv: true });
 
   if (!supabase) redirect("/login?next=/journey");
@@ -35,9 +43,27 @@ export default async function JourneyPage({ searchParams }: { searchParams?: Sea
 
   return (
     <section className="mx-auto max-w-5xl px-4 py-12 sm:px-6 sm:py-16">
-      {params.offering === "submitted" ? (
+      {offeringStatus === "submitted" ? (
         <div className="mb-8 rounded-3xl border border-emerald-100 bg-emerald-50 p-5 text-sm font-extrabold text-emerald-900">
           Your Offering was submitted for review.
+        </div>
+      ) : null}
+
+      {savedStatus === "1" ? (
+        <div className="mb-8 rounded-3xl border border-emerald-100 bg-emerald-50 p-5 text-sm font-extrabold text-emerald-900">
+          Daily Light saved privately.
+        </div>
+      ) : null}
+
+      {savedStatus === "0" ? (
+        <div className="mb-8 rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm font-extrabold text-amber-900">
+          Daily Light removed from Saved Lights.
+        </div>
+      ) : null}
+
+      {error ? (
+        <div className="mb-8 rounded-3xl border border-red-100 bg-red-50 p-5 text-sm font-extrabold text-red-900">
+          {error}
         </div>
       ) : null}
 
@@ -66,6 +92,8 @@ export default async function JourneyPage({ searchParams }: { searchParams?: Sea
       </div>
 
       <DailyPractice userId={user.id} />
+
+      <SavedLights userId={user.id} />
 
       <section className="mt-10">
         <p className="text-xs font-extrabold uppercase tracking-[0.32em] text-[#8D681D]">Daily reflections</p>

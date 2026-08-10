@@ -15,6 +15,8 @@ export type DailyDeedCompletion = {
 
 export type DailyDeedPractice = {
   total: number;
+  recentCount: number;
+  lastCarriedDate: string | null;
   items: DailyDeedCompletion[];
 };
 
@@ -25,6 +27,27 @@ type DailyLightSummary = {
   theme: string | null;
 };
 
+function emptyPractice(): DailyDeedPractice {
+  return {
+    total: 0,
+    recentCount: 0,
+    lastCarriedDate: null,
+    items: [],
+  };
+}
+
+function isWithinRecentWindow(value: string | null, days = 7) {
+  if (!value) return false;
+
+  const target = Date.parse(`${value}T00:00:00Z`);
+  const today = Date.parse(`${new Date().toISOString().slice(0, 10)}T00:00:00Z`);
+
+  if (!Number.isFinite(target) || !Number.isFinite(today)) return false;
+
+  const difference = Math.floor((today - target) / 86_400_000);
+  return difference >= 0 && difference < days;
+}
+
 export async function getMyDailyDeedPractice(
   userId: string,
   limit = 14,
@@ -32,8 +55,10 @@ export async function getMyDailyDeedPractice(
   const supabase = await createClient({ allowMissingEnv: true });
 
   if (!supabase || !userId) {
-    return { total: 0, items: [] };
+    return emptyPractice();
   }
+
+  const historyLimit = Math.max(limit, 32);
 
   const [historyResult, totalResult] = await Promise.all([
     supabase
@@ -42,7 +67,7 @@ export async function getMyDailyDeedPractice(
       .eq("user_id", userId)
       .not("daily_light_id", "is", null)
       .order("created_at", { ascending: false })
-      .limit(limit),
+      .limit(historyLimit),
     supabase
       .from("daily_deed_completions")
       .select("id", { count: "exact", head: true })
@@ -68,8 +93,8 @@ export async function getMyDailyDeedPractice(
 
   if (!rawItems.length) {
     return {
+      ...emptyPractice(),
       total: totalResult.count ?? 0,
-      items: [],
     };
   }
 
@@ -95,11 +120,23 @@ export async function getMyDailyDeedPractice(
     lightById.set(light.id, light);
   }
 
+  const hydratedItems = rawItems.map((item) => ({
+    ...item,
+    daily_light: lightById.get(item.daily_light_id) ?? null,
+  }));
+
+  const recentCount = hydratedItems.filter((item) =>
+    isWithinRecentWindow(item.daily_light?.scheduled_date ?? null),
+  ).length;
+
+  const lastCarriedDate =
+    hydratedItems.find((item) => item.daily_light?.scheduled_date)?.daily_light
+      ?.scheduled_date ?? null;
+
   return {
     total: totalResult.count ?? rawItems.length,
-    items: rawItems.map((item) => ({
-      ...item,
-      daily_light: lightById.get(item.daily_light_id) ?? null,
-    })),
+    recentCount,
+    lastCarriedDate,
+    items: hydratedItems.slice(0, limit),
   };
 }

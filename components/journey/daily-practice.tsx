@@ -20,28 +20,51 @@ export async function DailyPractice({ userId }: DailyPracticeProps) {
 
   return (
     <section className="mt-10">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-xs font-extrabold uppercase tracking-[0.32em] text-[#8D681D]">
             Daily practice
           </p>
           <h2 className="mt-2 font-[var(--font-heading)] text-4xl font-semibold">
-            Lights you carried
+            Your gentle rhythm
           </h2>
           <p className="mt-2 max-w-2xl text-sm leading-7 text-[#5F5548]">
-            A private record of Daily Lights you marked as lived, not a
-            leaderboard or a score.
+            A private record of Daily Lights you marked as lived. There are no
+            streaks to protect and nothing resets when life gets busy.
           </p>
         </div>
 
-        <div className="rounded-3xl bg-[#FFF8EA] px-5 py-4 sm:text-right">
-          <p className="font-[var(--font-heading)] text-4xl font-semibold">
-            {practice.total}
-          </p>
-          <p className="mt-1 text-xs font-extrabold uppercase tracking-[0.22em] text-[#8D681D]">
-            {practice.total === 1 ? "Light carried" : "Lights carried"}
-          </p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="rounded-3xl bg-[#FFF8EA] px-5 py-4">
+            <p className="font-[var(--font-heading)] text-4xl font-semibold">
+              {practice.recentCount}
+            </p>
+            <p className="mt-1 text-xs font-extrabold uppercase tracking-[0.18em] text-[#8D681D]">
+              Last 7 days
+            </p>
+          </div>
+          <div className="rounded-3xl bg-[#FFF8EA] px-5 py-4">
+            <p className="font-[var(--font-heading)] text-4xl font-semibold">
+              {practice.total}
+            </p>
+            <p className="mt-1 text-xs font-extrabold uppercase tracking-[0.18em] text-[#8D681D]">
+              {practice.total === 1 ? "Light carried" : "Lights carried"}
+            </p>
+          </div>
         </div>
+      </div>
+
+      <div className="mt-4 rounded-3xl border border-[rgba(217,164,65,0.20)] bg-white px-5 py-4 text-sm leading-7 text-[#5F5548]">
+        {practice.lastCarriedDate ? (
+          <>
+            Last carried: <strong>{formatDailyDate(practice.lastCarriedDate)}</strong>.
+            {practice.recentCount === 0
+              ? " Your rhythm can begin again whenever a deed feels true."
+              : " Keep returning when it feels meaningful."}
+          </>
+        ) : (
+          "Complete a Daily deed when it genuinely becomes part of your day. Your rhythm can start at any time."
+        )}
       </div>
 
       <div className="mt-5 space-y-4">

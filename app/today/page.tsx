@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ShareButton } from "@/components/share-button";
 import { YouTubeEmbed } from "@/components/video-studio/youtube-embed";
 import { DailyDeedCompletionCard } from "@/components/daily/deed-completion-card";
+import { SavedLightControl } from "@/components/daily/saved-light-control";
 import { createClient } from "@/lib/supabase/server";
 import { submitDailyReflectionAction } from "./actions";
 
@@ -139,6 +140,7 @@ export default async function TodayPage({ searchParams }: TodayPageProps) {
   const isExactToday = light.scheduled_date === today;
   const reflected = getString(params.reflected);
   const deed = getString(params.deed);
+  const saved = getString(params.saved);
   const error = getString(params.error);
   const shareUrl = "https://deedlight.com/today";
 
@@ -177,6 +179,18 @@ export default async function TodayPage({ searchParams }: TodayPageProps) {
       {deed === "undone" ? (
         <div className="mb-8 rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm font-bold text-amber-900">
           Today’s deed was removed from your Journey.
+        </div>
+      ) : null}
+
+      {saved === "1" ? (
+        <div className="mb-8 rounded-3xl border border-emerald-100 bg-emerald-50 p-5 text-sm font-bold text-emerald-900">
+          This Daily Light was saved privately to your Journey.
+        </div>
+      ) : null}
+
+      {saved === "0" ? (
+        <div className="mb-8 rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm font-bold text-amber-900">
+          This Daily Light was removed from your Saved Lights.
         </div>
       ) : null}
 
@@ -276,6 +290,13 @@ export default async function TodayPage({ searchParams }: TodayPageProps) {
               url={shareUrl}
               label="Share Today’s Deedlight"
             />
+            {dailyLight?.id ? (
+              <SavedLightControl
+                dailyLightId={dailyLight.id}
+                userId={user?.id ?? null}
+                returnTo="/today"
+              />
+            ) : null}
             <Link
               href="/videos"
               className="rounded-full border border-amber-200 bg-white px-5 py-3 text-center text-sm font-black text-stone-900 shadow-sm transition active:scale-95"
