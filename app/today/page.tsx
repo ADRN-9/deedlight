@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ShareButton } from "@/components/share-button";
 import { YouTubeEmbed } from "@/components/video-studio/youtube-embed";
+import { DailyDeedCompletionCard } from "@/components/daily/deed-completion-card";
 import { createClient } from "@/lib/supabase/server";
 import { submitDailyReflectionAction } from "./actions";
 
@@ -137,6 +138,7 @@ export default async function TodayPage({ searchParams }: TodayPageProps) {
   );
   const isExactToday = light.scheduled_date === today;
   const reflected = getString(params.reflected);
+  const deed = getString(params.deed);
   const error = getString(params.error);
   const shareUrl = "https://deedlight.com/today";
 
@@ -163,6 +165,18 @@ export default async function TodayPage({ searchParams }: TodayPageProps) {
       {reflected ? (
         <div className="mb-8 rounded-3xl border border-emerald-100 bg-emerald-50 p-5 text-sm font-bold text-emerald-900">
           Reflection saved. Thank you for carrying today’s light.
+        </div>
+      ) : null}
+
+      {deed === "completed" ? (
+        <div className="mb-8 rounded-3xl border border-emerald-100 bg-emerald-50 p-5 text-sm font-bold text-emerald-900">
+          Today’s deed was added to your private Journey.
+        </div>
+      ) : null}
+
+      {deed === "undone" ? (
+        <div className="mb-8 rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm font-bold text-amber-900">
+          Today’s deed was removed from your Journey.
         </div>
       ) : null}
 
@@ -230,6 +244,13 @@ export default async function TodayPage({ searchParams }: TodayPageProps) {
                 {light.small_deed}
               </p>
             </div>
+          ) : null}
+
+          {dailyLight?.id ? (
+            <DailyDeedCompletionCard
+              dailyLightId={dailyLight.id}
+              userId={user?.id ?? null}
+            />
           ) : null}
 
           {featuredOffering ? (
