@@ -8,12 +8,13 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const adminLinks = [
-  { href: "/admin", label: "Admin Home" },
-  { href: "/admin/daily", label: "Daily Desk" },
-  { href: "/admin/video-studio", label: "Video Studio" },
-  { href: "/admin/offerings", label: "Offerings" },
-  { href: "/admin/reports", label: "Reports" },
-  { href: "/today", label: "View Today" },
+  { href: "/admin", label: "Admin Home", databaseAdminOnly: false },
+  { href: "/admin/daily", label: "Daily Desk", databaseAdminOnly: false },
+  { href: "/admin/video-studio", label: "Video Studio", databaseAdminOnly: false },
+  { href: "/admin/offerings", label: "Offerings", databaseAdminOnly: false },
+  { href: "/admin/reports", label: "Reports", databaseAdminOnly: false },
+  { href: "/admin/members", label: "Members", databaseAdminOnly: true },
+  { href: "/today", label: "View Today", databaseAdminOnly: false },
 ];
 
 export default async function AdminLayout({ children }: { children: ReactNode }) {
@@ -42,6 +43,10 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     notFound();
   }
 
+  const visibleLinks = adminLinks.filter(
+    (item) => !item.databaseAdminOnly || profile?.role === "admin",
+  );
+
   return (
     <div>
       <section className="border-b border-amber-100 bg-[#fff8ea]/90 px-5 py-4 backdrop-blur">
@@ -56,7 +61,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
           </div>
 
           <nav className="flex gap-2 overflow-x-auto pb-1 md:flex-wrap md:justify-end md:overflow-visible md:pb-0">
-            {adminLinks.map((item) => (
+            {visibleLinks.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}

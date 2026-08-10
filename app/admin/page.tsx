@@ -45,12 +45,32 @@ export default async function AdminHomePage({
   const params = await searchParams;
   const supabase = await createClient();
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  let isDatabaseAdmin = false;
+
+  if (user) {
+    const { data: currentProfile } = await supabase
+      .from("profiles")
+      .select("role,is_suspended")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    isDatabaseAdmin =
+      currentProfile?.role === "admin" &&
+      currentProfile?.is_suspended !== true;
+  }
+
   const [
     pendingOfferings,
     openReports,
     publishedDailyLights,
     publicVideos,
     draftedVideos,
+    totalMembers,
+    suspendedMembers,
   ] = await Promise.all([
     exactCount(supabase, "offerings", (query) => query.eq("status", "pending")),
     exactCount(supabase, "reports", (query) => query.in("status", ["open", "pending"])),
@@ -61,6 +81,12 @@ export default async function AdminHomePage({
     exactCount(supabase, "daily_lights", (query) =>
       query.in("video_status", ["planned", "scripted", "recorded"]),
     ),
+    isDatabaseAdmin
+      ? exactCount(supabase, "profiles")
+      : Promise.resolve(null),
+    isDatabaseAdmin
+      ? exactCount(supabase, "profiles", (query) => query.eq("is_suspended", true))
+      : Promise.resolve(null),
   ]);
 
   return (
@@ -69,6 +95,14 @@ export default async function AdminHomePage({
         <div className="mb-8">
           <AdminStatusMessage type="success" title="Saved">
             The admin workspace has been updated.
+          </AdminStatusMessage>
+        </div>
+      ) : null}
+
+      {params?.error === "database_admin_required" ? (
+        <div className="mb-8">
+          <AdminStatusMessage type="warning" title="Database admin required">
+            Member suspension tools require an unsuspended profile with the database role <strong>admin</strong>. The ADMIN_EMAILS fallback does not grant moderation mutations.
           </AdminStatusMessage>
         </div>
       ) : null}
@@ -83,7 +117,7 @@ export default async function AdminHomePage({
               Content, moderation, and publishing in one place.
             </h1>
             <p className="mt-4 max-w-2xl text-sm leading-7 text-stone-700 md:text-base md:leading-8">
-              Manage Today’s Deedlight, community Offerings, reports, and short-video publishing without typing hidden admin URLs.
+              Manage Today’s Deedlight, community Offerings, reports, member safety, and short-video publishing without typing hidden admin URLs.
             </p>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row md:shrink-0">
@@ -148,6 +182,17 @@ export default async function AdminHomePage({
           metricLabel="Open"
           tone="stone"
         />
+        {isDatabaseAdmin ? (
+          <AdminCard
+            href="/admin/members"
+            eyebrow="Community safety"
+            title="Members"
+            description="Review member contribution context and apply auditable suspension or restore actions."
+            metric={totalMembers}
+            metricLabel={`${suspendedMembers ?? 0} suspended`}
+            tone="stone"
+          />
+        ) : null}
         <AdminCard
           href="/videos"
           eyebrow="Public"
@@ -173,8 +218,8 @@ export default async function AdminHomePage({
         <div className="mt-4 grid gap-3 text-sm font-bold text-stone-700 md:grid-cols-2">
           <ChecklistItem text="Admin pages are reachable from /admin." />
           <ChecklistItem text="Daily Desk and Video Studio are one click away." />
-          <ChecklistItem text="Debug remains admin-only and hidden from public users." />
-          <ChecklistItem text="Public Today, Videos, Offerings, and Journey pages remain easy to reach." />
+          <ChecklistItem text="Member moderation is restricted to database-backed admins." />
+          <ChecklistItem text="Private Daily reflections never appear in member moderation tools." />
         </div>
       </section>
     </div>
