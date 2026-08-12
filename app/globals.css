@@ -54,3 +54,62 @@ body {
   outline: 3px solid rgba(217, 164, 65, 0.55);
   outline-offset: 3px;
 }
+
+
+/* DEEDLIGHT GLOBAL INTERACTION FEEDBACK */
+:where(button, a[href], input[type="submit"], input[type="button"], [role="button"]) {
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease, opacity 120ms ease;
+}
+
+:where(button, a[href], input[type="submit"], input[type="button"], [role="button"]):not(:disabled):not([aria-disabled="true"]):active,
+:where(button, a[href], input[type="submit"], input[type="button"], [role="button"])[data-deed-pressed="true"] {
+  transform: translateY(1px) scale(0.985);
+  filter: brightness(0.96);
+  box-shadow: inset 0 2px 6px rgba(38, 35, 31, 0.12);
+}
+
+:where(button, a[href], input[type="submit"], input[type="button"], [role="button"])[data-deed-pending="true"] {
+  cursor: wait !important;
+  pointer-events: none;
+  opacity: 0.78;
+  transform: translateY(1px) scale(0.99);
+}
+
+button[data-deed-pending="true"]::after,
+a[href][data-deed-pending="true"]::after,
+[role="button"][data-deed-pending="true"]::after {
+  content: "";
+  display: inline-block;
+  width: 0.8rem;
+  height: 0.8rem;
+  margin-left: 0.55rem;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 999px;
+  vertical-align: -0.08rem;
+  animation: deedlight-action-spin 700ms linear infinite;
+}
+
+:where(button, a[href], input[type="submit"], input[type="button"], [role="button"]):focus-visible {
+  outline: 3px solid rgba(217, 164, 65, 0.45);
+  outline-offset: 3px;
+}
+
+@keyframes deedlight-action-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :where(button, a[href], input[type="submit"], input[type="button"], [role="button"]) {
+    transition: none;
+  }
+
+  button[data-deed-pending="true"]::after,
+  a[href][data-deed-pending="true"]::after,
+  [role="button"][data-deed-pending="true"]::after {
+    animation: none;
+  }
+}

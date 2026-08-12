@@ -4,6 +4,7 @@ import { getMyDailyReflectionHistory } from "@/lib/data/daily-lights";
 import { getMyOfferings } from "@/lib/data/offerings";
 import { DailyPractice } from "@/components/journey/daily-practice";
 import { SavedLights } from "@/components/journey/saved-lights";
+import { ReminderStatus } from "@/components/journey/reminder-status";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -94,6 +95,8 @@ export default async function JourneyPage({ searchParams }: { searchParams?: Sea
       <DailyPractice userId={user.id} />
 
       <SavedLights userId={user.id} />
+
+      <ReminderStatus userId={user.id} />
 
       <section className="mt-10">
         <p className="text-xs font-extrabold uppercase tracking-[0.32em] text-[#8D681D]">Daily reflections</p>

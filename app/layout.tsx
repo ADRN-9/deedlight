@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Fraunces, Manrope } from "next/font/google";
 import "./globals.css";
+import { GlobalInteractionFeedback } from "@/components/ui/global-interaction-feedback";
 import { AdminFloatingLink } from "@/components/layout/admin-floating-link";
 import { Footer } from "@/components/layout/footer";
 import { MobileNav } from "@/components/layout/mobile-nav";
@@ -79,6 +80,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Footer />
         <MobileNav />
         <AdminFloatingLink />
+        <GlobalInteractionFeedback />
       </body>
     </html>
   );

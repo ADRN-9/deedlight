@@ -158,6 +158,13 @@ export default async function ProfileSettingsPage({
                 View public profile
               </Link>
             ) : null}
+
+            <Link
+              className="focus-ring rounded-full border border-[rgba(217,164,65,0.30)] bg-white px-7 py-3 text-center text-sm font-extrabold text-[#26231F]"
+              href="/settings/reminders"
+            >
+              Reminder settings
+            </Link>
           </div>
         </form>
       </div>
