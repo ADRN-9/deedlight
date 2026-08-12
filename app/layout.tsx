@@ -50,7 +50,7 @@ export const metadata: Metadata = {
     type: "website",
     images: [
       {
-        url: "/og/deedlight-og.png",
+        url: "/api/share/default",
         width: 1200,
         height: 630,
         alt: "Deedlight — Where good deeds become light"
@@ -61,7 +61,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Deedlight — Where good deeds become light",
     description: "A daily social space for goodness, beauty, and better deeds.",
-    images: ["/og/deedlight-og.png"]
+    images: ["/api/share/default"]
   }
 };
 

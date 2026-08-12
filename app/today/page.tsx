@@ -6,26 +6,59 @@ import { DailyDeedCompletionCard } from "@/components/daily/deed-completion-card
 import { SavedLightControl } from "@/components/daily/saved-light-control";
 import { createClient } from "@/lib/supabase/server";
 import { submitDailyReflectionAction } from "./actions";
+import { getTodayShareLight } from "@/lib/share/today";
+import {
+  absoluteUrl,
+  cleanShareDescription,
+} from "@/lib/share/site";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export const metadata: Metadata = {
-  title: "Today’s Deedlight",
-  description: "A daily invitation to goodness, beauty, and better deeds.",
-  openGraph: {
-    title: "Today’s Deedlight",
-    description: "A daily invitation to goodness, beauty, and better deeds.",
-    url: "/today",
-    images: ["/og/deedlight-og.png"],
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: "Today’s Deedlight",
-    description: "A daily invitation to goodness, beauty, and better deeds.",
-    images: ["/og/deedlight-og.png"],
-  },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const light = await getTodayShareLight();
+
+  const title = light?.title
+    ? `${light.title} — Today’s Deedlight`
+    : "Today’s Deedlight";
+
+  const description = cleanShareDescription(
+    light?.summary || light?.small_deed,
+    "A daily invitation to goodness, beauty, and better deeds.",
+  );
+
+  const canonical = absoluteUrl("/today");
+  const image = absoluteUrl("/api/share/today");
+
+  return {
+    title,
+    description,
+    alternates: {
+      canonical,
+    },
+    openGraph: {
+      title,
+      description,
+      url: canonical,
+      siteName: "Deedlight",
+      type: "article",
+      images: [
+        {
+          url: image,
+          width: 1200,
+          height: 630,
+          alt: title,
+        },
+      ],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+      images: [image],
+    },
+  };
+}
 
 type TodayPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;

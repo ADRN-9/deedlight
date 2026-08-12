@@ -7,6 +7,10 @@ import { ReactionButtons } from "@/components/offerings/reaction-buttons";
 import { ReportOfferingForm } from "@/components/offerings/report-offering-form";
 import { ShareButton } from "@/components/share-button";
 import { getOffering } from "@/lib/data/offerings";
+import {
+  absoluteUrl,
+  cleanShareDescription,
+} from "@/lib/share/site";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -15,34 +19,59 @@ type OfferingPageProps = {
   params: Promise<{ id: string }>;
 };
 
-export async function generateMetadata({ params }: OfferingPageProps): Promise<Metadata> {
+export async function generateMetadata({
+  params,
+}: OfferingPageProps): Promise<Metadata> {
   const { id } = await params;
   const offering = await getOffering(id);
 
   if (!offering) {
     return {
-      title: "Offering not found"
+      title: "Offering not found",
+      robots: {
+        index: false,
+        follow: false,
+      },
     };
   }
 
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://deedlight.com";
-  const description = offering.body ? offering.body.slice(0, 155) : "A Deedlight Offering.";
+  const description = cleanShareDescription(
+    offering.body,
+    "A Deedlight Offering.",
+  );
+
+  const canonical = absoluteUrl(`/offerings/${offering.id}`);
+  const image = absoluteUrl(
+    `/api/share/offering/${encodeURIComponent(offering.id)}`,
+  );
 
   return {
     title: offering.title,
     description,
+    alternates: {
+      canonical,
+    },
     openGraph: {
       title: offering.title,
       description,
-      url: `${siteUrl.replace(/\/$/, "")}/offerings/${offering.id}`,
-      images: ["/og/deedlight-og.png"]
+      url: canonical,
+      siteName: "Deedlight",
+      type: "article",
+      images: [
+        {
+          url: image,
+          width: 1200,
+          height: 630,
+          alt: offering.title,
+        },
+      ],
     },
     twitter: {
       card: "summary_large_image",
       title: offering.title,
       description,
-      images: ["/og/deedlight-og.png"]
-    }
+      images: [image],
+    },
   };
 }
 
