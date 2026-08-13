@@ -29,6 +29,7 @@ export async function PublicHeader() {
           <Link className="hover:text-[#26231F]" href="/today">Today</Link>
           <Link className="hover:text-[#26231F]" href="/offerings">Offerings</Link>
           <Link className="hover:text-[#26231F]" href="/rising">Rising</Link>
+          <Link className="hover:text-[#26231F]" href="/weekly">Weekly</Link>
           <Link className="hover:text-[#26231F]" href="/about">About</Link>
         </nav>
         <div className="flex items-center gap-3">

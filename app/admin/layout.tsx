@@ -12,6 +12,7 @@ const adminLinks = [
   { href: "/admin/daily", label: "Daily Desk", databaseAdminOnly: false },
   { href: "/admin/video-studio", label: "Video Studio", databaseAdminOnly: false },
   { href: "/admin/offerings", label: "Offerings", databaseAdminOnly: false },
+  { href: "/admin/weekly", label: "Weekly Goodness", databaseAdminOnly: true },
   { href: "/admin/reports", label: "Reports", databaseAdminOnly: false },
   { href: "/admin/members", label: "Members", databaseAdminOnly: true },
   { href: "/today", label: "View Today", databaseAdminOnly: false },

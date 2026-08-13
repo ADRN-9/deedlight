@@ -174,6 +174,13 @@ export default async function AdminHomePage({
           tone="emerald"
         />
         <AdminCard
+          href="/admin/weekly"
+          eyebrow="Growth"
+          title="Weekly Goodness"
+          description="Curate the optional Featured Light while keeping weekly discovery noncompetitive and privacy-safe."
+          tone="amber"
+        />
+        <AdminCard
           href="/admin/reports"
           eyebrow="Safety"
           title="Reports"
