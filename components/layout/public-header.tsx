@@ -38,6 +38,9 @@ export async function PublicHeader() {
               <Link className="hidden text-sm font-semibold text-[#5F5548] hover:text-[#26231F] sm:inline" href="/settings/profile">
                 Profile
               </Link>
+              <Link className="hidden text-sm font-semibold text-[#5F5548] hover:text-[#26231F] sm:inline" href="/invite">
+                Invite
+              </Link>
               <Link className="hidden text-sm font-semibold text-[#5F5548] hover:text-[#26231F] sm:inline" href="/journey">
                 Journey
               </Link>

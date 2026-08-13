@@ -165,6 +165,20 @@ export default async function ProfileSettingsPage({
             >
               Reminder settings
             </Link>
+
+            <Link
+              className="focus-ring rounded-full border border-[rgba(217,164,65,0.30)] bg-white px-7 py-3 text-center text-sm font-extrabold text-[#26231F]"
+              href="/settings/newsletter"
+            >
+              Newsletter settings
+            </Link>
+
+            <Link
+              className="focus-ring rounded-full border border-[rgba(217,164,65,0.30)] bg-white px-7 py-3 text-center text-sm font-extrabold text-[#26231F]"
+              href="/invite"
+            >
+              Invite someone
+            </Link>
           </div>
         </form>
       </div>

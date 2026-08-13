@@ -16,7 +16,13 @@ function readableError(error: unknown) {
 }
 
 function authErrorDetails(error: unknown) {
-  const anyError = error as { message?: string; code?: string; status?: number; name?: string };
+  const anyError = error as {
+    message?: string;
+    code?: string;
+    status?: number;
+    name?: string;
+  };
+
   const parts = [anyError?.message || readableError(error)];
   if (anyError?.code) parts.push(`code: ${anyError.code}`);
   if (anyError?.status) parts.push(`status: ${anyError.status}`);
@@ -24,7 +30,15 @@ function authErrorDetails(error: unknown) {
   return parts.filter(Boolean).join(" | ");
 }
 
-export function SignupForm() {
+type InvitationState = "none" | "valid" | "invalid";
+
+export function SignupForm({
+  inviteCode,
+  invitationState,
+}: {
+  inviteCode: string | null;
+  invitationState: InvitationState;
+}) {
   const router = useRouter();
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -32,15 +46,23 @@ export function SignupForm() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSubmitting) return;
+
     setError("");
     setMessage("");
     setIsSubmitting(true);
 
     try {
       const formData = new FormData(event.currentTarget);
-      const displayName = String(formData.get("display_name") || "").trim();
-      const email = String(formData.get("email") || "").trim().toLowerCase();
+      const displayName = String(
+        formData.get("display_name") || "",
+      ).trim();
+      const email = String(formData.get("email") || "")
+        .trim()
+        .toLowerCase();
       const password = String(formData.get("password") || "");
+      const newsletterOptIn =
+        formData.get("newsletter_weekly_opt_in") === "on";
 
       if (!displayName || !email || !password) {
         setError("Please complete all fields.");
@@ -48,26 +70,34 @@ export function SignupForm() {
       }
 
       if (password.length < 8) {
-        setError("Please use a password with at least 8 characters.");
+        setError(
+          "Please use a password with at least 8 characters.",
+        );
         return;
       }
 
       const supabase = createClient();
       const emailRedirectTo = `${window.location.origin}/today`;
 
-      const { data, error: signUpError } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo,
-          data: {
-            display_name: displayName
-          }
-        }
-      });
+      const { data, error: signUpError } =
+        await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            emailRedirectTo,
+            data: {
+              display_name: displayName,
+              deedlight_invite_code: inviteCode,
+              newsletter_weekly_opt_in: newsletterOptIn,
+            },
+          },
+        });
 
       if (signUpError) {
-        console.error("Supabase signup returned error", signUpError);
+        console.error(
+          "Supabase signup returned error",
+          signUpError,
+        );
         setError(authErrorDetails(signUpError));
         return;
       }
@@ -79,14 +109,20 @@ export function SignupForm() {
       }
 
       if (data.user) {
-        setMessage("Account created. Please check your email to confirm your account, then sign in. If email confirmation is disabled, use Sign in now.");
+        setMessage(
+          "Account created. Please check your email to confirm your account, then sign in. If email confirmation is disabled, use Sign in now.",
+        );
         return;
       }
 
-      setMessage("Signup request completed. Please check your email, then sign in.");
+      setMessage(
+        "Signup request completed. Please check your email, then sign in.",
+      );
     } catch (unknownError) {
       console.error("Signup threw exception", unknownError);
-      setError(`Signup exception: ${readableError(unknownError)}`);
+      setError(
+        `Signup exception: ${readableError(unknownError)}`,
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -94,36 +130,136 @@ export function SignupForm() {
 
   return (
     <div className="deed-card p-7 sm:p-9">
-      <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#8D681D]">Join Deedlight</p>
-      <h1 className="mt-3 font-[var(--font-heading)] text-4xl font-semibold">Begin your journey</h1>
-      <p className="mt-3 text-sm leading-6 text-[#7C715F]">A daily space for goodness, beauty, and better deeds.</p>
+      <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#8D681D]">
+        Join Deedlight
+      </p>
+      <h1 className="mt-3 font-[var(--font-heading)] text-4xl font-semibold">
+        Begin your journey
+      </h1>
+      <p className="mt-3 text-sm leading-6 text-[#7C715F]">
+        A daily space for goodness, beauty, and better deeds.
+      </p>
 
-      {message ? <p className="mt-4 rounded-2xl bg-[#F4FBF1] p-3 text-sm font-semibold text-[#476642]">{message}</p> : null}
-      {error ? <p className="mt-4 whitespace-pre-wrap rounded-2xl bg-[#FFF4DC] p-3 text-sm font-semibold text-[#8D381D]">{error}</p> : null}
+      {invitationState === "valid" ? (
+        <div className="mt-5 rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm leading-7 text-emerald-900">
+          <strong>Invitation recognized.</strong>{" "}
+          Deedlight records private invitation attribution after
+          account confirmation, but does not reveal the inviter&apos;s
+          account identity to you from this link.
+        </div>
+      ) : null}
+
+      {invitationState === "invalid" ? (
+        <div className="mt-5 rounded-2xl border border-amber-200 bg-[#FFF4DC] p-4 text-sm leading-7 text-[#7A4A33]">
+          This invitation link is expired, revoked, or otherwise
+          unavailable. You can still create a Deedlight account
+          normally.
+        </div>
+      ) : null}
+
+      {message ? (
+        <p className="mt-4 rounded-2xl bg-[#F4FBF1] p-3 text-sm font-semibold text-[#476642]">
+          {message}
+        </p>
+      ) : null}
+
+      {error ? (
+        <p className="mt-4 whitespace-pre-wrap rounded-2xl bg-[#FFF4DC] p-3 text-sm font-semibold text-[#8D381D]">
+          {error}
+        </p>
+      ) : null}
 
       <form onSubmit={handleSubmit} className="mt-7 space-y-4">
+        {inviteCode ? (
+          <input
+            type="hidden"
+            name="invite_code"
+            value={inviteCode}
+          />
+        ) : null}
+
         <label className="block text-sm font-bold text-[#5F5548]">
           Display name
-          <input className="mt-2 w-full rounded-2xl border border-[rgba(217,164,65,0.25)] bg-white px-4 py-3 outline-none focus:border-[#D9A441]" name="display_name" type="text" autoComplete="name" required />
+          <input
+            className="mt-2 w-full rounded-2xl border border-[rgba(217,164,65,0.25)] bg-white px-4 py-3 outline-none focus:border-[#D9A441]"
+            name="display_name"
+            type="text"
+            autoComplete="name"
+            required
+          />
         </label>
+
         <label className="block text-sm font-bold text-[#5F5548]">
           Email
-          <input className="mt-2 w-full rounded-2xl border border-[rgba(217,164,65,0.25)] bg-white px-4 py-3 outline-none focus:border-[#D9A441]" name="email" type="email" autoComplete="email" required />
+          <input
+            className="mt-2 w-full rounded-2xl border border-[rgba(217,164,65,0.25)] bg-white px-4 py-3 outline-none focus:border-[#D9A441]"
+            name="email"
+            type="email"
+            autoComplete="email"
+            required
+          />
         </label>
+
         <label className="block text-sm font-bold text-[#5F5548]">
           Password
-          <input className="mt-2 w-full rounded-2xl border border-[rgba(217,164,65,0.25)] bg-white px-4 py-3 outline-none focus:border-[#D9A441]" name="password" type="password" autoComplete="new-password" required minLength={8} />
+          <input
+            className="mt-2 w-full rounded-2xl border border-[rgba(217,164,65,0.25)] bg-white px-4 py-3 outline-none focus:border-[#D9A441]"
+            name="password"
+            type="password"
+            autoComplete="new-password"
+            required
+            minLength={8}
+          />
         </label>
-        <button disabled={isSubmitting} className="focus-ring w-full rounded-full bg-[#D9A441] px-6 py-3 font-extrabold text-[#26231F] shadow-[0_10px_25px_rgba(217,164,65,0.30)] disabled:cursor-not-allowed disabled:opacity-60" type="submit">
+
+        <label className="flex items-start gap-3 rounded-2xl border border-[rgba(217,164,65,0.22)] bg-[#FFF8EA] p-4 text-sm text-[#5F5548]">
+          <input
+            className="mt-1 h-4 w-4 accent-[#D9A441]"
+            type="checkbox"
+            name="newsletter_weekly_opt_in"
+          />
+          <span>
+            <span className="block font-extrabold text-[#26231F]">
+              Keep my future Weekly Goodness newsletter preference on
+            </span>
+            <span className="mt-1 block leading-6">
+              Optional and off by default. Delivery is not active
+              yet. You can revoke this consent at any time in
+              newsletter settings.
+            </span>
+          </span>
+        </label>
+
+        <button
+          disabled={isSubmitting}
+          className="focus-ring w-full rounded-full bg-[#D9A441] px-6 py-3 font-extrabold text-[#26231F] shadow-[0_10px_25px_rgba(217,164,65,0.30)] disabled:cursor-not-allowed disabled:opacity-60"
+          type="submit"
+        >
           {isSubmitting ? "Creating account…" : "Begin My Journey"}
         </button>
       </form>
 
-      <p className="mt-6 text-center text-sm text-[#7C715F]">
-        Already have an account? <Link className="font-extrabold text-[#8D681D]" href="/login">Sign in</Link>
+      <p className="mt-5 text-center text-xs leading-6 text-[#7C715F]">
+        By creating an account, your account email remains private.
+        See the{" "}
+        <Link className="font-bold text-[#8D681D]" href="/privacy">
+          privacy summary
+        </Link>
+        .
       </p>
+
+      <p className="mt-6 text-center text-sm text-[#7C715F]">
+        Already have an account?{" "}
+        <Link className="font-extrabold text-[#8D681D]" href="/login">
+          Sign in
+        </Link>
+      </p>
+
       <p className="mt-3 text-center text-xs text-[#7C715F]">
-        Debug: <Link className="font-bold text-[#8D681D]" href="/debug/auth">Auth check</Link>
+        Debug:{" "}
+        <Link className="font-bold text-[#8D681D]" href="/debug/auth">
+          Auth check
+        </Link>
       </p>
     </div>
   );
