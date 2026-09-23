@@ -62,6 +62,10 @@ CI must prove all of the following before the migration is considered ready:
 10. No external transport is invoked by tests or application code.
 11. TypeScript, Next.js build, dependency audit, and Cloudflare packaging remain green.
 
-## Production boundary
+## Production rollout
 
-No Sprint 12.2 database migration or transport activation is authorized by creating this branch. Production remains unchanged until the feature branch, CI evidence, migration review, and production rollout gate are complete.
+Migration 019 was applied to the Deedlight production database on 23 September 2026 through a temporary guarded workflow using the scoped landing-audit credential. The workflow first proved the expected Sprint 12.1 production baseline, then applied the exact migration file and verified the resulting privilege model.
+
+Production verification confirmed that `delivery_ledger` exists with RLS enabled and zero rows; `anon` and `authenticated` have no ledger DML privileges; `service_role` has the required ledger and delivery-RPC privileges; direct authenticated reminder `INSERT` / `UPDATE` privileges are removed; the authenticated reminder RPC remains available; delivery enqueue/claim/authorization RPCs remain unavailable to authenticated clients; and the reminder and pre-transport authorization RPCs are security-definer functions. Invalid-timezone behavior was also exercised inside a rollback-only production transaction.
+
+This database rollout does **not** activate delivery. No provider, provider credential, Cloudflare Cron Trigger, scheduler, email/SMS/push transport, or outbound delivery worker is introduced by Sprint 12.2. Application landing and production smoke verification remain separate rollout gates before the sprint completion tag.
