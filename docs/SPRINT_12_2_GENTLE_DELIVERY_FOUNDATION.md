@@ -17,7 +17,7 @@ The repository already has two explicit opt-in foundations, but no outbound tran
 
 Reminder preference writes are still direct authenticated table `INSERT` / `UPDATE` operations. The server action validates IANA timezones, but the database policy itself only protects ownership/suspension and does not independently validate that the timezone exists in PostgreSQL's timezone catalog.
 
-A future scheduler must not trust a queued row as continuing authority. Consent can be revoked and a member can become suspended after a job is queued or claimed. Delivery therefore needs a second authorization check immediately before any external transport.
+A future scheduler must not trust a queued or claimed row as continuing authority. Consent can be revoked and a member can become suspended after a job is queued or claimed. Claiming therefore grants no delivery authority; current authorization must be checked immediately before any external transport.
 
 ## Sprint 12.2 scope
 
@@ -28,9 +28,10 @@ This increment will build transport-neutral, fail-closed delivery readiness with
 3. Add deterministic enqueue functions for due daily reminders and explicitly identified Weekly Goodness issues.
 4. Exclude suspended members and, for newsletter jobs, users without a confirmed account email.
 5. Deduplicate queue entries by `(kind, user_id, delivery_key)`.
-6. Re-check current consent/suspension when jobs are claimed and again immediately before a future transport send. Revoked authorization cancels the job instead of silently proceeding.
+6. Treat a claim token only as concurrency control, not authorization. Re-check current consent/suspension immediately before any future transport send; revoked authorization cancels the job instead of silently proceeding.
 7. Keep recipient email addresses and all member content out of the delivery ledger.
 8. Add explicit CI tests for browser privilege denial, timezone validation, opt-in filtering, suspension filtering, deduplication, stale-authorization cancellation, and terminal-state transitions.
+9. Mirror migration 019 into `supabase/run_in_sql_editor_all.sql` so the repository's manual fresh-environment SQL path remains aligned with the incremental migration history.
 
 ## Explicit exclusions
 
