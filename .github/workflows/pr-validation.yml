@@ -46,8 +46,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Fail closed on critical production dependency advisories
-        run: npm audit --omit=dev --audit-level=critical
+      - name: Sprint 12.1 security assertions
+        run: node scripts/verify-sprint12-1-security.mjs
+
+      - name: Fail closed on high or critical production dependency advisories
+        run: npm audit --omit=dev --audit-level=high
 
       - name: TypeScript check
         run: npx tsc --noEmit
