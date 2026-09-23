@@ -26,9 +26,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -n "${SUPABASE_ACCESS_TOKEN:-}"
-          test -n "${SUPABASE_DB_PASSWORD:-}"
-          test -n "${SUPABASE_PROJECT_REF:-}"
+          missing=0
+          for name in SUPABASE_ACCESS_TOKEN SUPABASE_DB_PASSWORD SUPABASE_PROJECT_REF; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Missing GitHub secret: ${name}"
+              missing=1
+            fi
+          done
+          test "$missing" -eq 0
           test "${GITHUB_REF_NAME}" = "delivery-reliability-hardening"
 
       - name: Setup Supabase CLI
