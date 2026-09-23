@@ -1,0 +1,155 @@
+name: Sprint 12.2 Production Migration
+
+on:
+  push:
+    branches: [sprint-12-2-gentle-delivery-foundation]
+    paths:
+      - .github/workflows/sprint12-2-production-migration.yml
+
+permissions:
+  contents: read
+
+jobs:
+  migrate_and_verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: sprint-12-2-gentle-delivery-foundation
+          fetch-depth: 0
+
+      - name: Fail closed on target and credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = 'sprint-12-2-gentle-delivery-foundation'
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          test -n "${SUPABASE_DB_PASSWORD:-}"
+          test "${SUPABASE_PROJECT_REF:-}" = 'xaipiovflxomcbfwtwmu'
+          test -f supabase/migrations/202609230019_sprint12_2_gentle_delivery_foundation.sql
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link production project
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "${SUPABASE_PROJECT_REF}"
+
+      - name: Prove migration 019 is the only pending migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          dry_run="$(supabase db push --dry-run 2>&1)"
+          printf '%s\n' "${dry_run}"
+
+          mapfile -t pending < <(
+            printf '%s\n' "${dry_run}" \
+              | grep -oE '[0-9]{12}_[A-Za-z0-9._-]+\.sql' \
+              | sort -u \
+              || true
+          )
+
+          if [ "${#pending[@]}" -ne 1 ] || [ "${pending[0]:-}" != '202609230019_sprint12_2_gentle_delivery_foundation.sql' ]; then
+            echo "Refusing production mutation: expected migration 019 to be the only pending migration." >&2
+            printf 'Observed pending migration filenames: %s\n' "${pending[*]:-<none>}" >&2
+            exit 1
+          fi
+
+      - name: Apply migration 019
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase db push --yes
+
+      - name: Verify production schema and privileges
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          read -r -d '' QUERY <<'SQL' || true
+          select jsonb_build_object(
+            'ledger_exists', to_regclass('public.delivery_ledger') is not null,
+            'ledger_rls', (
+              select c.relrowsecurity
+              from pg_catalog.pg_class c
+              where c.oid = to_regclass('public.delivery_ledger')
+            ),
+            'anon_ledger_dml', has_table_privilege('anon', 'public.delivery_ledger', 'select,insert,update,delete'),
+            'authenticated_ledger_dml', has_table_privilege('authenticated', 'public.delivery_ledger', 'select,insert,update,delete'),
+            'service_role_ledger_dml', has_table_privilege('service_role', 'public.delivery_ledger', 'select,insert,update,delete'),
+            'authenticated_direct_reminder_write', has_table_privilege('authenticated', 'public.daily_reminder_preferences', 'insert,update'),
+            'authenticated_reminder_rpc', has_function_privilege('authenticated', 'public.set_daily_reminder_preference(boolean,time without time zone,text)', 'execute'),
+            'anon_reminder_rpc', has_function_privilege('anon', 'public.set_daily_reminder_preference(boolean,time without time zone,text)', 'execute'),
+            'authenticated_enqueue_daily', has_function_privilege('authenticated', 'public.enqueue_due_daily_reminders(timestamp with time zone,integer)', 'execute'),
+            'authenticated_enqueue_weekly', has_function_privilege('authenticated', 'public.enqueue_weekly_goodness_delivery(date,timestamp with time zone,integer)', 'execute'),
+            'authenticated_claim', has_function_privilege('authenticated', 'public.claim_delivery_jobs(timestamp with time zone,integer)', 'execute'),
+            'authenticated_authorize', has_function_privilege('authenticated', 'public.authorize_delivery_job(uuid,uuid)', 'execute'),
+            'service_role_enqueue_daily', has_function_privilege('service_role', 'public.enqueue_due_daily_reminders(timestamp with time zone,integer)', 'execute'),
+            'service_role_enqueue_weekly', has_function_privilege('service_role', 'public.enqueue_weekly_goodness_delivery(date,timestamp with time zone,integer)', 'execute'),
+            'service_role_claim', has_function_privilege('service_role', 'public.claim_delivery_jobs(timestamp with time zone,integer)', 'execute'),
+            'service_role_authorize', has_function_privilege('service_role', 'public.authorize_delivery_job(uuid,uuid)', 'execute'),
+            'reminder_rpc_security_definer', (
+              select p.prosecdef
+              from pg_catalog.pg_proc p
+              where p.oid = 'public.set_daily_reminder_preference(boolean,time without time zone,text)'::regprocedure
+            ),
+            'authorize_rpc_security_definer', (
+              select p.prosecdef
+              from pg_catalog.pg_proc p
+              where p.oid = 'public.authorize_delivery_job(uuid,uuid)'::regprocedure
+            ),
+            'ledger_rows', (select count(*) from public.delivery_ledger)
+          ) as result;
+          SQL
+
+          payload="$(jq -n --arg query "${QUERY}" '{query:$query}')"
+          response="$(curl --fail-with-body --silent --show-error \
+            --request POST \
+            --url "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/database/query" \
+            --header "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            --header 'Content-Type: application/json' \
+            --data "${payload}")"
+
+          printf '%s\n' "${response}" | jq .
+
+          result="$(printf '%s\n' "${response}" | jq -c '.[0].result')"
+          test "$(printf '%s' "${result}" | jq -r '.ledger_exists')" = 'true'
+          test "$(printf '%s' "${result}" | jq -r '.ledger_rls')" = 'true'
+          test "$(printf '%s' "${result}" | jq -r '.anon_ledger_dml')" = 'false'
+          test "$(printf '%s' "${result}" | jq -r '.authenticated_ledger_dml')" = 'false'
+          test "$(printf '%s' "${result}" | jq -r '.service_role_ledger_dml')" = 'true'
+          test "$(printf '%s' "${result}" | jq -r '.authenticated_direct_reminder_write')" = 'false'
+          test "$(printf '%s' "${result}" | jq -r '.authenticated_reminder_rpc')" = 'true'
+          test "$(printf '%s' "${result}" | jq -r '.anon_reminder_rpc')" = 'false'
+          test "$(printf '%s' "${result}" | jq -r '.authenticated_enqueue_daily')" = 'false'
+          test "$(printf '%s' "${result}" | jq -r '.authenticated_enqueue_weekly')" = 'false'
+          test "$(printf '%s' "${result}" | jq -r '.authenticated_claim')" = 'false'
+          test "$(printf '%s' "${result}" | jq -r '.authenticated_authorize')" = 'false'
+          test "$(printf '%s' "${result}" | jq -r '.service_role_enqueue_daily')" = 'true'
+          test "$(printf '%s' "${result}" | jq -r '.service_role_enqueue_weekly')" = 'true'
+          test "$(printf '%s' "${result}" | jq -r '.service_role_claim')" = 'true'
+          test "$(printf '%s' "${result}" | jq -r '.service_role_authorize')" = 'true'
+          test "$(printf '%s' "${result}" | jq -r '.reminder_rpc_security_definer')" = 'true'
+          test "$(printf '%s' "${result}" | jq -r '.authorize_rpc_security_definer')" = 'true'
+          test "$(printf '%s' "${result}" | jq -r '.ledger_rows')" = '0'
+
+      - name: Verify migration is no longer pending
+        shell: bash
+        run: |
+          set -euo pipefail
+          post="$(supabase db push --dry-run 2>&1)"
+          printf '%s\n' "${post}"
+          if printf '%s\n' "${post}" | grep -Fq '202609230019_sprint12_2_gentle_delivery_foundation.sql'; then
+            echo 'Migration 019 still appears pending after production push.' >&2
+            exit 1
+          fi
