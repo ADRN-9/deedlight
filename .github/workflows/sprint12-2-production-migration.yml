@@ -32,21 +32,19 @@ jobs:
           test "${SUPABASE_PROJECT_REF}" = 'xaipiovflxomcbfwtwmu'
           test -f supabase/migrations/202609230019_sprint12_2_gentle_delivery_foundation.sql
 
-      - name: Inspect production migration metadata
+      - name: Inspect production database baseline
         shell: bash
         run: |
           set -euo pipefail
 
           read -r -d '' QUERY <<'SQL' || true
-          select
-            c.ordinal_position,
-            c.column_name,
-            c.data_type,
-            c.is_nullable
-          from information_schema.columns c
-          where c.table_schema = 'supabase_migrations'
-            and c.table_name = 'schema_migrations'
-          order by c.ordinal_position;
+          select jsonb_build_object(
+            'current_user', current_user,
+            'migration_relation', to_regclass('supabase_migrations.schema_migrations')::text,
+            'delivery_ledger', to_regclass('public.delivery_ledger')::text,
+            'reminder_rpc', to_regprocedure('public.set_daily_reminder_preference(boolean,time without time zone,text)')::text,
+            'remove_rpc', to_regprocedure('public.remove_own_offering(uuid)')::text
+          ) as result;
           SQL
 
           payload="$(jq -n --arg query "${QUERY}" '{query:$query}')"
