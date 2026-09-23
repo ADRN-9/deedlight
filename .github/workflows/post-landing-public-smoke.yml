@@ -1,0 +1,33 @@
+name: Post-Landing Public Smoke
+
+on:
+  push:
+    branches: [hotfix-cloudflare-native-deploy-only]
+    paths:
+      - .github/workflows/post-landing-public-smoke.yml
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify public production surfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://deedlight.com'
+          check_200() {
+            local path="$1"
+            local code
+            code="$(curl --silent --show-error --location --max-time 20 --output /dev/null --write-out '%{http_code}' "${base}${path}")"
+            echo "${path} -> ${code}"
+            test "$code" = '200'
+          }
+          check_200 '/api/health'
+          check_200 '/offerings'
+          check_200 '/offerings?type=quiet_goodness'
+          check_200 '/today'
+          echo 'PUBLIC_PRODUCTION_SMOKE=success'
