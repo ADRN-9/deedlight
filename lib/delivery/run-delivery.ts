@@ -19,9 +19,15 @@ export async function processClaimedDelivery(input: {
   gateway: DeliveryGateway;
   recipientResolver: DeliveryRecipientResolver;
   transport: DeliveryTransport;
-  now: Date;
+  clock?: () => Date;
 }): Promise<DeliveryProcessingResult> {
-  const { job, gateway, recipientResolver, transport, now } = input;
+  const {
+    job,
+    gateway,
+    recipientResolver,
+    transport,
+    clock = () => new Date(),
+  } = input;
 
   if (!(await gateway.authorize(job))) {
     return "cancelled";
@@ -40,9 +46,13 @@ export async function processClaimedDelivery(input: {
   }
 
   const firstTransportAt = await gateway.beginTransport(job);
-  const elapsed = now.getTime() - firstTransportAt.getTime();
+  const decisionNow = clock();
+  const elapsed = Math.max(
+    0,
+    decisionNow.getTime() - firstTransportAt.getTime(),
+  );
 
-  if (elapsed < 0 || elapsed >= PROVIDER_IDEMPOTENCY_SAFETY_MS) {
+  if (elapsed >= PROVIDER_IDEMPOTENCY_SAFETY_MS) {
     await gateway.markFailed(job, "provider_idempotency_window_expired");
     return "failed";
   }
@@ -59,8 +69,11 @@ export async function processClaimedDelivery(input: {
     return "failed";
   }
 
-  const retryAt = new Date(now.getTime() + RETRY_DELAY_MS);
-  if (retryAt.getTime() >= firstTransportAt.getTime() + PROVIDER_IDEMPOTENCY_SAFETY_MS) {
+  const retryAt = new Date(decisionNow.getTime() + RETRY_DELAY_MS);
+  if (
+    retryAt.getTime() >=
+    firstTransportAt.getTime() + PROVIDER_IDEMPOTENCY_SAFETY_MS
+  ) {
     await gateway.markFailed(job, "provider_idempotency_window_expired");
     return "failed";
   }
