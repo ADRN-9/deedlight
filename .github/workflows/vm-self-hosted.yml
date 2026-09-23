@@ -1,0 +1,76 @@
+name: VM Self-Hosted Validation
+
+on:
+  push:
+    branches: [sprint-12-1-offering-ownership-engagement]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vm-self-hosted-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-vm:
+    runs-on: [self-hosted, linux, x64, deedlight-dev]
+    timeout-minutes: 20
+    env:
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-not-a-secret
+    steps:
+      - name: Fail closed before checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "sprint-12-1-offering-ownership-engagement"
+          test "${NEXT_PUBLIC_SITE_URL}" != "https://deedlight.com"
+          test -z "${CLOUDFLARE_API_TOKEN:-}"
+          test -z "${CLOUDFLARE_ACCOUNT_ID:-}"
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}"
+          test -z "${SUPABASE_ACCESS_TOKEN:-}"
+          test -z "${SUPABASE_DB_PASSWORD:-}"
+          test -z "${SUPABASE_PROJECT_REF:-}"
+
+      - name: Runner identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'runner=%s\n' "${RUNNER_NAME}"
+          printf 'os=%s arch=%s\n' "${RUNNER_OS}" "${RUNNER_ARCH}"
+          hostname
+          uname -a
+
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: sprint-12-1-offering-ownership-engagement
+          fetch-depth: 0
+          clean: true
+          persist-credentials: false
+
+      - name: Verify checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git branch --show-current)" = "sprint-12-1-offering-ownership-engagement"
+          git status --short
+          git rev-parse HEAD
+          git remote -v
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Production build with non-production configuration
+        run: npm run build
