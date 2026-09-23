@@ -162,4 +162,4 @@ jobs:
             --port 5432 \
             --username postgres \
             --dbname deedlight_reliability_test \
-            --file scripts/test-delivery-reliability.sql
+            --file scripts/test-delivery-reliability-terminals.sql
