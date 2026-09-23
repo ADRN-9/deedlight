@@ -63,6 +63,18 @@ jobs:
       - name: Production build with non-production configuration
         run: npm run build
 
+      - name: Restore generated build files
+        shell: bash
+        run: |
+          set -euo pipefail
+          for generated in next-env.d.ts tsconfig.tsbuildinfo; do
+            if git ls-files --error-unmatch "$generated" >/dev/null 2>&1; then
+              git restore --source=HEAD --worktree -- "$generated"
+            else
+              rm -f -- "$generated"
+            fi
+          done
+
       - name: Verify dependency-only diff
         shell: bash
         run: |
