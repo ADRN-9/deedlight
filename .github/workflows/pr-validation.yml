@@ -55,6 +55,9 @@ jobs:
       - name: Sprint 12.2 delivery security assertions
         run: node scripts/verify-sprint12-2-delivery-security.mjs
 
+      - name: Delivery reliability security assertions
+        run: node scripts/verify-delivery-reliability.mjs
+
       - name: Fail closed on high or critical dependency advisories
         run: npm audit --audit-level=high
 
@@ -113,3 +116,50 @@ jobs:
             --username postgres \
             --dbname deedlight_test \
             --file scripts/test-sprint12-2-delivery.sql
+
+  delivery_reliability_database_behavior:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: deedlight_reliability_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d deedlight_reliability_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGPASSWORD: postgres
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fail closed on production configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "${CLOUDFLARE_API_TOKEN:-}"
+          test -z "${CLOUDFLARE_ACCOUNT_ID:-}"
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}"
+          test -z "${SUPABASE_ACCESS_TOKEN:-}"
+          test -z "${SUPABASE_DB_PASSWORD:-}"
+          test -z "${SUPABASE_PROJECT_REF:-}"
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Run delivery reliability database behavior tests
+        run: |
+          psql \
+            --host 127.0.0.1 \
+            --port 5432 \
+            --username postgres \
+            --dbname deedlight_reliability_test \
+            --file scripts/test-delivery-reliability.sql
