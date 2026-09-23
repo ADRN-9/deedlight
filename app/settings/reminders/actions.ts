@@ -16,66 +16,43 @@ export async function updateReminderPreferenceAction(
     );
   }
 
-  const { supabase, user } = await requireSignedIn(
+  const { supabase } = await requireSignedIn(
     "/settings/reminders",
   );
 
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("is_suspended")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  if (profileError) {
-    console.error(
-      "[updateReminderPreferenceAction] profile lookup failed",
-      profileError,
-    );
-
-    redirect(
-      "/settings/reminders?error=" +
-        encodeURIComponent(
-          "Reminder settings could not be verified. Please try again.",
-        ),
-    );
-  }
-
-  if (
-    profile?.is_suspended === true &&
-    parsed.data.dailyEnabled
-  ) {
-    redirect(
-      "/settings/reminders?error=" +
-        encodeURIComponent(
-          "While community access is suspended, reminders can be turned off but cannot be enabled.",
-        ),
-    );
-  }
-
-  const { error } = await supabase
-    .from("daily_reminder_preferences")
-    .upsert(
-      {
-        user_id: user.id,
-        daily_enabled: parsed.data.dailyEnabled,
-        reminder_time: `${parsed.data.reminderTime}:00`,
-        timezone: parsed.data.timezone,
-      },
-      {
-        onConflict: "user_id",
-      },
-    );
+  const { data, error } = await supabase.rpc(
+    "set_daily_reminder_preference",
+    {
+      p_enabled: parsed.data.dailyEnabled,
+      p_reminder_time: `${parsed.data.reminderTime}:00`,
+      p_timezone: parsed.data.timezone,
+    },
+  );
 
   if (error) {
     console.error(
-      "[updateReminderPreferenceAction] upsert failed",
+      "[updateReminderPreferenceAction] preference RPC failed",
       error,
     );
 
+    const message =
+      error.code === "42501" && parsed.data.dailyEnabled
+        ? "While community access is suspended, reminders can be turned off but cannot be enabled."
+        : error.code === "22023"
+          ? "Your reminder time or timezone is no longer valid. Please review it and try again."
+          : "Your reminder preference could not be saved. Please try again.";
+
+    redirect(
+      "/settings/reminders?error=" +
+        encodeURIComponent(message),
+    );
+  }
+
+  if (data !== parsed.data.dailyEnabled) {
     redirect(
       "/settings/reminders?error=" +
         encodeURIComponent(
-          "Your reminder preference could not be saved. Please try again.",
+          "Your reminder preference could not be verified.",
         ),
     );
   }
