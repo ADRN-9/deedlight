@@ -1,8 +1,6 @@
 name: VM Self-Hosted Validation
 
 on:
-  push:
-    branches: [sprint-12-1-offering-ownership-engagement]
   workflow_dispatch:
 
 permissions:
