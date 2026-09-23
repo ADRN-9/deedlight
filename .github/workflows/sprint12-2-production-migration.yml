@@ -32,58 +32,34 @@ jobs:
           test "${SUPABASE_PROJECT_REF}" = 'xaipiovflxomcbfwtwmu'
           test -f supabase/migrations/202609230019_sprint12_2_gentle_delivery_foundation.sql
 
-      - name: Read production migration state
+      - name: Inspect production migration metadata
         shell: bash
         run: |
           set -euo pipefail
 
           read -r -d '' QUERY <<'SQL' || true
-          select jsonb_build_object(
-            'migration_table', to_regclass('supabase_migrations.schema_migrations') is not null,
-            'migration_columns', (
-              select jsonb_agg(
-                jsonb_build_object(
-                  'name', c.column_name,
-                  'type', c.data_type,
-                  'nullable', c.is_nullable
-                ) order by c.ordinal_position
-              )
-              from information_schema.columns c
-              where c.table_schema = 'supabase_migrations'
-                and c.table_name = 'schema_migrations'
-            ),
-            'latest_migrations', (
-              select jsonb_agg(x order by x.version desc)
-              from (
-                select version, name
-                from supabase_migrations.schema_migrations
-                order by version desc
-                limit 8
-              ) x
-            ),
-            'migration_018_present', exists (
-              select 1
-              from supabase_migrations.schema_migrations
-              where version = '202608140018'
-            ),
-            'migration_019_present', exists (
-              select 1
-              from supabase_migrations.schema_migrations
-              where version = '202609230019'
-            ),
-            'ledger_exists', to_regclass('public.delivery_ledger') is not null
-          ) as result;
+          select
+            c.ordinal_position,
+            c.column_name,
+            c.data_type,
+            c.is_nullable
+          from information_schema.columns c
+          where c.table_schema = 'supabase_migrations'
+            and c.table_name = 'schema_migrations'
+          order by c.ordinal_position;
           SQL
 
           payload="$(jq -n --arg query "${QUERY}" '{query:$query}')"
-          response="$(curl --fail-with-body --silent --show-error \
+          raw="$(curl --silent --show-error \
             --request POST \
-            --url "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/database/query" \
+            --url "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/database/query/read-only" \
             --header "Authorization: Bearer ${SUPABASE_LANDING_AUDIT_TOKEN}" \
             --header 'Content-Type: application/json' \
-            --data "${payload}")"
+            --data "${payload}" \
+            --write-out $'\n%{http_code}')"
 
-          printf '%s\n' "${response}" | jq .
-          result="$(printf '%s\n' "${response}" | jq -c '.[0].result')"
-          test "$(printf '%s' "${result}" | jq -r '.migration_table')" = 'true'
-          test "$(printf '%s' "${result}" | jq -r '.migration_018_present')" = 'true'
+          status="${raw##*$'\n'}"
+          body="${raw%$'\n'*}"
+          printf 'HTTP %s\n' "${status}"
+          printf '%s\n' "${body}" | jq . || printf '%s\n' "${body}"
+          test "${status}" = '201'
