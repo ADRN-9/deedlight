@@ -1,0 +1,80 @@
+name: Sprint 12.1 Dependency Hotfix
+
+on:
+  push:
+    branches: [sprint-12-1-offering-ownership-engagement]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sprint-12-1-dependency-hotfix-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-not-a-secret
+    steps:
+      - name: Fail closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "sprint-12-1-offering-ownership-engagement"
+          test "${NEXT_PUBLIC_SITE_URL}" != "https://deedlight.com"
+          test -z "${CLOUDFLARE_API_TOKEN:-}"
+          test -z "${CLOUDFLARE_ACCOUNT_ID:-}"
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}"
+          test -z "${SUPABASE_ACCESS_TOKEN:-}"
+          test -z "${SUPABASE_DB_PASSWORD:-}"
+          test -z "${SUPABASE_PROJECT_REF:-}"
+
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: sprint-12-1-offering-ownership-engagement
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Upgrade Next.js to patched release
+        run: npm install --save-exact next@16.3.6
+
+      - name: Fail closed on high or critical production advisories
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Production build with non-production configuration
+        run: npm run build
+
+      - name: Verify dependency-only diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          changed="$(git status --short | awk '{print $2}' | sort)"
+          expected="$(printf '%s\n' package-lock.json package.json | sort)"
+          test "$changed" = "$expected"
+
+      - name: Commit patched dependency lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          git commit -m "fix: upgrade Next.js for production security advisories"
+          git push origin HEAD:sprint-12-1-offering-ownership-engagement
