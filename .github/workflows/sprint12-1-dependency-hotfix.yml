@@ -68,9 +68,17 @@ jobs:
         run: |
           set -euo pipefail
           git diff --check
-          changed="$(git status --short | awk '{print $2}' | sort)"
-          expected="$(printf '%s\n' package-lock.json package.json | sort)"
-          test "$changed" = "$expected"
+          mapfile -t changed < <(git status --porcelain=v1 --untracked-files=all | cut -c4- | sort -u)
+          printf 'changed dependency paths:\n'
+          printf ' - %s\n' "${changed[@]}"
+          test "${#changed[@]}" -ge 1
+          for path in "${changed[@]}"; do
+            case "$path" in
+              package.json|package-lock.json) ;;
+              *) echo "Unexpected changed path: $path" >&2; exit 1 ;;
+            esac
+          done
+          printf '%s\n' "${changed[@]}" | grep -qx 'package-lock.json'
 
       - name: Commit patched dependency lock
         shell: bash
