@@ -4,6 +4,10 @@ import test from "node:test";
 import { parseDeliveryRuntimeConfig } from "../lib/delivery/config.ts";
 import { createResendTransport } from "../lib/delivery/resend-transport.ts";
 import { processClaimedDelivery } from "../lib/delivery/run-delivery.ts";
+import {
+  DAILY_DELIVERY_CRON,
+  runScheduledDelivery,
+} from "../lib/delivery/scheduler.ts";
 
 const job = {
   jobId: "11111111-1111-1111-1111-111111111111",
@@ -13,6 +17,16 @@ const job = {
   scheduledFor: "2026-09-23T15:00:00.000Z",
   claimToken: "33333333-3333-3333-3333-333333333333",
 };
+
+const weeklyJob = {
+  ...job,
+  jobId: "44444444-4444-4444-4444-444444444444",
+  kind: "weekly_newsletter",
+  deliveryKey: "weekly:2026-09-21",
+};
+
+const fixedNow = new Date("2026-09-23T20:00:00.000Z");
+const fixedClock = () => new Date(fixedNow);
 
 function runtimeEnv(overrides = {}) {
   return {
@@ -41,7 +55,7 @@ function fakeGateway(options = {}) {
       },
       async beginTransport() {
         events.push("begin");
-        return options.firstTransportAt ?? new Date("2026-09-23T20:00:00.000Z");
+        return options.firstTransportAt ?? new Date(fixedNow);
       },
       async markSent(_job, id) {
         events.push(`sent:${id}`);
@@ -65,7 +79,25 @@ test("enabled delivery fails closed on missing secrets and unsupported provider"
   assert.throws(() => parseDeliveryRuntimeConfig(runtimeEnv({ DELIVERY_PROVIDER: "other" })), /Unsupported/);
 });
 
-test("Resend transport uses stable idempotency and generic content", async () => {
+test("disabled scheduler performs no work and unknown schedules are ignored", async () => {
+  const disabled = await runScheduledDelivery(
+    { DELIVERY_ENABLED: "false" },
+    { cron: DAILY_DELIVERY_CRON, scheduledTime: fixedNow.getTime() },
+  );
+  assert.equal(disabled.enabled, false);
+  assert.equal(disabled.claimed, 0);
+  assert.equal(disabled.sent, 0);
+
+  const ignored = await runScheduledDelivery(
+    runtimeEnv(),
+    { cron: "17 4 * * *", scheduledTime: fixedNow.getTime() },
+  );
+  assert.equal(ignored.enabled, true);
+  assert.equal(ignored.ignored, true);
+  assert.equal(ignored.claimed, 0);
+});
+
+test("Resend transport uses stable idempotency and generic daily content", async () => {
   const calls = [];
   const transport = createResendTransport(
     { apiKey: "re_test", fromEmail: "Deedlight <hello@example.com>", siteOrigin: "https://deedlight.example" },
@@ -83,6 +115,23 @@ test("Resend transport uses stable idempotency and generic content", async () =>
   assert.deepEqual(payload.to, ["member@example.com"]);
   assert.match(payload.text, /settings\/reminders/);
   assert.doesNotMatch(payload.text, new RegExp(job.userId));
+});
+
+test("weekly transport uses the weekly preference route and a distinct idempotency key", async () => {
+  let captured;
+  const transport = createResendTransport(
+    { apiKey: "re_test", fromEmail: "Deedlight <hello@example.com>", siteOrigin: "https://deedlight.example" },
+    async (_url, init) => {
+      captured = init;
+      return new Response(JSON.stringify({ id: "provider-weekly" }), { status: 200 });
+    },
+  );
+
+  await transport.send(weeklyJob, { email: "member@example.com" });
+  assert.equal(captured.headers["Idempotency-Key"], `deedlight/${weeklyJob.kind}/${weeklyJob.jobId}`);
+  const payload = JSON.parse(captured.body);
+  assert.match(payload.text, /settings\/newsletter/);
+  assert.match(payload.text, /\/weekly/);
 });
 
 test("Resend transport classifies retryable, permanent and ambiguous responses", async () => {
@@ -105,7 +154,7 @@ test("revocation before recipient lookup prevents transport", async () => {
     gateway,
     recipientResolver: { async resolve() { resolved = true; return { email: "a@b.com" }; } },
     transport: { async send() { sent = true; return { status: "sent", providerResultId: "x" }; } },
-    now: new Date("2026-09-23T20:00:00.000Z"),
+    clock: fixedClock,
   });
   assert.equal(result, "cancelled");
   assert.equal(resolved, false);
@@ -121,7 +170,7 @@ test("revocation after recipient lookup is checked again immediately before tran
     gateway,
     recipientResolver: { async resolve() { return { email: "a@b.com" }; } },
     transport: { async send() { sent = true; return { status: "sent", providerResultId: "x" }; } },
-    now: new Date("2026-09-23T20:00:00.000Z"),
+    clock: fixedClock,
   });
   assert.equal(result, "cancelled");
   assert.equal(sent, false);
@@ -136,10 +185,10 @@ test("temporary provider failure requeues while permanent failure terminates", a
       gateway,
       recipientResolver: { async resolve() { return { email: "a@b.com" }; } },
       transport: { async send() { return { status: "temporary_failure", errorCode: "provider_http_503" }; } },
-      now: new Date("2026-09-23T20:00:00.000Z"),
+      clock: fixedClock,
     });
     assert.equal(result, "retried");
-    assert(events.some((event) => event.startsWith("retry:provider_http_503:")));
+    assert(events.includes("retry:provider_http_503:2026-09-23T20:05:00.000Z"));
   }
   {
     const { gateway, events } = fakeGateway();
@@ -148,11 +197,26 @@ test("temporary provider failure requeues while permanent failure terminates", a
       gateway,
       recipientResolver: { async resolve() { return { email: "a@b.com" }; } },
       transport: { async send() { return { status: "permanent_failure", errorCode: "provider_http_400" }; } },
-      now: new Date("2026-09-23T20:00:00.000Z"),
+      clock: fixedClock,
     });
     assert.equal(result, "failed");
     assert(events.includes("failed:provider_http_400"));
   }
+});
+
+test("small database/worker clock skew does not fail a new transport attempt", async () => {
+  const { gateway, events } = fakeGateway({
+    firstTransportAt: new Date("2026-09-23T20:00:00.250Z"),
+  });
+  const result = await processClaimedDelivery({
+    job,
+    gateway,
+    recipientResolver: { async resolve() { return { email: "a@b.com" }; } },
+    transport: { async send() { return { status: "sent", providerResultId: "clock-safe" }; } },
+    clock: fixedClock,
+  });
+  assert.equal(result, "sent");
+  assert(events.includes("sent:clock-safe"));
 });
 
 test("ambiguous delivery older than the provider safety window never sends again", async () => {
@@ -163,7 +227,7 @@ test("ambiguous delivery older than the provider safety window never sends again
     gateway,
     recipientResolver: { async resolve() { return { email: "a@b.com" }; } },
     transport: { async send() { sent = true; return { status: "sent", providerResultId: "x" }; } },
-    now: new Date("2026-09-23T20:00:00.000Z"),
+    clock: fixedClock,
   });
   assert.equal(result, "failed");
   assert.equal(sent, false);
