@@ -24,7 +24,7 @@ jobs:
       DELIVERY_ENABLED: "false"
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Fail closed on production configuration
         shell: bash
@@ -42,7 +42,7 @@ jobs:
           test -z "${DELIVERY_FROM_EMAIL:-}"
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -100,7 +100,7 @@ jobs:
       PGPASSWORD: postgres
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Fail closed on production configuration
         shell: bash
@@ -148,7 +148,7 @@ jobs:
       PGPASSWORD: postgres
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Fail closed on production configuration
         shell: bash
@@ -196,7 +196,7 @@ jobs:
       PGPASSWORD: postgres
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Fail closed on production configuration
         shell: bash
