@@ -52,7 +52,7 @@ jobs:
           payload="$(jq -n --arg query "${QUERY}" '{query:$query}')"
           raw="$(curl --silent --show-error \
             --request POST \
-            --url "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/database/query/read-only" \
+            --url "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/database/query" \
             --header "Authorization: Bearer ${SUPABASE_LANDING_AUDIT_TOKEN}" \
             --header 'Content-Type: application/json' \
             --data "${payload}" \
