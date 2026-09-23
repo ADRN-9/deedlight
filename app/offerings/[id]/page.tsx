@@ -3,14 +3,14 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { notFound } from "next/navigation";
 import { CheckCircle2, Heart, MessageCircle, Sparkles } from "lucide-react";
+import { OfferingOwnerMenu } from "@/components/offerings/offering-owner-menu";
+import { OfferingSaveButton } from "@/components/offerings/offering-save-button";
+import { OfferingShareButton } from "@/components/offerings/offering-share-button";
 import { ReactionButtons } from "@/components/offerings/reaction-buttons";
 import { ReportOfferingForm } from "@/components/offerings/report-offering-form";
-import { ShareButton } from "@/components/share-button";
-import { getOffering } from "@/lib/data/offerings";
-import {
-  absoluteUrl,
-  cleanShareDescription,
-} from "@/lib/share/site";
+import { getMyOffering, getOffering } from "@/lib/data/offerings";
+import { getViewerSavedOfferingIds } from "@/lib/data/saved-lights";
+import { absoluteUrl, cleanShareDescription } from "@/lib/share/site";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -39,7 +39,6 @@ export async function generateMetadata({
     offering.body,
     "A Deedlight Offering.",
   );
-
   const canonical = absoluteUrl(`/offerings/${offering.id}`);
   const image = absoluteUrl(
     `/api/share/offering/${encodeURIComponent(offering.id)}`,
@@ -48,9 +47,7 @@ export async function generateMetadata({
   return {
     title: offering.title,
     description,
-    alternates: {
-      canonical,
-    },
+    alternates: { canonical },
     openGraph: {
       title: offering.title,
       description,
@@ -81,22 +78,38 @@ export default async function OfferingDetailPage({ params }: OfferingPageProps) 
 
   if (!offering) notFound();
 
-  const author = offering.is_anonymous ? "Anonymous Light" : offering.author_name || "Deedlight member";
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://deedlight.com";
-  const shareUrl = `${siteUrl.replace(/\/$/, "")}/offerings/${offering.id}`;
+  const [ownerOffering, savedState] = await Promise.all([
+    getMyOffering(id),
+    getViewerSavedOfferingIds([id]),
+  ]);
+
+  const isOwner = ownerOffering?.id === id;
+  const author = offering.is_anonymous
+    ? "Anonymous Light"
+    : offering.author_name || "Deedlight member";
 
   return (
     <section className="mx-auto max-w-5xl px-4 py-12 sm:px-6">
-      <Link href="/offerings" className="focus-ring mb-6 inline-flex rounded-full border border-[rgba(217,164,65,0.30)] bg-white px-5 py-3 text-sm font-extrabold text-[#26231F]">
-        ← Back to Offerings
-      </Link>
+      <div className="mb-6 flex items-center justify-between gap-3">
+        <Link
+          href="/offerings"
+          className="focus-ring inline-flex rounded-full border border-[rgba(217,164,65,0.30)] bg-white px-5 py-3 text-sm font-extrabold text-[#26231F]"
+        >
+          ← Back to Offerings
+        </Link>
+        {ownerOffering ? <OfferingOwnerMenu offering={ownerOffering} /> : null}
+      </div>
 
       <article className="deed-card overflow-hidden">
         {offering.media_url ? (
-          <div className="h-80 bg-cover bg-center" style={{ backgroundImage: `url(${offering.media_url})` }} />
+          <div
+            className="h-80 bg-cover bg-center"
+            style={{ backgroundImage: `url(${offering.media_url})` }}
+          />
         ) : (
           <div className="h-72 bg-[radial-gradient(circle_at_30%_15%,rgba(244,199,107,0.55),transparent_34%),linear-gradient(135deg,#FFF4DC,#F8EFE0)]" />
         )}
+
         <div className="p-6 sm:p-8">
           <div className="mb-4 flex flex-wrap gap-2">
             <span className="rounded-full bg-[#FFF4DC] px-3 py-1 text-xs font-extrabold uppercase tracking-[0.14em] text-[#8D681D]">
@@ -107,7 +120,13 @@ export default async function OfferingDetailPage({ params }: OfferingPageProps) 
                 {offering.theme_name}
               </span>
             ) : null}
+            {isOwner ? (
+              <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-extrabold uppercase tracking-[0.14em] text-emerald-800">
+                Your Offering
+              </span>
+            ) : null}
           </div>
+
           {!offering.is_anonymous && offering.author_username ? (
             <Link
               className="text-sm font-extrabold text-[#26231F] hover:text-[#8D681D]"
@@ -118,23 +137,47 @@ export default async function OfferingDetailPage({ params }: OfferingPageProps) 
           ) : (
             <p className="text-sm font-extrabold text-[#26231F]">{author}</p>
           )}
-          <h1 className="mt-3 font-[var(--font-heading)] text-4xl font-semibold leading-tight sm:text-5xl">{offering.title}</h1>
-          <p className="mt-6 whitespace-pre-line leading-8 text-[#5F5548]">{offering.body}</p>
+
+          <h1 className="mt-3 font-[var(--font-heading)] text-4xl font-semibold leading-tight sm:text-5xl">
+            {offering.title}
+          </h1>
+          <p className="mt-6 whitespace-pre-line leading-8 text-[#5F5548]">
+            {offering.body}
+          </p>
+
           {offering.takeaway ? (
             <div className="mt-7 rounded-3xl border border-[rgba(217,164,65,0.20)] bg-[#FFF8EA] p-5">
-              <p className="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8D681D]">Small deed others can try</p>
-              <p className="mt-2 font-bold leading-7 text-[#5F5548]">{offering.takeaway}</p>
+              <p className="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8D681D]">
+                Small deed others can try
+              </p>
+              <p className="mt-2 font-bold leading-7 text-[#5F5548]">
+                {offering.takeaway}
+              </p>
             </div>
           ) : null}
 
-          <div className="mt-7">
-            <ShareButton title={offering.title} text={offering.body ? offering.body.slice(0, 120) : "A Deedlight Offering"} url={shareUrl} label="Share this Offering" />
+          <div className="mt-7 flex flex-wrap items-start gap-3">
+            <OfferingSaveButton
+              offeringId={offering.id}
+              signedIn={savedState.signedIn}
+              initialSaved={savedState.savedIds.has(offering.id)}
+            />
+            <OfferingShareButton
+              offeringId={offering.id}
+              title={offering.title}
+              text={offering.body}
+            />
           </div>
+          <p className="mt-2 text-xs font-bold text-[#7C715F]">
+            Saved Offerings are private. Deedlight does not publish save counts.
+          </p>
         </div>
       </article>
 
       <div className="deed-card mt-6 p-6">
-        <h2 className="font-[var(--font-heading)] text-2xl font-semibold">This light inspired</h2>
+        <h2 className="font-[var(--font-heading)] text-2xl font-semibold">
+          This light inspired
+        </h2>
         <div className="mt-4 grid gap-3 sm:grid-cols-4">
           <Stat icon={<Sparkles className="h-5 w-5" />} label="Blessed" value={offering.bless_count} />
           <Stat icon={<Heart className="h-5 w-5" />} label="Inspired" value={offering.inspired_count} />
@@ -151,12 +194,18 @@ export default async function OfferingDetailPage({ params }: OfferingPageProps) 
             initialCounts={{
               bless_count: offering.bless_count || 0,
               inspired_count: offering.inspired_count || 0,
-              carried_forward_count: offering.carried_forward_count || 0
+              carried_forward_count: offering.carried_forward_count || 0,
             }}
           />
         </div>
 
-        <ReportOfferingForm offeringId={offering.id} />
+        {isOwner ? (
+          <div className="mt-6 rounded-3xl border border-emerald-100 bg-emerald-50 p-5 text-sm font-bold leading-7 text-emerald-950">
+            This is your Offering. Use the ••• menu above to edit or remove it. Reporting is reserved for other members.
+          </div>
+        ) : (
+          <ReportOfferingForm offeringId={offering.id} />
+        )}
       </div>
     </section>
   );
@@ -165,9 +214,13 @@ export default async function OfferingDetailPage({ params }: OfferingPageProps) 
 function Stat({ label, value, icon }: { label: string; value: number; icon: ReactNode }) {
   return (
     <div className="rounded-3xl bg-[#FFF8EA] p-5 text-center">
-      <div className="mx-auto mb-2 flex h-9 w-9 items-center justify-center rounded-full bg-[#FFF4DC] text-[#8D681D]">{icon}</div>
+      <div className="mx-auto mb-2 flex h-9 w-9 items-center justify-center rounded-full bg-[#FFF4DC] text-[#8D681D]">
+        {icon}
+      </div>
       <p className="font-[var(--font-heading)] text-3xl font-semibold">{value}</p>
-      <p className="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8D681D]">{label}</p>
+      <p className="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8D681D]">
+        {label}
+      </p>
     </div>
   );
 }

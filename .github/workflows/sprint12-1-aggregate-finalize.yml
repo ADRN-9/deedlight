@@ -1,0 +1,81 @@
+name: Sprint 12.1 Aggregate SQL Finalize
+
+on:
+  push:
+    branches: [sprint-12-1-offering-ownership-engagement]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sprint-12-1-aggregate-finalize-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+    steps:
+      - name: Fail closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "sprint-12-1-offering-ownership-engagement"
+          test "${NEXT_PUBLIC_SITE_URL}" != "https://deedlight.com"
+          test -z "${CLOUDFLARE_API_TOKEN:-}"
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}"
+          test -z "${SUPABASE_ACCESS_TOKEN:-}"
+          test -z "${SUPABASE_DB_PASSWORD:-}"
+
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: sprint-12-1-offering-ownership-engagement
+          fetch-depth: 0
+
+      - name: Append canonical Sprint 12.1 migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          aggregate = Path('supabase/run_in_sql_editor_all.sql')
+          migrations = [
+              Path('supabase/migrations/202608130017_sprint12_1_offering_ownership_engagement.sql'),
+              Path('supabase/migrations/202608140018_sprint12_1_owner_removal_guard_hotfix.sql'),
+          ]
+          markers = [
+              'Sprint 12.1',
+              'owner-removal moderation guard hotfix',
+          ]
+
+          text = aggregate.read_text(encoding='utf-8').rstrip()
+
+          if 'update_own_offering' in text or 'owner-removal moderation guard hotfix' in text:
+              raise SystemExit('Aggregate SQL already appears to contain Sprint 12.1; refusing duplicate append.')
+
+          for migration, marker in zip(migrations, markers):
+              body = migration.read_text(encoding='utf-8').strip()
+              if marker not in body:
+                  raise SystemExit(f'Migration marker missing from {migration}.')
+              text += '\n\n' + body
+
+          aggregate.write_text(text + '\n', encoding='utf-8', newline='\n')
+          PY
+
+          test "$(git diff --name-only | wc -l)" -eq 1
+          test "$(git diff --name-only)" = "supabase/run_in_sql_editor_all.sql"
+          git diff --check
+
+      - name: Commit aggregate SQL parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add supabase/run_in_sql_editor_all.sql
+          git commit -m "chore: record Sprint 12.1 aggregate SQL parity"
+          git push origin HEAD:sprint-12-1-offering-ownership-engagement
