@@ -4,6 +4,7 @@ import { getMyDailyReflectionHistory } from "@/lib/data/daily-lights";
 import { getMyOfferings } from "@/lib/data/offerings";
 import { DailyPractice } from "@/components/journey/daily-practice";
 import { SavedLights } from "@/components/journey/saved-lights";
+import { MyOfferings } from "@/components/journey/my-offerings";
 import { ReminderStatus } from "@/components/journey/reminder-status";
 import { createClient } from "@/lib/supabase/server";
 
@@ -20,6 +21,7 @@ export default async function JourneyPage({ searchParams }: { searchParams?: Sea
   const params = searchParams ? await searchParams : {};
   const offeringStatus = getString(params.offering);
   const savedStatus = getString(params.saved);
+  const offeringView = getString(params.offering_view);
   const error = getString(params.error);
   const supabase = await createClient({ allowMissingEnv: true });
 
@@ -50,6 +52,24 @@ export default async function JourneyPage({ searchParams }: { searchParams?: Sea
         </div>
       ) : null}
 
+      {offeringStatus === "updated" ? (
+        <div className="mb-8 rounded-3xl border border-emerald-100 bg-emerald-50 p-5 text-sm font-extrabold text-emerald-900">
+          Your edits were saved and the Offering was sent back to review.
+        </div>
+      ) : null}
+
+      {offeringStatus === "removed" ? (
+        <div className="mb-8 rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm font-extrabold text-amber-950">
+          Your Offering was removed from Deedlight. You can restore it from My Offerings.
+        </div>
+      ) : null}
+
+      {offeringStatus === "restored" ? (
+        <div className="mb-8 rounded-3xl border border-emerald-100 bg-emerald-50 p-5 text-sm font-extrabold text-emerald-900">
+          Your Offering was restored and sent to review.
+        </div>
+      ) : null}
+
       {savedStatus === "1" ? (
         <div className="mb-8 rounded-3xl border border-emerald-100 bg-emerald-50 p-5 text-sm font-extrabold text-emerald-900">
           Daily Light saved privately.
@@ -76,7 +96,7 @@ export default async function JourneyPage({ searchParams }: { searchParams?: Sea
         <div className="mt-8 grid gap-4 sm:grid-cols-3">
           <StatCard value={offeringCount} label="Offerings shared" />
           <StatCard value={reflectedCount} label="Daily reflections" />
-          <StatCard value={peopleInspired} label="People inspired" />
+          <StatCard value={peopleInspired} label="Light actions received" />
         </div>
 
         <div className="mt-7 flex flex-col gap-3 sm:flex-row">
@@ -125,28 +145,7 @@ export default async function JourneyPage({ searchParams }: { searchParams?: Sea
         </div>
       </section>
 
-      <section className="mt-10">
-        <p className="text-xs font-extrabold uppercase tracking-[0.32em] text-[#8D681D]">My Offerings</p>
-        <h2 className="mt-2 font-[var(--font-heading)] text-4xl font-semibold">Review status</h2>
-
-        <div className="mt-5 space-y-4">
-          {offerings.length ? (
-            offerings.map((item) => (
-              <article key={item.id} className="deed-card p-5">
-                <div className="flex flex-wrap gap-2">
-                  <span className="rounded-full bg-[#FFF4DC] px-3 py-1 text-xs font-extrabold uppercase tracking-[0.16em] text-[#8D681D]">{item.status}</span>
-                  <span className="rounded-full bg-[#FFF8EA] px-3 py-1 text-xs font-extrabold uppercase tracking-[0.16em] text-[#8D681D]">{item.offering_type}</span>
-                </div>
-                <h3 className="mt-3 font-[var(--font-heading)] text-2xl font-semibold">{item.title}</h3>
-              </article>
-            ))
-          ) : (
-            <div className="deed-card p-8 text-center">
-              <h3 className="font-[var(--font-heading)] text-3xl font-semibold">No Offerings yet.</h3>
-            </div>
-          )}
-        </div>
-      </section>
+      <MyOfferings offerings={offerings} filter={offeringView} />
     </section>
   );
 }

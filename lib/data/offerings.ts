@@ -72,7 +72,8 @@ const adminOfferingColumns = `
   bless_score,
   published_at,
   created_at,
-  updated_at
+  updated_at,
+  owner_removed_at
 `;
 
 const reportColumns = `
@@ -100,6 +101,28 @@ export async function getApprovedOfferings(limit = 12): Promise<Offering[]> {
     .limit(limit);
 
   if (error || !data) return fallbackOfferings;
+  return data as Offering[];
+}
+
+export async function getApprovedOfferingsByType(
+  offeringType: string,
+  limit = 12,
+): Promise<Offering[]> {
+  const supabase = await createClient({ allowMissingEnv: true });
+  if (!supabase) {
+    return fallbackOfferings
+      .filter((item) => item.offering_type === offeringType)
+      .slice(0, limit);
+  }
+
+  const { data, error } = await supabase
+    .from("offerings_public")
+    .select(publicOfferingColumns)
+    .eq("offering_type", offeringType)
+    .order("published_at", { ascending: false })
+    .limit(limit);
+
+  if (error || !data) return [];
   return data as Offering[];
 }
 
@@ -194,6 +217,54 @@ export async function getAdminOffering(id: string): Promise<AdminOffering | null
   if (error || !data) return null;
   const withAuthors = await addAuthorNames([data as AdminOffering]);
   return withAuthors[0] ?? null;
+}
+
+export async function getMyOffering(id: string): Promise<AdminOffering | null> {
+  const supabase = await createClient({ allowMissingEnv: true });
+  if (!supabase) return null;
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return null;
+
+  const { data, error } = await supabase
+    .from("offerings")
+    .select(adminOfferingColumns)
+    .eq("id", id)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  const withAuthors = await addAuthorNames([data as AdminOffering]);
+  return withAuthors[0] ?? null;
+}
+
+export async function getViewerOwnedOfferingIds(
+  offeringIds: string[],
+): Promise<Set<string>> {
+  if (!offeringIds.length) return new Set();
+
+  const supabase = await createClient({ allowMissingEnv: true });
+  if (!supabase) return new Set();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return new Set();
+
+  const { data, error } = await supabase
+    .from("offerings")
+    .select("id")
+    .eq("user_id", user.id)
+    .in("id", offeringIds);
+
+  if (error || !data) return new Set();
+
+  const rows = data as Array<{ id: string }>;
+  return new Set(rows.map((item) => String(item.id)));
 }
 
 export async function getMyOfferings(limit = 24): Promise<AdminOffering[]> {

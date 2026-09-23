@@ -49,6 +49,7 @@ export type AdminOffering = Offering & {
   theme_id?: string | null;
   status: "draft" | "pending" | "approved" | "rejected" | "needs_edit" | "hidden";
   moderation_note: string | null;
+  owner_removed_at?: string | null;
   open_report_count?: number;
 };
 
