@@ -54,6 +54,20 @@ A claim token remains concurrency control only. It is never delivery authority.
 - Recipient email addresses remain in the authentication system and are not copied into the ledger.
 - No reflection text, Offering body, Saved Light, Journey content, or other private member content is added to delivery jobs.
 
+## Future transport idempotency boundary
+
+A database claim lease cannot make an external provider side effect atomic. A future worker can successfully hand a message to a provider and then crash before `mark_delivery_sent` commits. Once that lease expires, a safe reclaim cannot know from the ledger alone whether the provider already accepted the send.
+
+Before outbound transport is activated:
+
+- the provider adapter must use a stable idempotency key derived from the logical delivery job when the provider supports idempotency,
+- provider request timeouts must remain comfortably shorter than the five-minute claim lease,
+- an ambiguous provider outcome must not be treated as confirmed success,
+- providers without usable idempotency semantics require an explicit, tested ambiguity strategy before they are accepted for production delivery,
+- retry/reclaim behavior must never assume that a missing `sent` transition proves no external side effect occurred.
+
+This is a transport-layer requirement, not something the queue can safely infer after the fact.
+
 ## Explicit exclusions
 
 This increment does **not** add:
