@@ -28,8 +28,9 @@ begin
 end;
 $$;
 
+-- Use a curated week not consumed by the reliability terminal fixtures.
 insert into public.weekly_goodness_features (week_start)
-values ('2026-10-05')
+values ('2026-10-26')
 on conflict (week_start) do nothing;
 
 set role service_role;
@@ -43,16 +44,16 @@ declare
   v_started_2 timestamptz;
 begin
   v_inserted := public.enqueue_current_weekly_goodness_if_curated(
-    '2026-10-05 16:00:00+00'::timestamptz,
+    '2026-10-26 16:00:00+00'::timestamptz,
     5000
   );
 
-  if v_inserted < 1 then
-    raise exception 'Curated weekly scheduler helper did not enqueue eligible members.';
+  if v_inserted <> 1 then
+    raise exception 'Expected one eligible curated weekly delivery, got %.', v_inserted;
   end if;
 
   v_inserted_again := public.enqueue_current_weekly_goodness_if_curated(
-    '2026-10-05 16:00:00+00'::timestamptz,
+    '2026-10-26 16:00:00+00'::timestamptz,
     5000
   );
 
@@ -62,8 +63,8 @@ begin
 
   select job_id, claim_token
   into v_id, v_token
-  from public.claim_delivery_jobs('2026-10-05 16:01:00+00'::timestamptz, 100)
-  where delivery_key = 'weekly:2026-10-05'
+  from public.claim_delivery_jobs('2026-10-26 16:01:00+00'::timestamptz, 100)
+  where delivery_key = 'weekly:2026-10-26'
   limit 1;
 
   if v_id is null or v_token is null then
