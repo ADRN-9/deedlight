@@ -47,33 +47,53 @@ jobs:
               Path('supabase/migrations/202608130017_sprint12_1_offering_ownership_engagement.sql'),
               Path('supabase/migrations/202608140018_sprint12_1_owner_removal_guard_hotfix.sql'),
           ]
-          markers = [
-              'Sprint 12.1',
-              'owner-removal moderation guard hotfix',
+          exact_markers = [
+              '-- Adds safe owner editing/removal/restore flows and private Offering saves.',
+              '-- Records the narrow Production repair applied after migration 017.',
           ]
 
           text = aggregate.read_text(encoding='utf-8').rstrip()
+          present = [marker in text for marker in exact_markers]
 
-          if 'update_own_offering' in text or 'owner-removal moderation guard hotfix' in text:
-              raise SystemExit('Aggregate SQL already appears to contain Sprint 12.1; refusing duplicate append.')
+          print(f'aggregate_marker_017={present[0]}')
+          print(f'aggregate_marker_018={present[1]}')
 
-          for migration, marker in zip(migrations, markers):
+          if present == [True, True]:
+              print('Aggregate SQL already has both canonical Sprint 12.1 sections; no change needed.')
+              raise SystemExit(0)
+
+          if any(present):
+              raise SystemExit('Aggregate SQL contains only part of Sprint 12.1; refusing partial/duplicate append.')
+
+          bodies = []
+          for migration, marker in zip(migrations, exact_markers):
               body = migration.read_text(encoding='utf-8').strip()
               if marker not in body:
-                  raise SystemExit(f'Migration marker missing from {migration}.')
-              text += '\n\n' + body
+                  raise SystemExit(f'Exact migration marker missing from {migration}.')
+              bodies.append(body)
 
-          aggregate.write_text(text + '\n', encoding='utf-8', newline='\n')
+          aggregate.write_text(
+              text + '\n\n' + '\n\n'.join(bodies) + '\n',
+              encoding='utf-8',
+              newline='\n',
+          )
           PY
 
-          test "$(git diff --name-only | wc -l)" -eq 1
-          test "$(git diff --name-only)" = "supabase/run_in_sql_editor_all.sql"
-          git diff --check
+          changed="$(git diff --name-only)"
+          if [ -n "$changed" ]; then
+            test "$(printf '%s\n' "$changed" | wc -l)" -eq 1
+            test "$changed" = "supabase/run_in_sql_editor_all.sql"
+            git diff --check
+          fi
 
       - name: Commit aggregate SQL parity
         shell: bash
         run: |
           set -euo pipefail
+          if git diff --quiet -- supabase/run_in_sql_editor_all.sql; then
+            echo "No aggregate SQL change required."
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add supabase/run_in_sql_editor_all.sql
