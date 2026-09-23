@@ -42,7 +42,11 @@ function parseClaimedJob(row: Record<string, unknown>): ClaimedDeliveryJob {
 }
 
 export class SupabaseDeliveryRuntime implements DeliveryGateway, DeliveryRecipientResolver {
-  constructor(private readonly client: SupabaseClient) {}
+  private readonly client: SupabaseClient;
+
+  constructor(client: SupabaseClient) {
+    this.client = client;
+  }
 
   async enqueueDaily(now: Date, limit: number) {
     const { data, error } = await this.client.rpc("enqueue_due_daily_reminders", {
