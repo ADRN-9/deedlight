@@ -1,0 +1,45 @@
+name: Sprint 12.2 Sync All-In-One SQL
+
+on:
+  push:
+    branches: [sprint-12-2-gentle-delivery-foundation]
+    paths:
+      - .github/workflows/sprint12-2-sync-all-in-one.yml
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: sprint-12-2-gentle-delivery-foundation
+          fetch-depth: 0
+
+      - name: Append exact migration and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = 'sprint-12-2-gentle-delivery-foundation'
+          test -f supabase/migrations/202609230019_sprint12_2_gentle_delivery_foundation.sql
+          test -f supabase/run_in_sql_editor_all.sql
+
+          marker='-- Sprint 12.2 — Gentle Delivery Foundation'
+          if ! grep -Fq -- "$marker" supabase/run_in_sql_editor_all.sql; then
+            printf '\n\n' >> supabase/run_in_sql_editor_all.sql
+            cat supabase/migrations/202609230019_sprint12_2_gentle_delivery_foundation.sql >> supabase/run_in_sql_editor_all.sql
+            printf '\n' >> supabase/run_in_sql_editor_all.sql
+          fi
+
+          git rm .github/workflows/sprint12-2-sync-all-in-one.yml
+          git diff --check
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add supabase/run_in_sql_editor_all.sql
+          git commit -m 'chore: sync Sprint 12.2 all-in-one SQL'
+          git push origin HEAD:sprint-12-2-gentle-delivery-foundation
