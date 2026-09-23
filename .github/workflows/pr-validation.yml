@@ -16,7 +16,7 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
       NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
       NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
@@ -46,14 +46,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Diff integrity
+        run: git diff --check
+
       - name: Sprint 12.1 security assertions
         run: node scripts/verify-sprint12-1-security.mjs
 
-      - name: Fail closed on high or critical production dependency advisories
-        run: npm audit --omit=dev --audit-level=high
+      - name: Fail closed on high or critical dependency advisories
+        run: npm audit --audit-level=high
 
       - name: TypeScript check
         run: npx tsc --noEmit
 
-      - name: Production build with non-production configuration
+      - name: Next.js production build with non-production configuration
         run: npm run build
+
+      - name: Cloudflare packaging build with non-production configuration
+        run: npx opennextjs-cloudflare build
