@@ -32,8 +32,13 @@ jobs:
           if ! grep -Fq -- "$marker" supabase/run_in_sql_editor_all.sql; then
             printf '\n\n' >> supabase/run_in_sql_editor_all.sql
             cat supabase/migrations/202609230019_sprint12_2_gentle_delivery_foundation.sql >> supabase/run_in_sql_editor_all.sql
-            printf '\n' >> supabase/run_in_sql_editor_all.sql
           fi
+
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('supabase/run_in_sql_editor_all.sql')
+          path.write_text(path.read_text().rstrip() + '\n')
+          PY
 
           git rm .github/workflows/sprint12-2-sync-all-in-one.yml
           git diff --check
