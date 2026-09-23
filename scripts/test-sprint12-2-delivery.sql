@@ -11,7 +11,7 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 DO $$ BEGIN
-  create role service_role nologin;
+  create role service_role nologin bypassrls;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
