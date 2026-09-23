@@ -47,8 +47,8 @@ export async function runScheduledDelivery(
     return summary;
   }
 
-  const now = new Date(input.scheduledTime);
-  if (Number.isNaN(now.getTime())) {
+  const scheduledAt = new Date(input.scheduledTime);
+  if (Number.isNaN(scheduledAt.getTime())) {
     throw new Error("Scheduled delivery timestamp is invalid.");
   }
 
@@ -60,12 +60,15 @@ export async function runScheduledDelivery(
   });
 
   if (input.cron === DAILY_DELIVERY_CRON) {
-    summary.enqueued = await runtime.enqueueDaily(now, Math.min(config.batchSize * 20, 2000));
+    summary.enqueued = await runtime.enqueueDaily(
+      scheduledAt,
+      Math.min(config.batchSize * 20, 2000),
+    );
   } else {
-    summary.enqueued = await runtime.enqueueWeekly(now, 5000);
+    summary.enqueued = await runtime.enqueueWeekly(scheduledAt, 5000);
   }
 
-  const jobs = await runtime.claim(now, config.batchSize);
+  const jobs = await runtime.claim(scheduledAt, config.batchSize);
   summary.claimed = jobs.length;
 
   for (const job of jobs) {
@@ -75,14 +78,16 @@ export async function runScheduledDelivery(
         gateway: runtime,
         recipientResolver: runtime,
         transport,
-        now,
       });
       summary[result] += 1;
     } catch {
       // Do not leak recipient or provider details. The finite claim lease allows a
       // later scheduler invocation to reclaim safely with the same provider key.
       summary.processingErrors += 1;
-      console.error("Delivery job processing failed", { jobId: job.jobId, kind: job.kind });
+      console.error("Delivery job processing failed", {
+        jobId: job.jobId,
+        kind: job.kind,
+      });
     }
   }
 
