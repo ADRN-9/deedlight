@@ -21,6 +21,7 @@ jobs:
       NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
       NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-not-a-secret
+      DELIVERY_ENABLED: "false"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,12 +31,15 @@ jobs:
         run: |
           set -euo pipefail
           test "${NEXT_PUBLIC_SITE_URL}" != "https://deedlight.com"
+          test "${DELIVERY_ENABLED}" = "false"
           test -z "${CLOUDFLARE_API_TOKEN:-}"
           test -z "${CLOUDFLARE_ACCOUNT_ID:-}"
           test -z "${SUPABASE_SERVICE_ROLE_KEY:-}"
           test -z "${SUPABASE_ACCESS_TOKEN:-}"
           test -z "${SUPABASE_DB_PASSWORD:-}"
           test -z "${SUPABASE_PROJECT_REF:-}"
+          test -z "${RESEND_API_KEY:-}"
+          test -z "${DELIVERY_FROM_EMAIL:-}"
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -57,6 +61,9 @@ jobs:
 
       - name: Delivery reliability security assertions
         run: node scripts/verify-delivery-reliability.mjs
+
+      - name: Gentle delivery transport behavior
+        run: node --test scripts/test-delivery-transport.mjs
 
       - name: Fail closed on high or critical dependency advisories
         run: npm audit --audit-level=high
@@ -102,6 +109,7 @@ jobs:
           test -z "${SUPABASE_ACCESS_TOKEN:-}"
           test -z "${SUPABASE_DB_PASSWORD:-}"
           test -z "${SUPABASE_PROJECT_REF:-}"
+          test -z "${RESEND_API_KEY:-}"
 
       - name: Install PostgreSQL client
         run: |
@@ -149,6 +157,7 @@ jobs:
           test -z "${SUPABASE_ACCESS_TOKEN:-}"
           test -z "${SUPABASE_DB_PASSWORD:-}"
           test -z "${SUPABASE_PROJECT_REF:-}"
+          test -z "${RESEND_API_KEY:-}"
 
       - name: Install PostgreSQL client
         run: |
