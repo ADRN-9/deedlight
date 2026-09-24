@@ -55,8 +55,11 @@ expect(!message.match(/reflection|saved light|journey content|offering body/i), 
 expect(message.includes("/settings/reminders"), "daily message needs an opt-out settings path");
 expect(message.includes("/settings/newsletter"), "weekly message needs an opt-out settings path");
 
-expect(worker.includes("fetch: handler.fetch"), "custom worker must preserve the generated Next fetch handler");
-expect(worker.includes("async scheduled"), "custom worker must expose only the scheduled delivery event");
+const preservesGeneratedFetch =
+  worker.includes("fetch: handler.fetch") ||
+  worker.includes("handler.fetch(request, env, ctx)");
+expect(preservesGeneratedFetch, "custom worker must preserve delegation to the generated Next fetch handler");
+expect(worker.includes("async scheduled"), "custom worker must expose the scheduled delivery event");
 expect(!worker.includes("/api/"), "scheduler must not add a browser-accessible service-role route");
 expect(scheduler.includes("DAILY_DELIVERY_CRON"), "daily scheduler path is missing");
 expect(scheduler.includes("WEEKLY_DELIVERY_CRON"), "weekly scheduler path is missing");
