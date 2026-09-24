@@ -1,0 +1,125 @@
+name: Production Canary Consent Correction
+
+on:
+  push:
+    branches:
+      - production-canary
+    paths:
+      - .github/workflows/production-canary-consent-correction.yml
+
+permissions:
+  contents: read
+
+jobs:
+  correct:
+    name: Bind explicit canary consent to approved account
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Guard Production identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${SUPABASE_ACCESS_TOKEN:-}" ]] || { echo "::error::SUPABASE_ACCESS_TOKEN is missing"; exit 1; }
+          [[ "$SUPABASE_PROJECT_REF" == "xaipiovflxomcbfwtwmu" ]] || { echo "::error::Unexpected Supabase Production project"; exit 1; }
+
+      - name: Apply only the explicitly approved reminder preference
+        shell: bash
+        run: |
+          set -euo pipefail
+          query=$(cat <<'SQL'
+          do $$
+          declare
+            v_target uuid;
+            v_count integer;
+          begin
+            select count(*)::integer
+            into v_count
+            from auth.users
+            where md5(lower(btrim(coalesce(email, '')))) = 'a7e6edf4263513e268d1909951eeb35a'
+              and email_confirmed_at is not null;
+
+            if v_count <> 1 then
+              raise exception 'Expected exactly one confirmed approved canary.';
+            end if;
+
+            select id
+            into v_target
+            from auth.users
+            where md5(lower(btrim(coalesce(email, '')))) = 'a7e6edf4263513e268d1909951eeb35a'
+              and email_confirmed_at is not null;
+
+            if exists (
+              select 1
+              from public.profiles p
+              where p.user_id = v_target
+                and p.is_suspended = true
+            ) then
+              raise exception 'Approved canary is suspended.';
+            end if;
+
+            if not exists (
+              select 1
+              from pg_catalog.pg_timezone_names tz
+              where tz.name = 'Asia/Singapore'
+            ) then
+              raise exception 'Expected canary timezone is unavailable.';
+            end if;
+
+            insert into public.daily_reminder_preferences (
+              user_id,
+              daily_enabled,
+              reminder_time,
+              timezone
+            )
+            values (
+              v_target,
+              true,
+              time '00:01',
+              'Asia/Singapore'
+            )
+            on conflict (user_id)
+            do update set
+              daily_enabled = excluded.daily_enabled,
+              reminder_time = excluded.reminder_time,
+              timezone = excluded.timezone,
+              updated_at = now();
+          end
+          $$;
+
+          select
+            count(*) = 1 as exactly_one_preference,
+            bool_and(d.daily_enabled) as daily_enabled,
+            min(d.reminder_time)::text as reminder_time,
+            min(d.timezone) as timezone,
+            bool_and(p.is_suspended = false) as active_profile
+          from public.daily_reminder_preferences d
+          join public.profiles p on p.user_id = d.user_id
+          join auth.users u on u.id = d.user_id
+          where md5(lower(btrim(coalesce(u.email, '')))) = 'a7e6edf4263513e268d1909951eeb35a';
+          SQL
+          )
+          jq -n --arg query "$query" '{query:$query}' >/tmp/query.json
+          status=$(curl --silent --show-error --output /tmp/result.json --write-out '%{http_code}' \
+            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query" \
+            --request POST \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data-binary @/tmp/query.json)
+          [[ "$status" == "201" ]] || { echo "::error::Canary consent correction returned HTTP $status"; exit 1; }
+          row=$(jq -c 'if type == "array" then .[-1] elif has("result") then .result[-1] else . end' /tmp/result.json)
+          echo "$row"
+          echo "$row" | jq -e '
+            .exactly_one_preference == true and
+            .daily_enabled == true and
+            (.reminder_time | startswith("00:01")) and
+            .timezone == "Asia/Singapore" and
+            .active_profile == true
+          ' >/dev/null || { echo "::error::Approved canary preference verification failed"; exit 1; }
+          rm -f /tmp/query.json /tmp/result.json
+          echo "Approved canary preference is bound to the designated account."
