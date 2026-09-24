@@ -29,7 +29,7 @@ jobs:
           [[ -n "${SUPABASE_ACCESS_TOKEN:-}" ]] || { echo "::error::SUPABASE_ACCESS_TOKEN is missing"; exit 1; }
           [[ "$SUPABASE_PROJECT_REF" == "$EXPECTED_PROJECT_REF" ]] || { echo "::error::GitHub Supabase project ref does not match live Worker"; exit 1; }
 
-      - name: Audit migrations and approved canary state read-only
+      - name: Audit delivery schema and approved canary state read-only
         shell: bash
         run: |
           set -euo pipefail
@@ -46,12 +46,6 @@ jobs:
             select p.is_suspended
             from public.profiles p
             join target t on t.id = p.user_id
-          ), migrations as (
-            select
-              count(*) filter (where version = '202609230019')::integer as m019,
-              count(*) filter (where version = '202609230020')::integer as m020,
-              count(*) filter (where version = '202609230021')::integer as m021
-            from supabase_migrations.schema_migrations
           )
           select
             (select count(*) from target)::integer as target_count,
@@ -61,19 +55,25 @@ jobs:
             (select reminder_time from pref limit 1) as reminder_time,
             (select timezone from pref limit 1) as timezone,
             to_regclass('public.delivery_ledger') is not null as ledger_exists,
+            to_regprocedure('public.enqueue_due_daily_reminders(timestamp with time zone,integer)') is not null as enqueue_daily_rpc_exists,
             to_regprocedure('public.claim_delivery_jobs(timestamp with time zone,integer)') is not null as claim_rpc_exists,
+            to_regprocedure('public.authorize_delivery_job(uuid,uuid)') is not null as authorize_rpc_exists,
+            to_regprocedure('public.retry_delivery_job(uuid,uuid,timestamp with time zone,text)') is not null as retry_rpc_exists,
             to_regprocedure('public.begin_delivery_transport(uuid,uuid)') is not null as transport_rpc_exists,
+            to_regprocedure('public.enqueue_current_weekly_goodness_if_curated(timestamp with time zone,integer)') is not null as weekly_transport_rpc_exists,
             exists (
               select 1 from information_schema.columns
               where table_schema='public' and table_name='delivery_ledger' and column_name='attempt_count'
             ) as reliability_columns_exist,
             exists (
               select 1 from information_schema.columns
+              where table_schema='public' and table_name='delivery_ledger' and column_name='claim_expires_at'
+            ) as claim_lease_column_exists,
+            exists (
+              select 1 from information_schema.columns
               where table_schema='public' and table_name='delivery_ledger' and column_name='transport_started_at'
             ) as transport_column_exists,
-            (select m019 from migrations) as migration_019,
-            (select m020 from migrations) as migration_020,
-            (select m021 from migrations) as migration_021;
+            to_regclass('supabase_migrations.schema_migrations') is not null as migration_history_exists;
           SQL
           )
           jq -n --arg query "$query" '{query:$query}' >/tmp/query.json
@@ -83,7 +83,11 @@ jobs:
             --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
             --header 'Content-Type: application/json' \
             --data-binary @/tmp/query.json)
-          [[ "$status" == "201" ]] || { echo "::error::Live Supabase audit returned HTTP $status"; exit 1; }
+          if [[ "$status" != "201" ]]; then
+            jq -c '{message:(.message // .error // "unknown")}' /tmp/result.json 2>/dev/null || true
+            echo "::error::Live Supabase audit returned HTTP $status"
+            exit 1
+          fi
           row=$(jq -c 'if type == "array" then .[0] elif has("result") then .result[0] else . end' /tmp/result.json)
           echo "$row"
           rm -f /tmp/query.json /tmp/result.json
