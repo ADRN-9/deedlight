@@ -54,12 +54,12 @@ create trigger on_auth_user_created
 after insert on auth.users
 for each row execute function public.handle_new_user();
 
--- The pre-hotfix function must fail under the same narrow extension visibility
--- that Production Auth uses. This proves the test would catch the regression.
+-- The pre-hotfix function must fail even for its postgres SECURITY DEFINER owner
+-- because the function's explicit search_path excludes the extensions schema.
+-- This proves the regression test would catch the Production failure.
 do $$
 begin
   begin
-    set local role supabase_auth_admin;
     insert into auth.users (id, email, raw_user_meta_data)
     values ('10000000-0000-0000-0000-000000000001', 'preflight@example.test', '{}'::jsonb);
     raise exception 'Expected the unqualified pgcrypto call to fail.';
@@ -73,7 +73,7 @@ $$;
 \ir ../supabase/migrations/202609240022_auth_pgcrypto_schema_qualification.sql
 
 -- Auth's platform role remains narrow: the fix must not depend on widening its
--- search_path or granting browser/service roles access to extension schemas.
+-- search_path or granting the Auth service access to the extension schema.
 do $$
 begin
   if exists (
