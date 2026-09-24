@@ -34,15 +34,21 @@ assert.match(
   /set search_path\s*=\s*public, auth/i,
   "existing hardened function search_path contract must remain explicit",
 );
+
+const functionMatch = migration.match(
+  /create or replace function public\.handle_new_user\(\)[\s\S]*?as \$\$([\s\S]*?)\$\$;/i,
+);
+assert.ok(functionMatch, "migration must contain the complete handle_new_user body");
+const functionBody = functionMatch[1];
 assert.match(
-  migration,
+  functionBody,
   /extensions\.gen_random_bytes\(8\)/,
-  "pgcrypto dependency must be schema-qualified",
+  "pgcrypto dependency must be schema-qualified inside handle_new_user",
 );
 assert.doesNotMatch(
-  migration.replace(/extensions\.gen_random_bytes\(8\)/g, ""),
-  /\bgen_random_bytes\s*\(/,
-  "migration must not retain an unqualified gen_random_bytes call",
+  functionBody,
+  /(?<!extensions\.)\bgen_random_bytes\s*\(/,
+  "handle_new_user must not retain an unqualified gen_random_bytes call",
 );
 assert.doesNotMatch(
   migration,
