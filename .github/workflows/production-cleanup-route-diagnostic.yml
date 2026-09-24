@@ -1,0 +1,32 @@
+name: Production Cleanup Route Diagnostic
+
+on:
+  push:
+    branches: [production-canary]
+    paths:
+      - .github/workflows/production-cleanup-route-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+      - name: Inspect public route status without credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          health=$(curl --silent --show-error --output /tmp/health --write-out '%{http_code}' https://deedlight.com/api/health || true)
+          get=$(curl --silent --show-error --output /tmp/get --write-out '%{http_code}' https://deedlight.com/__ops/delivery-canary || true)
+          post=$(curl --silent --show-error --output /tmp/post --write-out '%{http_code}' --request POST https://deedlight.com/__ops/delivery-canary || true)
+          echo "health_status=$health"
+          echo "get_status=$get"
+          echo "post_status=$post"
+          echo "health_json=$(jq -c '{ok,data,error}' /tmp/health 2>/dev/null || echo non_json)"
+          echo "get_has_canary_marker=$(grep -Eq 'method_not_allowed|canary_not_found|canary_' /tmp/get && echo true || echo false)"
+          echo "post_has_canary_marker=$(grep -Eq 'method_not_allowed|canary_not_found|canary_' /tmp/post && echo true || echo false)"
+          echo "get_content_type=$(curl --silent --show-error --head https://deedlight.com/__ops/delivery-canary | awk -F': ' 'tolower($1)=="content-type" {gsub("\\r", "", $2); print $2}' | tail -1)"
+          rm -f /tmp/health /tmp/get /tmp/post
