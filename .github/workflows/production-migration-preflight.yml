@@ -41,7 +41,7 @@ jobs:
           if [[ "$missing" -ne 0 ]]; then
             exit 1
           fi
-          if [[ "$SUPABASE_PROJECT_REF" != "vhpxnxupcuvcdotfjzqs" ]]; then
+          if [[ "$SUPABASE_PROJECT_REF" != "xaipiovflxomcbfwtwmu" ]]; then
             echo "::error::SUPABASE_PROJECT_REF does not match the expected Deedlight production project"
             exit 1
           fi
