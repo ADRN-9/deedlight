@@ -47,6 +47,50 @@ jobs:
           fi
           echo "Required secrets are present and the project ref matches the expected Deedlight production project."
 
+      - name: Validate Supabase management token without exposing secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          account_status=$(curl --silent --show-error --output /tmp/supabase-projects.json --write-out '%{http_code}' \
+            'https://api.supabase.com/v1/projects' \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN")
+
+          if [[ "$account_status" == "401" ]]; then
+            echo "::error::SUPABASE_ACCESS_TOKEN was rejected by the Supabase Management API (HTTP 401). Replace it with the freshly generated Personal Access Token value."
+            exit 1
+          fi
+          if [[ "$account_status" != "200" ]]; then
+            echo "::error::Supabase Management API token validation returned HTTP $account_status; response body intentionally not printed."
+            exit 1
+          fi
+
+          project_status=$(curl --silent --show-error --output /tmp/supabase-project.json --write-out '%{http_code}' \
+            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF" \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN")
+
+          case "$project_status" in
+            200)
+              echo "Supabase Management API token is valid and can read the Deedlight production project."
+              ;;
+            401)
+              echo "::error::SUPABASE_ACCESS_TOKEN was rejected while reading the production project (HTTP 401)."
+              exit 1
+              ;;
+            403)
+              echo "::error::SUPABASE_ACCESS_TOKEN is valid but lacks permission to read the production project (HTTP 403)."
+              exit 1
+              ;;
+            404)
+              echo "::error::SUPABASE_ACCESS_TOKEN is valid but the production project is not visible to this account/token (HTTP 404)."
+              exit 1
+              ;;
+            *)
+              echo "::error::Production project access check returned HTTP $project_status; response body intentionally not printed."
+              exit 1
+              ;;
+          esac
+
       - name: Install Supabase CLI
         uses: supabase/setup-cli@v1
         with:
