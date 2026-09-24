@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   diagnose:
-    name: Diagnose pgcrypto visibility for Auth
+    name: Trace Production Auth pgcrypto failure
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -26,18 +26,14 @@ jobs:
           [[ -n "${SUPABASE_ACCESS_TOKEN:-}" ]] || { echo "::error::SUPABASE_ACCESS_TOKEN is missing"; exit 1; }
           [[ "$SUPABASE_PROJECT_REF" == "xaipiovflxomcbfwtwmu" ]] || { echo "::error::Unexpected Supabase Production project"; exit 1; }
 
-      - name: Inspect pgcrypto, function visibility, and Auth role settings
+      - name: Inspect pgcrypto and Auth role settings
         shell: bash
         run: |
           set -euo pipefail
           query=$(cat <<'SQL'
           select json_build_object(
             'pgcrypto', coalesce((
-              select json_build_object(
-                'installed', true,
-                'schema', n.nspname,
-                'version', e.extversion
-              )
+              select json_build_object('installed', true, 'schema', n.nspname, 'version', e.extversion)
               from pg_extension e
               join pg_namespace n on n.oid = e.extnamespace
               where e.extname = 'pgcrypto'
@@ -54,17 +50,13 @@ jobs:
               where p.proname = 'gen_random_bytes'
             ), '[]'::json),
             'auth_role_config', coalesce((
-              select to_json(r.rolconfig)
-              from pg_roles r
-              where r.rolname = 'supabase_auth_admin'
+              select to_json(r.rolconfig) from pg_roles r where r.rolname = 'supabase_auth_admin'
             ), 'null'::json),
             'auth_extensions_usage', coalesce(has_schema_privilege('supabase_auth_admin', 'extensions', 'USAGE'), false),
             'auth_pgcrypto_execute', case
               when to_regprocedure('extensions.gen_random_bytes(integer)') is null then false
               else has_function_privilege('supabase_auth_admin', 'extensions.gen_random_bytes(integer)', 'EXECUTE')
-            end,
-            'public_pgcrypto_function_exists', (to_regprocedure('public.gen_random_bytes(integer)') is not null),
-            'extensions_pgcrypto_function_exists', (to_regprocedure('extensions.gen_random_bytes(integer)') is not null)
+            end
           ) as diagnostic;
           SQL
           )
@@ -77,4 +69,94 @@ jobs:
             --data-binary @/tmp/auth-db-diagnostic.json)
           [[ "$status" == "201" ]] || { echo "::error::Auth DB diagnostic returned HTTP $status"; exit 1; }
           jq -c '(if type == "array" then .[0] elif has("result") then .result[0] else . end).diagnostic' /tmp/auth-db-result.json
-          rm -f /tmp/auth-db-diagnostic.json /tmp/auth-db-result.json
+
+      - name: Find project database objects that reference gen_random_bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          query=$(cat <<'SQL'
+          select json_build_object(
+            'routine_refs', coalesce((
+              select json_agg(json_build_object(
+                'schema', n.nspname,
+                'routine', p.proname,
+                'args', pg_get_function_identity_arguments(p.oid),
+                'owner', pg_get_userbyid(p.proowner)
+              ) order by n.nspname, p.proname)
+              from pg_proc p
+              join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname not in ('pg_catalog', 'information_schema', 'extensions')
+                and p.prosrc ilike '%gen_random_bytes%'
+            ), '[]'::json),
+            'column_default_refs', coalesce((
+              select json_agg(json_build_object(
+                'schema', n.nspname,
+                'table', c.relname,
+                'column', a.attname,
+                'expression', pg_get_expr(d.adbin, d.adrelid)
+              ) order by n.nspname, c.relname, a.attname)
+              from pg_attrdef d
+              join pg_class c on c.oid = d.adrelid
+              join pg_namespace n on n.oid = c.relnamespace
+              join pg_attribute a on a.attrelid = c.oid and a.attnum = d.adnum
+              where pg_get_expr(d.adbin, d.adrelid) ilike '%gen_random_bytes%'
+            ), '[]'::json),
+            'auth_user_triggers', coalesce((
+              select json_agg(json_build_object(
+                'table', c.relname,
+                'trigger', t.tgname,
+                'function_schema', pn.nspname,
+                'function', p.proname
+              ) order by c.relname, t.tgname)
+              from pg_trigger t
+              join pg_class c on c.oid = t.tgrelid
+              join pg_namespace n on n.oid = c.relnamespace
+              join pg_proc p on p.oid = t.tgfoid
+              join pg_namespace pn on pn.oid = p.pronamespace
+              where not t.tgisinternal
+                and n.nspname = 'auth'
+                and c.relname in ('users', 'identities')
+            ), '[]'::json)
+          ) as refs;
+          SQL
+          )
+          jq -n --arg query "$query" '{query:$query}' >/tmp/auth-ref-diagnostic.json
+          status=$(curl --silent --show-error --output /tmp/auth-ref-result.json --write-out '%{http_code}' \
+            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query/read-only" \
+            --request POST \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data-binary @/tmp/auth-ref-diagnostic.json)
+          [[ "$status" == "201" ]] || { echo "::error::Auth reference diagnostic returned HTTP $status"; exit 1; }
+          jq -c '(if type == "array" then .[0] elif has("result") then .result[0] else . end).refs' /tmp/auth-ref-result.json
+          rm -f /tmp/auth-db-diagnostic.json /tmp/auth-db-result.json /tmp/auth-ref-diagnostic.json /tmp/auth-ref-result.json
+
+      - name: Read sanitized Postgres errors around the failed Auth request
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat >/tmp/logs.sql <<'SQL'
+          select timestamp, severity_text, event_message
+          from logs
+          where source = 'postgres_logs'
+            and timestamp >= toDateTime64('2026-09-24 04:50:30', 3, 'UTC')
+            and timestamp <= toDateTime64('2026-09-24 04:51:30', 3, 'UTC')
+            and event_message ilike '%gen_random_bytes%'
+          order by timestamp desc
+          limit 20;
+          SQL
+          status=$(curl --silent --show-error --output /tmp/pg-log-result.json --write-out '%{http_code}' --get \
+            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/analytics/endpoints/logs" \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --data-urlencode "sql@/tmp/logs.sql" \
+            --data-urlencode 'iso_timestamp_start=2026-09-24T04:50:30Z' \
+            --data-urlencode 'iso_timestamp_end=2026-09-24T04:51:30Z')
+          [[ "$status" == "200" ]] || { echo "::error::Postgres log query returned HTTP $status"; exit 1; }
+          jq -e '(.error // "") == ""' /tmp/pg-log-result.json >/dev/null || { echo "::error::Postgres log query error"; exit 1; }
+          echo "Matching Postgres rows: $(jq '.result | length' /tmp/pg-log-result.json)"
+          jq -r '.result[] | "[\(.timestamp)] \(.severity_text // "") \(.event_message // "")"' /tmp/pg-log-result.json \
+            | sed -E \
+                -e 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/[redacted-email]/g' \
+                -e 's/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/[redacted-id]/g' \
+                -e 's/([0-9]{1,3}\.){3}[0-9]{1,3}/[redacted-ip]/g'
+          rm -f /tmp/logs.sql /tmp/pg-log-result.json
