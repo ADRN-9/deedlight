@@ -74,7 +74,7 @@ jobs:
               --request POST https://deedlight.com/__ops/delivery-canary || true)
 
             health_ok=false
-            if [[ "$health_status" == "200" ]] && jq -e '.ok == true and .data.status == "ok"' /tmp/health >/dev/null 2>&1; then
+            if [[ "$health_status" == "200" ]] && jq -e '.ok == true and .runtime == "cloudflare-workers-opennext"' /tmp/health >/dev/null 2>&1; then
               health_ok=true
             fi
 
