@@ -1,0 +1,222 @@
+name: Production Delivery Revocation Canary
+
+on:
+  push:
+    branches: [production-canary]
+    paths:
+      - .github/workflows/production-revocation-canary.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  revocation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: xaipiovflxomcbfwtwmu
+      CANARY_EMAIL_MD5: a7e6edf4263513e268d1909951eeb35a
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Guard Production identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${SUPABASE_ACCESS_TOKEN:-}" ]] || { echo "::error::SUPABASE_ACCESS_TOKEN is missing"; exit 1; }
+          [[ "$SUPABASE_PROJECT_REF" == "xaipiovflxomcbfwtwmu" ]] || { echo "::error::Unexpected Supabase Production project"; exit 1; }
+
+      - name: Prove revocation cancels a live claim before transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          query=$(cat <<SQL
+          begin;
+
+          do \$\$
+          declare
+            v_target uuid;
+            v_pref public.daily_reminder_preferences%rowtype;
+            v_test_date date;
+            v_scheduled_for timestamptz;
+            v_delivery_key text;
+            v_job_id uuid;
+            v_claimable integer;
+          begin
+            select u.id
+              into strict v_target
+            from auth.users u
+            where md5(lower(btrim(coalesce(u.email, '')))) = '$CANARY_EMAIL_MD5'
+              and u.email_confirmed_at is not null;
+
+            if not exists (
+              select 1 from public.profiles p
+              where p.user_id = v_target and p.is_suspended = false
+            ) then
+              raise exception 'Approved canary profile is unavailable or suspended.';
+            end if;
+
+            select d.* into strict v_pref
+            from public.daily_reminder_preferences d
+            where d.user_id = v_target;
+
+            if v_pref.daily_enabled is distinct from true
+               or v_pref.reminder_time <> time '00:01'
+               or v_pref.timezone <> 'Asia/Singapore' then
+              raise exception 'Approved canary preference does not match explicit consent.';
+            end if;
+
+            select count(*)::integer into v_claimable
+            from public.delivery_ledger dl
+            where (
+                dl.state = 'queued'
+                and coalesce(dl.next_attempt_at, dl.scheduled_for) <= now()
+                and dl.attempt_count < 5
+              )
+              or (
+                dl.state = 'claimed'
+                and dl.claim_expires_at is not null
+                and dl.claim_expires_at <= now()
+                and dl.attempt_count < 5
+              );
+
+            if v_claimable <> 0 then
+              raise exception 'Revocation canary requires zero pre-existing claimable jobs.';
+            end if;
+
+            select candidate_date into v_test_date
+            from generate_series(1, 30) days_back
+            cross join lateral (
+              select timezone(v_pref.timezone, now())::date - days_back::integer as candidate_date
+            ) c
+            where not exists (
+              select 1
+              from public.delivery_ledger dl
+              where dl.user_id = v_target
+                and dl.kind = 'daily_reminder'
+                and dl.delivery_key = 'daily:' || c.candidate_date::text
+            )
+            order by days_back
+            limit 1;
+
+            if v_test_date is null then
+              raise exception 'No unused prior-day logical key is available for revocation canary.';
+            end if;
+
+            v_scheduled_for := (v_test_date + v_pref.reminder_time) at time zone v_pref.timezone;
+            v_delivery_key := 'daily:' || v_test_date::text;
+
+            insert into public.delivery_ledger (user_id, kind, delivery_key, scheduled_for)
+            values (v_target, 'daily_reminder', v_delivery_key, v_scheduled_for)
+            returning id into v_job_id;
+
+            perform set_config('app.revocation_target', v_target::text, false);
+            perform set_config('app.revocation_job', v_job_id::text, false);
+          end
+          \$\$;
+
+          set local role service_role;
+          select
+            set_config('app.revocation_claim_job', job_id::text, false) as job_marker,
+            set_config('app.revocation_claim_token', claim_token::text, false) as token_marker
+          from public.claim_delivery_jobs(now(), 1);
+          reset role;
+
+          do \$\$
+          begin
+            if current_setting('app.revocation_claim_job', true) is null
+               or current_setting('app.revocation_claim_job') <> current_setting('app.revocation_job') then
+              raise exception 'Revocation canary did not claim the exact synthetic job.';
+            end if;
+
+            update public.daily_reminder_preferences
+            set daily_enabled = false,
+                updated_at = now()
+            where user_id = current_setting('app.revocation_target')::uuid;
+
+            if not found then
+              raise exception 'Revocation canary could not revoke the approved preference.';
+            end if;
+          end
+          \$\$;
+
+          set local role service_role;
+          select public.authorize_delivery_job(
+            current_setting('app.revocation_job')::uuid,
+            current_setting('app.revocation_claim_token')::uuid
+          ) as authorized_after_revocation;
+          reset role;
+
+          do \$\$
+          declare
+            v_job public.delivery_ledger%rowtype;
+          begin
+            select * into strict v_job
+            from public.delivery_ledger
+            where id = current_setting('app.revocation_job')::uuid;
+
+            if v_job.state <> 'cancelled'
+               or v_job.error_code <> 'authorization_revoked'
+               or v_job.attempt_count <> 1
+               or v_job.transport_started_at is not null
+               or v_job.provider_result_id is not null
+               or v_job.sent_at is not null then
+              raise exception 'Revocation did not cancel before transport.';
+            end if;
+
+            update public.daily_reminder_preferences
+            set daily_enabled = true,
+                updated_at = now()
+            where user_id = current_setting('app.revocation_target')::uuid;
+
+            if not found then
+              raise exception 'Revocation canary could not restore the approved preference.';
+            end if;
+          end
+          \$\$;
+
+          select
+            dl.state = 'cancelled' as cancelled,
+            dl.error_code = 'authorization_revoked' as authorization_revoked,
+            dl.attempt_count = 1 as one_attempt,
+            dl.transport_started_at is null as transport_never_started,
+            dl.provider_result_id is null as no_provider_result,
+            dl.sent_at is null as not_sent,
+            p.daily_enabled = true as preference_restored
+          from public.delivery_ledger dl
+          join public.daily_reminder_preferences p on p.user_id = dl.user_id
+          where dl.id = current_setting('app.revocation_job')::uuid;
+
+          commit;
+          SQL
+          )
+
+          jq -n --arg query "$query" '{query:$query}' >/tmp/query.json
+          status=$(curl --silent --show-error --output /tmp/result.json --write-out '%{http_code}' \
+            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query" \
+            --request POST \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data-binary @/tmp/query.json)
+          if [[ "$status" != "201" ]]; then
+            jq -c '{message:(.message // .error // "unknown")}' /tmp/result.json 2>/dev/null || true
+            echo "::error::Revocation canary returned HTTP $status"
+            exit 1
+          fi
+
+          row=$(jq -c 'if type == "array" then .[-1] elif has("result") then .result[-1] else . end' /tmp/result.json)
+          echo "$row" | jq -e '
+            .cancelled == true and
+            .authorization_revoked == true and
+            .one_attempt == true and
+            .transport_never_started == true and
+            .no_provider_result == true and
+            .not_sent == true and
+            .preference_restored == true
+          ' >/dev/null || { echo "::error::Revocation evidence verification failed"; exit 1; }
+
+          echo "$row" | jq -c '{cancelled,authorization_revoked,one_attempt,transport_never_started,no_provider_result,not_sent,preference_restored}'
+          rm -f /tmp/query.json /tmp/result.json
+          echo "Production revocation gate verified: live claim cancelled before transport and preference restored."
