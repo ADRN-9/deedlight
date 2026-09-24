@@ -2,3 +2,13 @@ NEXTJS_ENV=development
 NEXT_PUBLIC_SITE_URL=http://localhost:3000
 NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
+
+# Server-only gentle delivery settings. Keep disabled until migrations,
+# provider credentials, sender verification, canary, and Cron rollout are ready.
+DELIVERY_ENABLED=false
+DELIVERY_PROVIDER=resend
+SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=YOUR_SUPABASE_SERVICE_ROLE_KEY_DO_NOT_EXPOSE
+RESEND_API_KEY=YOUR_RESEND_API_KEY
+DELIVERY_FROM_EMAIL=Deedlight <sender@example.com>
+DELIVERY_BATCH_SIZE=25

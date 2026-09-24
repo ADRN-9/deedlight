@@ -162,11 +162,11 @@ requireAbsent(
   /"(?:resend|@sendgrid\/mail|postmark|mailgun|twilio|web-push)"\s*:/i,
 );
 
-requireAbsent(
-  "Cloudflare Cron Triggers remain unconfigured",
-  wrangler,
-  /"triggers"\s*:|"crons"\s*:/i,
-);
+const wranglerConfig = JSON.parse(wrangler);
+if (!Array.isArray(wranglerConfig.triggers?.crons) || wranglerConfig.triggers.crons.length !== 0) {
+  throw new Error("Sprint 12.2 security assertion failed: Cloudflare Cron Triggers remain disabled");
+}
+console.log("PASS: Cloudflare Cron Triggers remain disabled");
 
 requireMatch(
   "Sprint documentation explicitly keeps outbound delivery inactive",
