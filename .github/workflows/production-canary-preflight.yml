@@ -36,7 +36,7 @@ jobs:
           with target as (
             select u.id, (u.email_confirmed_at is not null) as email_confirmed
             from auth.users u
-            where md5(lower(coalesce(u.email, ''))) = 'a7e6edf4263513e268d1909951eeb35a'
+            where md5(lower(btrim(coalesce(u.email, '')))) = 'a7e6edf4263513e268d1909951eeb35a'
           )
           select
             ((select count(*) from target) = 1) as account_exists_once,
