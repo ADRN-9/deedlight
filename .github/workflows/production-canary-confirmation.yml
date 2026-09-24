@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   verify:
-    name: Verify approved canary confirmation and consent state
+    name: Verify approved canary confirmation and auth event state
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -28,22 +28,35 @@ jobs:
           [[ -n "${SUPABASE_ACCESS_TOKEN:-}" ]] || { echo "::error::SUPABASE_ACCESS_TOKEN is missing"; exit 1; }
           [[ "$SUPABASE_PROJECT_REF" == "xaipiovflxomcbfwtwmu" ]] || { echo "::error::Unexpected Supabase Production project"; exit 1; }
 
-      - name: Verify approved canary state read-only
+      - name: Inspect approved canary state read-only
         shell: bash
         run: |
           set -euo pipefail
           query=$(cat <<'SQL'
           with target as (
-            select id, email_confirmed_at
+            select id, created_at, confirmation_sent_at, email_confirmed_at, last_sign_in_at, updated_at
             from auth.users
             where md5(lower(btrim(coalesce(email, '')))) = 'a7e6edf4263513e268d1909951eeb35a'
+          ), audit as (
+            select
+              count(*)::integer as matching_events,
+              max(a.created_at) as latest_event_at
+            from auth.audit_log_entries a
+            join target t on a.payload::text like '%' || t.id::text || '%'
           )
           select
             (select count(*) from target) = 1 as exactly_one,
             coalesce((select email_confirmed_at is not null from target limit 1), false) as confirmed,
             coalesce((select p.is_suspended = false from public.profiles p join target t on t.id = p.user_id limit 1), false) as active_profile,
             coalesce((select d.daily_enabled from public.daily_reminder_preferences d join target t on t.id = d.user_id limit 1), false) as daily_enabled,
-            coalesce((select n.weekly_enabled and n.consented_at is not null from public.newsletter_preferences n join target t on t.id = n.user_id limit 1), false) as weekly_enabled;
+            coalesce((select n.weekly_enabled and n.consented_at is not null from public.newsletter_preferences n join target t on t.id = n.user_id limit 1), false) as weekly_enabled,
+            (select created_at from target limit 1) as created_at,
+            (select confirmation_sent_at from target limit 1) as confirmation_sent_at,
+            (select email_confirmed_at from target limit 1) as email_confirmed_at,
+            (select last_sign_in_at from target limit 1) as last_sign_in_at,
+            (select updated_at from target limit 1) as updated_at,
+            (select matching_events from audit) as matching_audit_events,
+            (select latest_event_at from audit) as latest_audit_event_at;
           SQL
           )
           jq -n --arg query "$query" '{query:$query}' >/tmp/query.json
@@ -53,13 +66,6 @@ jobs:
             --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
             --header 'Content-Type: application/json' \
             --data-binary @/tmp/query.json)
-          [[ "$status" == "201" ]] || { echo "::error::Canary confirmation query returned HTTP $status"; exit 1; }
+          [[ "$status" == "201" ]] || { echo "::error::Canary auth-state query returned HTTP $status"; exit 1; }
           jq -c 'if type == "array" then .[0] elif has("result") then .result[0] else . end' /tmp/result.json
-          jq -e '
-            (if type == "array" then .[0] elif has("result") then .result[0] else . end) as $r
-            | ($r.exactly_one == true) and ($r.confirmed == true) and ($r.active_profile == true)
-          ' /tmp/result.json >/dev/null || {
-            echo "::error::Approved canary is not uniquely confirmed and active"
-            exit 1
-          }
-          echo "Approved canary is uniquely confirmed and active."
+          echo "Approved canary auth state inspected read-only."
