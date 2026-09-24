@@ -15,8 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_BUILDS_AUDIT_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: d2e826d7e5193ba8e9140533d1cc8a97
       WORKER_NAME: deedlight
     steps:
       - uses: actions/checkout@v7
@@ -26,7 +26,6 @@ jobs:
         run: |
           set -euo pipefail
           [[ -n "${CLOUDFLARE_API_TOKEN:-}" ]] || { echo "::error::Cloudflare audit token is missing"; exit 1; }
-          [[ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]] || { echo "::error::Cloudflare account ID is missing"; exit 1; }
 
           url="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$WORKER_NAME/settings"
           status=$(curl --silent --show-error --output /tmp/settings.json --write-out '%{http_code}' \
