@@ -1,0 +1,89 @@
+name: Production Live Supabase Audit
+
+on:
+  push:
+    branches: [production-canary]
+    paths:
+      - .github/workflows/production-live-supabase-audit.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+      EXPECTED_PROJECT_REF: xaipiovflxomcbfwtwmu
+      CANARY_EMAIL_MD5: a7e6edf4263513e268d1909951eeb35a
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Guard live Production project identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${SUPABASE_ACCESS_TOKEN:-}" ]] || { echo "::error::SUPABASE_ACCESS_TOKEN is missing"; exit 1; }
+          [[ "$SUPABASE_PROJECT_REF" == "$EXPECTED_PROJECT_REF" ]] || { echo "::error::GitHub Supabase project ref does not match live Worker"; exit 1; }
+
+      - name: Audit migrations and approved canary state read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          query=$(cat <<SQL
+          with target as (
+            select id, email_confirmed_at
+            from auth.users
+            where md5(lower(btrim(coalesce(email, '')))) = '$CANARY_EMAIL_MD5'
+          ), pref as (
+            select d.daily_enabled, d.reminder_time::text as reminder_time, d.timezone
+            from public.daily_reminder_preferences d
+            join target t on t.id = d.user_id
+          ), profile as (
+            select p.is_suspended
+            from public.profiles p
+            join target t on t.id = p.user_id
+          ), migrations as (
+            select
+              count(*) filter (where version = '202609230019')::integer as m019,
+              count(*) filter (where version = '202609230020')::integer as m020,
+              count(*) filter (where version = '202609230021')::integer as m021
+            from supabase_migrations.schema_migrations
+          )
+          select
+            (select count(*) from target)::integer as target_count,
+            coalesce((select email_confirmed_at is not null from target limit 1), false) as confirmed,
+            coalesce((select is_suspended = false from profile limit 1), false) as active_profile,
+            coalesce((select daily_enabled from pref limit 1), false) as daily_enabled,
+            (select reminder_time from pref limit 1) as reminder_time,
+            (select timezone from pref limit 1) as timezone,
+            to_regclass('public.delivery_ledger') is not null as ledger_exists,
+            to_regprocedure('public.claim_delivery_jobs(timestamp with time zone,integer)') is not null as claim_rpc_exists,
+            to_regprocedure('public.begin_delivery_transport(uuid,uuid)') is not null as transport_rpc_exists,
+            exists (
+              select 1 from information_schema.columns
+              where table_schema='public' and table_name='delivery_ledger' and column_name='attempt_count'
+            ) as reliability_columns_exist,
+            exists (
+              select 1 from information_schema.columns
+              where table_schema='public' and table_name='delivery_ledger' and column_name='transport_started_at'
+            ) as transport_column_exists,
+            (select m019 from migrations) as migration_019,
+            (select m020 from migrations) as migration_020,
+            (select m021 from migrations) as migration_021;
+          SQL
+          )
+          jq -n --arg query "$query" '{query:$query}' >/tmp/query.json
+          status=$(curl --silent --show-error --output /tmp/result.json --write-out '%{http_code}' \
+            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query/read-only" \
+            --request POST \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data-binary @/tmp/query.json)
+          [[ "$status" == "201" ]] || { echo "::error::Live Supabase audit returned HTTP $status"; exit 1; }
+          row=$(jq -c 'if type == "array" then .[0] elif has("result") then .result[0] else . end' /tmp/result.json)
+          echo "$row"
+          rm -f /tmp/query.json /tmp/result.json
