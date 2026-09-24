@@ -84,7 +84,7 @@ jobs:
             fi
 
             post_gone=false
-            if [[ "$post_status" == "404" ]] && ! grep -q 'method_not_allowed\|canary_not_found\|canary_' /tmp/canary-post; then
+            if [[ ( "$post_status" == "404" || "$post_status" == "405" ) ]] && ! grep -q 'method_not_allowed\|canary_not_found\|canary_' /tmp/canary-post; then
               post_gone=true
             fi
 
