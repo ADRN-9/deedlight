@@ -6,7 +6,7 @@ const worker = readFileSync("custom-worker.ts", "utf8");
 
 const requiredCanaryFragments = [
   'PRODUCTION_DELIVERY_CANARY_PATH = "/__ops/delivery-canary"',
-  'APPROVED_CANARY_EMAIL = "admin@deedlight.com"',
+  'APPROVED_CANARY_EMAIL_SHA256',
   'CANARY_JOB_HEADER = "x-deedlight-canary-job"',
   'env.DELIVERY_ENABLED !== "false"',
   'DELIVERY_ENABLED: "true"',
@@ -15,15 +15,18 @@ const requiredCanaryFragments = [
   'claimable[0].id !== requestedJobId',
   'claimable[0].kind !== "daily_reminder"',
   'claimable[0].transport_started_at !== null',
-  'recipientEmail !== APPROVED_CANARY_EMAIL',
+  'recipientFingerprint !== APPROVED_CANARY_EMAIL_SHA256',
   'preference?.daily_enabled !== true',
   'profile?.is_suspended === true',
   'runtime.claim(now, 1)',
   'claimed[0].jobId !== requestedJobId',
   'processClaimedDelivery({',
   'evidence?.state !== "sent"',
-  'https://api.resend.com/emails/${encodeURIComponent(evidence.provider_result_id)}',
-  'providerEvidence: providerResponse.ok',
+  '!evidence.transport_started_at',
+  '!evidence.sent_at',
+  'evidence.error_code !== null',
+  'providerAccepted: true',
+  'providerResultRecorded: true',
 ];
 
 for (const fragment of requiredCanaryFragments) {
@@ -31,7 +34,7 @@ for (const fragment of requiredCanaryFragments) {
 }
 
 assert.ok(
-  worker.includes('handleProductionDeliveryCanary(request, env)'),
+  worker.includes("handleProductionDeliveryCanary(request, env)"),
   "Worker must invoke the canary gate before normal fetch handling.",
 );
 assert.ok(
@@ -40,6 +43,15 @@ assert.ok(
   "Canary interception must happen before the normal OpenNext fetch handler.",
 );
 
+assert.ok(
+  !canary.includes("admin@deedlight.com"),
+  "The temporary canary source must not publish the approved recipient address.",
+);
+assert.ok(
+  !canary.includes("GET\"") &&
+    !canary.includes("api.resend.com/emails/${encodeURIComponent"),
+  "A sending-only Resend key must not be used for provider read APIs.",
+);
 assert.ok(
   !canary.includes("enqueueDaily") && !canary.includes("enqueueWeekly"),
   "The canary endpoint must never enqueue a population-wide delivery batch.",
