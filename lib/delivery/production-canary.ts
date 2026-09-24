@@ -7,7 +7,8 @@ import { createSupabaseDeliveryRuntime } from "./supabase-runtime.ts";
 
 export const PRODUCTION_DELIVERY_CANARY_PATH = "/__ops/delivery-canary";
 
-const APPROVED_CANARY_EMAIL = "admin@deedlight.com";
+const APPROVED_CANARY_EMAIL_SHA256 =
+  "e94fba652b89e59528b6d18c4b977b56b1ede5df4f4b523c63032e586d949140";
 const CANARY_JOB_HEADER = "x-deedlight-canary-job";
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -40,6 +41,16 @@ function parseDate(value: string | null) {
   if (!value) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+async function sha256Hex(value: string) {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
 }
 
 export function isClaimableCanaryRow(row: LedgerRow, now: Date) {
@@ -131,11 +142,14 @@ export async function handleProductionDeliveryCanary(
   const { data: authResult, error: authError } =
     await client.auth.admin.getUserById(guardedRow.user_id);
   const recipientEmail = authResult.user?.email?.trim().toLowerCase() ?? "";
+  const recipientFingerprint = recipientEmail
+    ? await sha256Hex(recipientEmail)
+    : "";
 
   if (
     authError ||
     !authResult.user?.email_confirmed_at ||
-    recipientEmail !== APPROVED_CANARY_EMAIL
+    recipientFingerprint !== APPROVED_CANARY_EMAIL_SHA256
   ) {
     return response(409, { ok: false, error: "canary_recipient_guard_failed" });
   }
@@ -193,7 +207,10 @@ export async function handleProductionDeliveryCanary(
     result !== "sent" ||
     evidence?.state !== "sent" ||
     typeof evidence.provider_result_id !== "string" ||
-    !evidence.provider_result_id
+    !evidence.provider_result_id ||
+    !evidence.transport_started_at ||
+    !evidence.sent_at ||
+    evidence.error_code !== null
   ) {
     return response(502, {
       ok: false,
@@ -204,31 +221,15 @@ export async function handleProductionDeliveryCanary(
     });
   }
 
-  const providerResponse = await fetch(
-    `https://api.resend.com/emails/${encodeURIComponent(evidence.provider_result_id)}`,
-    {
-      method: "GET",
-      headers: {
-        authorization: `Bearer ${config.resendApiKey}`,
-      },
-    },
-  );
-
-  let providerLastEvent: string | null = null;
-  if (providerResponse.ok) {
-    const providerBody = (await providerResponse.json().catch(() => null)) as
-      | Record<string, unknown>
-      | null;
-    if (typeof providerBody?.last_event === "string") {
-      providerLastEvent = providerBody.last_event;
-    }
-  }
-
+  // A "sent" transport result is only produced after Resend returns HTTP 2xx
+  // with a bounded non-empty provider ID. Sending-only API keys intentionally
+  // cannot call Resend read APIs, so provider acceptance is evidenced by that
+  // response and the matching provider ID persisted in the private ledger.
   return response(200, {
     ok: true,
     result: "sent",
     ledgerState: "sent",
-    providerEvidence: providerResponse.ok,
-    providerLastEvent,
+    providerAccepted: true,
+    providerResultRecorded: true,
   });
 }
