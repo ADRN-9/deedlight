@@ -1,0 +1,251 @@
+name: Production Delivery Canary Send
+
+on:
+  push:
+    branches: [production-canary]
+    paths:
+      - .github/workflows/production-canary-send.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+      EXPECTED_PROJECT_REF: vhpxnxupcuvcdotfjzqs
+      CANARY_EMAIL_MD5: a7e6edf4263513e268d1909951eeb35a
+      CANARY_URL: https://deedlight.com/__ops/delivery-canary
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Guard Production identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${SUPABASE_ACCESS_TOKEN:-}" ]] || { echo "::error::SUPABASE_ACCESS_TOKEN is missing"; exit 1; }
+          [[ "$SUPABASE_PROJECT_REF" == "$EXPECTED_PROJECT_REF" ]] || { echo "::error::Unexpected Supabase Production project"; exit 1; }
+
+      - name: Seed exactly one approved canary job
+        id: seed
+        shell: bash
+        run: |
+          set -euo pipefail
+          query=$(cat <<'SQL'
+          do $$
+          declare
+            v_target uuid;
+            v_count integer;
+            v_pref public.daily_reminder_preferences%rowtype;
+            v_scheduled_for timestamptz;
+            v_delivery_key text;
+            v_claimable integer;
+          begin
+            select count(*)::integer
+              into v_count
+            from auth.users u
+            where md5(lower(btrim(coalesce(u.email, '')))) = current_setting('app.canary_email_md5', true)
+              and u.email_confirmed_at is not null;
+
+            if v_count <> 1 then
+              raise exception 'Expected exactly one confirmed approved canary.';
+            end if;
+
+            select u.id
+              into v_target
+            from auth.users u
+            where md5(lower(btrim(coalesce(u.email, '')))) = current_setting('app.canary_email_md5', true)
+              and u.email_confirmed_at is not null;
+
+            if not exists (
+              select 1
+              from public.profiles p
+              where p.user_id = v_target
+                and p.is_suspended = false
+            ) then
+              raise exception 'Approved canary profile is unavailable or suspended.';
+            end if;
+
+            select d.*
+              into v_pref
+            from public.daily_reminder_preferences d
+            where d.user_id = v_target;
+
+            if not found
+               or v_pref.daily_enabled is distinct from true
+               or v_pref.reminder_time <> time '00:01'
+               or v_pref.timezone <> 'Asia/Singapore' then
+              raise exception 'Approved canary preference does not match explicit consent.';
+            end if;
+
+            v_scheduled_for := (
+              timezone(v_pref.timezone, now())::date + v_pref.reminder_time
+            ) at time zone v_pref.timezone;
+            v_delivery_key := 'daily:' || timezone(v_pref.timezone, v_scheduled_for)::date::text;
+
+            if v_scheduled_for > now() then
+              raise exception 'Approved canary reminder is not due yet.';
+            end if;
+
+            select count(*)::integer
+              into v_claimable
+            from public.delivery_ledger dl
+            where (
+                dl.state = 'queued'
+                and coalesce(dl.next_attempt_at, dl.scheduled_for) <= now()
+                and dl.attempt_count < 5
+              )
+              or (
+                dl.state = 'claimed'
+                and dl.claim_expires_at is not null
+                and dl.claim_expires_at <= now()
+                and dl.attempt_count < 5
+              );
+
+            if v_claimable <> 0 then
+              raise exception 'Canary seed requires zero pre-existing claimable jobs.';
+            end if;
+
+            if exists (
+              select 1
+              from public.delivery_ledger dl
+              where dl.user_id = v_target
+                and dl.kind = 'daily_reminder'
+                and dl.delivery_key = v_delivery_key
+            ) then
+              raise exception 'Current logical canary job already exists.';
+            end if;
+
+            perform set_config('app.canary_target', v_target::text, true);
+            perform set_config('app.canary_scheduled_for', v_scheduled_for::text, true);
+            perform set_config('app.canary_delivery_key', v_delivery_key, true);
+          end
+          $$;
+
+          insert into public.delivery_ledger (
+            user_id,
+            kind,
+            delivery_key,
+            scheduled_for
+          )
+          values (
+            current_setting('app.canary_target')::uuid,
+            'daily_reminder',
+            current_setting('app.canary_delivery_key'),
+            current_setting('app.canary_scheduled_for')::timestamptz
+          )
+          returning id;
+          SQL
+          )
+
+          # The management API executes this as one session. Set the fingerprint
+          # in-session; neither the recipient address nor service-role key is used here.
+          query="select set_config('app.canary_email_md5', '$CANARY_EMAIL_MD5', false); $query"
+          jq -n --arg query "$query" '{query:$query}' >/tmp/query.json
+          status=$(curl --silent --show-error --output /tmp/result.json --write-out '%{http_code}' \
+            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query" \
+            --request POST \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data-binary @/tmp/query.json)
+          [[ "$status" == "201" ]] || { echo "::error::Canary seed returned HTTP $status"; exit 1; }
+
+          job_id=$(jq -r 'if type == "array" then .[-1].id elif has("result") then .result[-1].id else empty end' /tmp/result.json)
+          [[ "$job_id" =~ ^[0-9a-fA-F-]{36}$ ]] || { echo "::error::Canary seed did not return a job UUID"; exit 1; }
+          echo "::add-mask::$job_id"
+          echo "job_id=$job_id" >> "$GITHUB_OUTPUT"
+          rm -f /tmp/query.json /tmp/result.json
+          echo "Exactly one approved canary job is queued; identifier masked."
+
+      - name: Invoke one-time Production canary transport
+        id: send
+        shell: bash
+        env:
+          JOB_ID: ${{ steps.seed.outputs.job_id }}
+        run: |
+          set -euo pipefail
+          status=$(curl --silent --show-error --output /tmp/canary.json --write-out '%{http_code}' \
+            "$CANARY_URL" \
+            --request POST \
+            --header "x-deedlight-canary-job: $JOB_ID" \
+            --header 'content-type: application/json')
+          if [[ "$status" != "200" ]]; then
+            safe_error=$(jq -r '.error // "unknown"' /tmp/canary.json 2>/dev/null || echo unknown)
+            echo "::error::Production canary returned HTTP $status ($safe_error)"
+            exit 1
+          fi
+          jq -e '.ok == true and .result == "sent" and .ledgerState == "sent" and .providerAccepted == true' /tmp/canary.json >/dev/null || {
+            echo "::error::Production canary did not confirm provider acceptance and sent ledger state"; exit 1;
+          }
+          rm -f /tmp/canary.json
+          echo "Production canary transport accepted by provider and marked sent."
+
+      - name: Verify private ledger evidence
+        shell: bash
+        env:
+          JOB_ID: ${{ steps.seed.outputs.job_id }}
+        run: |
+          set -euo pipefail
+          query=$(cat <<SQL
+          with target as (
+            select id
+            from auth.users
+            where md5(lower(btrim(coalesce(email, '')))) = '$CANARY_EMAIL_MD5'
+              and email_confirmed_at is not null
+          ), job as (
+            select dl.*
+            from public.delivery_ledger dl
+            join target t on t.id = dl.user_id
+            where dl.id = '$JOB_ID'::uuid
+          ), claimable as (
+            select 1
+            from public.delivery_ledger dl
+            where (
+                dl.state = 'queued'
+                and coalesce(dl.next_attempt_at, dl.scheduled_for) <= now()
+                and dl.attempt_count < 5
+              )
+              or (
+                dl.state = 'claimed'
+                and dl.claim_expires_at is not null
+                and dl.claim_expires_at <= now()
+                and dl.attempt_count < 5
+              )
+          )
+          select
+            (select count(*) from job) = 1 as exact_job,
+            coalesce((select state = 'sent' from job), false) as sent,
+            coalesce((select attempt_count = 1 from job), false) as one_attempt,
+            coalesce((select transport_started_at is not null from job), false) as transport_started,
+            coalesce((select sent_at is not null from job), false) as sent_at_recorded,
+            coalesce((select provider_result_id is not null and char_length(provider_result_id) > 0 from job), false) as provider_id_recorded,
+            coalesce((select error_code is null from job), false) as no_error,
+            (select count(*)::integer from claimable) as remaining_claimable;
+          SQL
+          )
+          jq -n --arg query "$query" '{query:$query}' >/tmp/query.json
+          status=$(curl --silent --show-error --output /tmp/result.json --write-out '%{http_code}' \
+            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query/read-only" \
+            --request POST \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data-binary @/tmp/query.json)
+          [[ "$status" == "201" ]] || { echo "::error::Canary evidence query returned HTTP $status"; exit 1; }
+          row=$(jq -c 'if type == "array" then .[0] elif has("result") then .result[0] else . end' /tmp/result.json)
+          echo "$row" | jq -e '
+            .exact_job == true and
+            .sent == true and
+            .one_attempt == true and
+            .transport_started == true and
+            .sent_at_recorded == true and
+            .provider_id_recorded == true and
+            .no_error == true and
+            .remaining_claimable == 0
+          ' >/dev/null || { echo "::error::Canary ledger evidence failed"; exit 1; }
+          echo "$row" | jq -c '{sent,one_attempt,transport_started,sent_at_recorded,provider_id_recorded,no_error,remaining_claimable}'
+          rm -f /tmp/query.json /tmp/result.json
+          echo "Production canary ledger evidence verified without exposing recipient or provider ID."
