@@ -16,8 +16,7 @@ jobs:
     timeout-minutes: 5
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
-      EXPECTED_PROJECT_REF: vhpxnxupcuvcdotfjzqs
+      SUPABASE_PROJECT_REF: vhpxnxupcuvcdotfjzqs
       CANARY_EMAIL_MD5: a7e6edf4263513e268d1909951eeb35a
       CANARY_URL: https://deedlight.com/__ops/delivery-canary
     steps:
@@ -28,15 +27,15 @@ jobs:
         run: |
           set -euo pipefail
           [[ -n "${SUPABASE_ACCESS_TOKEN:-}" ]] || { echo "::error::SUPABASE_ACCESS_TOKEN is missing"; exit 1; }
-          [[ "$SUPABASE_PROJECT_REF" == "$EXPECTED_PROJECT_REF" ]] || { echo "::error::Unexpected Supabase Production project"; exit 1; }
+          [[ "$SUPABASE_PROJECT_REF" == "vhpxnxupcuvcdotfjzqs" ]] || { echo "::error::Unexpected Supabase Production project"; exit 1; }
 
       - name: Seed exactly one approved canary job
         id: seed
         shell: bash
         run: |
           set -euo pipefail
-          query=$(cat <<'SQL'
-          do $$
+          query=$(cat <<SQL
+          do \$\$
           declare
             v_target uuid;
             v_count integer;
@@ -44,11 +43,12 @@ jobs:
             v_scheduled_for timestamptz;
             v_delivery_key text;
             v_claimable integer;
+            v_job_id uuid;
           begin
             select count(*)::integer
               into v_count
             from auth.users u
-            where md5(lower(btrim(coalesce(u.email, '')))) = current_setting('app.canary_email_md5', true)
+            where md5(lower(btrim(coalesce(u.email, '')))) = '$CANARY_EMAIL_MD5'
               and u.email_confirmed_at is not null;
 
             if v_count <> 1 then
@@ -58,7 +58,7 @@ jobs:
             select u.id
               into v_target
             from auth.users u
-            where md5(lower(btrim(coalesce(u.email, '')))) = current_setting('app.canary_email_md5', true)
+            where md5(lower(btrim(coalesce(u.email, '')))) = '$CANARY_EMAIL_MD5'
               and u.email_confirmed_at is not null;
 
             if not exists (
@@ -120,31 +120,28 @@ jobs:
               raise exception 'Current logical canary job already exists.';
             end if;
 
-            perform set_config('app.canary_target', v_target::text, true);
-            perform set_config('app.canary_scheduled_for', v_scheduled_for::text, true);
-            perform set_config('app.canary_delivery_key', v_delivery_key, true);
-          end
-          $$;
+            insert into public.delivery_ledger (
+              user_id,
+              kind,
+              delivery_key,
+              scheduled_for
+            )
+            values (
+              v_target,
+              'daily_reminder',
+              v_delivery_key,
+              v_scheduled_for
+            )
+            returning id into v_job_id;
 
-          insert into public.delivery_ledger (
-            user_id,
-            kind,
-            delivery_key,
-            scheduled_for
-          )
-          values (
-            current_setting('app.canary_target')::uuid,
-            'daily_reminder',
-            current_setting('app.canary_delivery_key'),
-            current_setting('app.canary_scheduled_for')::timestamptz
-          )
-          returning id;
+            perform set_config('app.canary_job_id', v_job_id::text, false);
+          end
+          \$\$;
+
+          select current_setting('app.canary_job_id') as id;
           SQL
           )
 
-          # The management API executes this as one session. Set the fingerprint
-          # in-session; neither the recipient address nor service-role key is used here.
-          query="select set_config('app.canary_email_md5', '$CANARY_EMAIL_MD5', false); $query"
           jq -n --arg query "$query" '{query:$query}' >/tmp/query.json
           status=$(curl --silent --show-error --output /tmp/result.json --write-out '%{http_code}' \
             "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query" \
@@ -162,7 +159,6 @@ jobs:
           echo "Exactly one approved canary job is queued; identifier masked."
 
       - name: Invoke one-time Production canary transport
-        id: send
         shell: bash
         env:
           JOB_ID: ${{ steps.seed.outputs.job_id }}
