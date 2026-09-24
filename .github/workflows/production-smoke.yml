@@ -1,0 +1,74 @@
+name: Production Smoke
+
+on:
+  push:
+    branches:
+      - post-land-validation
+    paths:
+      - .github/workflows/production-smoke.yml
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Smoke deedlight.com with delivery disabled
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Public and unauthenticated route behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://deedlight.com'
+
+          fetch_status() {
+            local path="$1"
+            curl --silent --show-error --output /tmp/body --dump-header /tmp/headers \
+              --max-time 20 --connect-timeout 10 \
+              --write-out '%{http_code}' "$base$path"
+          }
+
+          expect_200() {
+            local path="$1"
+            local status
+            status=$(fetch_status "$path")
+            echo "$path -> $status"
+            [[ "$status" == '200' ]] || { echo "::error::$path expected 200, got $status"; cat /tmp/headers; exit 1; }
+          }
+
+          expect_404() {
+            local path="$1"
+            local status
+            status=$(fetch_status "$path")
+            echo "$path -> $status"
+            [[ "$status" == '404' ]] || { echo "::error::$path expected 404 obsolete-route behavior, got $status"; cat /tmp/headers; exit 1; }
+          }
+
+          expect_200 '/'
+          expect_200 '/login'
+          expect_200 '/today'
+          expect_200 '/weekly'
+          expect_200 '/offerings/new'
+
+          health_status=$(fetch_status '/api/health')
+          echo "/api/health -> $health_status"
+          [[ "$health_status" == '200' ]] || { echo "::error::health expected 200"; exit 1; }
+          grep -Eq '"ok"[[:space:]]*:[[:space:]]*true' /tmp/body || { echo "::error::health body did not report ok=true"; cat /tmp/body; exit 1; }
+
+          journey_status=$(fetch_status '/journey')
+          echo "/journey -> $journey_status"
+          [[ "$journey_status" =~ ^30[1278]$ ]] || { echo "::error::unauthenticated /journey expected redirect, got $journey_status"; cat /tmp/headers; exit 1; }
+          tr -d '\r' </tmp/headers | grep -Eiq '^location: https://deedlight\.com/login\?next=%2Fjourney|^location: /login\?next=%2Fjourney|^location: https://deedlight\.com/login\?next=/journey|^location: /login\?next=/journey' || {
+            echo "::error::/journey redirect did not target login with next=/journey"
+            cat /tmp/headers
+            exit 1
+          }
+
+          expect_404 '/sign-in'
+          expect_404 '/me'
+          expect_404 '/offering/new'
+          expect_404 '/auth/callback'
+          expect_404 '/api/auth/callback'
+
+          echo 'Production public/unauthenticated smoke passed.'
