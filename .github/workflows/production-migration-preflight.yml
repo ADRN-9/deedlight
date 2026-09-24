@@ -1,0 +1,108 @@
+name: Production Migration Preflight
+
+on:
+  push:
+    branches:
+      - gentle-delivery-transport
+    paths:
+      - .github/workflows/production-migration-preflight.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deedlight-production-migration
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Verify production migration baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@v7
+
+      - name: Guard required production secrets and project identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in SUPABASE_ACCESS_TOKEN SUPABASE_DB_PASSWORD SUPABASE_PROJECT_REF; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::$name is missing"
+              missing=1
+            fi
+          done
+          if [[ "$missing" -ne 0 ]]; then
+            exit 1
+          fi
+          if [[ "$SUPABASE_PROJECT_REF" != "vhpxnxupcuvcdotfjzqs" ]]; then
+            echo "::error::SUPABASE_PROJECT_REF does not match the expected Deedlight production project"
+            exit 1
+          fi
+          echo "Required secrets are present and the project ref matches the expected Deedlight production project."
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Record CLI version
+        run: supabase --version
+
+      - name: Link to production without schema mutation
+        run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
+
+      - name: Inspect remote migration history
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase migration list --linked | tee /tmp/migration-list.txt
+
+          awk -F'│' '
+            $1 ~ /202609230019/ && $2 ~ /202609230019/ { found019=1 }
+            END { exit(found019 ? 0 : 1) }
+          ' /tmp/migration-list.txt || {
+            echo "::error::Production migration 019 is not confirmed as applied"
+            exit 1
+          }
+
+          awk -F'│' '
+            $1 ~ /202609230020/ && $2 ~ /202609230020/ { remote020=1 }
+            $1 ~ /202609230021/ && $2 ~ /202609230021/ { remote021=1 }
+            END { exit((remote020 || remote021) ? 1 : 0) }
+          ' /tmp/migration-list.txt || {
+            echo "::error::Migration 020 or 021 is already recorded remotely; stop for manual reconciliation"
+            exit 1
+          }
+
+          echo "Production baseline is consistent with migration 019 applied and 020/021 pending."
+
+      - name: Dry-run pending production migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase db push --linked --dry-run |& tee /tmp/db-push-dry-run.txt
+
+          grep -q '202609230020_delivery_reliability_hardening.sql' /tmp/db-push-dry-run.txt || {
+            echo "::error::Dry-run did not include migration 020"
+            exit 1
+          }
+          grep -q '202609230021_gentle_delivery_transport.sql' /tmp/db-push-dry-run.txt || {
+            echo "::error::Dry-run did not include migration 021"
+            exit 1
+          }
+
+          mapfile -t pending < <(grep -Eo '[0-9]{12,14}_[A-Za-z0-9_.-]+\.sql' /tmp/db-push-dry-run.txt | sort -u)
+          if [[ "${#pending[@]}" -ne 2 ]]; then
+            echo "::error::Dry-run contains an unexpected number of pending migrations (${#pending[@]}); expected exactly 2"
+            printf 'Pending migration filename: %s\n' "${pending[@]}"
+            exit 1
+          fi
+
+          echo "Dry-run confirms exactly migrations 020 and 021 are pending. No migration was applied."
