@@ -11,61 +11,139 @@ permissions:
   contents: read
 
 jobs:
-  verify:
-    name: Verify approved canary confirmation and auth event state
+  resend:
+    name: Send fresh approved canary magic link
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_BUILDS_AUDIT_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: d2e826d7e5193ba8e9140533d1cc8a97
+      WORKER_NAME: deedlight
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
 
       - name: Guard Production identity
         shell: bash
         run: |
           set -euo pipefail
           [[ -n "${SUPABASE_ACCESS_TOKEN:-}" ]] || { echo "::error::SUPABASE_ACCESS_TOKEN is missing"; exit 1; }
+          [[ -n "${CLOUDFLARE_API_TOKEN:-}" ]] || { echo "::error::CLOUDFLARE_BUILDS_AUDIT_TOKEN is missing"; exit 1; }
           [[ "$SUPABASE_PROJECT_REF" == "xaipiovflxomcbfwtwmu" ]] || { echo "::error::Unexpected Supabase Production project"; exit 1; }
 
-      - name: Inspect approved canary state read-only
+      - name: Resolve the unique unconfirmed approved canary without logging its address
         shell: bash
         run: |
           set -euo pipefail
           query=$(cat <<'SQL'
-          with target as (
-            select id, created_at, confirmation_sent_at, email_confirmed_at, last_sign_in_at, updated_at
-            from auth.users
-            where md5(lower(btrim(coalesce(email, '')))) = 'a7e6edf4263513e268d1909951eeb35a'
-          ), audit as (
-            select
-              count(*)::integer as matching_events,
-              max(a.created_at) as latest_event_at
-            from auth.audit_log_entries a
-            join target t on a.payload::text like '%' || t.id::text || '%'
-          )
-          select
-            (select count(*) from target) = 1 as exactly_one,
-            coalesce((select email_confirmed_at is not null from target limit 1), false) as confirmed,
-            coalesce((select p.is_suspended = false from public.profiles p join target t on t.id = p.user_id limit 1), false) as active_profile,
-            coalesce((select d.daily_enabled from public.daily_reminder_preferences d join target t on t.id = d.user_id limit 1), false) as daily_enabled,
-            coalesce((select n.weekly_enabled and n.consented_at is not null from public.newsletter_preferences n join target t on t.id = n.user_id limit 1), false) as weekly_enabled,
-            (select created_at from target limit 1) as created_at,
-            (select confirmation_sent_at from target limit 1) as confirmation_sent_at,
-            (select email_confirmed_at from target limit 1) as email_confirmed_at,
-            (select last_sign_in_at from target limit 1) as last_sign_in_at,
-            (select updated_at from target limit 1) as updated_at,
-            (select matching_events from audit) as matching_audit_events,
-            (select latest_event_at from audit) as latest_audit_event_at;
+          select email, confirmation_sent_at
+          from auth.users
+          where md5(lower(btrim(coalesce(email, '')))) = 'a7e6edf4263513e268d1909951eeb35a'
+            and email_confirmed_at is null;
           SQL
           )
-          jq -n --arg query "$query" '{query:$query}' >/tmp/query.json
-          status=$(curl --silent --show-error --output /tmp/result.json --write-out '%{http_code}' \
+          jq -n --arg query "$query" '{query:$query}' >/tmp/canary-query.json
+          status=$(curl --silent --show-error --output /tmp/canary-result.json --write-out '%{http_code}' \
             "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query/read-only" \
             --request POST \
             --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
             --header 'Content-Type: application/json' \
-            --data-binary @/tmp/query.json)
-          [[ "$status" == "201" ]] || { echo "::error::Canary auth-state query returned HTTP $status"; exit 1; }
-          jq -c 'if type == "array" then .[0] elif has("result") then .result[0] else . end' /tmp/result.json
-          echo "Approved canary auth state inspected read-only."
+            --data-binary @/tmp/canary-query.json)
+          [[ "$status" == "201" ]] || { echo "::error::Canary lookup returned HTTP $status"; exit 1; }
+          count=$(jq 'if type == "array" then length elif has("result") then (.result|length) else 0 end' /tmp/canary-result.json)
+          [[ "$count" == "1" ]] || { echo "::error::Expected exactly one unconfirmed approved canary"; exit 1; }
+          email=$(jq -r 'if type == "array" then .[0].email elif has("result") then .result[0].email else empty end' /tmp/canary-result.json)
+          sent_at=$(jq -r 'if type == "array" then .[0].confirmation_sent_at elif has("result") then .result[0].confirmation_sent_at else empty end' /tmp/canary-result.json)
+          [[ -n "$email" && "$email" != "null" ]] || { echo "::error::Canary email is missing"; exit 1; }
+          echo "::add-mask::$email"
+          umask 077
+          printf '%s' "$email" >/tmp/canary-email
+          printf '%s' "$sent_at" >/tmp/old-confirmation-sent-at
+          rm -f /tmp/canary-result.json /tmp/canary-query.json
+          echo "Unique unconfirmed approved canary resolved."
+
+      - name: Read public Supabase configuration from Production Worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$WORKER_NAME/settings"
+          status=$(curl --silent --show-error --output /tmp/worker-settings.json --write-out '%{http_code}' \
+            "$url" --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN")
+          [[ "$status" == "200" ]] || { echo "::error::Worker settings lookup returned HTTP $status"; exit 1; }
+          jq -e '.success == true' /tmp/worker-settings.json >/dev/null || { echo "::error::Cloudflare settings response failed"; exit 1; }
+          anon_key=$(jq -r '[.result.bindings[] | select(.name == "NEXT_PUBLIC_SUPABASE_ANON_KEY" and .type == "plain_text") | .text][0] // empty' /tmp/worker-settings.json)
+          supabase_url=$(jq -r '[.result.bindings[] | select(.name == "NEXT_PUBLIC_SUPABASE_URL" and .type == "plain_text") | .text][0] // empty' /tmp/worker-settings.json)
+          [[ -n "$anon_key" ]] || { echo "::error::Production public Supabase anon key binding is missing"; exit 1; }
+          [[ "$supabase_url" == "https://xaipiovflxomcbfwtwmu.supabase.co" ]] || { echo "::error::Production public Supabase URL binding is unexpected"; exit 1; }
+          echo "::add-mask::$anon_key"
+          umask 077
+          printf '%s' "$anon_key" >/tmp/public-anon-key
+          printf '%s' "$supabase_url" >/tmp/public-supabase-url
+          rm -f /tmp/worker-settings.json
+          echo "Production public Auth configuration verified."
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Send one fresh magic link to the existing approved canary
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CANARY_EMAIL="$(cat /tmp/canary-email)"
+          export CANARY_SUPABASE_URL="$(cat /tmp/public-supabase-url)"
+          export CANARY_SUPABASE_ANON_KEY="$(cat /tmp/public-anon-key)"
+          node --input-type=module <<'NODE'
+          import { createClient } from '@supabase/supabase-js';
+          const email = process.env.CANARY_EMAIL;
+          const url = process.env.CANARY_SUPABASE_URL;
+          const anonKey = process.env.CANARY_SUPABASE_ANON_KEY;
+          if (!email || !url || !anonKey) throw new Error('Missing guarded canary Auth inputs');
+          const supabase = createClient(url, anonKey, {
+            auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+          });
+          const { error } = await supabase.auth.signInWithOtp({
+            email,
+            options: { shouldCreateUser: false, emailRedirectTo: 'https://deedlight.com/today' },
+          });
+          if (error) {
+            console.error('Supabase Auth safe error:', JSON.stringify({
+              message: typeof error.message === 'string' ? error.message : null,
+              code: typeof error.code === 'string' ? error.code : null,
+              status: typeof error.status === 'number' ? error.status : null,
+              name: typeof error.name === 'string' ? error.name : null,
+            }));
+            process.exit(1);
+          }
+          console.log('Fresh magic-link request accepted for existing approved canary.');
+          NODE
+          rm -f /tmp/canary-email /tmp/public-anon-key /tmp/public-supabase-url
+
+      - name: Verify confirmation mail timestamp advanced
+        shell: bash
+        run: |
+          set -euo pipefail
+          sleep 2
+          old_sent_at=$(cat /tmp/old-confirmation-sent-at)
+          query=$(cat <<'SQL'
+          select confirmation_sent_at
+          from auth.users
+          where md5(lower(btrim(coalesce(email, '')))) = 'a7e6edf4263513e268d1909951eeb35a'
+            and email_confirmed_at is null;
+          SQL
+          )
+          jq -n --arg query "$query" '{query:$query}' >/tmp/verify-query.json
+          status=$(curl --silent --show-error --output /tmp/verify-result.json --write-out '%{http_code}' \
+            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query/read-only" \
+            --request POST \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data-binary @/tmp/verify-query.json)
+          [[ "$status" == "201" ]] || { echo "::error::Post-send verification returned HTTP $status"; exit 1; }
+          new_sent_at=$(jq -r 'if type == "array" then .[0].confirmation_sent_at elif has("result") then .result[0].confirmation_sent_at else empty end' /tmp/verify-result.json)
+          [[ -n "$new_sent_at" && "$new_sent_at" != "null" && "$new_sent_at" != "$old_sent_at" ]] || { echo "::error::Confirmation timestamp did not advance"; exit 1; }
+          echo "Fresh magic link was issued and timestamp advanced."
