@@ -1,0 +1,102 @@
+name: Production Canary Preflight
+
+on:
+  push:
+    branches:
+      - production-canary
+    paths:
+      - .github/workflows/production-canary-preflight.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify canary consent and queue state on primary
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Guard Production identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${SUPABASE_ACCESS_TOKEN:-}" ]] || { echo "::error::SUPABASE_ACCESS_TOKEN is missing"; exit 1; }
+          [[ "$SUPABASE_PROJECT_REF" == "xaipiovflxomcbfwtwmu" ]] || { echo "::error::Unexpected Supabase Production project"; exit 1; }
+
+      - name: Inspect approved canary on primary
+        shell: bash
+        run: |
+          set -euo pipefail
+          query=$(cat <<'SQL'
+          with target as (
+            select id
+            from auth.users
+            where md5(lower(btrim(coalesce(email, '')))) = 'a7e6edf4263513e268d1909951eeb35a'
+              and email_confirmed_at is not null
+          ), target_pref as (
+            select
+              d.daily_enabled,
+              d.reminder_time::text as reminder_time,
+              d.timezone,
+              d.updated_at,
+              p.is_suspended
+            from public.daily_reminder_preferences d
+            join target t on t.id = d.user_id
+            join public.profiles p on p.user_id = d.user_id
+          ), due as (
+            select d.user_id
+            from public.daily_reminder_preferences d
+            join public.profiles p on p.user_id = d.user_id and p.is_suspended = false
+            join pg_catalog.pg_timezone_names tz on tz.name = d.timezone
+            where d.daily_enabled = true
+              and ((timezone(d.timezone, now())::date + d.reminder_time) at time zone d.timezone) <= now()
+          ), claimable as (
+            select id
+            from public.delivery_ledger dl
+            where (
+                dl.state = 'queued'
+                and coalesce(dl.next_attempt_at, dl.scheduled_for) <= now()
+                and dl.attempt_count < 5
+              )
+              or (
+                dl.state = 'claimed'
+                and dl.claim_expires_at is not null
+                and dl.claim_expires_at <= now()
+                and dl.attempt_count < 5
+              )
+          )
+          select
+            (select count(*) from target) = 1 as exactly_one_confirmed_target,
+            coalesce((select daily_enabled from target_pref limit 1), false) as daily_enabled,
+            (select reminder_time from target_pref limit 1) as reminder_time,
+            (select timezone from target_pref limit 1) as timezone,
+            coalesce((select is_suspended from target_pref limit 1), true) as suspended,
+            (select count(*) from due)::integer as due_active_preferences,
+            (select count(*) from claimable)::integer as claimable_jobs,
+            exists (
+              select 1
+              from due d
+              join target t on t.id = d.user_id
+            ) as approved_canary_is_due;
+          SQL
+          )
+          jq -n --arg query "$query" '{query:$query}' >/tmp/query.json
+          status=$(curl --silent --show-error --output /tmp/result.json --write-out '%{http_code}' \
+            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query" \
+            --request POST \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data-binary @/tmp/query.json)
+          [[ "$status" == "201" ]] || { echo "::error::Primary canary query returned HTTP $status"; exit 1; }
+          row=$(jq -c 'if type == "array" then .[0] elif has("result") then .result[0] else . end' /tmp/result.json)
+          echo "$row"
+          echo "$row" | jq -e '.exactly_one_confirmed_target == true and .suspended == false' >/dev/null || {
+            echo "::error::Approved canary identity/profile guard failed"
+            exit 1
+          }
+          rm -f /tmp/query.json /tmp/result.json
