@@ -1,0 +1,133 @@
+name: Production Canary Magic Link
+
+on:
+  push:
+    branches:
+      - production-canary
+    paths:
+      - .github/workflows/production-canary-magic-link.yml
+
+permissions:
+  contents: read
+
+jobs:
+  magic_link:
+    name: Establish approved canary through public Auth
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_BUILDS_AUDIT_TOKEN }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+      CLOUDFLARE_ACCOUNT_ID: d2e826d7e5193ba8e9140533d1cc8a97
+      WORKER_NAME: deedlight
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Guard Production identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${CLOUDFLARE_API_TOKEN:-}" ]] || { echo "::error::CLOUDFLARE_BUILDS_AUDIT_TOKEN is missing"; exit 1; }
+          [[ -n "${SUPABASE_ACCESS_TOKEN:-}" ]] || { echo "::error::SUPABASE_ACCESS_TOKEN is missing"; exit 1; }
+          [[ "$SUPABASE_PROJECT_REF" == "xaipiovflxomcbfwtwmu" ]] || { echo "::error::Unexpected Supabase Production project"; exit 1; }
+
+      - name: Verify approved canary is still absent
+        shell: bash
+        run: |
+          set -euo pipefail
+          query="select count(*)::integer as matching_accounts from auth.users where md5(lower(btrim(coalesce(email, '')))) = 'a7e6edf4263513e268d1909951eeb35a';"
+          jq -n --arg query "$query" '{query:$query}' >/tmp/canary-absence.json
+          status=$(curl --silent --show-error --output /tmp/canary-absence-result.json --write-out '%{http_code}' \
+            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query/read-only" \
+            --request POST \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data-binary @/tmp/canary-absence.json)
+          [[ "$status" == "201" ]] || { echo "::error::Canary absence preflight returned HTTP $status"; exit 1; }
+          jq -e '(if type == "array" then .[0] elif has("result") then .result[0] else . end).matching_accounts == 0' /tmp/canary-absence-result.json >/dev/null || {
+            echo "::error::Approved canary already exists; refusing to create a second Auth user"
+            exit 1
+          }
+
+      - name: Read public Supabase client configuration from Production Worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$WORKER_NAME/settings"
+          status=$(curl --silent --show-error --output /tmp/worker-settings.json --write-out '%{http_code}' \
+            "$url" --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN")
+          [[ "$status" == "200" ]] || { echo "::error::Worker settings lookup returned HTTP $status"; exit 1; }
+          jq -e '.success == true' /tmp/worker-settings.json >/dev/null || { echo "::error::Cloudflare settings response failed"; exit 1; }
+          anon_key=$(jq -r '[.result.bindings[] | select(.name == "NEXT_PUBLIC_SUPABASE_ANON_KEY" and .type == "plain_text") | .text][0] // empty' /tmp/worker-settings.json)
+          supabase_url=$(jq -r '[.result.bindings[] | select(.name == "NEXT_PUBLIC_SUPABASE_URL" and .type == "plain_text") | .text][0] // empty' /tmp/worker-settings.json)
+          [[ -n "$anon_key" ]] || { echo "::error::Production public Supabase anon key binding is missing"; exit 1; }
+          [[ "$supabase_url" == "https://xaipiovflxomcbfwtwmu.supabase.co" ]] || { echo "::error::Production public Supabase URL binding is unexpected"; exit 1; }
+          echo "::add-mask::$anon_key"
+          umask 077
+          printf '%s' "$anon_key" >/tmp/public-anon-key
+          printf '%s' "$supabase_url" >/tmp/public-supabase-url
+          rm -f /tmp/worker-settings.json
+          echo "Production public Auth configuration verified."
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Send one standard Supabase magic link to approved canary
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CANARY_SUPABASE_URL="$(cat /tmp/public-supabase-url)"
+          export CANARY_SUPABASE_ANON_KEY="$(cat /tmp/public-anon-key)"
+          node --input-type=module <<'NODE'
+          import { createClient } from '@supabase/supabase-js';
+
+          const url = process.env.CANARY_SUPABASE_URL;
+          const anonKey = process.env.CANARY_SUPABASE_ANON_KEY;
+          if (!url || !anonKey) throw new Error('Missing guarded public Supabase configuration');
+
+          const supabase = createClient(url, anonKey, {
+            auth: {
+              autoRefreshToken: false,
+              persistSession: false,
+              detectSessionInUrl: false,
+            },
+          });
+
+          const { error } = await supabase.auth.signInWithOtp({
+            email: 'admin@deedlight.com',
+            options: {
+              shouldCreateUser: true,
+              emailRedirectTo: 'https://deedlight.com/today',
+            },
+          });
+
+          if (error) throw new Error(`Public Supabase magic-link request failed: ${error.message}`);
+          console.log('Standard Supabase magic-link request accepted for approved canary.');
+          NODE
+          rm -f /tmp/public-anon-key /tmp/public-supabase-url
+
+      - name: Verify exactly one canary Auth user was created
+        shell: bash
+        run: |
+          set -euo pipefail
+          sleep 2
+          query="select count(*)::integer as matching_accounts, coalesce(bool_or(email_confirmed_at is not null), false) as confirmed from auth.users where md5(lower(btrim(coalesce(email, '')))) = 'a7e6edf4263513e268d1909951eeb35a';"
+          jq -n --arg query "$query" '{query:$query}' >/tmp/canary-created.json
+          status=$(curl --silent --show-error --output /tmp/canary-created-result.json --write-out '%{http_code}' \
+            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query/read-only" \
+            --request POST \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data-binary @/tmp/canary-created.json)
+          [[ "$status" == "201" ]] || { echo "::error::Post-magic-link verification returned HTTP $status"; exit 1; }
+          jq -c 'if type == "array" then .[0] elif has("result") then .result[0] else . end' /tmp/canary-created-result.json
+          jq -e '(if type == "array" then .[0] elif has("result") then .result[0] else . end).matching_accounts == 1' /tmp/canary-created-result.json >/dev/null || {
+            echo "::error::Public Auth flow did not create exactly one canary account"
+            exit 1
+          }
+          echo "Exactly one approved canary Auth user now exists; confirmation remains user-controlled."
