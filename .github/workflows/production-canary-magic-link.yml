@@ -106,7 +106,16 @@ jobs:
             },
           });
 
-          if (error) throw new Error(`Public Supabase magic-link request failed: ${error.message}`);
+          if (error) {
+            const safe = {
+              message: typeof error.message === 'string' ? error.message : null,
+              code: typeof error.code === 'string' ? error.code : null,
+              status: typeof error.status === 'number' ? error.status : null,
+              name: typeof error.name === 'string' ? error.name : null,
+            };
+            console.error('Supabase Auth safe error:', JSON.stringify(safe));
+            process.exit(1);
+          }
           console.log('Standard Supabase magic-link request accepted for approved canary.');
           NODE
           rm -f /tmp/public-anon-key /tmp/public-supabase-url
