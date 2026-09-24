@@ -1,0 +1,80 @@
+name: Production Auth DB Diagnostic
+
+on:
+  push:
+    branches:
+      - production-canary
+    paths:
+      - .github/workflows/production-auth-db-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    name: Diagnose pgcrypto visibility for Auth
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+    steps:
+      - name: Guard Production identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${SUPABASE_ACCESS_TOKEN:-}" ]] || { echo "::error::SUPABASE_ACCESS_TOKEN is missing"; exit 1; }
+          [[ "$SUPABASE_PROJECT_REF" == "xaipiovflxomcbfwtwmu" ]] || { echo "::error::Unexpected Supabase Production project"; exit 1; }
+
+      - name: Inspect pgcrypto, function visibility, and Auth role settings
+        shell: bash
+        run: |
+          set -euo pipefail
+          query=$(cat <<'SQL'
+          select json_build_object(
+            'pgcrypto', coalesce((
+              select json_build_object(
+                'installed', true,
+                'schema', n.nspname,
+                'version', e.extversion
+              )
+              from pg_extension e
+              join pg_namespace n on n.oid = e.extnamespace
+              where e.extname = 'pgcrypto'
+              limit 1
+            ), json_build_object('installed', false)),
+            'gen_random_bytes_locations', coalesce((
+              select json_agg(json_build_object(
+                'schema', n.nspname,
+                'args', pg_get_function_identity_arguments(p.oid),
+                'owner', pg_get_userbyid(p.proowner)
+              ) order by n.nspname)
+              from pg_proc p
+              join pg_namespace n on n.oid = p.pronamespace
+              where p.proname = 'gen_random_bytes'
+            ), '[]'::json),
+            'auth_role_config', coalesce((
+              select to_json(r.rolconfig)
+              from pg_roles r
+              where r.rolname = 'supabase_auth_admin'
+            ), 'null'::json),
+            'auth_extensions_usage', coalesce(has_schema_privilege('supabase_auth_admin', 'extensions', 'USAGE'), false),
+            'auth_pgcrypto_execute', case
+              when to_regprocedure('extensions.gen_random_bytes(integer)') is null then false
+              else has_function_privilege('supabase_auth_admin', 'extensions.gen_random_bytes(integer)', 'EXECUTE')
+            end,
+            'public_pgcrypto_function_exists', (to_regprocedure('public.gen_random_bytes(integer)') is not null),
+            'extensions_pgcrypto_function_exists', (to_regprocedure('extensions.gen_random_bytes(integer)') is not null)
+          ) as diagnostic;
+          SQL
+          )
+          jq -n --arg query "$query" '{query:$query}' >/tmp/auth-db-diagnostic.json
+          status=$(curl --silent --show-error --output /tmp/auth-db-result.json --write-out '%{http_code}' \
+            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query/read-only" \
+            --request POST \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data-binary @/tmp/auth-db-diagnostic.json)
+          [[ "$status" == "201" ]] || { echo "::error::Auth DB diagnostic returned HTTP $status"; exit 1; }
+          jq -c '(if type == "array" then .[0] elif has("result") then .result[0] else . end).diagnostic' /tmp/auth-db-result.json
+          rm -f /tmp/auth-db-diagnostic.json /tmp/auth-db-result.json
