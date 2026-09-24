@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   preflight:
-    name: Verify approved canary and runtime credentials
+    name: Verify approved canary and runtime boundary
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -21,17 +21,12 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
     steps:
-      - name: Guard Production identity and credential presence
+      - name: Guard Production identity
         shell: bash
         run: |
           set -euo pipefail
           [[ -n "${SUPABASE_ACCESS_TOKEN:-}" ]] || { echo "::error::SUPABASE_ACCESS_TOKEN is missing"; exit 1; }
           [[ "$SUPABASE_PROJECT_REF" == "xaipiovflxomcbfwtwmu" ]] || { echo "::error::Unexpected Supabase Production project"; exit 1; }
-          missing=0
-          [[ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ]] || { echo "::error::SUPABASE_SERVICE_ROLE_KEY is missing from GitHub Actions"; missing=1; }
-          [[ -n "${RESEND_API_KEY:-}" ]] || { echo "::error::RESEND_API_KEY is missing from GitHub Actions"; missing=1; }
-          [[ "$missing" == 0 ]] || exit 1
-          echo "Required Production credential names are present; values were not printed."
 
       - name: Verify only approved canary account consent state
         shell: bash
@@ -48,7 +43,12 @@ jobs:
             coalesce((select email_confirmed from target limit 1), false) as email_confirmed,
             coalesce((select not p.is_suspended from public.profiles p join target t on t.id = p.user_id limit 1), false) as profile_active,
             coalesce((select drp.daily_enabled from public.daily_reminder_preferences drp join target t on t.id = drp.user_id limit 1), false) as daily_enabled,
-            coalesce((select (np.weekly_enabled and np.consented_at is not null and np.unsubscribed_at is null) from public.newsletter_preferences np join target t on t.id = np.user_id limit 1), false) as weekly_enabled;
+            coalesce((select (np.weekly_enabled and np.consented_at is not null and np.unsubscribed_at is null) from public.newsletter_preferences np join target t on t.id = np.user_id limit 1), false) as weekly_enabled,
+            coalesce((select exists(
+              select 1
+              from public.weekly_goodness_features f
+              where f.week_start = (date_trunc('week', now() at time zone 'UTC'))::date
+            )), false) as current_week_curated;
           SQL
           )
           jq -n --arg query "$query" '{query:$query}' >/tmp/canary-preflight.json
@@ -71,3 +71,11 @@ jobs:
             exit 1
           }
           echo "Approved canary is uniquely present, confirmed, active, and opted in."
+
+      - name: Confirm runtime secrets remain isolated from GitHub Actions
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ]] || { echo "::error::SUPABASE_SERVICE_ROLE_KEY unexpectedly exists in GitHub Actions"; exit 1; }
+          [[ -z "${RESEND_API_KEY:-}" ]] || { echo "::error::RESEND_API_KEY unexpectedly exists in GitHub Actions"; exit 1; }
+          echo "Runtime secrets remain isolated to the Production runtime; no values were exposed."
