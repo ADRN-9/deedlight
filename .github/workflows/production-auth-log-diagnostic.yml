@@ -1,0 +1,65 @@
+name: Production Auth Log Diagnostic
+
+on:
+  push:
+    branches:
+      - production-canary
+    paths:
+      - .github/workflows/production-auth-log-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    name: Read sanitized Auth failure window
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+    steps:
+      - name: Guard Production identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${SUPABASE_ACCESS_TOKEN:-}" ]] || { echo "::error::SUPABASE_ACCESS_TOKEN is missing"; exit 1; }
+          [[ "$SUPABASE_PROJECT_REF" == "xaipiovflxomcbfwtwmu" ]] || { echo "::error::Unexpected Supabase Production project"; exit 1; }
+
+      - name: Query and sanitize the failed magic-link Auth window
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat >/tmp/logs.sql <<'SQL'
+          select timestamp, id, severity_text, event_message
+          from logs
+          where source = 'auth_logs'
+            and timestamp >= toDateTime64('2026-09-24 04:50:30', 3, 'UTC')
+            and timestamp <= toDateTime64('2026-09-24 04:51:30', 3, 'UTC')
+            and (severity_text ilike '%error%' or event_message ilike '%error%' or event_message ilike '%smtp%' or event_message ilike '%mail%')
+          order by timestamp desc
+          limit 30;
+          SQL
+
+          status=$(curl --silent --show-error --output /tmp/log-result.json --write-out '%{http_code}' --get \
+            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/analytics/endpoints/logs" \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --data-urlencode "sql@/tmp/logs.sql" \
+            --data-urlencode 'iso_timestamp_start=2026-09-24T04:50:30Z' \
+            --data-urlencode 'iso_timestamp_end=2026-09-24T04:51:30Z')
+          [[ "$status" == "200" ]] || { echo "::error::Auth log query returned HTTP $status"; exit 1; }
+          jq -e '(.error // "") == ""' /tmp/log-result.json >/dev/null || {
+            echo "::error::Auth log query returned a query error"
+            jq -r '.error' /tmp/log-result.json | sed -E 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/[redacted-email]/g'
+            exit 1
+          }
+
+          rows=$(jq '.result | length' /tmp/log-result.json)
+          echo "Relevant Auth error rows: $rows"
+          jq -r '.result[] | "[\(.timestamp)] \(.severity_text // "") \(.event_message // "")"' /tmp/log-result.json \
+            | sed -E \
+                -e 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/[redacted-email]/g' \
+                -e 's/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/[redacted-id]/g' \
+                -e 's/([0-9]{1,3}\.){3}[0-9]{1,3}/[redacted-ip]/g' \
+                -e 's/(token|secret|password|pass|apikey|api_key)[=:][^ ,;}]*/\1=[redacted]/Ig'
+          rm -f /tmp/logs.sql /tmp/log-result.json
