@@ -1,0 +1,75 @@
+name: Production Delivery Security Audit
+
+on:
+  push:
+    branches:
+      - gentle-delivery-transport
+    paths:
+      - .github/workflows/production-delivery-security-audit.yml
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Audit production delivery security metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Guard production identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${SUPABASE_ACCESS_TOKEN:-}" ]] || { echo "::error::SUPABASE_ACCESS_TOKEN is missing"; exit 1; }
+          [[ "$SUPABASE_PROJECT_REF" == "xaipiovflxomcbfwtwmu" ]] || { echo "::error::Unexpected Supabase production project"; exit 1; }
+      - name: Audit RLS and privilege boundaries read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          query=$(cat <<'SQL'
+          select
+            (select c.relrowsecurity from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname='delivery_ledger') as ledger_rls,
+            has_table_privilege('anon', 'public.delivery_ledger', 'SELECT') as anon_ledger_select,
+            has_table_privilege('authenticated', 'public.delivery_ledger', 'SELECT') as authenticated_ledger_select,
+            has_table_privilege('service_role', 'public.delivery_ledger', 'SELECT,INSERT,UPDATE,DELETE') as service_ledger_rw,
+            has_function_privilege('anon', 'public.claim_delivery_jobs(timestamptz,integer)', 'EXECUTE') as anon_claim,
+            has_function_privilege('authenticated', 'public.claim_delivery_jobs(timestamptz,integer)', 'EXECUTE') as auth_claim,
+            has_function_privilege('service_role', 'public.claim_delivery_jobs(timestamptz,integer)', 'EXECUTE') as service_claim,
+            has_function_privilege('anon', 'public.retry_delivery_job(uuid,uuid,timestamptz,text)', 'EXECUTE') as anon_retry,
+            has_function_privilege('authenticated', 'public.retry_delivery_job(uuid,uuid,timestamptz,text)', 'EXECUTE') as auth_retry,
+            has_function_privilege('service_role', 'public.retry_delivery_job(uuid,uuid,timestamptz,text)', 'EXECUTE') as service_retry,
+            has_function_privilege('anon', 'public.begin_delivery_transport(uuid,uuid)', 'EXECUTE') as anon_begin,
+            has_function_privilege('authenticated', 'public.begin_delivery_transport(uuid,uuid)', 'EXECUTE') as auth_begin,
+            has_function_privilege('service_role', 'public.begin_delivery_transport(uuid,uuid)', 'EXECUTE') as service_begin,
+            has_function_privilege('anon', 'public.enqueue_current_weekly_goodness_if_curated(timestamptz,integer)', 'EXECUTE') as anon_weekly,
+            has_function_privilege('authenticated', 'public.enqueue_current_weekly_goodness_if_curated(timestamptz,integer)', 'EXECUTE') as auth_weekly,
+            has_function_privilege('service_role', 'public.enqueue_current_weekly_goodness_if_curated(timestamptz,integer)', 'EXECUTE') as service_weekly,
+            (select count(*) from pg_catalog.pg_constraint where conrelid='public.delivery_ledger'::regclass and conname in ('delivery_ledger_attempt_count_check','delivery_ledger_claim_lease_check')) as reliability_constraints;
+          SQL
+          )
+          jq -n --arg query "$query" '{query:$query}' >/tmp/audit.json
+          status=$(curl --silent --show-error --output /tmp/audit-result.json --write-out '%{http_code}' \
+            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query/read-only" \
+            --request POST \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data-binary @/tmp/audit.json)
+          [[ "$status" == "201" ]] || { echo "::error::Production security metadata query returned HTTP $status"; exit 1; }
+          cat /tmp/audit-result.json
+          jq -e '
+            (if type == "array" then .[0] elif has("result") then .result[0] else . end) as $r
+            | ($r.ledger_rls == true)
+              and ($r.anon_ledger_select == false)
+              and ($r.authenticated_ledger_select == false)
+              and ($r.service_ledger_rw == true)
+              and ($r.anon_claim == false) and ($r.auth_claim == false) and ($r.service_claim == true)
+              and ($r.anon_retry == false) and ($r.auth_retry == false) and ($r.service_retry == true)
+              and ($r.anon_begin == false) and ($r.auth_begin == false) and ($r.service_begin == true)
+              and ($r.anon_weekly == false) and ($r.auth_weekly == false) and ($r.service_weekly == true)
+              and (($r.reliability_constraints|tonumber) == 2)
+          ' /tmp/audit-result.json >/dev/null || { echo "::error::Production delivery security metadata does not match expected boundary"; exit 1; }
+          echo "Production delivery RLS, constraints, browser-role denial, and service-role RPC privileges verified."
