@@ -1,0 +1,350 @@
+name: Production Retry Idempotency Canary
+
+on:
+  push:
+    branches: [production-canary]
+    paths:
+      - .github/workflows/production-retry-idempotency-canary.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  retry-idempotency:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: xaipiovflxomcbfwtwmu
+      CANARY_EMAIL_MD5: a7e6edf4263513e268d1909951eeb35a
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Guard Production identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${SUPABASE_ACCESS_TOKEN:-}" ]] || { echo "::error::SUPABASE_ACCESS_TOKEN is missing"; exit 1; }
+          [[ "$SUPABASE_PROJECT_REF" == "xaipiovflxomcbfwtwmu" ]] || { echo "::error::Unexpected Supabase Production project"; exit 1; }
+
+      - name: Create, claim, and retry one synthetic logical job
+        id: phase1
+        shell: bash
+        run: |
+          set -euo pipefail
+          query=$(cat <<SQL
+          begin;
+
+          do \$\$
+          declare
+            v_target uuid;
+            v_pref public.daily_reminder_preferences%rowtype;
+            v_test_date date;
+            v_scheduled_for timestamptz;
+            v_delivery_key text;
+            v_job_id uuid;
+            v_claimable integer;
+            v_claim record;
+            v_duplicate_count integer;
+          begin
+            select u.id into strict v_target
+            from auth.users u
+            where md5(lower(btrim(coalesce(u.email, '')))) = '$CANARY_EMAIL_MD5'
+              and u.email_confirmed_at is not null;
+
+            if not exists (
+              select 1 from public.profiles p
+              where p.user_id = v_target and p.is_suspended = false
+            ) then
+              raise exception 'Approved canary profile is unavailable or suspended.';
+            end if;
+
+            select d.* into strict v_pref
+            from public.daily_reminder_preferences d
+            where d.user_id = v_target;
+
+            if v_pref.daily_enabled is distinct from true
+               or v_pref.reminder_time <> time '00:01'
+               or v_pref.timezone <> 'Asia/Singapore' then
+              raise exception 'Approved canary preference does not match explicit consent.';
+            end if;
+
+            select count(*)::integer into v_claimable
+            from public.delivery_ledger dl
+            where (
+                dl.state = 'queued'
+                and coalesce(dl.next_attempt_at, dl.scheduled_for) <= now()
+                and dl.attempt_count < 5
+              )
+              or (
+                dl.state = 'claimed'
+                and dl.claim_expires_at is not null
+                and dl.claim_expires_at <= now()
+                and dl.attempt_count < 5
+              );
+
+            if v_claimable <> 0 then
+              raise exception 'Retry canary requires zero pre-existing claimable jobs.';
+            end if;
+
+            select candidate_date into v_test_date
+            from generate_series(2, 60) days_back
+            cross join lateral (
+              select timezone(v_pref.timezone, now())::date - days_back::integer as candidate_date
+            ) c
+            where not exists (
+              select 1
+              from public.delivery_ledger dl
+              where dl.user_id = v_target
+                and dl.kind = 'daily_reminder'
+                and dl.delivery_key = 'daily:' || c.candidate_date::text
+            )
+            order by days_back
+            limit 1;
+
+            if v_test_date is null then
+              raise exception 'No unused prior-day logical key is available for retry canary.';
+            end if;
+
+            v_scheduled_for := (v_test_date + v_pref.reminder_time) at time zone v_pref.timezone;
+            v_delivery_key := 'daily:' || v_test_date::text;
+
+            insert into public.delivery_ledger (user_id, kind, delivery_key, scheduled_for)
+            values (v_target, 'daily_reminder', v_delivery_key, v_scheduled_for)
+            returning id into v_job_id;
+
+            perform set_config('app.retry_job', v_job_id::text, false);
+            perform set_config('app.retry_target', v_target::text, false);
+            perform set_config('app.retry_key', v_delivery_key, false);
+            perform set_config('app.retry_scheduled_for', v_scheduled_for::text, false);
+          end
+          \$\$;
+
+          set local role service_role;
+          select
+            set_config('app.retry_claim_job', job_id::text, false) as job_marker,
+            set_config('app.retry_claim_token', claim_token::text, false) as token_marker
+          from public.claim_delivery_jobs(now(), 1);
+
+          select public.retry_delivery_job(
+            current_setting('app.retry_job')::uuid,
+            current_setting('app.retry_claim_token')::uuid,
+            now() + interval '20 seconds',
+            'production_retry_probe'
+          ) as retried;
+          reset role;
+
+          do \$\$
+          declare
+            v_job public.delivery_ledger%rowtype;
+            v_duplicate_inserted integer;
+          begin
+            if current_setting('app.retry_claim_job', true) is null
+               or current_setting('app.retry_claim_job') <> current_setting('app.retry_job') then
+              raise exception 'Retry canary did not claim the exact synthetic job.';
+            end if;
+
+            select * into strict v_job
+            from public.delivery_ledger
+            where id = current_setting('app.retry_job')::uuid;
+
+            if v_job.state <> 'queued'
+               or v_job.attempt_count <> 1
+               or v_job.error_code <> 'production_retry_probe'
+               or v_job.next_attempt_at is null
+               or v_job.next_attempt_at <= now()
+               or v_job.scheduled_for <> current_setting('app.retry_scheduled_for')::timestamptz
+               or v_job.transport_started_at is not null
+               or v_job.provider_result_id is not null
+               or v_job.sent_at is not null then
+              raise exception 'Retry RPC did not preserve one logical job safely.';
+            end if;
+
+            with duplicate_attempt as (
+              insert into public.delivery_ledger (user_id, kind, delivery_key, scheduled_for)
+              values (
+                current_setting('app.retry_target')::uuid,
+                'daily_reminder',
+                current_setting('app.retry_key'),
+                current_setting('app.retry_scheduled_for')::timestamptz
+              )
+              on conflict (kind, user_id, delivery_key) do nothing
+              returning 1
+            )
+            select count(*)::integer into v_duplicate_inserted from duplicate_attempt;
+
+            if v_duplicate_inserted <> 0 then
+              raise exception 'Logical idempotency guard allowed a duplicate job.';
+            end if;
+          end
+          \$\$;
+
+          select current_setting('app.retry_job') as job_id;
+          commit;
+          SQL
+          )
+
+          jq -n --arg query "$query" '{query:$query}' >/tmp/query.json
+          status=$(curl --silent --show-error --output /tmp/result.json --write-out '%{http_code}' \
+            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query" \
+            --request POST \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data-binary @/tmp/query.json)
+          if [[ "$status" != "201" ]]; then
+            jq -c '{message:(.message // .error // "unknown")}' /tmp/result.json 2>/dev/null || true
+            echo "::error::Retry canary phase 1 returned HTTP $status"
+            exit 1
+          fi
+
+          job_id=$(jq -r 'if type == "array" then .[-1].job_id elif has("result") then .result[-1].job_id else empty end' /tmp/result.json)
+          [[ "$job_id" =~ ^[0-9a-fA-F-]{36}$ ]] || { echo "::error::Retry canary did not return a job UUID"; exit 1; }
+          echo "::add-mask::$job_id"
+          echo "job_id=$job_id" >> "$GITHUB_OUTPUT"
+          rm -f /tmp/query.json /tmp/result.json
+          echo "Synthetic job retried in-place; duplicate logical insert rejected."
+
+      - name: Wait until retry becomes claimable
+        run: sleep 25
+
+      - name: Reclaim same job and terminate without transport
+        shell: bash
+        env:
+          JOB_ID: ${{ steps.phase1.outputs.job_id }}
+        run: |
+          set -euo pipefail
+          query=$(cat <<SQL
+          begin;
+
+          do \$\$
+          declare
+            v_claimable integer;
+          begin
+            select count(*)::integer into v_claimable
+            from public.delivery_ledger dl
+            where (
+                dl.state = 'queued'
+                and coalesce(dl.next_attempt_at, dl.scheduled_for) <= now()
+                and dl.attempt_count < 5
+              )
+              or (
+                dl.state = 'claimed'
+                and dl.claim_expires_at is not null
+                and dl.claim_expires_at <= now()
+                and dl.attempt_count < 5
+              );
+
+            if v_claimable <> 1 then
+              raise exception 'Expected exactly one claimable retry job, found %.', v_claimable;
+            end if;
+          end
+          \$\$;
+
+          set local role service_role;
+          select
+            set_config('app.retry_claim_job2', job_id::text, false) as job_marker,
+            set_config('app.retry_claim_token2', claim_token::text, false) as token_marker
+          from public.claim_delivery_jobs(now(), 1);
+
+          select public.mark_delivery_failed(
+            '$JOB_ID'::uuid,
+            current_setting('app.retry_claim_token2')::uuid,
+            'production_retry_probe_complete'
+          ) as terminated;
+          reset role;
+
+          do \$\$
+          declare
+            v_job public.delivery_ledger%rowtype;
+            v_logical_count integer;
+            v_claimable integer;
+          begin
+            if current_setting('app.retry_claim_job2', true) is null
+               or current_setting('app.retry_claim_job2') <> '$JOB_ID' then
+              raise exception 'Retry canary reclaimed a different job.';
+            end if;
+
+            select * into strict v_job
+            from public.delivery_ledger
+            where id = '$JOB_ID'::uuid;
+
+            select count(*)::integer into v_logical_count
+            from public.delivery_ledger dl
+            where dl.user_id = v_job.user_id
+              and dl.kind = v_job.kind
+              and dl.delivery_key = v_job.delivery_key;
+
+            select count(*)::integer into v_claimable
+            from public.delivery_ledger dl
+            where (
+                dl.state = 'queued'
+                and coalesce(dl.next_attempt_at, dl.scheduled_for) <= now()
+                and dl.attempt_count < 5
+              )
+              or (
+                dl.state = 'claimed'
+                and dl.claim_expires_at is not null
+                and dl.claim_expires_at <= now()
+                and dl.attempt_count < 5
+              );
+
+            if v_job.state <> 'failed'
+               or v_job.attempt_count <> 2
+               or v_job.error_code <> 'production_retry_probe_complete'
+               or v_job.transport_started_at is not null
+               or v_job.provider_result_id is not null
+               or v_job.sent_at is not null
+               or v_logical_count <> 1
+               or v_claimable <> 0 then
+              raise exception 'Retry/idempotency final evidence failed.';
+            end if;
+          end
+          \$\$;
+
+          select
+            dl.state = 'failed' as terminal_failed,
+            dl.attempt_count = 2 as two_attempts_same_job,
+            dl.transport_started_at is null as transport_never_started,
+            dl.provider_result_id is null as no_provider_result,
+            dl.sent_at is null as not_sent,
+            (
+              select count(*) = 1
+              from public.delivery_ledger x
+              where x.user_id = dl.user_id
+                and x.kind = dl.kind
+                and x.delivery_key = dl.delivery_key
+            ) as one_logical_row
+          from public.delivery_ledger dl
+          where dl.id = '$JOB_ID'::uuid;
+
+          commit;
+          SQL
+          )
+
+          jq -n --arg query "$query" '{query:$query}' >/tmp/query.json
+          status=$(curl --silent --show-error --output /tmp/result.json --write-out '%{http_code}' \
+            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query" \
+            --request POST \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data-binary @/tmp/query.json)
+          if [[ "$status" != "201" ]]; then
+            jq -c '{message:(.message // .error // "unknown")}' /tmp/result.json 2>/dev/null || true
+            echo "::error::Retry canary phase 2 returned HTTP $status"
+            exit 1
+          fi
+
+          row=$(jq -c 'if type == "array" then .[-1] elif has("result") then .result[-1] else . end' /tmp/result.json)
+          echo "$row" | jq -e '
+            .terminal_failed == true and
+            .two_attempts_same_job == true and
+            .transport_never_started == true and
+            .no_provider_result == true and
+            .not_sent == true and
+            .one_logical_row == true
+          ' >/dev/null || { echo "::error::Retry/idempotency evidence verification failed"; exit 1; }
+
+          echo "$row" | jq -c '{terminal_failed,two_attempts_same_job,transport_never_started,no_provider_result,not_sent,one_logical_row}'
+          rm -f /tmp/query.json /tmp/result.json
+          echo "Production retry/idempotency verified without provider transport or duplicate logical delivery."
