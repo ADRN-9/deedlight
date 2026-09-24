@@ -1,4 +1,4 @@
-name: Production Canary Deploy Audit
+name: Production Canary Cleanup Audit
 
 on:
   push:
@@ -61,19 +61,42 @@ jobs:
           rm -f /tmp/schedules.json
           echo "Production Cron trigger count is zero."
 
-      - name: Verify temporary canary gate is deployed
+      - name: Verify cleanup deployment and smoke
         shell: bash
         run: |
           set -euo pipefail
-          for attempt in $(seq 1 20); do
-            status=$(curl --silent --show-error --output /tmp/body --write-out '%{http_code}' \
+          for attempt in $(seq 1 24); do
+            health_status=$(curl --silent --show-error --output /tmp/health --write-out '%{http_code}' \
+              https://deedlight.com/api/health || true)
+            get_status=$(curl --silent --show-error --output /tmp/canary-get --write-out '%{http_code}' \
               https://deedlight.com/__ops/delivery-canary || true)
-            if [[ "$status" == "405" ]] && jq -e '.error == "method_not_allowed"' /tmp/body >/dev/null 2>&1; then
-              echo "Temporary canary gate is live and POST-only."
+            post_status=$(curl --silent --show-error --output /tmp/canary-post --write-out '%{http_code}' \
+              --request POST https://deedlight.com/__ops/delivery-canary || true)
+
+            health_ok=false
+            if [[ "$health_status" == "200" ]] && jq -e '.ok == true and .data.status == "ok"' /tmp/health >/dev/null 2>&1; then
+              health_ok=true
+            fi
+
+            get_gone=false
+            if [[ "$get_status" == "404" ]] && ! grep -q 'method_not_allowed\|canary_not_found\|canary_' /tmp/canary-get; then
+              get_gone=true
+            fi
+
+            post_gone=false
+            if [[ "$post_status" == "404" ]] && ! grep -q 'method_not_allowed\|canary_not_found\|canary_' /tmp/canary-post; then
+              post_gone=true
+            fi
+
+            if [[ "$health_ok" == "true" && "$get_gone" == "true" && "$post_gone" == "true" ]]; then
+              echo "Production health is green and the temporary canary route is gone."
+              rm -f /tmp/health /tmp/canary-get /tmp/canary-post
               exit 0
             fi
-            echo "Canary gate not live yet (attempt $attempt, HTTP $status); waiting..."
+
+            echo "Cleanup not fully propagated yet (attempt $attempt: health=$health_status get=$get_status post=$post_status); waiting..."
             sleep 15
           done
-          echo "::error::Temporary canary gate did not become live in time"
+
+          echo "::error::Production cleanup did not converge in time"
           exit 1
