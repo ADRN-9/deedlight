@@ -1,0 +1,130 @@
+{
+  "source_sha": "c983e2ed8b93c935139c935343261570ecea6978",
+  "common": {
+    "production_identity:independent_project_reference": "BLOCKED",
+    "schema_history:019_to_024_application_provenance": "UNKNOWN",
+    "migration_history:recorded_versions": "UNKNOWN"
+  },
+  "cases": {
+    "A": {
+      "description": "Complete reviewed 019-024 synthetic schema",
+      "assert": {
+        "function:public.begin_delivery_transport(uuid,uuid,text)": "VERIFIED",
+        "function:public.enqueue_due_daily_reminders(timestamptz,integer)": "VERIFIED",
+        "function:public.enqueue_weekly_goodness_delivery(date,timestamptz,integer)": "VERIFIED",
+        "function:public.enqueue_current_weekly_goodness_if_curated(timestamptz,integer)": "VERIFIED",
+        "function:public.handle_new_user()": "VERIFIED",
+        "rpc_acl:public.begin_delivery_transport(uuid,uuid,text)": "VERIFIED",
+        "constraint:public.delivery_ledger.logical_unique": "VERIFIED",
+        "rls:public.delivery_ledger": "VERIFIED",
+        "legacy_rpc:public.begin_delivery_transport(uuid,uuid)": "VERIFIED",
+        "legacy_rpc:unexpected_transport_overloads": "VERIFIED",
+        "migration_023:pre_024_exact_function_contract": "UNKNOWN"
+      }
+    },
+    "B": {
+      "description": "Migration 023 and 024 absent",
+      "assert": {
+        "migration_023:pre_024_exact_function_contract": "FAILED",
+        "function:public.begin_delivery_transport(uuid,uuid,text)": "FAILED",
+        "legacy_rpc:public.begin_delivery_transport(uuid,uuid)": "FAILED"
+      },
+      "approved_negative_exceptions": {
+        "function:public.enqueue_due_daily_reminders(timestamptz,integer)": "FAILED",
+        "function:public.enqueue_weekly_goodness_delivery(date,timestamptz,integer)": "FAILED",
+        "function:public.enqueue_current_weekly_goodness_if_curated(timestamptz,integer)": "FAILED",
+        "rpc_acl:public.begin_delivery_transport(uuid,uuid,text)": "FAILED",
+        "legacy_rpc:unexpected_transport_overloads": "FAILED"
+      }
+    },
+    "C": {
+      "description": "Migration 023 present; 024 absent",
+      "assert": {
+        "migration_023:pre_024_exact_function_contract": "VERIFIED",
+        "function:public.begin_delivery_transport(uuid,uuid,text)": "FAILED",
+        "function:public.enqueue_weekly_goodness_delivery(date,timestamptz,integer)": "FAILED",
+        "legacy_rpc:public.begin_delivery_transport(uuid,uuid)": "FAILED"
+      },
+      "approved_negative_exceptions": {
+        "function:public.enqueue_weekly_goodness_delivery(date,timestamptz,integer)": "FAILED",
+        "function:public.enqueue_current_weekly_goodness_if_curated(timestamptz,integer)": "FAILED",
+        "rpc_acl:public.begin_delivery_transport(uuid,uuid,text)": "FAILED",
+        "legacy_rpc:unexpected_transport_overloads": "FAILED"
+      }
+    },
+    "D": {
+      "description": "Post-024 recipient-bound function drift",
+      "assert": {
+        "function:public.begin_delivery_transport(uuid,uuid,text)": "FAILED",
+        "rpc_acl:public.begin_delivery_transport(uuid,uuid,text)": "VERIFIED",
+        "legacy_rpc:public.begin_delivery_transport(uuid,uuid)": "VERIFIED"
+      },
+      "actual": {
+        "function:public.begin_delivery_transport(uuid,uuid,text)": {
+          "present": true
+        }
+      }
+    },
+    "E": {
+      "description": "Unsafe anon EXECUTE grant",
+      "assert": {
+        "rpc_acl:public.begin_delivery_transport(uuid,uuid,text)": "FAILED"
+      },
+      "actual": {
+        "rpc_acl:public.begin_delivery_transport(uuid,uuid,text)": {
+          "anon": true
+        }
+      }
+    },
+    "F": {
+      "description": "Ledger RLS disabled",
+      "assert": {
+        "rls:public.delivery_ledger": "FAILED"
+      },
+      "actual": {
+        "rls:public.delivery_ledger": {
+          "rls_enabled": false
+        }
+      }
+    },
+    "G": {
+      "description": "Unsafe security definer search_path",
+      "assert": {
+        "function:public.begin_delivery_transport(uuid,uuid,text)": "FAILED"
+      },
+      "actual": {
+        "function:public.begin_delivery_transport(uuid,uuid,text)": {
+          "path_match": false
+        }
+      }
+    },
+    "H": {
+      "description": "Insufficient metadata privileges",
+      "preflight": "BLOCKED_OR_PERMISSION_ERROR",
+      "assert": {}
+    },
+    "I": {
+      "description": "Disagreeing migration history (catalog only)",
+      "assert": {
+        "migration_history:catalog_object": "VERIFIED",
+        "migration_history:recorded_versions": "UNKNOWN",
+        "schema_history:019_to_024_application_provenance": "UNKNOWN"
+      }
+    },
+    "J": {
+      "description": "Unexpected legacy two-argument RPC: both overload inventory and 023 pre-024-state attestation are intentionally FAILED",
+      "assert": {
+        "legacy_rpc:public.begin_delivery_transport(uuid,uuid)": "FAILED",
+        "legacy_rpc:unexpected_transport_overloads": "FAILED"
+      },
+      "approved_negative_exceptions": {
+        "migration_023:pre_024_exact_function_contract": "FAILED"
+      }
+    }
+  },
+  "notes": [
+    "Only the named absent/intermediate migration functions and legacy overloads are approved FAILED exceptions for B/C; no blanket exception is permitted.",
+    "Common UNKNOWN/BLOCKED states are explicit in invariant_inventory.json; unexpected errors or statuses are fatal.",
+    "The complete-schema fixture A must contain every approved deterministic invariant and no unexpected FAILED/BLOCKED security outcomes."
+  ]
+}

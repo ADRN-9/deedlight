@@ -1,0 +1,17 @@
+# Disposable PostgreSQL audit-fixture validation plan
+
+**Execution: NOT RUN.** This is a plan for an independent reviewer with an approved disposable PostgreSQL 16+ instance. No Production operation is authorized. The repository already has synthetic database fixtures, including `scripts/test-gentle-delivery-transport.sql`, `scripts/test-delivery-migration-order.sh`, and `scripts/test-delivery-consent-gates.sql`. Run on disposable databases only. Never restore real customer data into fixtures.
+
+| Case | Isolated fixture manipulation | Expected audit evidence | Safe outcome |
+|---|---|---|---|
+| A — Final target healthy | Build the canonical 019–022 fixture, apply authentic 023 and 024 in order | All required post-024 function MD5, definer/path, role ACL, missing two-argument RPC and ledger structural checks VERIFIED; RLS policy/CHECK definitions and migration history remain appropriately UNKNOWN pending review | Match *known good* post-024 schema; no false Production-ready claim |
+| B — Missing migration 023 | Build through migration 021/022 without applying 023/024 | Legacy transport is present, new transport absent; post-024 function/legacy checks FAILED, pre-024 023 hash gate FAILED | No blind 024 application; inspect history separately |
+| C — Altered function with unchanged comment | Apply 023, then change the Daily suspension condition via `CREATE OR REPLACE FUNCTION` while retaining the original 023 comment and recognizable SQL fragments | `migration_023:pre_024_exact_function_contract` FAILED, function body hash mismatch or precondition failure | STOP, no mutation |
+| D — Unauthorized browser grant | Apply 024 in disposable DB, then `GRANT EXECUTE` on three-argument transport to `anon` | `rpc_acl:public.begin_delivery_transport(uuid,uuid,text)` FAILED; actual effective anon flag true | STOP; no Production privilege change |
+| E — Missing RLS | Apply 024, then disable RLS on the synthetic `public.delivery_ledger` | `rls:public.delivery_ledger` FAILED | STOP |
+| F — Wrong search_path | Apply 024, then alter only the 3-argument transport function configuration to `search_path=public` | `function:public.begin_delivery_transport(uuid,uuid,text)` FAILED, with path_match false | STOP |
+| G — Insufficient metadata rights | Connect with a synthetic role whose pg_catalog visibility, required schema metadata, or function-registry access has been restricted by the fixture administrator | Preflight BLOCKED **or SQL permission error**; no subsequent query allowed | STOP and record access error; never elevate the reviewer role |
+
+For all cases, independently verify the audit itself performs no writes: execute in read-only transactions; use a database query-log or test harness to assert no DML/DDL from the audit connection. Only the **fixture setup**, under a separate synthetic admin account, may intentionally mutate the disposable fixture to construct negative scenarios.
+
+Required independent test artifacts: fixture PostgreSQL major version; sanitized preflight and audit JSON rows; exact package SHA-256; changed fixture scenario; expected vs actual classifications; explicit PASS/FAIL from reviewer-run assertions; audit operator and timestamp. Where raw policy or CHECK definitions are needed for source correspondence, inspect them only in the reviewer-controlled fixture and store reviewed hashes in a separate approved version-specific manifest, not broad logs.
