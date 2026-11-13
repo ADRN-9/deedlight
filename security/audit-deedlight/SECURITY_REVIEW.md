@@ -1,4 +1,4 @@
-# DeedLight Cycle 16 — independent static security review memorandum
+# DeedLight Cycle 20 — audit safety and assurance boundary (Developer self-assessment; independent review pending)
 
 Scope: audited SQL in `audited/00_preflight.sql` and `audited/01_catalog_audit.sql` only. Candidate delivery source SHA: `c983e2ed8b93c935139c935343261570ecea6978`. **Static review is not PostgreSQL execution.**
 
@@ -23,7 +23,7 @@ Scope: audited SQL in `audited/00_preflight.sql` and `audited/01_catalog_audit.s
 - If permissions prevent reading required catalog objects, SQL must stop and report `BLOCKED`; **never** elevate the audit role. If expected object metadata is visibly absent, use `FAILED`, not `BLOCKED` (corrected for missing RPC and ledger).
 - Using a connection tunneled to Production at localhost would undermine the fixture-runner host guard. Reviewers must **independently verify that the local server is disposable** and provide explicit fixture-destruction acknowledgment.
 
-## Original-vs-audited corrections (proposed, PostgreSQL NOT RUN)
+## Cycle 16 original-vs-audited corrections (previously PostgreSQL-tested in audit CI)
 
 1. Missing recipient-bound RPC with available role metadata now produces `rpc_acl:...=FAILED` rather than `BLOCKED`.
 2. Missing delivery ledger with available role metadata now produces `table_acl:...=FAILED` rather than `BLOCKED`.
@@ -31,4 +31,14 @@ Scope: audited SQL in `audited/00_preflight.sql` and `audited/01_catalog_audit.s
 4. Explicit `policy_inventory:*` records every expected public relation, including zero policy rows, without pretending to validate the policies.
 5. Explicit `rpc_schema_usage:public` checks the effective service-role schema USAGE precondition.
 
-These changes are locally available only, uncommitted, unreviewed and not PostgreSQL-tested. The original six-file artifact remains byte-for-byte unchanged in `original/`.
+The Cycle 16 corrections were committed on PR #11 and exercised in the Cycle 18 PostgreSQL 16 workflow (run `43430078142`). They are **not** Production-verified, and the original six-file artifact remains byte-for-byte unchanged in `original/`.
+
+## Cycle 20 evidence hardening
+
+- The original assertion consumer inspected only selected expected statuses. Cycle 20 pins 82 deterministic emitted invariants in `invariant_inventory.json`; missing records, duplicates, unrelated failures, schema violations, truncated SQL transactions and unapproved dynamic names now fail closed.
+- Every required result has a pinned expected status. `FAILED` or `BLOCKED` is allowed only where explicitly documented for a negative fixture. The full-schema fixture A allows only the inherently non-verified `production_identity=BLOCKED`, approved historical/provenance `UNKNOWN` records, and separately reviewed `UNKNOWN` policy/CHECK fingerprints.
+- The approved dynamic `policy:public.*` rows must remain `UNKNOWN`; a dynamic security failure is never silently ignored. Policy inventory remains `UNKNOWN`: a healthy synthetically enabled RLS flag cannot establish policy semantics or completeness.
+- `function_source:public.set_daily_reminder_preference(...)` is explicitly `UNKNOWN`, while its preexisting `function:...` result validates metadata and role permissions only. Neither result by itself verifies behavioral correspondence. A future scoped reviewer may pin a canonical digest/behavior test without changing this safety boundary.
+- The fixture runner now requires the dedicated GitHub Actions environment, exact branch/repository, local Docker Postgres 16 service identity, test-only password and absence of libpq redirection variables. These safeguards make accidental Production tunneling less likely but **cannot protect against a malicious/compromised CI runner**. Never reuse the runner for Production.
+- The assertion consumer validates the complete transaction envelope (`BEGIN`, `ROLLBACK`), every JSON record and full inventory. The runner enforces nonzero exit codes and rejects unexpected SQL stderr. A failed PostgreSQL command or partial output cannot masquerade as a valid negative scenario.
+- Metadata privileges, Production project identity, migration-history row contents, RLS policy meaning, provider behavior, and Production deployment remain independent authorization/evidence gates.
