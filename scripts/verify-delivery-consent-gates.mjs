@@ -68,3 +68,31 @@ for (const [ref, success] of [
   assert.equal(result.status === 0, success, `Migration guard misclassified test ref: ${JSON.stringify(ref)}`);
 }
 console.log("Delivery consent, batching, terminal retry and migration guard assertions: PASS");
+
+const newMigration = read("supabase/migrations/202611120024_delivery_identity_lease_capacity.sql");
+const linkedGuard = read("scripts/guard-supabase-linked-project.sh");
+const pkg = JSON.parse(read("package.json"));
+const validation = read(".github/workflows/pr-validation.yml");
+assert(aggregate.includes(newMigration.trim()), "Migration 024 must mirror into aggregate SQL");
+assert(/drop function public\.begin_delivery_transport\(uuid,uuid\)/.test(newMigration),
+  "Legacy unbound RPC must be removed");
+assert(newMigration.includes("p_expected_email text"));
+assert(newMigration.includes("btrim(u.email) = p_expected_email"));
+assert(newMigration.includes("for share of drp, p, u"));
+assert(newMigration.includes("for share of np, p, u, f"));
+assert(newMigration.includes("clock_timestamp()"));
+assert(newMigration.includes("claim_expires_at > clock_timestamp()"));
+assert(newMigration.includes("using errcode = '54000'"));
+assert(runtime.includes("p_expected_email: recipient.email"));
+assert(runner.includes("gateway.beginTransport(job, recipient)"));
+assert(types.includes("recipient: AuthorizedRecipient"));
+assert(linkedGuard.includes("supabase/.temp/project-ref"));
+assert(pkg.scripts["supabase:push"].startsWith("bash scripts/guard-supabase-linked-project.sh && "));
+assert(pkg.scripts["supabase:link"].startsWith("bash scripts/guard-supabase-migration-target.sh && "));
+assert(workflow.includes("bash scripts/guard-supabase-linked-project.sh"));
+assert(validation.includes("npm audit --audit-level=high"));
+assert(!validation.includes("audit --omit=dev"));
+assert(tests.includes("weekly_capacity_5001_fail_closed"));
+const race = read("scripts/test-delivery-consent-concurrency.sh");
+assert(race.includes("Concurrent consent lock wait with expiring claim: PASS"));
+console.log("Cycle 5 recipient, lease, capacity and migration guard assertions: PASS");

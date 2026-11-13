@@ -56,7 +56,7 @@ begin
   where user_id = '00000000-0000-0000-0000-000000000109'
   and state = 'claimed';
   if v_id is null then raise exception 'Missing concurrent test claim.'; end if;
-  if public.begin_delivery_transport(v_id, v_token) is not null then
+  if public.begin_delivery_transport(v_id, v_token, 'fixture-109@example.test') is not null then
     raise exception 'Revocation committed before transport but transport started.';
   end if;
 end;
@@ -99,7 +99,7 @@ declare v_id uuid; v_token uuid;
 begin
   select id, claim_token into v_id, v_token from public.delivery_ledger
   where user_id = '00000000-0000-0000-0000-000000000110' and state = 'claimed';
-  if v_id is null or public.begin_delivery_transport(v_id, v_token) is null then
+  if v_id is null or public.begin_delivery_transport(v_id, v_token, 'fixture-110@example.test') is null then
     raise exception 'Valid in-flight transport failed to start.';
   end if;
 end;
@@ -122,3 +122,62 @@ wait "$transport_pid"
 "${psql_cmd[@]}" -Atc "select (dl.transport_started_at is not null)::text || ':' || (not drp.daily_enabled)::text from public.delivery_ledger dl join public.daily_reminder_preferences drp using(user_id) where dl.user_id='00000000-0000-0000-0000-000000000110'" >"$tmp/result-after"
 grep -qx 'true:true' "$tmp/result-after"
 echo "Concurrent transport-first then later revocation ordering: PASS"
+
+# A lease expiring during a consent row lock wait must not be authorized.
+"${psql_cmd[@]}" <<'SQL'
+insert into auth.users (id,email,email_confirmed_at)
+values ('00000000-0000-0000-0000-000000000111','fixture-111@example.test',now());
+insert into public.profiles(user_id,is_suspended)
+values ('00000000-0000-0000-0000-000000000111',false);
+insert into public.daily_reminder_preferences(user_id,daily_enabled,reminder_time,timezone)
+values ('00000000-0000-0000-0000-000000000111',true,'00:00','UTC');
+insert into public.delivery_ledger(user_id,kind,delivery_key,scheduled_for)
+values ('00000000-0000-0000-0000-000000000111',
+ 'daily_reminder','daily:' || timezone('UTC',now())::date::text,
+ (timezone('UTC',now())::date + time '00:00') at time zone 'UTC');
+set role service_role;
+select count(*) from public.claim_delivery_jobs(now(),100);
+reset role;
+update public.delivery_ledger
+set claim_expires_at=clock_timestamp() + interval '2 seconds'
+where user_id='00000000-0000-0000-0000-000000000111';
+SQL
+
+"${psql_cmd[@]}" >"$tmp/lease-lock.log" 2>&1 <<'SQL' &
+begin;
+update public.daily_reminder_preferences set daily_enabled=true
+where user_id='00000000-0000-0000-0000-000000000111';
+\echo LEASE_CONSENT_LOCK_HELD
+select pg_sleep(4);
+commit;
+SQL
+lease_pid=$!
+for i in {1..100}; do
+  if grep -q LEASE_CONSENT_LOCK_HELD "$tmp/lease-lock.log"; then break; fi
+  if ! kill -0 "$lease_pid" 2>/dev/null; then
+    cat "$tmp/lease-lock.log"; exit 1
+  fi
+  sleep 0.05
+done
+grep -q LEASE_CONSENT_LOCK_HELD "$tmp/lease-lock.log"
+"${psql_cmd[@]}" <<'SQL'
+set role service_role;
+do $$
+declare v_id uuid; v_token uuid;
+begin
+  select id,claim_token into v_id,v_token from public.delivery_ledger
+  where user_id='00000000-0000-0000-0000-000000000111';
+  begin
+    perform public.begin_delivery_transport(
+      v_id,v_token,'fixture-111@example.test');
+    raise exception 'Claim expiring while waiting on lock authorized transport.';
+  exception when sqlstate '42501' then null;
+  end;
+end;
+$$;
+reset role;
+SQL
+wait "$lease_pid"
+"${psql_cmd[@]}" -Atc "select (transport_started_at is null)::text from public.delivery_ledger where user_id='00000000-0000-0000-0000-000000000111'" >"$tmp/lease-result"
+grep -qx 'true' "$tmp/lease-result"
+echo "Concurrent consent lock wait with expiring claim: PASS"

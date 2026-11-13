@@ -183,3 +183,150 @@ select jsonb_build_object(
   'revocations_and_suspension','pass',
   'expired_and_stale_claims','pass'
 ) as delivery_security_behavior;
+
+\ir ../supabase/migrations/202611120024_delivery_identity_lease_capacity.sql
+
+do $$
+begin
+  if to_regprocedure('public.begin_delivery_transport(uuid,uuid)') is not null
+    or to_regprocedure('public.begin_delivery_transport(uuid,uuid,text)') is null then
+    raise exception 'Old recipient-unbound transport RPC is still available.';
+  end if;
+  if has_function_privilege('anon','public.begin_delivery_transport(uuid,uuid,text)','EXECUTE')
+    or has_function_privilege('authenticated','public.begin_delivery_transport(uuid,uuid,text)','EXECUTE')
+    or not has_function_privilege('service_role','public.begin_delivery_transport(uuid,uuid,text)','EXECUTE') then
+    raise exception 'Recipient-bound RPC privilege boundary regressed.';
+  end if;
+end;
+$$;
+
+-- Identity changed after early authorization: no stale recipient may be sent.
+set role service_role;
+do $$
+declare v_job uuid; v_token uuid;
+begin
+  select id,claim_token into v_job,v_token
+  from public.delivery_ledger
+  where user_id='00000000-0000-0000-0000-000000000102'
+    and kind='daily_reminder' and state='claimed';
+  if v_job is null or public.authorize_delivery_job(v_job,v_token) is not true then
+    raise exception 'Daily identity-change fixture missing authorization.';
+  end if;
+end;
+$$;
+reset role;
+update auth.users set email='updated-102@example.test'
+where id='00000000-0000-0000-0000-000000000102';
+set role service_role;
+do $$
+declare v_job uuid; v_token uuid;
+begin
+  select id,claim_token into v_job,v_token from public.delivery_ledger
+  where user_id='00000000-0000-0000-0000-000000000102'
+    and kind='daily_reminder' and state='claimed';
+  if public.begin_delivery_transport(v_job,v_token,'fixture-102@example.test') is not null then
+    raise exception 'Changed daily recipient was authorized.';
+  end if;
+  if not exists (select 1 from public.delivery_ledger where id=v_job
+    and state='cancelled' and transport_started_at is null) then
+    raise exception 'Changed daily recipient did not cancel before transport.';
+  end if;
+end;
+$$;
+reset role;
+
+set role service_role;
+do $$
+declare v_job uuid; v_token uuid;
+begin
+  select id,claim_token into v_job,v_token
+  from public.delivery_ledger
+  where user_id='00000000-0000-0000-0000-000000000106'
+    and kind='weekly_newsletter' and state='claimed';
+  if v_job is null or public.authorize_delivery_job(v_job,v_token) is not true then
+    raise exception 'Weekly identity-change fixture missing authorization.';
+  end if;
+end;
+$$;
+reset role;
+update auth.users set email='updated-106@example.test'
+where id='00000000-0000-0000-0000-000000000106';
+set role service_role;
+do $$
+declare v_job uuid; v_token uuid;
+begin
+  select id,claim_token into v_job,v_token from public.delivery_ledger
+  where user_id='00000000-0000-0000-0000-000000000106'
+    and kind='weekly_newsletter' and state='claimed';
+  if public.begin_delivery_transport(v_job,v_token,'fixture-106@example.test') is not null then
+    raise exception 'Changed weekly recipient was authorized.';
+  end if;
+  begin
+    perform public.begin_delivery_transport(v_job,gen_random_uuid(),'updated-106@example.test');
+    raise exception 'Stale recipient-bound claim token accepted.';
+  exception when sqlstate '42501' then null;
+  end;
+end;
+$$;
+reset role;
+
+-- Capacity: 5,001 opt-ins must not be silently truncated by 5,000-limit sweep.
+update public.newsletter_preferences set weekly_enabled=false;
+insert into auth.users(id,email,email_confirmed_at)
+select ('00000000-0000-0000-0000-' || lpad(i::text,12,'0'))::uuid,
+  'capacity-' || i::text || '@example.test',now()
+from generate_series(10001,15001) i;
+insert into public.profiles(user_id,is_suspended)
+select ('00000000-0000-0000-0000-' || lpad(i::text,12,'0'))::uuid,false
+from generate_series(10001,15001) i;
+insert into public.newsletter_preferences(user_id,weekly_enabled,consented_at)
+select ('00000000-0000-0000-0000-' || lpad(i::text,12,'0'))::uuid,true,now()
+from generate_series(10001,15001) i;
+insert into public.weekly_goodness_features(week_start)
+values ('2027-02-01') on conflict do nothing;
+
+set role service_role;
+do $$
+declare v_count integer;
+begin
+  begin
+    perform public.enqueue_current_weekly_goodness_if_curated(
+      '2027-02-01 16:00:00+00'::timestamptz,5000);
+    raise exception 'Weekly over-capacity silently truncated recipients.';
+  exception when sqlstate '54000' then null;
+  end;
+  select count(*) into v_count from public.delivery_ledger
+  where delivery_key='weekly:2027-02-01';
+  if v_count <> 0 then
+    raise exception 'Weekly overflow left partially enqueued jobs.';
+  end if;
+end;
+$$;
+reset role;
+update public.newsletter_preferences set weekly_enabled=false
+where user_id='00000000-0000-0000-0000-000000010001';
+set role service_role;
+do $$
+declare v_count integer;
+begin
+  if public.enqueue_current_weekly_goodness_if_curated(
+    '2027-02-01 16:00:00+00'::timestamptz,5000) <> 5000 then
+    raise exception 'At-capacity Weekly enqueue was not complete.';
+  end if;
+  if public.enqueue_current_weekly_goodness_if_curated(
+    '2027-02-01 16:00:00+00'::timestamptz,5000) <> 0 then
+    raise exception 'Repeated Weekly enqueue duplicated logical deliveries.';
+  end if;
+  select count(*) into v_count from public.delivery_ledger
+  where delivery_key='weekly:2027-02-01';
+  if v_count <> 5000 then
+    raise exception 'Expected exactly 5,000 unique Weekly logical deliveries.';
+  end if;
+end;
+$$;
+reset role;
+
+select jsonb_build_object(
+ 'recipient_identity','pass','weekly_capacity_5001_fail_closed','pass',
+ 'weekly_capacity_5000_idempotent','pass','recipient_rpc_grants','pass'
+) as delivery_cycle5_behavior;

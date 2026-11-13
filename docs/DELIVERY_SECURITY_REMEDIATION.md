@@ -29,3 +29,32 @@ This branch must not be merged or deployed without a separately authorized plan.
 ## Remaining gates
 
 A current authorized Production Supabase connection is unavailable. Provider bounce/complaint evidence, multiple daily cycles, weekly curation, kill-switch exercise, authenticated Production regression, and final exact-head CI/deploy/smoke remain separate gates. This PR carries no Production evidence.
+
+## Cycle 5: identity and capacity corrections
+
+Migration 024 changes the database transport RPC contract from two arguments to
+three by requiring the expected confirmed recipient email. The old two-argument RPC
+is dropped, not left as a bypass. The email is carried only in a service-role
+request parameter, compared to the currently locked Supabase Auth user row, and
+never stored in the ledger, repository, or browser-visible data. A changed email
+returns NULL (cancelled), and the worker makes zero provider calls.
+
+The claim expiration is checked with clock_timestamp() both after eligibility
+locks and in the final transport-start UPDATE, so a lease expiring during lock
+contention fails SQLSTATE 42501. The prior now() transaction timestamp was stale.
+
+Weekly has an explicit fail-closed over-capacity gate: exceeding the 5,000
+configured recipient limit raises SQLSTATE 54000 and rolls back all enqueueing.
+CI creates 5,001 synthetic opted-in users to prove no partial work, then
+tests 5,000 unique jobs and repeat-call idempotency. Operators must review
+capacity before activating Weekly. This is not permission to increase Cron.
+
+Project npm link/push scripts and manual workflow now verify both the approved
+non-Production target and linked Supabase project identity. The raw CLI invoked
+outside these scripts remains an out-of-band operator risk and is prohibited
+against Production until migration-history reconciliation.
+
+The two-argument RPC is removed on migration 024. Apply migration 023 then 024
+in a guarded, approved, *disabled* Production rollout before deploying the new
+Worker. Any older Worker fails closed until its RPC arguments are upgraded.
+No old insecure RPC may be restored by rollback.
