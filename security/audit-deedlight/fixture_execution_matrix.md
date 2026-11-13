@@ -13,7 +13,7 @@
 | **G — incorrect search path** | Authentic 024; synthetic `ALTER FUNCTION` to `search_path=public` | Transport function `FAILED`, `path_match=false` | STOP; definer function search-path contract broken |
 | **H — insufficient catalog access** | Synthetic database only; remove `pg_proc` SELECT from `PUBLIC`, run preflight as `anon` | `metadata_access_preflight=BLOCKED` **or** an independently confirmed catalog permission error | STOP before catalog audit; any other SQL error is **FAILED**, not a false permission PASS |
 | **I — migration history mismatch** | Authentic 024; create *synthetic* CLI-history table with only an incomplete 019 version | `migration_history:catalog_object=VERIFIED` but recorded versions and historical execution **UNKNOWN** | STOP reconciliation; catalog-only queries do not inspect the synthetic row and **cannot prove mismatch or history completeness** |
-| **J — unexpected legacy RPC** | Authentic 024; create synthetic extra 2-arg transport overload | `legacy_rpc:...=FAILED` and `legacy_rpc:unexpected_transport_overloads=FAILED` | STOP; insecure path reintroduced |
+| **J — unexpected legacy RPC** | Authentic 024; create synthetic extra 2-arg transport overload | `legacy_rpc:...=FAILED` and `legacy_rpc:unexpected_transport_overloads=FAILED` | STOP; insecure path reintroduced and pre-024 attestation deliberately FAILED in the mixed overload state |
 
 All scenario setup SQL is fixture-only and MUST NOT be applied to Production. Case H temporarily modifies `pg_catalog` ACLs **inside a disposable database only**; never run against any other database. Case I deliberately writes mock migration-history rows **only in the synthetic fixture**; the audit SQL itself never touches those rows.
 
