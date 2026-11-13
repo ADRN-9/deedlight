@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - security/deedlight-audit-fixtures-c18
+      - ci/deedlight-cycle22-feasibility
   workflow_dispatch:
 
 permissions:

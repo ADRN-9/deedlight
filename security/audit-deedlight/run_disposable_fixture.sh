@@ -17,7 +17,7 @@ if [[ -z "$SRC" ]] || [[ "$(git -C "$SRC" rev-parse HEAD 2>/dev/null || true)" !
 fi
 # GitHub-hosted disposable postgres:16 service only. Localhost tunnels are not proof.
 if [[ "${GITHUB_ACTIONS:-}" != true || "${GITHUB_REPOSITORY:-}" != ADRN-9/deedlight
-   || "${GITHUB_REF:-}" != refs/heads/security/deedlight-audit-fixtures-c18
+   || "${GITHUB_REF:-}" != refs/heads/ci/deedlight-cycle22-feasibility
    || "${DEEDLIGHT_AUDIT_CI_ONLY:-}" != true ]]; then
   echo 'Fixtures require the approved GitHub Actions disposable workflow' >&2
   exit 2
