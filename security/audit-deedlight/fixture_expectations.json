@@ -28,6 +28,13 @@
         "migration_023:pre_024_exact_function_contract": "FAILED",
         "function:public.begin_delivery_transport(uuid,uuid,text)": "FAILED",
         "legacy_rpc:public.begin_delivery_transport(uuid,uuid)": "FAILED"
+      },
+      "approved_negative_exceptions": {
+        "function:public.enqueue_due_daily_reminders(timestamptz,integer)": "FAILED",
+        "function:public.enqueue_weekly_goodness_delivery(date,timestamptz,integer)": "FAILED",
+        "function:public.enqueue_current_weekly_goodness_if_curated(timestamptz,integer)": "FAILED",
+        "rpc_acl:public.begin_delivery_transport(uuid,uuid,text)": "FAILED",
+        "legacy_rpc:unexpected_transport_overloads": "FAILED"
       }
     },
     "C": {
@@ -37,6 +44,12 @@
         "function:public.begin_delivery_transport(uuid,uuid,text)": "FAILED",
         "function:public.enqueue_weekly_goodness_delivery(date,timestamptz,integer)": "FAILED",
         "legacy_rpc:public.begin_delivery_transport(uuid,uuid)": "FAILED"
+      },
+      "approved_negative_exceptions": {
+        "function:public.enqueue_weekly_goodness_delivery(date,timestamptz,integer)": "FAILED",
+        "function:public.enqueue_current_weekly_goodness_if_curated(timestamptz,integer)": "FAILED",
+        "rpc_acl:public.begin_delivery_transport(uuid,uuid,text)": "FAILED",
+        "legacy_rpc:unexpected_transport_overloads": "FAILED"
       }
     },
     "D": {
@@ -105,5 +118,10 @@
         "legacy_rpc:unexpected_transport_overloads": "FAILED"
       }
     }
-  }
+  },
+  "notes": [
+    "Only the named absent/intermediate migration functions and legacy overloads are approved FAILED exceptions for B/C; no blanket exception is permitted.",
+    "Common UNKNOWN/BLOCKED states are explicit in invariant_inventory.json; unexpected errors or statuses are fatal.",
+    "The complete-schema fixture A must contain every approved deterministic invariant and no unexpected FAILED/BLOCKED security outcomes."
+  ]
 }
