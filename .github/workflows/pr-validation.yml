@@ -47,14 +47,6 @@ jobs:
           node-version: 24
           cache: npm
 
-      - name: Generate temporary scoped-undici lockfile (no repo write)
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm install --package-lock-only --ignore-scripts --no-audit
-          node -e 'const fs=require("node:fs");for(const p of ["package.json","package-lock.json"]){const s=fs.readFileSync(p,"utf8");for(let i=0;i<s.length;i+=1400)console.log("DEEDLIGHT_CANDIDATE|"+p+"|"+(i/1400)+"|"+JSON.stringify(s.slice(i,i+1400)));}'
-          exit 2
-
       - name: Install dependencies
         run: npm ci
 
