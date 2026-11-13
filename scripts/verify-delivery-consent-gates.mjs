@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -137,8 +138,22 @@ for (const marker of [
   assert(migration23.includes(marker), "Missing migration-023 attestation");
   assert(newMigration.includes(marker), "Migration 024 must require the 023 attestation");
 }
-assert(newMigration.includes("pg_get_functiondef("),
-  "Prerequisite may not trust markers without checking reviewed function definitions");
+// PostgreSQL stores original PL/pgSQL body bytes in pg_proc.prosrc.
+for (const name of [
+  "enqueue_due_daily_reminders",
+  "enqueue_weekly_goodness_delivery",
+  "begin_delivery_transport",
+]) {
+  const source = migration23.split(`create or replace function public.${name}(`)[1]
+    ?.split("as $$")[1]?.split("$$;")[0];
+  assert(source, `Missing reviewed 023 function body: ${name}`);
+  const md5 = createHash("md5").update(source, "utf8").digest("hex");
+  assert(newMigration.includes(`<> '${md5}'`),
+    `Migration 024 must pin the original prosrc contract for ${name}`);
+}
+assert(newMigration.includes("pg_catalog.pg_proc"));
+assert(newMigration.includes("p.prosecdef") && newMigration.includes("p.proconfig"),
+  "Migration 024 must verify SECURITY DEFINER and search_path metadata");
 assert(newMigration.includes("pg_advisory_xact_lock("),
   "All weekly RPCs must serialize capacity updates");
 assert(newMigration.includes("current_setting('transaction_isolation')"),
@@ -155,3 +170,12 @@ assert(race.includes("Concurrent weekly scheduler issue-wide capacity and late o
 assert(validation.includes("delivery_migration_order_database_behavior"),
   "CI must execute positive and negative migration ordering tests");
 console.log("Cycle 7 migration attestation and serialized weekly-capacity assertions: PASS");
+
+assert(newMigration.includes("deedlight:weekly-issue-capacity:v1"));
+assert(runtime.includes("candidate.details === WEEKLY_CAPACITY_SOURCE"));
+assert(runtime.includes("WEEKLY_CAPACITY_MESSAGES.has(candidate.message)"));
+const schedulerSource = read("lib/delivery/scheduler.ts");
+assert(schedulerSource.includes("enqueueWeeklyWithMonitoring("));
+assert(!schedulerSource.includes("jobId: job.jobId"), "Do not emit private ledger IDs in logs");
+assert(read("scripts/test-delivery-migration-order.sh").includes("drifted function (same comment)"));
+console.log("Cycle 9 exact migration contract and sanitized capacity error assertions: PASS");

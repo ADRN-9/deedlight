@@ -124,3 +124,32 @@ single later opt-in becomes eligible, concurrent invocations return one and
 zero, respectively; a subsequent sixth-thousandth member is denied.
 The CI negative migration-order test confirms transaction rollback after
 the missing-023 preflight.
+
+## Cycle 9 — exact prerequisite contracts and Weekly observability
+
+Migration 024 pins the built-in `md5(pg_proc.prosrc)` digest of the three
+reviewed migration-023 PL/pgSQL bodies. Unlike `pg_get_functiondef`,
+`prosrc` retains the stored source body verbatim, independent of server
+formatting. The repository security verifier recalculates hashes from 023
+source and compares them with 024. Security-definer, volatility and
+search_path metadata remain prerequisites. PostgreSQL built-in `md5`
+requires no pgcrypto extension. A synchronized CI migration-order test
+replaces a meaningful suspension predicate while keeping the existing
+migration-023 comment and recognizable SQL fragments. Drifted 023 -> 024
+fails atomically; authentic 023 -> 024 succeeds.
+
+The Weekly RPC emits SQLSTATE 54000 with a fixed non-sensitive DETAIL marker
+`deedlight:weekly-issue-capacity:v1`. The server-only Supabase adapter
+requires exact SQLSTATE, message, and detail before classifying an error as
+`weekly_capacity_exceeded`. Ordinary database failures are reported as
+`weekly_enqueue_database_error`. Cloudflare logs only the stable internal
+code and the UTC Monday of the affected issue, with no raw provider/database
+payloads, member identifiers or recipient data. Both cases still reject the
+scheduler invocation before claim or external transport. Existing 5,000-row
+issue-wide capacity, consent, retry and idempotency controls remain unchanged.
+
+Production remains blocked pending authorized schema inspection, historical
+migration reconciliation, safe application of 023/024, independent review,
+and staged scheduler/provider/kill-switch evidence. Do not use Production
+`supabase db push`, restore the unbound transport RPC, or treat CI as
+Production proof.
