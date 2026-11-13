@@ -33,6 +33,7 @@ jobs:
       PGPASSWORD: postgres
       DELIVERY_ENABLED: "false"
       DEEDLIGHT_DISPOSABLE_ACK: I_ACCEPT_DISPOSABLE_DATABASE_DELETION
+      DEEDLIGHT_AUDIT_CI_ONLY: "true"
     steps:
       - name: Checkout separate audit branch
         uses: actions/checkout@v7
@@ -81,9 +82,10 @@ jobs:
           python3 security/audit-deedlight/original/check_package_static.py
           python3 security/audit-deedlight/audited/check_package_static.py
           python3 -m unittest discover -s security/audit-deedlight/tests -v
+          python3 -m json.tool security/audit-deedlight/invariant_inventory.json >/dev/null
           bash -n security/audit-deedlight/run_disposable_fixture.sh
 
-      - name: Execute ten isolated PostgreSQL fixtures
+      - name: Execute ten isolated PostgreSQL fixtures and strict evidence checks
         shell: bash
         run: |
           set -euo pipefail
