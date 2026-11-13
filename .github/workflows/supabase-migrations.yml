@@ -17,6 +17,8 @@ jobs:
 
       - name: Link and push migrations
         run: |
+          set -euo pipefail
+          bash scripts/guard-supabase-migration-target.sh
           supabase link --project-ref "$SUPABASE_PROJECT_REF"
           supabase db push
         env:

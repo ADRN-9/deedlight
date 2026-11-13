@@ -55,7 +55,7 @@ function fakeGateway(options = {}) {
       },
       async beginTransport() {
         events.push("begin");
-        return options.firstTransportAt ?? new Date(fixedNow);
+        return options.transportDenied ? null : options.firstTransportAt ?? new Date(fixedNow);
       },
       async markSent(_job, id) {
         events.push(`sent:${id}`);
@@ -65,6 +65,7 @@ function fakeGateway(options = {}) {
       },
       async retry(_job, retryAt, code) {
         events.push(`retry:${code}:${retryAt.toISOString()}`);
+        return options.retryResult ?? true;
       },
     },
   };
@@ -232,4 +233,34 @@ test("ambiguous delivery older than the provider safety window never sends again
   assert.equal(result, "failed");
   assert.equal(sent, false);
   assert(events.includes("failed:provider_idempotency_window_expired"));
+});
+
+test("database transport denial after two earlier authorizations produces zero provider calls", async () => {
+  for (const candidate of [job, weeklyJob]) {
+    const { gateway, events } = fakeGateway({ authorizations: [true, true], transportDenied: true });
+    let providerCalls = 0;
+    const result = await processClaimedDelivery({
+      job: candidate,
+      gateway,
+      recipientResolver: { async resolve() { return { email: "member@example.test" }; } },
+      transport: { async send() { providerCalls += 1; throw new Error("provider must not be called"); } },
+      clock: fixedClock,
+    });
+    assert.equal(result, "cancelled");
+    assert.equal(providerCalls, 0);
+    assert.deepEqual(events, ["authorize", "authorize", "begin"]);
+  }
+});
+
+test("fifth attempt terminal retry is counted as failed, not retried or processing error", async () => {
+  const { gateway, events } = fakeGateway({ retryResult: false });
+  const result = await processClaimedDelivery({
+    job,
+    gateway,
+    recipientResolver: { async resolve() { return { email: "member@example.test" }; } },
+    transport: { async send() { return { status: "temporary_failure", errorCode: "provider_http_503" }; } },
+    clock: fixedClock,
+  });
+  assert.equal(result, "failed");
+  assert(events.some((event) => event.startsWith("retry:provider_http_503")));
 });

@@ -84,12 +84,13 @@ export class SupabaseDeliveryRuntime implements DeliveryGateway, DeliveryRecipie
     return data;
   }
 
-  async beginTransport(job: ClaimedDeliveryJob): Promise<Date> {
+  async beginTransport(job: ClaimedDeliveryJob): Promise<Date | null> {
     const { data, error } = await this.client.rpc("begin_delivery_transport", {
       p_job_id: job.jobId,
       p_claim_token: job.claimToken,
     });
-    if (error || typeof data !== "string") fail("begin transport");
+    if (error || (data !== null && typeof data !== "string")) fail("begin transport");
+    if (data === null) return null; // Current consent failed inside the atomic DB gate.
 
     const startedAt = new Date(data);
     if (Number.isNaN(startedAt.getTime())) fail("parse transport timestamp");
@@ -114,14 +115,15 @@ export class SupabaseDeliveryRuntime implements DeliveryGateway, DeliveryRecipie
     if (error || data !== true) fail("mark failed");
   }
 
-  async retry(job: ClaimedDeliveryJob, retryAt: Date, errorCode: string): Promise<void> {
+  async retry(job: ClaimedDeliveryJob, retryAt: Date, errorCode: string): Promise<boolean> {
     const { data, error } = await this.client.rpc("retry_delivery_job", {
       p_job_id: job.jobId,
       p_claim_token: job.claimToken,
       p_retry_at: retryAt.toISOString(),
       p_error_code: errorCode,
     });
-    if (error || data !== true) fail("retry job");
+    if (error || typeof data !== "boolean") fail("retry job");
+    return data; // false means the fifth attempt was terminated in PostgreSQL.
   }
 
   async resolve(userId: string): Promise<AuthorizedRecipient | null> {
