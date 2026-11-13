@@ -1,6 +1,6 @@
-# Disposable PostgreSQL test matrix — expected, NOT executed
+# Disposable PostgreSQL test matrix — Cycle 20 revalidation
 
-**Current observed execution status for A–J: NOT RUN.** The only local executed tests are five offline JSON consumer unit tests and static checks. There is no verified PostgreSQL executable or disposable server in the current runtime. Run this only after explicit approval of a disposable local PostgreSQL 16 fixture; the source checkout must be the exact reviewed DeedLight PR #10 head `c983e2ed8b93c935139c935343261570ecea6978`.
+**Historical executable evidence:** Cycle 18's audited source passed all ten PostgreSQL 16.16 fixtures in [GitHub Actions run 43430078142](https://github.com/ADRN-9/deedlight/actions/runs/43430078142). **Cycle 20 changes:** a much stricter assertion consumer, 82-record inventory, additional negative tests, and a CI-only disposable service guard. These changed bytes require their **own exact-head CI run**; earlier execution is not proof of Cycle 20 success. Pinned delivery source SHA: `c983e2ed8b93c935139c935343261570ecea6978`.
 
 | Case | Setup (synthetic database only) | Required audited invariant result | Stop interpretation |
 |---|---|---|---|
@@ -19,7 +19,7 @@ All scenario setup SQL is fixture-only and MUST NOT be applied to Production. Ca
 
 ## Guardrails and operator preflight
 
-- Independently verify the local PostgreSQL instance is disposable. The shell host guard (`127.0.0.1:5432`) cannot detect an SSH tunnel, port-forward or container mapped to Production. Do not run on a shared instance containing customer data.
+- The mutating runner is restricted to the dedicated GitHub Actions branch workflow and verifies a single local Docker `postgres:16` container actually publishing port 5432; it refuses local manual execution and libpq override variables. A compromised workflow can still defeat safeguards; do not repurpose the runner or use a tunneled/server-shared database.
 - Prepare a clean Git checkout at the exact reviewed PR head. Verify source files by SHA before use. Do not borrow another project's credentials or fixture data.
 - Ensure environment contains no `DATABASE_URL`, `SUPABASE_*` secrets or provider keys. Use only test-time `PGPASSWORD` for the disposable server. `PGHOST=127.0.0.1 PGPORT=5432 PGUSER=postgres` are required.
 - Read the scripts and explicitly acknowledge destructive temporary database setup; the runner uses `createdb` and `dropdb` on per-case synthetic databases.
@@ -29,6 +29,10 @@ All scenario setup SQL is fixture-only and MUST NOT be applied to Production. Ca
 
 ## Replay
 
-Run the commands in the package README *after* provisioning the disposable PostgreSQL 16 service and checkout. For each case, `run_disposable_fixture.sh CASE` builds a new synthetic database, runs the `audited/` SQL, invokes `assert_fixture_result.py` with `fixture_expectations.json`, then drops that database. Results are saved under `results/CASE/` unless an output directory is supplied. A nonzero exit means the case did not validate; inspect only sanitized local fixture logs.
+Run the approved GitHub Actions job only, with its disposable PostgreSQL 16 service and pinned delivery source checkout. For each case, `run_disposable_fixture.sh CASE` builds a new synthetic database, runs the `audited/` SQL, invokes `assert_fixture_result.py` with `fixture_expectations.json`, then drops that database. Results are saved under `results/CASE/` unless an output directory is supplied. A nonzero exit means the case did not validate; inspect only sanitized local fixture logs.
 
 The JSON consumer unit tests only confirm that fixture-evidence verification rejects mismatched or absent invariants. They do **not** establish the SQL schema itself works against PostgreSQL.
+
+## Cycle 20 new evidence-negative cases
+
+The actual `assert_fixture_result.py` CLI is invoked by unit tests using synthetic transaction envelopes to reject: missing required invariant; duplicate invariant; unexpected FAILED or BLOCKED; malformed JSON, invalid JSON schema and extra fields; missing `ROLLBACK` or truncated invariant inventory; incorrect fixture classification; unexpected PostgreSQL ERROR/FATAL output; unapproved dynamic policy failure; and unjustified VERIFIED preference source. These are **offline parser tests**, distinct from the ten live PostgreSQL fixtures.
