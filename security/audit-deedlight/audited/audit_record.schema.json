@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DeedLight metadata-only audit result",
+  "type": "object",
+  "required": ["source_sha", "invariant", "status", "expected", "actual"],
+  "properties": {
+    "source_sha": {
+      "type": "string",
+      "const": "c983e2ed8b93c935139c935343261570ecea6978"
+    },
+    "invariant": { "type": "string", "minLength": 2 },
+    "status": {
+      "type": "string",
+      "enum": ["VERIFIED", "FAILED", "BLOCKED", "UNKNOWN"]
+    },
+    "expected": { "type": "string", "minLength": 1 },
+    "actual": { "type": "object" },
+    "expected_project_ref": { "type": "string" },
+    "identity_proven": { "type": "boolean" },
+    "note": { "type": "string" }
+  },
+  "additionalProperties": false
+}
