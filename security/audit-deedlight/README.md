@@ -2,7 +2,7 @@
 
 **Scope:** independently reviewable catalog-only inspection of the reviewed delivery-security code at source commit `c983e2ed8b93c935139c935343261570ecea6978` (PR #10). This audit tooling lives on its own branch and **does not approve, merge, deploy, or run** any Production change.
 
-The audit SQL is `audited/00_preflight.sql` and `audited/01_catalog_audit.sql`. The source's original Cycle 14 six-file package is retained unchanged in `original/`. `audit_corrections.diff` explains the Cycle 16 accuracy corrections. `SECURITY_REVIEW.md` and `fixture_execution_matrix.md` state independent review, privacy boundaries and expected results. `MANIFEST.sha256` records file-level bytes. `proposed_ci.yml` is the same workflow content as the active `.github/workflows/deedlight-audit-fixtures.yml`.
+The audit SQL is `audited/00_preflight.sql` and `audited/01_catalog_audit.sql`. The source's original Cycle 14 six-file package is retained unchanged in `original/`. `audit_corrections.diff` explains the Cycle 16 accuracy corrections. `SECURITY_REVIEW.md` and `fixture_execution_matrix.md` state independent review, privacy boundaries and expected results. `MANIFEST.sha256` records the exact file-level bytes. The active workflow is `.github/workflows/deedlight-audit-fixtures.yml`; `proposed_ci.yml` mirrors that workflow for review.
 
 ## Scope and interpretation
 
@@ -17,18 +17,19 @@ The audit SQL is `audited/00_preflight.sql` and `audited/01_catalog_audit.sql`. 
 
 Use the separate GitHub Actions workflow in `.github/workflows/deedlight-audit-fixtures.yml`. It starts a fresh `postgres:16` service, refuses Production configuration, checks out the exact reviewed DeedLight commit, runs offline checks and ten synthetic PostgreSQL scenarios.
 
-For independent local reproduction, verify that `127.0.0.1:5432` is an isolated disposable test server, **not** a tunnel, proxy or forwarded Production connection. Never supply Production credentials. Use the reviewed source SHA checkout as `DEEDLIGHT_SOURCE_REPO`; set `PGHOST=127.0.0.1`, `PGPORT=5432`, `PGUSER=postgres` and the disposable fixture password privately. Then run:
+**Runner safety restriction (Cycle 20):** mutating fixtures run only in the dedicated GitHub Actions job, with the exact DeedLight repository and audit branch identity, an explicit disposable acknowledgment, a single local Docker `postgres:16` service container publishing port 5432, and no unexpected libpq connection overrides. An SSH tunnel, a bare localhost port, or a manual Postgres instance is **not sufficient**. For independent reproduction, use the workflow in an approved audit branch; do not bypass its guards.
 
 ```bash
-export DEEDLIGHT_SOURCE_REPO=/path/to/deedlight-at-c983e2ed8b93c935139c935343261570ecea6978
-export DEEDLIGHT_DISPOSABLE_ACK=I_ACCEPT_DISPOSABLE_DATABASE_DELETION
 python3 security/audit-deedlight/original/check_package_static.py
 python3 security/audit-deedlight/audited/check_package_static.py
 python3 -m unittest discover -s security/audit-deedlight/tests -v
-for case in A B C D E F G H I J; do
-  bash security/audit-deedlight/run_disposable_fixture.sh "$case"
-done
+# Within the dedicated approved CI job only:
+# for case in A B C D E F G H I J; do bash security/audit-deedlight/run_disposable_fixture.sh "$case"; done
 ```
+
+The checker validates every evidence record against `audited/audit_record.schema.json`, requires all 82 pinned deterministic invariants in `invariant_inventory.json`, rejects duplicate or malformed/truncated output, and permits only documented UNKNOWN policy-row additions. Every intentionally FAILED security exception in fixtures B/C is explicitly enumerated in `fixture_expectations.json`. The full-schema fixture A cannot pass with an unexpectedly missing, FAILED or BLOCKED record.
+
+**Preference setter assurance:** `function:public.set_daily_reminder_preference(...)` verifies metadata and effective authorization only; `function_source:public.set_daily_reminder_preference(...)` is explicitly `UNKNOWN`. SECURITY DEFINER and search_path alone do not verify source/behavioral correspondence.
 
 `run_disposable_fixture.sh` performs **DDL/DML and database deletion only against its isolated synthetic database**. Never run that script against a connected or ambiguous Production target. This is test-only code; the SQL audit itself remains read-only.
 
