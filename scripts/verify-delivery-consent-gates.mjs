@@ -124,3 +124,6 @@ try{
 }
 assert(pkg.overrides?.["source-map-js"]==="^1.2.2");
 console.log("Linked project mismatch and missing-link checks: PASS");
+
+assert(pkg.overrides?.["miniflare@5.20261110.2-beta"]?.undici==="7.30.2",
+  "Miniflare Undici must be patched for GHSA-mqg3-3v4r-cm32");

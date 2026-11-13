@@ -73,3 +73,12 @@ OpenNext/TypeScript ESLint upstream constraints; forcing glob 14/minimatch 11
 across major peer ranges is not justified without upstream compatibility.
 The unsuppressed `npm audit --audit-level=high` continues as the CI gate.
 See exact-head CI and npm lockfile for final evidence.
+
+### Undici patch floor
+
+The lockfile's Miniflare 5.20261110.2-beta originally pinned undici 7.30.1.
+Upstream GHSA-mqg3-3v4r-cm32 (high, shared redirect-cache disclosure)
+affects that exact version; 7.30.2 is the published patch. A narrowly
+scoped parent-version override requests undici 7.30.2 only for Miniflare,
+rather than replacing the separate 6.x Undici package or forcing a major.
+Remove this override once an audited Wrangler/Miniflare release carries the fix.
