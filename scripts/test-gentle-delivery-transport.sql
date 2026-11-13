@@ -63,7 +63,7 @@ begin
 
   select job_id, claim_token
   into v_id, v_token
-  from public.claim_delivery_jobs('2026-10-26 16:01:00+00'::timestamptz, 100)
+  from public.claim_delivery_jobs(now(), 100)
   where delivery_key = 'weekly:' || (timezone('UTC', now())::date - (extract(isodow from timezone('UTC', now()))::integer - 1))::text
   limit 1;
 
