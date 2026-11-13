@@ -65,7 +65,12 @@ def records_from_psql(path: str) -> dict[str, dict]:
     results: dict[str, dict] = {}
     state = "before_begin"
     began = rolled_back = False
+    leading_role_set = False
     for lineno, line in enumerate(lines, 1):
+        if line == "SET" and state == "before_begin" and not leading_role_set:
+            # Fixture H uses one SET ROLE before the read-only catalog preflight.
+            leading_role_set = True
+            continue
         if line == "BEGIN" and state == "before_begin":
             began = True
             state = "inside"
