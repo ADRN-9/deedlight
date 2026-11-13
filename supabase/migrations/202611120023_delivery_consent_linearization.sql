@@ -282,5 +282,15 @@ grant execute
 on function public.begin_delivery_transport(uuid, uuid)
 to service_role;
 
+
+-- An auditable, schema-local attestation of the reviewed 023 function contract.
+-- Migration history alone is not evidence that these exact replacements ran.
+comment on function public.enqueue_due_daily_reminders(timestamptz, integer)
+  is 'deedlight:023:daily-exclusion-before-limit:v1';
+comment on function public.enqueue_weekly_goodness_delivery(date, timestamptz, integer)
+  is 'deedlight:023:weekly-exclusion-before-limit:v1';
+comment on function public.begin_delivery_transport(uuid, uuid)
+  is 'deedlight:023:locked-consent-before-transport:v1';
+
 notify pgrst, 'reload schema';
 commit;
