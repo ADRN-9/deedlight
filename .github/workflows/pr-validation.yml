@@ -65,6 +65,9 @@ jobs:
       - name: Gentle delivery transport security assertions
         run: node scripts/verify-gentle-delivery-transport.mjs
 
+      - name: Current-consent and migration-target security assertions
+        run: node scripts/verify-delivery-consent-gates.mjs
+
       - name: Auth pgcrypto schema-qualification assertions
         run: node scripts/verify-auth-pgcrypto-schema-qualification.mjs
 
@@ -225,7 +228,10 @@ jobs:
             --port 5432 \
             --username postgres \
             --dbname deedlight_transport_test \
-            --file scripts/test-gentle-delivery-transport.sql
+            --file scripts/test-delivery-consent-gates.sql
+
+      - name: PostgreSQL synchronized revocation/transport race
+        run: bash scripts/test-delivery-consent-concurrency.sh
 
   auth_pgcrypto_database_behavior:
     runs-on: ubuntu-latest
