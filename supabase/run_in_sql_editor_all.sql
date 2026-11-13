@@ -4476,7 +4476,7 @@ commit;
 -- Migration 023: additive function replacements, no runtime activation.
 begin;
 
-do $
+do $$
 begin
   if to_regclass('public.delivery_ledger') is null
      or to_regclass('public.daily_reminder_preferences') is null
@@ -4493,7 +4493,7 @@ begin
     raise exception 'Migration 023 requires the verified delivery 019-021 baseline.';
   end if;
 end;
-$;
+$$;
 
 -- Eliminate starvation: exclude existing logical jobs BEFORE the limit.
 -- Uniqueness and ON CONFLICT remain the final concurrent-insertion guard.
@@ -4505,7 +4505,7 @@ returns integer
 language plpgsql
 security definer
 set search_path = public, auth, pg_temp
-as $
+as $$
 declare
   v_inserted integer := 0;
 begin
@@ -4563,7 +4563,7 @@ begin
 
   return v_inserted;
 end;
-$;
+$$;
 
 revoke all privileges
 on function public.enqueue_due_daily_reminders(timestamptz, integer)
@@ -4581,7 +4581,7 @@ returns integer
 language plpgsql
 security definer
 set search_path = public, auth, pg_temp
-as $
+as $$
 declare
   v_inserted integer := 0;
 begin
@@ -4640,7 +4640,7 @@ begin
 
   return v_inserted;
 end;
-$;
+$$;
 
 revoke all privileges
 on function public.enqueue_weekly_goodness_delivery(date, timestamptz, integer)
@@ -4661,7 +4661,7 @@ returns timestamptz
 language plpgsql
 security definer
 set search_path = public, auth, pg_temp
-as $
+as $$
 declare
   v_job public.delivery_ledger%rowtype;
   v_started_at timestamptz;
@@ -4747,7 +4747,7 @@ begin
 
   return v_started_at;
 end;
-$;
+$$;
 
 revoke all privileges
 on function public.begin_delivery_transport(uuid, uuid)
@@ -4772,7 +4772,7 @@ commit;
 
 -- Delivery recipient identity, actual lease clock, Weekly capacity (migration 024).
 begin;
-do $
+do $$
 begin
   if to_regprocedure('public.begin_delivery_transport(uuid,uuid)') is null
     or to_regprocedure('public.enqueue_current_weekly_goodness_if_curated(timestamp with time zone,integer)') is null
@@ -4808,7 +4808,7 @@ begin
     raise exception 'Migration 024 recipient-bound RPC is already present.';
   end if;
 end;
-$;
+$$;
 
 -- Identity is compared against the currently confirmed Auth email, locked
 -- with the consent/profile rows. The address is never persisted in the ledger.
@@ -4821,7 +4821,7 @@ returns timestamptz
 language plpgsql
 security definer
 set search_path = public, auth, pg_temp
-as $
+as $$
 declare
   v_job public.delivery_ledger%rowtype;
   v_started_at timestamptz;
@@ -4905,7 +4905,7 @@ begin
   end if;
   return v_started_at;
 end;
-$;
+$$;
 
 revoke all privileges on function public.begin_delivery_transport(uuid,uuid,text)
 from public, anon, authenticated;
@@ -4928,7 +4928,7 @@ returns integer
 language plpgsql
 security definer
 set search_path = public, auth, pg_temp
-as $
+as $$
 declare
   v_delivery_key text;
   v_existing integer;
@@ -5022,7 +5022,7 @@ begin
   end if;
   return v_inserted;
 end;
-$;
+$$;
 
 revoke all privileges
 on function public.enqueue_weekly_goodness_delivery(date,timestamptz,integer)
@@ -5041,7 +5041,7 @@ returns integer
 language plpgsql
 security definer
 set search_path = public, auth, pg_temp
-as $
+as $$
 declare
   v_week_start date;
 begin
@@ -5066,7 +5066,7 @@ begin
     v_week_start, p_now, p_limit
   );
 end;
-$;
+$$;
 
 revoke all privileges
 on function public.enqueue_current_weekly_goodness_if_curated(timestamptz,integer)
