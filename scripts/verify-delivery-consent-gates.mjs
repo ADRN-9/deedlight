@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const read = (path) => readFileSync(path, "utf8");
@@ -96,3 +98,29 @@ assert(tests.includes("weekly_capacity_5001_fail_closed"));
 const race = read("scripts/test-delivery-consent-concurrency.sh");
 assert(race.includes("Concurrent consent lock wait with expiring claim: PASS"));
 console.log("Cycle 5 recipient, lease, capacity and migration guard assertions: PASS");
+
+const guardRoot=mkdtempSync(join(tmpdir(),"deedlight-guard-test-"));
+try{
+  mkdirSync(join(guardRoot,"scripts"),{recursive:true});
+  mkdirSync(join(guardRoot,"supabase",".temp"),{recursive:true});
+  writeFileSync(join(guardRoot,"scripts","guard-supabase-migration-target.sh"),read(guard));
+  writeFileSync(join(guardRoot,"scripts","guard-supabase-linked-project.sh"),linkedGuard);
+  const linked=join(guardRoot,"supabase",".temp","project-ref");
+  for(const [approved,actual,allowed] of [
+    ["abcdefghijklmnopqrst","abcdefghijklmnopqrst",true],
+    ["abcdefghijklmnopqrst","xaipiovflxomcbfwtwmu",false],
+    ["xaipiovflxomcbfwtwmu","xaipiovflxomcbfwtwmu",false],
+    ["abcdefghijklmnopqrst","",false],
+  ]){
+    if(actual) writeFileSync(linked,actual);
+    else rmSync(linked,{force:true});
+    const result=spawnSync("bash",["scripts/guard-supabase-linked-project.sh"],{
+      cwd:guardRoot,encoding:"utf8",env:{...process.env,SUPABASE_PROJECT_REF:approved}
+    });
+    assert.equal(result.status===0,allowed,"Linked-project guard did not fail closed");
+  }
+}finally{
+  rmSync(guardRoot,{recursive:true,force:true});
+}
+assert(pkg.overrides?.["source-map-js"]==="^1.2.2");
+console.log("Linked project mismatch and missing-link checks: PASS");

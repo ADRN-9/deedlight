@@ -34,5 +34,8 @@
     "tailwindcss": "latest",
     "typescript": "latest",
     "wrangler": "latest"
+  },
+  "overrides": {
+    "source-map-js": "^1.2.2"
   }
 }

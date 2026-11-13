@@ -58,3 +58,18 @@ The two-argument RPC is removed on migration 024. Apply migration 023 then 024
 in a guarded, approved, *disabled* Production rollout before deploying the new
 Worker. Any older Worker fails closed until its RPC arguments are upgraded.
 No old insecure RPC may be restored by rollback.
+
+## Dependency security remediation
+
+Source dependency upgrades: Next 16.3.6 -> 16.4.6; Zod 4.4.3 -> 4.6.7;
+OpenNext Cloudflare 1.20.2 -> 1.20.17, bringing AWS adapter 4.1.16,
+Wrangler 4.161.0, sharp 0.35.5, body-parser 2.4.0, proxy-addr 2.0.8,
+qs 6.17.1 and patched undici branches. A narrowly scoped, semver-compatible
+`source-map-js ^1.2.2` override resolves advisory GHSA-68fv-2mgg-jv7q,
+which otherwise remains at 1.2.1 in the lockfile.
+
+Remaining moderate findings in glob/minimatch originate from supported
+OpenNext/TypeScript ESLint upstream constraints; forcing glob 14/minimatch 11
+across major peer ranges is not justified without upstream compatibility.
+The unsuppressed `npm audit --audit-level=high` continues as the CI gate.
+See exact-head CI and npm lockfile for final evidence.
