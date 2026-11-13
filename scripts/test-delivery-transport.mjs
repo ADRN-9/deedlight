@@ -2,10 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { parseDeliveryRuntimeConfig } from "../lib/delivery/config.ts";
+import {
+  SupabaseDeliveryRuntime,
+  WeeklyDeliveryCapacityError,
+} from "../lib/delivery/supabase-runtime.ts";
 import { createResendTransport } from "../lib/delivery/resend-transport.ts";
 import { processClaimedDelivery } from "../lib/delivery/run-delivery.ts";
 import {
   DAILY_DELIVERY_CRON,
+  enqueueWeeklyWithMonitoring,
   runScheduledDelivery,
 } from "../lib/delivery/scheduler.ts";
 
@@ -53,9 +58,10 @@ function fakeGateway(options = {}) {
         events.push("authorize");
         return authorizations[authorizeIndex++] ?? authorizations.at(-1) ?? false;
       },
-      async beginTransport() {
+      async beginTransport(_job, recipient) {
         events.push("begin");
-        return options.firstTransportAt ?? new Date(fixedNow);
+        if (options.expectedRecipient && recipient.email !== options.expectedRecipient) return null;
+        return options.transportDenied ? null : options.firstTransportAt ?? new Date(fixedNow);
       },
       async markSent(_job, id) {
         events.push(`sent:${id}`);
@@ -65,6 +71,7 @@ function fakeGateway(options = {}) {
       },
       async retry(_job, retryAt, code) {
         events.push(`retry:${code}:${retryAt.toISOString()}`);
+        return options.retryResult ?? true;
       },
     },
   };
@@ -232,4 +239,144 @@ test("ambiguous delivery older than the provider safety window never sends again
   assert.equal(result, "failed");
   assert.equal(sent, false);
   assert(events.includes("failed:provider_idempotency_window_expired"));
+});
+
+test("database transport denial after two earlier authorizations produces zero provider calls", async () => {
+  for (const candidate of [job, weeklyJob]) {
+    const { gateway, events } = fakeGateway({ authorizations: [true, true], transportDenied: true });
+    let providerCalls = 0;
+    const result = await processClaimedDelivery({
+      job: candidate,
+      gateway,
+      recipientResolver: { async resolve() { return { email: "member@example.test" }; } },
+      transport: { async send() { providerCalls += 1; throw new Error("provider must not be called"); } },
+      clock: fixedClock,
+    });
+    assert.equal(result, "cancelled");
+    assert.equal(providerCalls, 0);
+    assert.deepEqual(events, ["authorize", "authorize", "begin"]);
+  }
+});
+
+test("fifth attempt terminal retry is counted as failed, not retried or processing error", async () => {
+  const { gateway, events } = fakeGateway({ retryResult: false });
+  const result = await processClaimedDelivery({
+    job,
+    gateway,
+    recipientResolver: { async resolve() { return { email: "member@example.test" }; } },
+    transport: { async send() { return { status: "temporary_failure", errorCode: "provider_http_503" }; } },
+    clock: fixedClock,
+  });
+  assert.equal(result, "failed");
+  assert(events.some((event) => event.startsWith("retry:provider_http_503")));
+});
+
+test("changed Auth email invalidates resolved recipient at final gate", async () => {
+  const {gateway, events} = fakeGateway({authorizations:[true,true],expectedRecipient:"new@example.test"});
+  let sends=0;
+  const outcome=await processClaimedDelivery({
+    job, gateway,
+    recipientResolver:{async resolve(){return {email:"old@example.test"};}},
+    transport:{async send(){sends++;throw Error("should not send");}},
+    clock:fixedClock,
+  });
+  assert.equal(outcome,"cancelled");
+  assert.equal(sends,0);
+  assert.deepEqual(events,["authorize","authorize","begin"]);
+});
+
+test("Weekly capacity RPC errors require exact code, message, and source marker", async () => {
+  const scheduledAt = new Date("2027-02-08T16:00:00Z");
+  const capacity = {
+    code: "54000",
+    message: "Weekly delivery capacity exceeded; no jobs enqueued.",
+    details: "deedlight:weekly-issue-capacity:v1",
+  };
+  for (const variant of [
+    capacity,
+    { ...capacity, message: "Weekly issue already exceeds the 5000-delivery ceiling." },
+  ]) {
+    const adapter = new SupabaseDeliveryRuntime({
+      async rpc(name, params) {
+        assert.equal(name, "enqueue_current_weekly_goodness_if_curated");
+        assert.equal(params.p_limit, 5000);
+        return { data: null, error: variant };
+      },
+    });
+    await assert.rejects(adapter.enqueueWeekly(scheduledAt, 5000), (error) => {
+      assert(error instanceof WeeklyDeliveryCapacityError);
+      assert.equal(error.code, "weekly_capacity_exceeded");
+      assert.equal(error.weekStart, "2027-02-08");
+      assert.equal(error.message, "Weekly Goodness capacity exceeded.");
+      return true;
+    });
+  }
+  for (const variant of [
+    { ...capacity, code: "23505" },
+    { ...capacity, details: "other-sql-failure" },
+    { ...capacity, message: "Unrelated 54000 with private-member@secret.test" },
+    { code: "54000", message: "Resource exhausted", details: null },
+  ]) {
+    const adapter = new SupabaseDeliveryRuntime({
+      async rpc() { return { data: null, error: variant }; },
+    });
+    await assert.rejects(adapter.enqueueWeekly(scheduledAt, 5000), (error) => {
+      assert(!(error instanceof WeeklyDeliveryCapacityError));
+      assert.equal(error.message, "Delivery database operation failed: enqueue weekly goodness");
+      assert.doesNotMatch(error.message, /private-member|secret\.test|Resource exhausted/);
+      return true;
+    });
+  }
+  const throwingAdapter = new SupabaseDeliveryRuntime({
+    async rpc() { throw new Error("sensitive-token-private-member"); },
+  });
+  await assert.rejects(throwingAdapter.enqueueWeekly(scheduledAt, 5000), (error) => {
+    assert.equal(error.message, "Delivery database operation failed: enqueue weekly goodness");
+    return true;
+  });
+});
+
+test("weekly scheduler error logs expose only a stable code and issue week", async () => {
+  const scheduledAt = new Date("2027-02-08T16:00:00Z");
+  let claimed = 0;
+  let sent = 0;
+  for (const [error, code] of [
+    [new WeeklyDeliveryCapacityError(scheduledAt), "weekly_capacity_exceeded"],
+    [new Error("secret-token-private-member@example.test"), "weekly_enqueue_database_error"],
+  ]) {
+    const logs = [];
+    await assert.rejects(
+      enqueueWeeklyWithMonitoring(
+        async () => { throw error; },
+        scheduledAt,
+        5000,
+        (message, context) => logs.push({ message, context }),
+      ),
+      (rejected) => {
+        assert.equal(
+          rejected.message,
+          code === "weekly_capacity_exceeded"
+            ? "Weekly Goodness capacity exceeded."
+            : "Delivery database operation failed: enqueue weekly goodness",
+        );
+        return true;
+      },
+    );
+    assert.deepEqual(logs, [{
+      message: "Weekly Goodness enqueue failed",
+      context: { code, weekStart: "2027-02-08" },
+    }]);
+    assert.doesNotMatch(JSON.stringify(logs), /secret-token|private-member|example\.test|claimToken|jobId/);
+    assert.equal(claimed, 0);
+    assert.equal(sent, 0);
+  }
+  const adapter = new SupabaseDeliveryRuntime({
+    async rpc() { return { data: 5000, error: null }; },
+  });
+  assert.equal(await enqueueWeeklyWithMonitoring(
+    (date, limit) => adapter.enqueueWeekly(date, limit),
+    scheduledAt,
+    5000,
+    () => { throw new Error("Unexpected logging on success."); },
+  ), 5000);
 });

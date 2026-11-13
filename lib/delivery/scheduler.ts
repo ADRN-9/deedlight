@@ -1,7 +1,11 @@
 import { parseDeliveryRuntimeConfig } from "./config.ts";
 import { createResendTransport } from "./resend-transport.ts";
 import { processClaimedDelivery } from "./run-delivery.ts";
-import { createSupabaseDeliveryRuntime } from "./supabase-runtime.ts";
+import {
+  createSupabaseDeliveryRuntime,
+  WeeklyDeliveryCapacityError,
+  weeklyIssueStartUtc,
+} from "./supabase-runtime.ts";
 
 export const DAILY_DELIVERY_CRON = "*/5 * * * *";
 export const WEEKLY_DELIVERY_CRON = "0 16 * * 1";
@@ -18,6 +22,27 @@ export type DeliverySchedulerSummary = {
   processingErrors: number;
   ignored: boolean;
 };
+
+// Enqueue rejection is terminal for this invocation: no claims or provider IO.
+export async function enqueueWeeklyWithMonitoring(
+  enqueue: (now: Date, limit: number) => Promise<number>,
+  scheduledAt: Date,
+  limit: number,
+  logError: (message: string, context: { code: string; weekStart: string }) => void =
+    (message, context) => console.error(message, context),
+): Promise<number> {
+  try {
+    return await enqueue(scheduledAt, limit);
+  } catch (error) {
+    const capacity = error instanceof WeeklyDeliveryCapacityError;
+    logError("Weekly Goodness enqueue failed", {
+      code: capacity ? error.code : "weekly_enqueue_database_error",
+      weekStart: weeklyIssueStartUtc(scheduledAt),
+    });
+    if (capacity) throw error;
+    throw new Error("Delivery database operation failed: enqueue weekly goodness");
+  }
+}
 
 export async function runScheduledDelivery(
   env: Record<string, string | undefined>,
@@ -65,7 +90,11 @@ export async function runScheduledDelivery(
       Math.min(config.batchSize * 20, 2000),
     );
   } else {
-    summary.enqueued = await runtime.enqueueWeekly(scheduledAt, 5000);
+    summary.enqueued = await enqueueWeeklyWithMonitoring(
+      (at, limit) => runtime.enqueueWeekly(at, limit),
+      scheduledAt,
+      5000,
+    );
   }
 
   const jobs = await runtime.claim(scheduledAt, config.batchSize);
@@ -85,7 +114,6 @@ export async function runScheduledDelivery(
       // later scheduler invocation to reclaim safely with the same provider key.
       summary.processingErrors += 1;
       console.error("Delivery job processing failed", {
-        jobId: job.jobId,
         kind: job.kind,
       });
     }

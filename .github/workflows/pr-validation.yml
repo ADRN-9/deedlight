@@ -65,14 +65,14 @@ jobs:
       - name: Gentle delivery transport security assertions
         run: node scripts/verify-gentle-delivery-transport.mjs
 
+      - name: Current-consent and migration-target security assertions
+        run: node scripts/verify-delivery-consent-gates.mjs
+
       - name: Auth pgcrypto schema-qualification assertions
         run: node scripts/verify-auth-pgcrypto-schema-qualification.mjs
 
       - name: Gentle delivery transport behavior
         run: node --test scripts/test-delivery-transport.mjs
-
-      - name: Fail closed on high or critical dependency advisories
-        run: npm audit --audit-level=high
 
       - name: TypeScript check
         run: npx tsc --noEmit
@@ -82,6 +82,9 @@ jobs:
 
       - name: Cloudflare packaging build with non-production configuration
         run: npx opennextjs-cloudflare build
+
+      - name: Fail closed on high or critical dependency advisories
+        run: npm audit --audit-level=high
 
   sprint12_2_database_behavior:
     runs-on: ubuntu-latest
@@ -225,7 +228,10 @@ jobs:
             --port 5432 \
             --username postgres \
             --dbname deedlight_transport_test \
-            --file scripts/test-gentle-delivery-transport.sql
+            --file scripts/test-delivery-consent-gates.sql
+
+      - name: PostgreSQL synchronized revocation/transport race
+        run: bash scripts/test-delivery-consent-concurrency.sh
 
   auth_pgcrypto_database_behavior:
     runs-on: ubuntu-latest
@@ -274,3 +280,44 @@ jobs:
             --username postgres \
             --dbname deedlight_auth_test \
             --file scripts/test-auth-pgcrypto-schema-qualification.sql
+
+  delivery_migration_order_database_behavior:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: deedlight_migration_order_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d deedlight_migration_order_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGPASSWORD: postgres
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Fail closed on Production configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "${SUPABASE_ACCESS_TOKEN:-}"
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}"
+          test -z "${SUPABASE_PROJECT_REF:-}"
+          test -z "${SUPABASE_DB_PASSWORD:-}"
+          test -z "${RESEND_API_KEY:-}"
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Run migration ordering positive and negative behavior
+        run: bash scripts/test-delivery-migration-order.sh
+

@@ -17,7 +17,10 @@ jobs:
 
       - name: Link and push migrations
         run: |
+          set -euo pipefail
+          bash scripts/guard-supabase-migration-target.sh
           supabase link --project-ref "$SUPABASE_PROJECT_REF"
+          bash scripts/guard-supabase-linked-project.sh
           supabase db push
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
