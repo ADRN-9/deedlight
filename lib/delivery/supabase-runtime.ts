@@ -12,6 +12,38 @@ function fail(operation: string): never {
   throw new Error(`Delivery database operation failed: ${operation}`);
 }
 
+const WEEKLY_CAPACITY_SOURCE = "deedlight:weekly-issue-capacity:v1";
+const WEEKLY_CAPACITY_MESSAGES = new Set([
+  "Weekly issue already exceeds the 5000-delivery ceiling.",
+  "Weekly delivery capacity exceeded; no jobs enqueued.",
+]);
+
+export function weeklyIssueStartUtc(date: Date): string {
+  const start = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  start.setUTCDate(start.getUTCDate() - ((start.getUTCDay() + 6) % 7));
+  return start.toISOString().slice(0, 10);
+}
+
+export class WeeklyDeliveryCapacityError extends Error {
+  readonly code = "weekly_capacity_exceeded";
+  readonly weekStart: string;
+
+  constructor(scheduledAt: Date) {
+    super("Weekly Goodness capacity exceeded.");
+    this.name = "WeeklyDeliveryCapacityError";
+    this.weekStart = weeklyIssueStartUtc(scheduledAt);
+  }
+}
+
+function isAuthorizedWeeklyCapacityError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: unknown; message?: unknown; details?: unknown };
+  return candidate.code === "54000"
+    && candidate.details === WEEKLY_CAPACITY_SOURCE
+    && typeof candidate.message === "string"
+    && WEEKLY_CAPACITY_MESSAGES.has(candidate.message);
+}
+
 function parseClaimedJob(row: Record<string, unknown>): ClaimedDeliveryJob {
   const jobId = typeof row.job_id === "string" ? row.job_id : "";
   const userId = typeof row.user_id === "string" ? row.user_id : "";
@@ -57,12 +89,26 @@ export class SupabaseDeliveryRuntime implements DeliveryGateway, DeliveryRecipie
     return data;
   }
 
-  async enqueueWeekly(now: Date, limit: number) {
-    const { data, error } = await this.client.rpc("enqueue_current_weekly_goodness_if_curated", {
-      p_now: now.toISOString(),
-      p_limit: limit,
-    });
-    if (error || typeof data !== "number") fail("enqueue weekly goodness");
+  async enqueueWeekly(now: Date, limit: number): Promise<number> {
+    let data: unknown;
+    let error: unknown;
+    try {
+      const result = await this.client.rpc("enqueue_current_weekly_goodness_if_curated", {
+        p_now: now.toISOString(),
+        p_limit: limit,
+      });
+      data = result.data;
+      error = result.error;
+    } catch {
+      fail("enqueue weekly goodness");
+    }
+    if (error) {
+      if (isAuthorizedWeeklyCapacityError(error)) {
+        throw new WeeklyDeliveryCapacityError(now);
+      }
+      fail("enqueue weekly goodness");
+    }
+    if (typeof data !== "number") fail("enqueue weekly goodness");
     return data;
   }
 

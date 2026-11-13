@@ -4791,15 +4791,35 @@ begin
     or coalesce(obj_description(
       to_regprocedure('public.begin_delivery_transport(uuid,uuid)'), 'pg_proc'
     ), '') <> 'deedlight:023:locked-consent-before-transport:v1'
-    or coalesce(pg_get_functiondef(
-      to_regprocedure('public.enqueue_due_daily_reminders(timestamptz,integer)')
-    ), '') not ilike '%not exists (%'
-    or coalesce(pg_get_functiondef(
-      to_regprocedure('public.enqueue_weekly_goodness_delivery(date,timestamptz,integer)')
-    ), '') not ilike '%not exists (%'
-    or coalesce(pg_get_functiondef(
-      to_regprocedure('public.begin_delivery_transport(uuid,uuid)')
-    ), '') not ilike '%for share of drp, p%'
+    or coalesce((
+      select md5(p.prosrc) from pg_catalog.pg_proc p
+      where p.oid = to_regprocedure('public.enqueue_due_daily_reminders(timestamptz,integer)')
+    ), '') <> 'ad0b49bdc5d6ea94bbc2a73fa40985ac'
+    or coalesce((
+      select md5(p.prosrc) from pg_catalog.pg_proc p
+      where p.oid = to_regprocedure('public.enqueue_weekly_goodness_delivery(date,timestamptz,integer)')
+    ), '') <> 'd13eed60e2cf6413d0dd3e0531f5cf77'
+    or coalesce((
+      select md5(p.prosrc) from pg_catalog.pg_proc p
+      where p.oid = to_regprocedure('public.begin_delivery_transport(uuid,uuid)')
+    ), '') <> 'a5f2ba15937ab66bbdd71d3e6d175c2d'
+    or exists (
+      select 1 from pg_catalog.pg_proc p
+      where p.oid in (
+        to_regprocedure('public.enqueue_due_daily_reminders(timestamptz,integer)'),
+        to_regprocedure('public.enqueue_weekly_goodness_delivery(date,timestamptz,integer)'),
+        to_regprocedure('public.begin_delivery_transport(uuid,uuid)')
+      )
+      and (
+        not p.prosecdef
+        or p.provolatile <> 'v'
+        or not (coalesce(p.proconfig, array[]::text[])
+                @> array['search_path=public, auth, pg_temp']::text[])
+        or p.prolang <> (
+          select l.oid from pg_catalog.pg_language l where l.lanname = 'plpgsql'
+        )
+      )
+    )
   then
     raise exception 'Migration 024 requires reviewed migration 023 functions and attestation.'
       using errcode = '55000';
@@ -4970,7 +4990,7 @@ begin
 
   if v_existing > 5000 then
     raise exception 'Weekly issue already exceeds the 5000-delivery ceiling.'
-      using errcode = '54000';
+      using errcode = '54000', detail = 'deedlight:weekly-issue-capacity:v1';
   end if;
   v_room := least(5000 - v_existing, p_limit);
 
@@ -5002,7 +5022,7 @@ begin
   v_candidate_count := cardinality(v_candidates);
   if v_candidate_count > v_room then
     raise exception 'Weekly delivery capacity exceeded; no jobs enqueued.'
-      using errcode = '54000';
+      using errcode = '54000', detail = 'deedlight:weekly-issue-capacity:v1';
   end if;
   if v_candidate_count = 0 then
     return 0;
