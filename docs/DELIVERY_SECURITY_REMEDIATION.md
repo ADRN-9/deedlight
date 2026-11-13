@@ -8,6 +8,8 @@ Migration 023 replaces the two enqueue functions and `begin_delivery_transport`,
 
 The authorization linearization point is the locked eligible-row read in `begin_delivery_transport`. An update already holding the row lock serializes before the send authorization. If authorization wins first, revocation waits until its transaction commits; once the RPC completes, a newly committed revocation cannot recall an already-authorized in-flight HTTP request. A subsequent retry requires new current-consent authorization. This is the physical limitation of an external side effect and must be explained to operators; the design does not promise retroactive cancellation.
 
+The synchronized PostgreSQL regression proves both orders: revocation-first denies transport, and transport-first holds consent locks until its DB authorization transaction commits. No provider send is performed in these tests.
+
 The existing early + post-recipient authorizations remain defense-in-depth, but the DB transport-initiation RPC is authoritative. A denied RPC never invokes the provider.
 
 ## Batch and terminal behavior

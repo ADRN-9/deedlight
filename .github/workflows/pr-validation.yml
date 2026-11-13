@@ -74,9 +74,6 @@ jobs:
       - name: Gentle delivery transport behavior
         run: node --test scripts/test-delivery-transport.mjs
 
-      - name: Fail closed on high or critical dependency advisories
-        run: npm audit --audit-level=high
-
       - name: TypeScript check
         run: npx tsc --noEmit
 
@@ -85,6 +82,9 @@ jobs:
 
       - name: Cloudflare packaging build with non-production configuration
         run: npx opennextjs-cloudflare build
+
+      - name: Fail closed on high or critical dependency advisories
+        run: npm audit --audit-level=high
 
   sprint12_2_database_behavior:
     runs-on: ubuntu-latest
