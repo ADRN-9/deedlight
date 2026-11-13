@@ -67,6 +67,13 @@ jobs:
           test "$(git -C "$RUNNER_TEMP/deedlight-reviewed" rev-parse HEAD)" = "c983e2ed8b93c935139c935343261570ecea6978"
           echo "DEEDLIGHT_SOURCE_REPO=$RUNNER_TEMP/deedlight-reviewed" >> "$GITHUB_ENV"
 
+      - name: Verify exact file SHA-256 manifest
+        shell: bash
+        working-directory: security/audit-deedlight
+        run: |
+          set -euo pipefail
+          sha256sum --check MANIFEST.sha256
+
       - name: Offline static and parser unit tests
         shell: bash
         run: |
