@@ -27,7 +27,7 @@ python3 -m unittest discover -s security/audit-deedlight/tests -v
 # for case in A B C D E F G H I J; do bash security/audit-deedlight/run_disposable_fixture.sh "$case"; done
 ```
 
-The checker validates every evidence record against `audited/audit_record.schema.json`, requires all 82 pinned deterministic invariants in `invariant_inventory.json`, rejects duplicate or malformed/truncated output, and permits only documented UNKNOWN policy-row additions. Every intentionally FAILED security exception in fixtures B/C is explicitly enumerated in `fixture_expectations.json`. The full-schema fixture A cannot pass with an unexpectedly missing, FAILED or BLOCKED record.
+The checker validates every evidence record against `audited/audit_record.schema.json`, requires all 82 pinned deterministic invariants in `invariant_inventory.json`, rejects duplicate or malformed/truncated output, and permits only documented UNKNOWN policy-row additions. Every intentionally FAILED security exception in fixtures B/C/J is explicitly enumerated in `fixture_expectations.json`. The full-schema fixture A cannot pass with an unexpectedly missing, FAILED or BLOCKED record.
 
 **Preference setter assurance:** `function:public.set_daily_reminder_preference(...)` verifies metadata and effective authorization only; `function_source:public.set_daily_reminder_preference(...)` is explicitly `UNKNOWN`. SECURITY DEFINER and search_path alone do not verify source/behavioral correspondence.
 
