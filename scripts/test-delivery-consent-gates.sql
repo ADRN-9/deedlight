@@ -330,3 +330,120 @@ select jsonb_build_object(
  'recipient_identity','pass','weekly_capacity_5001_fail_closed','pass',
  'weekly_capacity_5000_idempotent','pass','recipient_rpc_grants','pass'
 ) as delivery_cycle5_behavior;
+
+-- Issue-wide ceiling includes all distinct logical rows, including failed/cancelled.
+-- Exercise 4,999 already created, two late opt-ins (must fail atomically),
+-- then one new eligible user (fills the ceiling), then one more (must fail).
+insert into public.weekly_goodness_features(week_start)
+values ('2027-02-08') on conflict do nothing;
+update public.newsletter_preferences set weekly_enabled=false
+where user_id='00000000-0000-0000-0000-000000010002';
+
+set role service_role;
+do $$
+declare
+  v_count integer;
+begin
+  -- Never allow a smaller p_limit to disguise incomplete scheduling as success.
+  begin
+    perform public.enqueue_weekly_goodness_delivery('2027-02-08', now(), 1);
+    raise exception 'Direct lower-level RPC partially enqueued a Weekly issue.';
+  exception when sqlstate '54000' then null;
+  end;
+  if public.enqueue_weekly_goodness_delivery('2027-02-08', now(), 5000) <> 4999 then
+    raise exception 'Expected 4,999 initially eligible Weekly jobs.';
+  end if;
+  select count(*) into v_count from public.delivery_ledger
+  where kind='weekly_newsletter' and delivery_key='weekly:2027-02-08';
+  if v_count <> 4999 then raise exception 'Expected 4,999 existing jobs.'; end if;
+end;
+$$;
+reset role;
+
+-- Two new opt-ins exceed the remaining single issue-wide capacity slot.
+update public.newsletter_preferences set weekly_enabled=true
+where user_id in (
+  '00000000-0000-0000-0000-000000010001',
+  '00000000-0000-0000-0000-000000010002'
+);
+set role service_role;
+do $$
+begin
+  begin
+    perform public.enqueue_current_weekly_goodness_if_curated(
+      '2027-02-08 16:00:00+00'::timestamptz, 5000);
+    raise exception '4,999 existing plus two new jobs exceeded issue capacity.';
+  exception when sqlstate '54000' then null;
+  end;
+  if (select count(*) from public.delivery_ledger
+      where kind='weekly_newsletter' and delivery_key='weekly:2027-02-08') <> 4999
+  then raise exception 'Over-capacity Weekly invocation partially inserted rows.'; end if;
+end;
+$$;
+reset role;
+
+-- One of two new opt-ins withdraws, leaving exactly one available slot.
+update public.newsletter_preferences set weekly_enabled=false
+where user_id='00000000-0000-0000-0000-000000010001';
+set role service_role;
+do $$
+declare v_count integer;
+begin
+  if public.enqueue_current_weekly_goodness_if_curated(
+    '2027-02-08 16:00:00+00'::timestamptz,5000) <> 1 then
+    raise exception '4,999 existing jobs plus one opt-in did not fill the issue.';
+  end if;
+  if public.enqueue_weekly_goodness_delivery(
+    '2027-02-08',now(),5000) <> 0 then
+    raise exception 'Repeated direct lower-level invocation created duplicates.';
+  end if;
+  select count(*) into v_count from public.delivery_ledger
+  where kind='weekly_newsletter' and delivery_key='weekly:2027-02-08';
+  if v_count <> 5000 then raise exception 'Expected 5,000 issue-wide rows.'; end if;
+end;
+$$;
+reset role;
+
+-- Terminal rows remain logical deliveries and continue consuming capacity.
+update public.delivery_ledger set
+  state='cancelled', cancelled_at=now()
+where kind='weekly_newsletter' and delivery_key='weekly:2027-02-08'
+  and user_id='00000000-0000-0000-0000-000000010003';
+update public.delivery_ledger set
+  state='failed', failed_at=now()
+where kind='weekly_newsletter' and delivery_key='weekly:2027-02-08'
+  and user_id='00000000-0000-0000-0000-000000010004';
+update public.newsletter_preferences set weekly_enabled=true
+where user_id='00000000-0000-0000-0000-000000010001';
+
+set role service_role;
+do $$
+declare v_count integer;
+begin
+  begin
+    perform public.enqueue_current_weekly_goodness_if_curated(
+      '2027-02-08 16:00:00+00'::timestamptz,5000);
+    raise exception '5000 existing rows plus one opt-in bypassed upper RPC.';
+  exception when sqlstate '54000' then null;
+  end;
+  begin
+    perform public.enqueue_weekly_goodness_delivery('2027-02-08',now(),5000);
+    raise exception '5000 existing rows plus one opt-in bypassed lower RPC.';
+  exception when sqlstate '54000' then null;
+  end;
+  select count(*) into v_count from public.delivery_ledger
+  where kind='weekly_newsletter' and delivery_key='weekly:2027-02-08';
+  if v_count <> 5000 then raise exception 'Issue-wide cap changed on failure.'; end if;
+  if (select count(*) from public.delivery_ledger
+      where kind='weekly_newsletter' and delivery_key='weekly:2027-02-08'
+        and state in ('cancelled','failed')) <> 2
+  then raise exception 'Terminal logical deliveries were changed.'; end if;
+end;
+$$;
+reset role;
+
+select jsonb_build_object(
+  'issue_wide_cap','pass','existing_4999_plus_1','pass',
+  'existing_5000_plus_1_denied','pass','terminal_rows_counted','pass',
+  'lower_level_rpc_guard','pass','repeated_invocations','pass'
+) as delivery_cycle7_capacity_behavior;

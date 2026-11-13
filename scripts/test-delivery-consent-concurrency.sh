@@ -181,3 +181,85 @@ wait "$lease_pid"
 "${psql_cmd[@]}" -Atc "select (transport_started_at is null)::text from public.delivery_ledger where user_id='00000000-0000-0000-0000-000000000111'" >"$tmp/lease-result"
 grep -qx 'true' "$tmp/lease-result"
 echo "Concurrent consent lock wait with expiring claim: PASS"
+
+# Concurrent schedulers must serialize by issue and count the rows already queued.
+# Opt-in cutoff is the first eligible snapshot AFTER acquiring the issue lock.
+"${psql_cmd[@]}" <<'SQL'
+insert into public.weekly_goodness_features(week_start)
+values ('2027-02-15') on conflict do nothing;
+update public.newsletter_preferences set weekly_enabled=false
+where user_id in (
+  '00000000-0000-0000-0000-000000010001',
+  '00000000-0000-0000-0000-000000010002'
+);
+set role service_role;
+do $$
+begin
+  if public.enqueue_weekly_goodness_delivery('2027-02-15',now(),5000) <> 4999 then
+    raise exception 'Concurrent fixture requires 4999 pre-existing weekly jobs.';
+  end if;
+end;
+$$;
+reset role;
+update public.newsletter_preferences set weekly_enabled=true
+where user_id='00000000-0000-0000-0000-000000010002';
+SQL
+
+"${psql_cmd[@]}" >"$tmp/weekly-first.log" 2>&1 <<'SQL' &
+begin;
+set role service_role;
+do $$
+begin
+  if public.enqueue_weekly_goodness_delivery('2027-02-15',now(),5000) <> 1 then
+    raise exception 'First scheduler did not enqueue the final available slot.';
+  end if;
+end;
+$$;
+\echo WEEKLY_ISSUE_LOCK_HELD
+select pg_sleep(3);
+commit;
+SQL
+weekly_first_pid=$!
+for i in {1..100}; do
+  if grep -q WEEKLY_ISSUE_LOCK_HELD "$tmp/weekly-first.log"; then break; fi
+  if ! kill -0 "$weekly_first_pid" 2>/dev/null; then
+    cat "$tmp/weekly-first.log"; exit 1
+  fi
+  sleep 0.05
+done
+grep -q WEEKLY_ISSUE_LOCK_HELD "$tmp/weekly-first.log"
+
+"${psql_cmd[@]}" >"$tmp/weekly-second.log" 2>&1 <<'SQL'
+set role service_role;
+do $$
+begin
+  if public.enqueue_weekly_goodness_delivery('2027-02-15',now(),5000) <> 0 then
+    raise exception 'Concurrent scheduler duplicated the final weekly slot.';
+  end if;
+end;
+$$;
+reset role;
+SQL
+wait "$weekly_first_pid"
+"${psql_cmd[@]}" -Atc "select count(*) from public.delivery_ledger where kind='weekly_newsletter' and delivery_key='weekly:2027-02-15'" >"$tmp/weekly-count"
+grep -qx '5000' "$tmp/weekly-count"
+
+# After the synchronized invocations, another opt-in must fail visibly.
+"${psql_cmd[@]}" <<'SQL'
+update public.newsletter_preferences set weekly_enabled=true
+where user_id='00000000-0000-0000-0000-000000010001';
+set role service_role;
+do $$
+begin
+  begin
+    perform public.enqueue_weekly_goodness_delivery('2027-02-15',now(),5000);
+    raise exception 'Late opt-in bypassed issue-wide concurrent cap.';
+  exception when sqlstate '54000' then null;
+  end;
+end;
+$$;
+reset role;
+SQL
+"${psql_cmd[@]}" -Atc "select count(*) from public.delivery_ledger where kind='weekly_newsletter' and delivery_key='weekly:2027-02-15'" >"$tmp/weekly-count-after"
+grep -qx '5000' "$tmp/weekly-count-after"
+echo "Concurrent weekly scheduler issue-wide capacity and late opt-in: PASS"

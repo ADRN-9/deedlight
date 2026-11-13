@@ -127,3 +127,31 @@ console.log("Linked project mismatch and missing-link checks: PASS");
 
 assert(pkg.overrides?.["miniflare@5.20261110.2-beta"]?.undici==="7.30.2",
   "Miniflare Undici must be patched for GHSA-mqg3-3v4r-cm32");
+
+const migration23 = read("supabase/migrations/202611120023_delivery_consent_linearization.sql");
+for (const marker of [
+  "deedlight:023:daily-exclusion-before-limit:v1",
+  "deedlight:023:weekly-exclusion-before-limit:v1",
+  "deedlight:023:locked-consent-before-transport:v1",
+]) {
+  assert(migration23.includes(marker), "Missing migration-023 attestation");
+  assert(newMigration.includes(marker), "Migration 024 must require the 023 attestation");
+}
+assert(newMigration.includes("pg_get_functiondef("),
+  "Prerequisite may not trust markers without checking reviewed function definitions");
+assert(newMigration.includes("pg_advisory_xact_lock("),
+  "All weekly RPCs must serialize capacity updates");
+assert(newMigration.includes("current_setting('transaction_isolation')"),
+  "Serializable lock protocol requires READ COMMITTED isolation");
+assert(newMigration.includes("v_existing > 5000"));
+assert(newMigration.includes("v_room := least(5000 - v_existing, p_limit)"));
+assert(newMigration.includes("v_candidate_count > v_room"));
+assert(newMigration.includes("get diagnostics v_inserted = row_count"));
+assert(newMigration.includes("return public.enqueue_weekly_goodness_delivery("),
+  "Scheduler wrapper must delegate to guarded lower-level RPC");
+assert(tests.includes("existing_5000_plus_1_denied"));
+assert(tests.includes("terminal_rows_counted"));
+assert(race.includes("Concurrent weekly scheduler issue-wide capacity and late opt-in: PASS"));
+assert(validation.includes("delivery_migration_order_database_behavior"),
+  "CI must execute positive and negative migration ordering tests");
+console.log("Cycle 7 migration attestation and serialized weekly-capacity assertions: PASS");

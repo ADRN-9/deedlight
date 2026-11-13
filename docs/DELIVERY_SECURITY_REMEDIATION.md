@@ -82,3 +82,45 @@ affects that exact version; 7.30.2 is the published patch. A narrowly
 scoped parent-version override requests undici 7.30.2 only for Miniflare,
 rather than replacing the separate 6.x Undici package or forcing a major.
 Remove this override once an audited Wrangler/Miniflare release carries the fix.
+
+## Cycle 7: migration prerequisite and issue-wide Weekly ceiling
+
+Migration 023 now adds three schema-local function comments attesting its
+reviewed daily-exclusion, weekly-exclusion, and locked-consent contracts.
+Migration 024 refuses to run unless those exact markers exist **and** the
+live PostgreSQL function definitions retain the relevant reviewed behavior.
+This is independent of Supabase CLI migration history and works with
+an otherwise proven live schema. The 021 -> 024 negative test must error
+before creating the recipient-bound RPC; 021 -> 023 -> 024 succeeds.
+If 023 was previously applied without the attestations, block 024 until
+an independently reviewed schema audit explicitly reconciles its behavior.
+No automatic migration-history repair or Production push is authorized.
+
+A Weekly issue has a hard ceiling of **5,000 distinct logical ledger rows**,
+regardless of queued, claimed, sent, cancelled, or failed state. Rows are never
+deleted or discounted to regain capacity. Both direct service-role
+`enqueue_weekly_goodness_delivery` and its curated-issue wrapper use the same
+transaction-scoped advisory lock keyed by ISO week-start date and require
+READ COMMITTED isolation. The next SQL statement after lock acquisition
+observes the prior committed invocation's rows. At most 5,001 candidate
+identities are sampled; if all currently eligible new opt-ins cannot fit the
+remaining issue capacity **and** the caller's p_limit, the RPC raises
+SQLSTATE 54000 before insertion. The policy is intentionally all-or-nothing
+for each invocation, not a silent partial batch.
+
+**Eligibility cutoff:** a current committed preference/identity snapshot is
+taken after acquiring the per-issue lock. Members opting in after that
+snapshot are considered by a later invocation. If the issue is full, that
+later invocation explicitly errors; it never reports all opt-ins scheduled.
+Revocation after enqueue is checked again at transport; cancelled and failed
+logical rows still occupy their issue-wide slots. The curated wrapper returns
+zero when no issue is curated; a curated but over-capacity issue errors.
+Operator monitoring must surface SQLSTATE 54000; no provider send is performed
+by enqueue functions. Manual privileged inserts that bypass these RPCs remain
+an out-of-band risk; disallow them by operational policy.
+
+A synchronized two-session test proves that when 4,999 rows exist and a
+single later opt-in becomes eligible, concurrent invocations return one and
+zero, respectively; a subsequent sixth-thousandth member is denied.
+The CI negative migration-order test confirms transaction rollback after
+the missing-023 preflight.

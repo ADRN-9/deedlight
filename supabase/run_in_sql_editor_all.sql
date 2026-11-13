@@ -5011,8 +5011,8 @@ begin
   insert into public.delivery_ledger (
     user_id, kind, delivery_key, scheduled_for
   )
-  select candidate_id, 'weekly_newsletter', v_delivery_key, p_scheduled_for
-  from unnest(v_candidates) as candidate_id
+  select candidate.user_id, 'weekly_newsletter', v_delivery_key, p_scheduled_for
+  from unnest(v_candidates) as candidate(user_id)
   on conflict (kind, user_id, delivery_key) do nothing;
 
   get diagnostics v_inserted = row_count;
