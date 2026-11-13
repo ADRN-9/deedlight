@@ -45,7 +45,7 @@ export async function processClaimedDelivery(input: {
     return "cancelled";
   }
 
-  const firstTransportAt = await gateway.beginTransport(job);
+  const firstTransportAt = await gateway.beginTransport(job, recipient);
   if (firstTransportAt === null) return "cancelled";
 
   const decisionNow = clock();

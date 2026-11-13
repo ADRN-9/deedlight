@@ -53,8 +53,9 @@ function fakeGateway(options = {}) {
         events.push("authorize");
         return authorizations[authorizeIndex++] ?? authorizations.at(-1) ?? false;
       },
-      async beginTransport() {
+      async beginTransport(_job, recipient) {
         events.push("begin");
+        if (options.expectedRecipient && recipient.email !== options.expectedRecipient) return null;
         return options.transportDenied ? null : options.firstTransportAt ?? new Date(fixedNow);
       },
       async markSent(_job, id) {
@@ -263,4 +264,18 @@ test("fifth attempt terminal retry is counted as failed, not retried or processi
   });
   assert.equal(result, "failed");
   assert(events.some((event) => event.startsWith("retry:provider_http_503")));
+});
+
+test("changed Auth email invalidates resolved recipient at final gate", async () => {
+  const {gateway, events} = fakeGateway({authorizations:[true,true],expectedRecipient:"new@example.test"});
+  let sends=0;
+  const outcome=await processClaimedDelivery({
+    job, gateway,
+    recipientResolver:{async resolve(){return {email:"old@example.test"};}},
+    transport:{async send(){sends++;throw Error("should not send");}},
+    clock:fixedClock,
+  });
+  assert.equal(outcome,"cancelled");
+  assert.equal(sends,0);
+  assert.deepEqual(events,["authorize","authorize","begin"]);
 });

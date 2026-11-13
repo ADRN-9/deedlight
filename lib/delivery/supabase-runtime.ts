@@ -84,10 +84,11 @@ export class SupabaseDeliveryRuntime implements DeliveryGateway, DeliveryRecipie
     return data;
   }
 
-  async beginTransport(job: ClaimedDeliveryJob): Promise<Date | null> {
+  async beginTransport(job: ClaimedDeliveryJob, recipient: AuthorizedRecipient): Promise<Date | null> {
     const { data, error } = await this.client.rpc("begin_delivery_transport", {
       p_job_id: job.jobId,
       p_claim_token: job.claimToken,
+      p_expected_email: recipient.email,
     });
     if (error || (data !== null && typeof data !== "string")) fail("begin transport");
     if (data === null) return null; // Current consent failed inside the atomic DB gate.
