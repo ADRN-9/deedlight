@@ -72,7 +72,7 @@ jobs:
         working-directory: security/audit-deedlight
         run: |
           set -euo pipefail
-          sha256sum --check MANIFEST.sha256
+          sha256sum --strict --check MANIFEST.sha256
 
       - name: Offline static and parser unit tests
         shell: bash
