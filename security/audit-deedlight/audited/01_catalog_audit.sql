@@ -259,9 +259,23 @@ preference_function_results AS (
          AND pg_catalog.has_function_privilege(pg_catalog.to_regrole('authenticated')::oid,p.oid,'EXECUTE')
          AND NOT pg_catalog.has_function_privilege(pg_catalog.to_regrole('anon')::oid,p.oid,'EXECUTE')
        THEN 'VERIFIED' ELSE 'FAILED' END::text AS status,
-  'SECURITY DEFINER, authenticated callable, anon denied; function body not pinned here'::text AS expected,
+  'metadata only: SECURITY DEFINER, authenticated callable, anon denied; source correspondence UNKNOWN separately'::text AS expected,
   pg_catalog.jsonb_build_object('present',p.oid IS NOT NULL,'security_definer',p.prosecdef,
     'body_md5',pg_catalog.md5(p.prosrc)) AS actual
+ FROM (SELECT pg_catalog.to_regprocedure('public.set_daily_reminder_preference(boolean,time without time zone,text)') AS oid) f
+ LEFT JOIN pg_catalog.pg_proc p ON p.oid=f.oid
+
+),
+-- Source/behavioral correspondence is deliberately NOT certified by metadata.
+-- SECURITY DEFINER, volatility, access and search_path are inspected separately.
+preference_source_results AS (
+ SELECT 'function_source:public.set_daily_reminder_preference(boolean,time without time zone,text)'::text AS invariant,
+   'UNKNOWN'::text AS status,
+   'behavior and exact reviewed source correspondence require independent canonical digest or behavior tests'::text AS expected,
+   pg_catalog.jsonb_build_object(
+     'present',p.oid IS NOT NULL,
+     'body_md5',pg_catalog.md5(p.prosrc),
+     'source_correspondence_proven',false) AS actual
  FROM (SELECT pg_catalog.to_regprocedure('public.set_daily_reminder_preference(boolean,time without time zone,text)') AS oid) f
  LEFT JOIN pg_catalog.pg_proc p ON p.oid=f.oid
 ),
@@ -343,7 +357,7 @@ report AS (
  UNION ALL SELECT * FROM rls_results UNION ALL SELECT * FROM policy_results
  UNION ALL SELECT * FROM policy_inventory_results UNION ALL SELECT * FROM rpc_schema_usage_results
  UNION ALL SELECT * FROM function_results UNION ALL SELECT * FROM function_acl_results
- UNION ALL SELECT * FROM preference_function_results UNION ALL SELECT * FROM legacy_results
+ UNION ALL SELECT * FROM preference_function_results UNION ALL SELECT * FROM preference_source_results UNION ALL SELECT * FROM legacy_results
  UNION ALL SELECT * FROM extra_transport_results UNION ALL SELECT * FROM ledger_acl_results
  UNION ALL SELECT * FROM prereq_023 UNION ALL SELECT * FROM history_results
 )
