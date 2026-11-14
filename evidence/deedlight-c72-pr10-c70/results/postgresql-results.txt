@@ -1,0 +1,6 @@
+sprint12: PASS
+reliability: PASS
+transport-consent: PASS
+transport-concurrency: PASS
+auth-pgcrypto: PASS
+delivery-migration-order: PASS

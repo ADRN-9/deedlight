@@ -1,0 +1,175 @@
+CREATE EXTENSION
+DO
+DO
+DO
+CREATE SCHEMA
+GRANT
+CREATE TABLE
+CREATE FUNCTION
+GRANT
+CREATE FUNCTION
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+GRANT
+GRANT
+GRANT
+GRANT
+BEGIN
+CREATE FUNCTION
+REVOKE
+GRANT
+REVOKE
+CREATE TABLE
+CREATE INDEX
+CREATE INDEX
+ALTER TABLE
+psql:supabase/migrations/202609230019_sprint12_2_gentle_delivery_foundation.sql:133: NOTICE:  trigger "delivery_ledger_set_updated_at" for relation "public.delivery_ledger" does not exist, skipping
+DROP TRIGGER
+CREATE TRIGGER
+REVOKE
+GRANT
+CREATE FUNCTION
+REVOKE
+GRANT
+CREATE FUNCTION
+REVOKE
+GRANT
+CREATE FUNCTION
+REVOKE
+GRANT
+CREATE FUNCTION
+REVOKE
+GRANT
+CREATE FUNCTION
+REVOKE
+GRANT
+CREATE FUNCTION
+REVOKE
+GRANT
+NOTIFY
+COMMIT
+DO
+INSERT 0 5
+INSERT 0 5
+              set_config              
+--------------------------------------
+ 00000000-0000-0000-0000-000000000001
+(1 row)
+
+SET
+ set_daily_reminder_preference 
+-------------------------------
+ t
+(1 row)
+
+DO
+RESET
+              set_config              
+--------------------------------------
+ 00000000-0000-0000-0000-000000000004
+(1 row)
+
+SET
+DO
+ set_daily_reminder_preference 
+-------------------------------
+ f
+(1 row)
+
+RESET
+INSERT 0 1
+SET
+DO
+RESET
+INSERT 0 4
+INSERT 0 1
+SET
+DO
+RESET
+SET
+DO
+RESET
+              set_config              
+--------------------------------------
+ 00000000-0000-0000-0000-000000000001
+(1 row)
+
+SET
+ set_daily_reminder_preference 
+-------------------------------
+ f
+(1 row)
+
+RESET
+SET
+DO
+RESET
+SET
+DO
+RESET
+              set_config              
+--------------------------------------
+ 00000000-0000-0000-0000-000000000001
+(1 row)
+
+SET
+ set_daily_reminder_preference 
+-------------------------------
+ t
+(1 row)
+
+RESET
+SET
+DO
+RESET
+                                     sprint_12_2_delivery_behavior                                     
+-------------------------------------------------------------------------------------------------------
+ {"sent_jobs": 1, "total_jobs": 3, "failed_jobs": 1, "cancelled_jobs": 1, "delivery_behavior": "pass"}
+(1 row)
+
+BEGIN
+DO
+ALTER TABLE
+UPDATE 3
+ALTER TABLE
+CREATE INDEX
+CREATE FUNCTION
+REVOKE
+GRANT
+CREATE FUNCTION
+REVOKE
+GRANT
+CREATE FUNCTION
+REVOKE
+GRANT
+CREATE FUNCTION
+REVOKE
+GRANT
+CREATE FUNCTION
+REVOKE
+GRANT
+NOTIFY
+COMMIT
+DO
+INSERT 0 1
+INSERT 0 1
+SET
+DO
+RESET
+                            delivery_reliability_behavior                            
+-------------------------------------------------------------------------------------
+ {"max_attempt_count": 5, "delivery_reliability": "pass", "retry_exhausted_jobs": 1}
+(1 row)
+
+INSERT 0 3
+INSERT 0 3
+SET
+DO
+RESET
+                                 delivery_reliability_terminal_behavior                                 
+--------------------------------------------------------------------------------------------------------
+ {"sent_jobs": 2, "failed_jobs": 4, "retry_exhausted_jobs": 2, "delivery_terminal_transitions": "pass"}
+(1 row)
+

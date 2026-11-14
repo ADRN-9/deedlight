@@ -1,0 +1,5 @@
+Delivery consent, batching, terminal retry and migration guard assertions: PASS
+Cycle 5 recipient, lease, capacity and migration guard assertions: PASS
+Linked project mismatch and missing-link checks: PASS
+Cycle 7 migration attestation and serialized weekly-capacity assertions: PASS
+Cycle 9 exact migration contract and sanitized capacity error assertions: PASS

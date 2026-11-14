@@ -1,0 +1,31 @@
+PASS: Reminder writes use a validating SECURITY DEFINER RPC
+PASS: Authenticated direct reminder INSERT and UPDATE privileges are revoked
+PASS: Reminder server action uses the validating RPC
+PASS: Reminder server action no longer directly upserts preference rows
+PASS: Delivery ledger has RLS enabled
+PASS: Browser roles have no delivery ledger privileges
+PASS: Delivery ledger privileges are service-role only
+PASS: enqueue_due_daily_reminders is SECURITY DEFINER with a constrained search path
+PASS: enqueue_due_daily_reminders browser execution is revoked before service-role grant
+PASS: enqueue_weekly_goodness_delivery is SECURITY DEFINER with a constrained search path
+PASS: enqueue_weekly_goodness_delivery browser execution is revoked before service-role grant
+PASS: claim_delivery_jobs is SECURITY DEFINER with a constrained search path
+PASS: claim_delivery_jobs browser execution is revoked before service-role grant
+PASS: authorize_delivery_job is SECURITY DEFINER with a constrained search path
+PASS: authorize_delivery_job browser execution is revoked before service-role grant
+PASS: mark_delivery_sent is SECURITY DEFINER with a constrained search path
+PASS: mark_delivery_sent browser execution is revoked before service-role grant
+PASS: mark_delivery_failed is SECURITY DEFINER with a constrained search path
+PASS: mark_delivery_failed browser execution is revoked before service-role grant
+PASS: Daily enqueue filters for enabled preferences and non-suspended profiles
+PASS: Daily enqueue validates stored timezones through PostgreSQL timezone catalog
+PASS: Weekly enqueue requires current newsletter consent
+PASS: Weekly enqueue requires an active member and confirmed account email
+PASS: Queue deduplication is enforced by a unique key
+PASS: Pre-transport authorization cancels stale jobs
+PASS: Delivery ledger does not store recipient email addresses
+PASS: Delivery ledger does not store reflection or Offering content
+PASS: No outbound email/SMS provider dependency is introduced
+PASS: Cloudflare Cron Triggers remain disabled
+PASS: Sprint documentation explicitly keeps outbound delivery inactive
+Sprint 12.2 delivery security assertions: PASS

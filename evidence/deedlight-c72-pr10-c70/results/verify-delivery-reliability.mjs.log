@@ -1,0 +1,32 @@
+PASS: Delivery ledger adds claim_expires_at
+PASS: Delivery ledger adds attempt_count
+PASS: Delivery ledger adds last_attempt_at
+PASS: Delivery ledger adds next_attempt_at
+PASS: Migration refuses live claimed jobs
+PASS: Attempt count is bounded
+PASS: Claim state requires a token and finite lease
+PASS: Claim RPC reclaims expired leases
+PASS: Each claim gets a five minute lease and increments attempts
+PASS: Expired fifth attempts become terminal retry exhaustion
+PASS: claim_delivery_jobs is SECURITY DEFINER with constrained search path
+PASS: claim_delivery_jobs remains service-role only
+PASS: authorize_delivery_job is SECURITY DEFINER with constrained search path
+PASS: authorize_delivery_job remains service-role only
+PASS: retry_delivery_job is SECURITY DEFINER with constrained search path
+PASS: retry_delivery_job remains service-role only
+PASS: mark_delivery_sent is SECURITY DEFINER with constrained search path
+PASS: mark_delivery_sent remains service-role only
+PASS: mark_delivery_failed is SECURITY DEFINER with constrained search path
+PASS: mark_delivery_failed remains service-role only
+PASS: Authorization requires a live lease
+PASS: Retry time is bounded to 24 hours
+PASS: Temporary retry uses next_attempt_at
+PASS: Retry does not rewrite semantic scheduled_for
+PASS: mark_delivery_sent requires an unexpired lease
+PASS: mark_delivery_failed requires an unexpired lease
+PASS: Reliability migration does not add recipient email storage
+PASS: No outbound provider dependency is introduced
+PASS: Cloudflare Cron Triggers remain disabled
+PASS: Reliability documentation keeps outbound delivery inactive
+PASS: canonical migration is mirrored verbatim in aggregate SQL
+Delivery reliability security assertions: PASS

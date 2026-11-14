@@ -1,0 +1,10 @@
+node scripts/verify-sprint12-1-security.mjs
+node scripts/verify-sprint12-2-delivery-security.mjs
+node scripts/verify-delivery-reliability.mjs
+node scripts/verify-gentle-delivery-transport.mjs
+node scripts/verify-delivery-consent-gates.mjs
+node scripts/verify-auth-pgcrypto-schema-qualification.mjs
+psql -X -v ON_ERROR_STOP=1 -d deedlight_test -f scripts/test-sprint12-2-delivery.sql
+psql -X -v ON_ERROR_STOP=1 -d deedlight_reliability_test -f scripts/test-delivery-reliability-terminals.sql
+psql -X -v ON_ERROR_STOP=1 -d deedlight_transport_test -f scripts/test-delivery-consent-gates.sql
+psql -X -v ON_ERROR_STOP=1 -d deedlight_auth_test -f scripts/test-auth-pgcrypto-schema-qualification.sql

@@ -1,0 +1,30 @@
+CREATE SCHEMA
+CREATE EXTENSION
+REVOKE
+DO
+CREATE SCHEMA
+ALTER ROLE
+REVOKE
+GRANT
+CREATE TABLE
+GRANT
+CREATE TABLE
+CREATE FUNCTION
+psql:scripts/test-auth-pgcrypto-schema-qualification.sql:52: NOTICE:  trigger "on_auth_user_created" for relation "auth.users" does not exist, skipping
+DROP TRIGGER
+CREATE TRIGGER
+DO
+BEGIN
+DO
+CREATE FUNCTION
+COMMIT
+DO
+SET
+INSERT 0 1
+RESET
+DO
+                      result                      
+--------------------------------------------------
+ Auth pgcrypto schema-qualification behavior PASS
+(1 row)
+

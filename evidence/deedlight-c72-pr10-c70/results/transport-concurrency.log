@@ -1,0 +1,51 @@
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+SET
+ count 
+-------
+   100
+(1 row)
+
+RESET
+Concurrent revocation-first transport authorization: PASS
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+SET
+ count 
+-------
+   100
+(1 row)
+
+RESET
+Concurrent transport-first then later revocation ordering: PASS
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+SET
+ count 
+-------
+   100
+(1 row)
+
+RESET
+UPDATE 1
+SET
+DO
+RESET
+Concurrent consent lock wait with expiring claim: PASS
+INSERT 0 1
+UPDATE 2
+SET
+DO
+RESET
+UPDATE 1
+UPDATE 1
+SET
+DO
+RESET
+Concurrent weekly scheduler issue-wide capacity and late opt-in: PASS

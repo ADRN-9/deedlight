@@ -1,0 +1,22 @@
+PASS: Offering saves use the privacy-minimized public projection
+PASS: Cross-member reactions authorize through the public projection
+PASS: Both save and reaction authorization reference offerings_public
+PASS: Owner edit RPC is SECURITY DEFINER with a constrained search_path
+PASS: Owner edit blocks rejected Offerings
+PASS: Owner edit blocks moderator-hidden Offerings
+PASS: Restore requires an active, non-suspended profile
+PASS: Restore only accepts owner-removed hidden Offerings
+PASS: Owner-removed rows are constrained to hidden status
+PASS: Removal hotfix blocks rejected Offerings
+PASS: Removal hotfix blocks moderator-hidden Offerings
+PASS: Removal hotfix is idempotent only for already owner-removed rows
+PASS: Removal RPC execution is revoked before authenticated re-grant
+PASS: Owner UI does not offer Remove for rejected content
+PASS: Detail ownership is derived through the private owner lookup
+PASS: Detail page never derives ownership from public user_id
+PASS: Saved Offering hydration reads offerings_public
+PASS: Reaction hydration recognizes inspired_me
+PASS: Reaction hydration recognizes i_did_this_too
+PASS: Legacy inspired reaction key is not accepted
+PASS: Legacy did_too reaction key is not accepted
+Sprint 12.1 security assertions: PASS

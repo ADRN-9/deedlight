@@ -1,0 +1,304 @@
+diff --git a/package-lock.json b/package-lock.json
+index 52e8aff..5ed3a66 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -26,7 +26,7 @@
+         "eslint-config-next": "latest",
+         "tailwindcss": "latest",
+         "typescript": "latest",
+-        "wrangler": "latest"
++        "wrangler": "4.162.0"
+       }
+     },
+     "node_modules/@alloc/quick-lru": {
+@@ -1483,9 +1483,9 @@
+       }
+     },
+     "node_modules/@cloudflare/workerd-darwin-64": {
+-      "version": "1.20261110.1",
+-      "resolved": "https://registry.npmjs.org/@cloudflare/workerd-darwin-64/-/workerd-darwin-64-1.20261110.1.tgz",
+-      "integrity": "sha512-RazOdADqTgwYhE60+i6c/R5BA1J5aC//39oousnWBxmoVAiqUh1qsXNCGMbaEV6UC5RnZyWsIBRIcAYNDe1xTg==",
++      "version": "1.20261113.1",
++      "resolved": "https://registry.npmjs.org/@cloudflare/workerd-darwin-64/-/workerd-darwin-64-1.20261113.1.tgz",
++      "integrity": "sha512-UcShHyWJVZNbuI8jL3F5QZXMrJm7oScge33D5p3hAyhIIkoVj72+bior+VcUcr1SBWkh5w3Umnrx179WE7Wvpw==",
+       "cpu": [
+         "x64"
+       ],
+@@ -1500,9 +1500,9 @@
+       }
+     },
+     "node_modules/@cloudflare/workerd-darwin-arm64": {
+-      "version": "1.20261110.1",
+-      "resolved": "https://registry.npmjs.org/@cloudflare/workerd-darwin-arm64/-/workerd-darwin-arm64-1.20261110.1.tgz",
+-      "integrity": "sha512-TFsn/t+wczWnWdm+ytlWe+xHEO9sDgfIBmtMo8OxujuS2DXCmGimiyvJHmuv+6+N9OhUb0dM+fveXJI9yjuzew==",
++      "version": "1.20261113.1",
++      "resolved": "https://registry.npmjs.org/@cloudflare/workerd-darwin-arm64/-/workerd-darwin-arm64-1.20261113.1.tgz",
++      "integrity": "sha512-bKfFcpueb9GOg0NZSR4x7dpEJZMsQOwCk0XzsAoXoBfG4osFRQcFxtAhrXvB1y445zXFLhrEkDJ/+LvGAMkPSg==",
+       "cpu": [
+         "arm64"
+       ],
+@@ -1517,9 +1517,9 @@
+       }
+     },
+     "node_modules/@cloudflare/workerd-linux-64": {
+-      "version": "1.20261110.1",
+-      "resolved": "https://registry.npmjs.org/@cloudflare/workerd-linux-64/-/workerd-linux-64-1.20261110.1.tgz",
+-      "integrity": "sha512-i4080Pp6Q0nwS8OMqt3cbpJoWvbCrIlFKa+4Inbn+y2pWKTVsq6F9bgdi0l8CBZPMszd03gDlQR++dqMbErh2Q==",
++      "version": "1.20261113.1",
++      "resolved": "https://registry.npmjs.org/@cloudflare/workerd-linux-64/-/workerd-linux-64-1.20261113.1.tgz",
++      "integrity": "sha512-3VCnXzi7apwPSMwkiTIeEc5z/UWWGQXBZZNHCBBCXPlavWCR06SQ77tO0rEoKonfjBGW0MQaHNZ7U1pCPe4v3g==",
+       "cpu": [
+         "x64"
+       ],
+@@ -1534,9 +1534,9 @@
+       }
+     },
+     "node_modules/@cloudflare/workerd-linux-arm64": {
+-      "version": "1.20261110.1",
+-      "resolved": "https://registry.npmjs.org/@cloudflare/workerd-linux-arm64/-/workerd-linux-arm64-1.20261110.1.tgz",
+-      "integrity": "sha512-0l+JyYWOhEzTs7yOkIdf1ZzcXd9WalPZ1kD0bBAobFvDhO/1jBnQkS4rzzyUkGV7g8pb3dkfrBP9c2ZiRLOfdw==",
++      "version": "1.20261113.1",
++      "resolved": "https://registry.npmjs.org/@cloudflare/workerd-linux-arm64/-/workerd-linux-arm64-1.20261113.1.tgz",
++      "integrity": "sha512-phnb1686FTIVSr4qxQFOt7MyiWMotqsVUyZVnQl579/bCrqWaYUcRnikN5f6bBpDbxCk1OvOvYz0ykjT1lvYpg==",
+       "cpu": [
+         "arm64"
+       ],
+@@ -1551,9 +1551,9 @@
+       }
+     },
+     "node_modules/@cloudflare/workerd-windows-64": {
+-      "version": "1.20261110.1",
+-      "resolved": "https://registry.npmjs.org/@cloudflare/workerd-windows-64/-/workerd-windows-64-1.20261110.1.tgz",
+-      "integrity": "sha512-zP8IGyWvohyJhbNjHOnTA9anRQtGN7X01T/dG+R9IA4vu2egRODsD02aoYzv0a0qImjt7tTpOOA+uVotDJPcSA==",
++      "version": "1.20261113.1",
++      "resolved": "https://registry.npmjs.org/@cloudflare/workerd-windows-64/-/workerd-windows-64-1.20261113.1.tgz",
++      "integrity": "sha512-WtQakCAIzUQJ6dQDPn7kIGlFJ9yjB0ooNx2WFqEHLYNAT7TLCNyaORem2WVM38TceVR8flCP5UWgYm6ht3dlIw==",
+       "cpu": [
+         "x64"
+       ],
+@@ -8940,16 +8940,16 @@
+       }
+     },
+     "node_modules/miniflare": {
+-      "version": "5.20261110.2-beta",
+-      "resolved": "https://registry.npmjs.org/miniflare/-/miniflare-5.20261110.2-beta.tgz",
+-      "integrity": "sha512-vzUwcal5OtR/1nr5cmjCbZSrsR3QRA1cDnRUDVgET17HeDkdpQNG2QxeIkuHFLyszjdBqme59w8Nrrj4FkuFsQ==",
++      "version": "5.20261113.0-beta",
++      "resolved": "https://registry.npmjs.org/miniflare/-/miniflare-5.20261113.0-beta.tgz",
++      "integrity": "sha512-Kg+SarKNSn0lkhR88OHI29rIXJvmKs/c9hmxFXvEqK1J9aHu+AFl6CdaBq/k3iOTyMbm2p4h1HGLs7vXaLYMWA==",
+       "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "@cspotcode/source-map-support": "0.8.1",
+         "sharp": "0.35.5",
+         "undici": "7.30.1",
+-        "workerd": "1.20261110.1",
++        "workerd": "1.20261113.1",
+         "ws": "8.21.0",
+         "youch": "4.1.0-beta.10"
+       },
+@@ -8966,9 +8966,9 @@
+       }
+     },
+     "node_modules/miniflare/node_modules/undici": {
+-      "version": "7.30.2",
+-      "resolved": "https://registry.npmjs.org/undici/-/undici-7.30.2.tgz",
+-      "integrity": "sha512-mLyPQnHwUxaM/rideoK/+KL8DaAJLRl4aBCfmX444aCSLnIaomqPLtNRe2jdCYcsk5wZzXrDIQC8ZeYNRAYyIA==",
++      "version": "7.30.1",
++      "resolved": "https://registry.npmjs.org/undici/-/undici-7.30.1.tgz",
++      "integrity": "sha512-03KrMbjIFDWQR5RNPrSw3bd1r12JpyFQl9/yxjUbJtqkjmllqC5lFjZh6ujeuJCKr8EOQvRW872Oy/az+nLYxg==",
+       "dev": true,
+       "license": "MIT",
+       "engines": {
+@@ -11120,9 +11120,9 @@
+       }
+     },
+     "node_modules/workerd": {
+-      "version": "1.20261110.1",
+-      "resolved": "https://registry.npmjs.org/workerd/-/workerd-1.20261110.1.tgz",
+-      "integrity": "sha512-GKdtki7t19f16vegol8Iw5Dh0mnjHLuwLx8rlhTPvyRBEXM0Osl9eYexWAW8uZD7OMw4WKNq9yvENg5kPDUJ9w==",
++      "version": "1.20261113.1",
++      "resolved": "https://registry.npmjs.org/workerd/-/workerd-1.20261113.1.tgz",
++      "integrity": "sha512-FJP8Bm1jiiJTE2xpSIhT9JkMaKzU54y9Jk0q7n3BLWyWdUNsn35QGCqARcqXGwO3FGkvahhYqUEG2bJzlgcfhw==",
+       "dev": true,
+       "hasInstallScript": true,
+       "license": "Apache-2.0",
+@@ -11133,17 +11133,17 @@
+         "node": ">=16"
+       },
+       "optionalDependencies": {
+-        "@cloudflare/workerd-darwin-64": "1.20261110.1",
+-        "@cloudflare/workerd-darwin-arm64": "1.20261110.1",
+-        "@cloudflare/workerd-linux-64": "1.20261110.1",
+-        "@cloudflare/workerd-linux-arm64": "1.20261110.1",
+-        "@cloudflare/workerd-windows-64": "1.20261110.1"
++        "@cloudflare/workerd-darwin-64": "1.20261113.1",
++        "@cloudflare/workerd-darwin-arm64": "1.20261113.1",
++        "@cloudflare/workerd-linux-64": "1.20261113.1",
++        "@cloudflare/workerd-linux-arm64": "1.20261113.1",
++        "@cloudflare/workerd-windows-64": "1.20261113.1"
+       }
+     },
+     "node_modules/wrangler": {
+-      "version": "4.161.0",
+-      "resolved": "https://registry.npmjs.org/wrangler/-/wrangler-4.161.0.tgz",
+-      "integrity": "sha512-yOHZUYEq9AP7vutWmkCADzCKAH9ynfvZdoKJRIGTzkiailf9/L+jhT7WRb+9p6jRDtuBXVFtCzLo7kGAcGw+pA==",
++      "version": "4.162.0",
++      "resolved": "https://registry.npmjs.org/wrangler/-/wrangler-4.162.0.tgz",
++      "integrity": "sha512-jUnlzHKlWdW4MFXPgeYbe0+c4oTy/AAZfL/IUz921+dZBY5nJ48xjpvwff5djUR1MXoJRevzntAP/U97TUhPEw==",
+       "dev": true,
+       "license": "MIT OR Apache-2.0",
+       "dependencies": {
+@@ -11152,10 +11152,10 @@
+         "@cspotcode/source-map-support": "0.8.1",
+         "blake3-wasm": "2.1.5",
+         "esbuild": "0.28.2",
+-        "miniflare": "5.20261110.2-beta",
++        "miniflare": "5.20261113.0-beta",
+         "path-to-regexp": "6.3.0",
+         "unenv": "2.0.0-rc.24",
+-        "workerd": "1.20261110.1"
++        "workerd": "1.20261113.1"
+       },
+       "bin": {
+         "cf-wrangler": "bin/cf-wrangler.js",
+@@ -11169,7 +11169,7 @@
+         "fsevents": "2.3.3"
+       },
+       "peerDependencies": {
+-        "@cloudflare/workers-types": "^5.20261110.1"
++        "@cloudflare/workers-types": "^5.20261113.1"
+       },
+       "peerDependenciesMeta": {
+         "@cloudflare/workers-types": {
+diff --git a/package.json b/package.json
+index e614138..c23b175 100644
+--- a/package.json
++++ b/package.json
+@@ -33,7 +33,7 @@
+     "eslint-config-next": "latest",
+     "tailwindcss": "latest",
+     "typescript": "latest",
+-    "wrangler": "latest"
++    "wrangler": "4.162.0"
+   },
+   "overrides": {
+     "source-map-js": "^1.2.2",
+diff --git a/scripts/test-gentle-delivery-transport.sql b/scripts/test-gentle-delivery-transport.sql
+index 5c6442a..e92c138 100644
+--- a/scripts/test-gentle-delivery-transport.sql
++++ b/scripts/test-gentle-delivery-transport.sql
+@@ -28,34 +28,36 @@ begin
+ end;
+ $$;
+ 
+--- Use a curated week not consumed by the reliability terminal fixtures.
++-- Use the actual database transaction clock for both claim lease and final authorization.
++-- Keep curation and claim in one transaction so a UTC week boundary cannot drift.
++begin;
+ insert into public.weekly_goodness_features (week_start)
+-values ((timezone('UTC', now())::date - (extract(isodow from timezone('UTC', now()))::integer - 1)))
++select timezone('UTC', now())::date
++  - (extract(isodow from timezone('UTC', now()))::integer - 1)
+ on conflict (week_start) do nothing;
+ 
+-set role service_role;
++set local role service_role;
+ do $$
+ declare
++  v_now timestamptz := now();
++  v_week_start date := timezone('UTC', now())::date
++    - (extract(isodow from timezone('UTC', now()))::integer - 1);
++  v_delivery_key text := 'weekly:' || v_week_start::text;
+   v_inserted integer;
+   v_inserted_again integer;
+   v_id uuid;
+   v_token uuid;
++  v_wrong_token uuid := '00000000-0000-0000-0000-000000000000'::uuid;
+   v_started_1 timestamptz;
+   v_started_2 timestamptz;
+ begin
+-  v_inserted := public.enqueue_current_weekly_goodness_if_curated(
+-    now(),
+-    5000
+-  );
++  v_inserted := public.enqueue_current_weekly_goodness_if_curated(v_now, 5000);
+ 
+   if v_inserted <> 1 then
+     raise exception 'Expected one eligible curated weekly delivery, got %.', v_inserted;
+   end if;
+ 
+-  v_inserted_again := public.enqueue_current_weekly_goodness_if_curated(
+-    now(),
+-    5000
+-  );
++  v_inserted_again := public.enqueue_current_weekly_goodness_if_curated(v_now, 5000);
+ 
+   if v_inserted_again <> 0 then
+     raise exception 'Repeated weekly scheduler call created duplicate logical deliveries.';
+@@ -63,14 +65,37 @@ begin
+ 
+   select job_id, claim_token
+   into v_id, v_token
+-  from public.claim_delivery_jobs(now(), 100)
+-  where delivery_key = 'weekly:' || (timezone('UTC', now())::date - (extract(isodow from timezone('UTC', now()))::integer - 1))::text
++  from public.claim_delivery_jobs(v_now, 100)
++  where delivery_key = v_delivery_key
+   limit 1;
+ 
+   if v_id is null or v_token is null then
+     raise exception 'Transport test delivery was not claimed.';
+   end if;
+ 
++  if not exists (
++    select 1 from public.delivery_ledger
++    where id = v_id and state = 'claimed'
++      and claim_token = v_token and claim_expires_at > now()
++  ) then
++    raise exception 'Fresh claim did not receive a live lease.';
++  end if;
++
++  -- A stale claim token must not authorize or start transport.
++  begin
++    perform public.authorize_delivery_job(v_id, v_wrong_token);
++    raise exception 'Stale token unexpectedly authorized.';
++  exception when sqlstate '42501' then
++    null;
++  end;
++  begin
++    perform public.begin_delivery_transport(v_id, v_wrong_token);
++    raise exception 'Stale token unexpectedly began transport.';
++  exception when sqlstate '42501' then
++    null;
++  end;
++
++  -- The correct live token still succeeds after the stale-token probes.
+   if public.authorize_delivery_job(v_id, v_token) is not true then
+     raise exception 'Transport test delivery was unexpectedly unauthorized.';
+   end if;
+@@ -82,10 +107,17 @@ begin
+     raise exception 'Transport start timestamp is not stable across retries.';
+   end if;
+ 
++  -- Explicitly expire the real lease; neither authorization nor transport may pass.
+   update public.delivery_ledger
+   set claim_expires_at = now() - interval '1 second'
+   where id = v_id;
+ 
++  begin
++    perform public.authorize_delivery_job(v_id, v_token);
++    raise exception 'Expired claim unexpectedly authorized.';
++  exception when sqlstate '42501' then
++    null;
++  end;
+   begin
+     perform public.begin_delivery_transport(v_id, v_token);
+     raise exception 'Expired claim unexpectedly began transport.';
+@@ -95,6 +127,7 @@ begin
+ end;
+ $$;
+ reset role;
++commit;
+ 
+ select jsonb_build_object(
+   'gentle_delivery_transport_db', 'pass',

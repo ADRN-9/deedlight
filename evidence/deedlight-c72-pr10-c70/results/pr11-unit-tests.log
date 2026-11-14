@@ -1,0 +1,25 @@
+test_all_synthetic_case_expectations_are_explicit (test_assert_fixture_result.FixtureEvidenceTests.test_all_synthetic_case_expectations_are_explicit) ... ok
+test_consumer_accepts_matching_full_inventory (test_assert_fixture_result.FixtureEvidenceTests.test_consumer_accepts_matching_full_inventory) ... ok
+test_consumer_rejects_scenario_mismatch (test_assert_fixture_result.FixtureEvidenceTests.test_consumer_rejects_scenario_mismatch) ... ok
+test_rejects_missing_and_wrong_sha_json (test_assert_fixture_result.FixtureEvidenceTests.test_rejects_missing_and_wrong_sha_json) ... ok
+test_restricted_preflight_stops_audit (test_assert_fixture_result.FixtureEvidenceTests.test_restricted_preflight_stops_audit) ... ok
+test_duplicate_invariant_is_rejected (test_assurance_rejections.AssuranceToolCLITests.test_duplicate_invariant_is_rejected) ... ok
+test_healthy_complete_evidence_is_accepted (test_assurance_rejections.AssuranceToolCLITests.test_healthy_complete_evidence_is_accepted) ... ok
+test_incorrect_scenario_classification_is_rejected (test_assurance_rejections.AssuranceToolCLITests.test_incorrect_scenario_classification_is_rejected) ... ok
+test_invalid_evidence_schema_is_rejected (test_assurance_rejections.AssuranceToolCLITests.test_invalid_evidence_schema_is_rejected) ... ok
+test_malformed_json_is_rejected (test_assurance_rejections.AssuranceToolCLITests.test_malformed_json_is_rejected) ... ok
+test_missing_records_after_partial_output_are_rejected (test_assurance_rejections.AssuranceToolCLITests.test_missing_records_after_partial_output_are_rejected) ... ok
+test_missing_required_invariant_is_rejected (test_assurance_rejections.AssuranceToolCLITests.test_missing_required_invariant_is_rejected) ... ok
+test_required_unknown_cannot_be_silently_promoted (test_assurance_rejections.AssuranceToolCLITests.test_required_unknown_cannot_be_silently_promoted) ... ok
+test_truncated_transaction_is_rejected (test_assurance_rejections.AssuranceToolCLITests.test_truncated_transaction_is_rejected) ... ok
+test_unexpected_blocked_security_result_is_rejected (test_assurance_rejections.AssuranceToolCLITests.test_unexpected_blocked_security_result_is_rejected) ... ok
+test_unexpected_failed_security_result_is_rejected (test_assurance_rejections.AssuranceToolCLITests.test_unexpected_failed_security_result_is_rejected) ... ok
+test_unrelated_denial_stderr_cannot_satisfy_restricted_fixture (test_assurance_rejections.AssuranceToolCLITests.test_unrelated_denial_stderr_cannot_satisfy_restricted_fixture) ... ok
+test_unrelated_postgres_error_is_rejected (test_assurance_rejections.AssuranceToolCLITests.test_unrelated_postgres_error_is_rejected) ... ok
+test_unreviewed_extra_invariant_is_rejected (test_assurance_rejections.AssuranceToolCLITests.test_unreviewed_extra_invariant_is_rejected) ... ok
+test_unreviewed_security_dynamic_result_is_rejected (test_assurance_rejections.AssuranceToolCLITests.test_unreviewed_security_dynamic_result_is_rejected) ... ok
+
+----------------------------------------------------------------------
+Ran 20 tests in 1.348s
+
+OK

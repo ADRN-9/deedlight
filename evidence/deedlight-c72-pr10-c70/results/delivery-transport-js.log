@@ -1,0 +1,28 @@
+(node:3686) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/deedlight/deedlight/app/lib/delivery/config.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /home/runner/work/deedlight/deedlight/app/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ delivery is disabled without requiring secrets (1.66226ms)
+✔ enabled delivery fails closed on missing secrets and unsupported provider (0.536524ms)
+✔ disabled scheduler performs no work and unknown schedules are ignored (0.329939ms)
+✔ Resend transport uses stable idempotency and generic daily content (24.416591ms)
+✔ weekly transport uses the weekly preference route and a distinct idempotency key (0.522882ms)
+✔ Resend transport classifies retryable, permanent and ambiguous responses (0.704128ms)
+✔ revocation before recipient lookup prevents transport (0.299448ms)
+✔ revocation after recipient lookup is checked again immediately before transport (0.171449ms)
+✔ temporary provider failure requeues while permanent failure terminates (0.700075ms)
+✔ small database/worker clock skew does not fail a new transport attempt (0.389656ms)
+✔ ambiguous delivery older than the provider safety window never sends again (0.214451ms)
+✔ database transport denial after two earlier authorizations produces zero provider calls (0.288862ms)
+✔ fifth attempt terminal retry is counted as failed, not retried or processing error (0.175794ms)
+✔ changed Auth email invalidates resolved recipient at final gate (0.117787ms)
+✔ Weekly capacity RPC errors require exact code, message, and source marker (0.656924ms)
+✔ weekly scheduler error logs expose only a stable code and issue week (0.527597ms)
+ℹ tests 16
+ℹ suites 0
+ℹ pass 16
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 169.650864

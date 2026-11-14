@@ -1,0 +1,5 @@
+PASS — two SQL files explicitly use read-only transactions and ROLLBACK
+PASS — no direct customer/migration table reads or mutating SQL tokens in executable text
+PASS — selected catalog checks and reviewed function signatures present
+PASS — evidence JSON schema and exact pinned source SHA coherent
+NOTE — this is static inspection; PostgreSQL parse/execution and fixtures NOT RUN

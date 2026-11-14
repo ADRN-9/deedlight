@@ -1,0 +1,7 @@
+verify-sprint12-1-security.mjs: PASS
+verify-sprint12-2-delivery-security.mjs: PASS
+verify-delivery-reliability.mjs: PASS
+verify-gentle-delivery-transport.mjs: PASS
+verify-delivery-consent-gates.mjs: PASS
+verify-auth-pgcrypto-schema-qualification.mjs: PASS
+Delivery transport JS behavior: PASS

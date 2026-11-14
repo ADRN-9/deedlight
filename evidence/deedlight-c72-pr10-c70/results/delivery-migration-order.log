@@ -1,0 +1,8 @@
+psql:supabase/migrations/202609230019_sprint12_2_gentle_delivery_foundation.sql:133: NOTICE:  trigger "delivery_ledger_set_updated_at" for relation "public.delivery_ledger" does not exist, skipping
+DO
+Migration 021 -> 024 fails closed with no partial schema: PASS
+DO
+DO
+021 -> 023 -> drifted function (same comment) -> 024 rejects atomically: PASS
+DO
+Migration 021 -> 023 -> 024 with browser-role denial: PASS
