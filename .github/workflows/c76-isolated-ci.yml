@@ -1,0 +1,227 @@
+name: C76 isolated provider contract and kind-scoped scheduler
+on:
+  push:
+    branches:
+      - evidence/deedlight-c76-provider-scheduler-ac39b069-v1
+    paths:
+      - .github/workflows/c76-isolated-ci.yml
+      - evidence/deedlight-c76-provider-scheduler/inputs/**
+permissions:
+  contents: read
+concurrency:
+  group: c76-verified
+  cancel-in-progress: true
+jobs:
+  postgres16:
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DELIVERY_ENABLED: "false"
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: c983e2ed8b93c935139c935343261570ecea6978
+          path: app
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: a25a43a85d74a5a5b9d05309ad0840df8ddcd8cf
+          path: c73
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: 4b913640c16c1113d9f559b26e7d930a432f4ccb
+          path: c74
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: df1150dcee7c54a4e5bc2af1225afbc57c722309
+          path: c75
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          path: evidence
+          persist-credentials: false
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y postgresql-client
+      - name: Exact-tree reconstruction and disposable PostgreSQL behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p c76-results/pg
+          test "$DELIVERY_ENABLED" = false
+          for key in DATABASE_URL SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY SUPABASE_PROJECT_REF SUPABASE_DB_PASSWORD RESEND_API_KEY RESEND_WEBHOOK_SECRET CLOUDFLARE_API_TOKEN; do
+            test -z "$(printenv "$key" || true)"
+          done
+          p73=c73/evidence/deedlight-c73-integrated-security-d8700788/results/C73_COMPLETE_RESOLVED_INTEGRATION.patch
+          p74=c74/evidence/deedlight-c74-postgres-adversarial/results/pg/C74_POST_C73_CORRECTION.patch
+          p75=c75/evidence/deedlight-c75-lifecycle/results/pg/C75_AFTER_C74_CORRECTION.patch
+          p76=evidence/evidence/deedlight-c76-provider-scheduler/inputs/C76_AFTER_C75.patch
+          printf '%s  %s\n' 864c3fae8df6b3c60fbcf17f0189e633ae1b1de54a01dde01738c545f53dc8d9 "$p73" | sha256sum --check
+          printf '%s  %s\n' 71412f3345a34ba3e7ad1246cbfd0165b6d765fdbd719c97d045a6fae265a1fc "$p74" | sha256sum --check
+          printf '%s  %s\n' 166c8834d48d3caaada8f766408a07b247a262ff5e042eb375be8bf5ae37484a "$p75" | sha256sum --check
+          printf '%s  %s\n' c589511eba658b4802c2d390110edbc2bdd7638b5e993c7a482966fa2022a783 "$p76" | sha256sum --check
+          apply_patch() {
+            local patch="$1" expected="$2"
+            git -C app apply --check "../$patch"
+            git -C app apply "../$patch"
+            git -C app add -A
+            test "$(git -C app write-tree)" = "$expected"
+            echo "$expected"
+          }
+          apply_patch "$p73" dd4f8593fdb1b3032eb6cddd5f39e50ea9cb7682
+          apply_patch "$p74" a9981c2672b316a07904ad7f6b498cd22f206a5b
+          apply_patch "$p75" 3ffedca10b5f38b375b08350ea7090e5a0a000d8
+          apply_patch "$p76" 218787cf843623985329ad849efc00ead318915a
+          git -C app diff --cached --check
+          psql -X -At -v ON_ERROR_STOP=1 -d postgres -c 'show server_version;' > c76-results/pg/server-version.txt
+          createdb deedlight_c76_security
+          cd app
+          psql -X -v ON_ERROR_STOP=1 -d deedlight_c76_security -f scripts/test-c73-integrated-provider-security.sql > ../c76-results/pg/019-030.log 2>&1
+          psql -X -v ON_ERROR_STOP=1 -d deedlight_c76_security -f supabase/migrations/202611130031_c74_legacy_lifecycle_guard.sql > ../c76-results/pg/031.log 2>&1
+          psql -X -v ON_ERROR_STOP=1 -d deedlight_c76_security -f supabase/migrations/202611130032_c75_monotone_recipient_conflict_hold.sql > ../c76-results/pg/032.log 2>&1
+          psql -X -v ON_ERROR_STOP=1 -d deedlight_c76_security -f supabase/migrations/202611130033_c76_provider_classification_and_suppression.sql > ../c76-results/pg/033.log 2>&1
+          psql -X -v ON_ERROR_STOP=1 -d deedlight_c76_security -f scripts/test-c76-provider-classification.sql > ../c76-results/pg/classification.log 2>&1
+          echo 'C76 PG16 provider, suppression, kind isolation PASS' | tee ../c76-results/pg/result.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: c76-postgres16
+          path: c76-results/pg/
+          retention-days: 14
+          if-no-files-found: warn
+  http_build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 33
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DELIVERY_ENABLED: "false"
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-not-a-secret
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: c983e2ed8b93c935139c935343261570ecea6978
+          path: app
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: a25a43a85d74a5a5b9d05309ad0840df8ddcd8cf
+          path: c73
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: 4b913640c16c1113d9f559b26e7d930a432f4ccb
+          path: c74
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: df1150dcee7c54a4e5bc2af1225afbc57c722309
+          path: c75
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          path: evidence
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y postgresql-client
+      - name: Exact-tree webhook HTTP, TypeScript, package and dependency audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p c76-results/http
+          test "$DELIVERY_ENABLED" = false
+          for key in DATABASE_URL SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY SUPABASE_PROJECT_REF SUPABASE_DB_PASSWORD RESEND_API_KEY RESEND_WEBHOOK_SECRET CLOUDFLARE_API_TOKEN; do
+            test -z "$(printenv "$key" || true)"
+          done
+          p73=c73/evidence/deedlight-c73-integrated-security-d8700788/results/C73_COMPLETE_RESOLVED_INTEGRATION.patch
+          p74=c74/evidence/deedlight-c74-postgres-adversarial/results/pg/C74_POST_C73_CORRECTION.patch
+          p75=c75/evidence/deedlight-c75-lifecycle/results/pg/C75_AFTER_C74_CORRECTION.patch
+          p76=evidence/evidence/deedlight-c76-provider-scheduler/inputs/C76_AFTER_C75.patch
+          printf '%s  %s\n' 864c3fae8df6b3c60fbcf17f0189e633ae1b1de54a01dde01738c545f53dc8d9 "$p73" | sha256sum --check
+          printf '%s  %s\n' 71412f3345a34ba3e7ad1246cbfd0165b6d765fdbd719c97d045a6fae265a1fc "$p74" | sha256sum --check
+          printf '%s  %s\n' 166c8834d48d3caaada8f766408a07b247a262ff5e042eb375be8bf5ae37484a "$p75" | sha256sum --check
+          printf '%s  %s\n' c589511eba658b4802c2d390110edbc2bdd7638b5e993c7a482966fa2022a783 "$p76" | sha256sum --check
+          apply_patch() {
+            local patch="$1" expected="$2"
+            git -C app apply --check "../$patch"
+            git -C app apply "../$patch"
+            git -C app add -A
+            test "$(git -C app write-tree)" = "$expected"
+            echo "$expected"
+          }
+          apply_patch "$p73" dd4f8593fdb1b3032eb6cddd5f39e50ea9cb7682
+          apply_patch "$p74" a9981c2672b316a07904ad7f6b498cd22f206a5b
+          apply_patch "$p75" 3ffedca10b5f38b375b08350ea7090e5a0a000d8
+          apply_patch "$p76" 218787cf843623985329ad849efc00ead318915a
+          git -C app diff --cached --check
+          cd app
+          npm ci > ../c76-results/http/npm-ci.log 2>&1
+          npm ls svix wrangler miniflare undici --all > ../c76-results/http/resolved-deps.txt 2>&1 || true
+          node --test scripts/test-c73-provider-webhook.mjs > ../c76-results/http/c73-svix.log 2>&1
+          node --test scripts/test-c76-provider-contract.mjs > ../c76-results/http/c76-contract.log 2>&1
+          node scripts/verify-c73-security.mjs > ../c76-results/http/c73-security.log 2>&1
+          node scripts/verify-delivery-consent-gates.mjs > ../c76-results/http/consent-security.log 2>&1
+          node --test scripts/test-delivery-transport.mjs > ../c76-results/http/delivery-tests.log 2>&1
+          createdb deedlight_c76_http
+          psql -X -v ON_ERROR_STOP=1 -d deedlight_c76_http -f scripts/test-c73-integrated-provider-security.sql > ../c76-results/http/019-030.log 2>&1
+          psql -X -v ON_ERROR_STOP=1 -d deedlight_c76_http -f supabase/migrations/202611130031_c74_legacy_lifecycle_guard.sql > ../c76-results/http/031.log 2>&1
+          psql -X -v ON_ERROR_STOP=1 -d deedlight_c76_http -f supabase/migrations/202611130032_c75_monotone_recipient_conflict_hold.sql > ../c76-results/http/032.log 2>&1
+          psql -X -v ON_ERROR_STOP=1 -d deedlight_c76_http -f supabase/migrations/202611130033_c76_provider_classification_and_suppression.sql > ../c76-results/http/033.log 2>&1
+          node scripts/test-c76-route-http.mjs > ../c76-results/http/route-http-pg.log 2>&1
+          npm audit --audit-level=high > ../c76-results/http/audit-high.log 2>&1
+          npx tsc --noEmit > ../c76-results/http/typescript.log 2>&1
+          npm run build > ../c76-results/http/next-build.log 2>&1
+          npx opennextjs-cloudflare build > ../c76-results/http/cloudflare.log 2>&1
+          echo 'C76 HTTP, Svix, consent, TypeScript, Next, Cloudflare, audit PASS' | tee ../c76-results/http/result.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: c76-http-build
+          path: c76-results/http/
+          retention-days: 14
+          if-no-files-found: warn
