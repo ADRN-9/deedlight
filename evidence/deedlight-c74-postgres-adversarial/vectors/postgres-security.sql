@@ -67,7 +67,8 @@ INSERT INTO public.daily_reminder_preferences(user_id,daily_enabled,reminder_tim
   VALUES ('70000000-0000-0000-0000-000000000005',true,'00:00','UTC');
 INSERT INTO public.delivery_ledger(user_id,kind,delivery_key,scheduled_for)
   VALUES ('70000000-0000-0000-0000-000000000005','daily_reminder',
-    'daily:c74-original',now()-interval '1 minute');
+    'daily:' || (timezone('UTC',now())::date - 1)::text,
+    ((timezone('UTC',now())::date - 1) + time '00:00') AT TIME ZONE 'UTC');
 SET ROLE service_role;
 DO $c74_promotion$
 DECLARE j uuid; t uuid; result text; stamp timestamptz:=clock_timestamp();
@@ -105,7 +106,8 @@ RESET ROLE;
 
 INSERT INTO public.delivery_ledger(user_id,kind,delivery_key,scheduled_for)
   VALUES ('70000000-0000-0000-0000-000000000005','daily_reminder',
-    'daily:c74-retry-after-hold',now()-interval '1 minute');
+    'daily:' || timezone('UTC',now())::date::text,
+    (timezone('UTC',now())::date + time '00:00') AT TIME ZONE 'UTC');
 SET ROLE service_role;
 DO $c74_deny_retry$
 DECLARE j uuid;t uuid;stamp timestamptz;
@@ -113,7 +115,7 @@ BEGIN
   PERFORM public.claim_delivery_jobs('daily_reminder',now(),100);
   SELECT id,claim_token INTO j,t FROM public.delivery_ledger
    WHERE user_id='70000000-0000-0000-0000-000000000005'
-     AND delivery_key='daily:c74-retry-after-hold';
+     AND delivery_key='daily:' || timezone('UTC',now())::date::text;
   BEGIN
     stamp:=public.begin_delivery_transport_identity_bound(j,t,'c74-pending@example.test');
     IF stamp IS NOT NULL THEN RAISE EXCEPTION 'Suppressed recipient authorized next logical send'; END IF;
@@ -134,7 +136,8 @@ UPDATE deedlight_private.delivery_recipient_key_control
   SET required_key_versions=ARRAY[1,2]::smallint[],mode='ready' WHERE singleton;
 INSERT INTO public.delivery_ledger(user_id,kind,delivery_key,scheduled_for)
   VALUES ('70000000-0000-0000-0000-000000000005','daily_reminder',
-    'daily:c74-after-rotation',now()-interval '1 minute');
+    'daily:' || (timezone('UTC',now())::date - 2)::text,
+    ((timezone('UTC',now())::date - 2) + time '00:00') AT TIME ZONE 'UTC');
 SET ROLE service_role;
 DO $c74_rotation$
 DECLARE j uuid;t uuid;stamp timestamptz;n integer;
@@ -148,7 +151,7 @@ BEGIN
   ) THEN RAISE EXCEPTION 'Prior key fingerprint lost suppression'; END IF;
   PERFORM public.claim_delivery_jobs('daily_reminder',now(),100);
   SELECT id,claim_token INTO j,t FROM public.delivery_ledger
-    WHERE delivery_key='daily:c74-after-rotation' AND
+    WHERE delivery_key='daily:' || (timezone('UTC',now())::date - 2)::text AND
       user_id='70000000-0000-0000-0000-000000000005';
   BEGIN
     stamp:=public.begin_delivery_transport_identity_bound(j,t,'c74-pending@example.test');
