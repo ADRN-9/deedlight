@@ -580,7 +580,7 @@ index 0000000..8e2a37c
 +) AS c73_integrated_security_result;
 diff --git a/scripts/test-c73-provider-webhook.mjs b/scripts/test-c73-provider-webhook.mjs
 new file mode 100644
-index 0000000..0d2eed7
+index 0000000..4e947ab
 --- /dev/null
 +++ b/scripts/test-c73-provider-webhook.mjs
 @@ -0,0 +1,99 @@
@@ -595,11 +595,11 @@ index 0000000..0d2eed7
 +import { parseDeliveryRuntimeConfig } from "../lib/delivery/config.ts";
 +import { SupabaseDeliveryRuntime } from "../lib/delivery/supabase-runtime.ts";
 +
-+const now = new Date("2026-11-14T18:00:00.000Z");
++const now = new Date();
 +const signingKey = randomBytes(32);
 +const secret = `whsec_${signingKey.toString("base64")}`;
 +const id = "msg_C73SyntheticSignature001";
-+const date = "2026-11-14T17:59:58.000Z";
++const date = new Date(now.getTime() - 2000).toISOString();
 +
 +function signed(type, data = {}, overrides = {}) {
 +  const body = JSON.stringify({
@@ -611,7 +611,7 @@ index 0000000..0d2eed7
 +      ...data,
 +    },
 +  });
-+  const stamp = overrides.timestamp ?? String(now.getTime() / 1000);
++  const stamp = overrides.timestamp ?? String(Math.floor(now.getTime() / 1000));
 +  const signedId = overrides.id ?? id;
 +  const signature = `v1,${createHmac("sha256", signingKey)
 +    .update(`${signedId}.${stamp}.${body}`)
