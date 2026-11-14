@@ -1,0 +1,70 @@
+name: C76 export exact integrated C75 source
+on:
+  push:
+    branches:
+      - evidence/deedlight-c76-provider-scheduler-ac39b069-v1
+    paths:
+      - .github/workflows/c76-export.yml
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      DELIVERY_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: c983e2ed8b93c935139c935343261570ecea6978
+          path: app
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: a25a43a85d74a5a5b9d05309ad0840df8ddcd8cf
+          path: c73
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: 4b913640c16c1113d9f559b26e7d930a432f4ccb
+          path: c74
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: df1150dcee7c54a4e5bc2af1225afbc57c722309
+          path: c75
+          persist-credentials: false
+      - name: Replay pinned C73-75 patches, assert all trees, export
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$DELIVERY_ENABLED" = false
+          for key in DATABASE_URL SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY SUPABASE_PROJECT_REF RESEND_API_KEY RESEND_WEBHOOK_SECRET CLOUDFLARE_API_TOKEN; do test -z "$(printenv "$key" || true)"; done
+          test "$(git -C app rev-parse HEAD)" = c983e2ed8b93c935139c935343261570ecea6978
+          p73=c73/evidence/deedlight-c73-integrated-security-d8700788/results/C73_COMPLETE_RESOLVED_INTEGRATION.patch
+          p74=c74/evidence/deedlight-c74-postgres-adversarial/results/pg/C74_POST_C73_CORRECTION.patch
+          p75=c75/evidence/deedlight-c75-lifecycle/results/pg/C75_AFTER_C74_CORRECTION.patch
+          printf '%s  %s\n' 864c3fae8df6b3c60fbcf17f0189e633ae1b1de54a01dde01738c545f53dc8d9 "$p73" | sha256sum --check
+          printf '%s  %s\n' 71412f3345a34ba3e7ad1246cbfd0165b6d765fdbd719c97d045a6fae265a1fc "$p74" | sha256sum --check
+          printf '%s  %s\n' 166c8834d48d3caaada8f766408a07b247a262ff5e042eb375be8bf5ae37484a "$p75" | sha256sum --check
+          for rec in '73 dd4f8593fdb1b3032eb6cddd5f39e50ea9cb7682' '74 a9981c2672b316a07904ad7f6b498cd22f206a5b' '75 3ffedca10b5f38b375b08350ea7090e5a0a000d8'; do
+            read -r step expected <<< "$rec"
+            var=p"$step"
+            git -C app apply --check "../${!var}"
+            git -C app apply "../${!var}"
+            git -C app add -A
+            actual="$(git -C app write-tree)"
+            test "$actual" = "$expected"
+            echo "C$step exact tree: $actual"
+          done
+          git -C app diff --cached --check
+          tar -C app --exclude=.git -czf c76_verified_c75_source.tar.gz .
+          sha256sum c76_verified_c75_source.tar.gz > c76_source.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deedlight-c76-verified-c75-source
+          path: |
+            c76_verified_c75_source.tar.gz
+            c76_source.sha256
+          retention-days: 7
+          if-no-files-found: error
