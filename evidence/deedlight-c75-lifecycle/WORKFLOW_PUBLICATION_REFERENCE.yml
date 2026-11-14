@@ -1,0 +1,81 @@
+name: C75 bounded evidence-only publication
+on:
+  push:
+    branches:
+      - evidence/deedlight-c75-lifecycle-cbc8279b-v1
+    paths:
+      - .github/workflows/c75-evidence-publication.yml
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: deedlight-c75-evidence-publish
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Verify authoritative prior CI run
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/evidence/deedlight-c75-lifecycle-cbc8279b-v1"
+          test "$(gh api repos/ADRN-9/deedlight/actions/runs/43633674146 --jq '.conclusion')" = success
+          test "$(gh api repos/ADRN-9/deedlight/actions/runs/43633674146 --jq '.head_sha')" = b2d395b17e1420946229cb8137ef80cfdb0cf81a
+      - uses: actions/checkout@v7
+      - name: Download exact PostgreSQL CI evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: deedlight-c75-postgres-repair
+          run-id: 43633674146
+          repository: ADRN-9/deedlight
+          github-token: ${{ github.token }}
+          path: /tmp/c75-final/pg
+      - name: Download exact HTTP and build evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: deedlight-c75-integrated-http-build
+          run-id: 43633674146
+          repository: ADRN-9/deedlight
+          github-token: ${{ github.token }}
+          path: /tmp/c75-final/http
+      - name: Verify exact tree, patch, and publish only archived evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +x
+          source_tree=3ffedca10b5f38b375b08350ea7090e5a0a000d8
+          test "$(cat /tmp/c75-final/pg/baseline-tree.txt)" = a9981c2672b316a07904ad7f6b498cd22f206a5b
+          test "$(cat /tmp/c75-final/pg/candidate-tree.txt)" = "$source_tree"
+          test "$(cat /tmp/c75-final/http/candidate-tree.txt)" = "$source_tree"
+          test -s /tmp/c75-final/http/end-to-end-http-synthetic.log
+          test -s /tmp/c75-final/pg/before-032-bug.log
+          test -s /tmp/c75-final/pg/after-032-safe.log
+          test -s /tmp/c75-final/http/app-result.txt
+          test -s /tmp/c75-final/pg/c74-security-status.txt
+          printf '%s  %s\n' 166c8834d48d3caaada8f766408a07b247a262ff5e042eb375be8bf5ae37484a /tmp/c75-final/pg/C75_AFTER_C74_CORRECTION.patch | sha256sum --check
+          grep -q '"c75_end_to_end":"pass"' /tmp/c75-final/http/end-to-end-http-synthetic.log
+          grep -q '"observed_prior_bug": true' /tmp/c75-final/pg/before-032-bug.log
+          grep -q '"complaint_downgrade_denied": "pass"' /tmp/c75-final/pg/after-032-safe.log
+          dest=evidence/deedlight-c75-lifecycle/results
+          mkdir -p "$dest/pg" "$dest/http"
+          cp /tmp/c75-final/pg/* "$dest/pg/"
+          cp /tmp/c75-final/http/* "$dest/http/"
+          (
+            cd "$dest"
+            find pg http -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+            sha256sum --strict --check SHA256SUMS.txt
+          )
+          git add -- "$dest"
+          if git diff --cached --name-only | grep -v '^evidence/deedlight-c75-lifecycle/results/'; then
+            echo "Non-evidence source path staged" >&2
+            exit 3
+          fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'evidence(c75): archive exact-tree PostgreSQL and signed HTTP lifecycle results'
+          git push origin HEAD:refs/heads/evidence/deedlight-c75-lifecycle-cbc8279b-v1
