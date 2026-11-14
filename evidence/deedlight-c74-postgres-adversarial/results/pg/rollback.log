@@ -1,0 +1,16 @@
+BEGIN
+SET
+ deedlight_record_resend_verified 
+----------------------------------
+ pending
+(1 row)
+
+ROLLBACK
+DO
+SET
+ deedlight_record_resend_verified 
+----------------------------------
+ pending
+(1 row)
+
+RESET

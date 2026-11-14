@@ -1,0 +1,14 @@
+BEGIN
+SET
+ first_ingestion 
+-----------------
+ pending
+(1 row)
+
+C74_A_LOCK_HELD
+ pg_sleep 
+----------
+ 
+(1 row)
+
+COMMIT

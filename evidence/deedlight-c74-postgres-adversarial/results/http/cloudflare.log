@@ -1,0 +1,200 @@
+
+┌─────────────────────────────┐
+│ OpenNext — Cloudflare build │
+└─────────────────────────────┘
+
+App directory: /home/runner/work/deedlight/deedlight/app
+Next.js version : 16.4.6
+@opennextjs/cloudflare version: 1.20.17
+@opennextjs/aws version: 4.1.16
+workerd compatibility_date: 2026-07-21
+
+┌─────────────────────────────────┐
+│ OpenNext — Building Next.js app │
+└─────────────────────────────────┘
+
+
+> deedlight@0.1.0 build
+> next build
+
+▲ Next.js 16.4.6 (Turbopack)
+✓ Running next.config.ts took 585ms
+
+⚠ The "middleware" file convention is deprecated. Please use "proxy" instead.
+
+  To migrate automatically, run:
+  npx @next/codemod@canary middleware-to-proxy .
+
+  Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+  Creating an optimized production build ...
+✓ Compiled successfully in 1473ms
+  Running TypeScript ...
+  Finished TypeScript in 1942ms ...
+  Collecting page data using 3 workers ...
+  Generating static pages using 3 workers (0/13) ...
+  Generating static pages using 3 workers (3/13) 
+PublicHeader auth check failed Error: Dynamic server usage: Route /_not-found couldn't be rendered statically because it used `cookies`. See more info here: https://nextjs.org/docs/messages/dynamic-server-error
+    at dc (lib/supabase/server.ts:20:29)
+    at s (components/layout/public-header.tsx:11:28)
+  18 |   }
+  19 |
+> 20 |   const cookieStore = await cookies();
+     |                             ^
+  21 |
+  22 |   return createServerClient(url, anonKey, {
+  23 |     cookies: { {
+  description: "Route /_not-found couldn't be rendered statically because it used `cookies`. See more info here: https://nextjs.org/docs/messages/dynamic-server-error",
+  digest: 'DYNAMIC_SERVER_USAGE'
+}
+PublicHeader auth check failed Error: Dynamic server usage: Route /about couldn't be rendered statically because it used `cookies`. See more info here: https://nextjs.org/docs/messages/dynamic-server-error
+    at dc (lib/supabase/server.ts:20:29)
+    at s (components/layout/public-header.tsx:11:28)
+  18 |   }
+  19 |
+> 20 |   const cookieStore = await cookies();
+     |                             ^
+  21 |
+  22 |   return createServerClient(url, anonKey, {
+  23 |     cookies: { {
+  description: "Route /about couldn't be rendered statically because it used `cookies`. See more info here: https://nextjs.org/docs/messages/dynamic-server-error",
+  digest: 'DYNAMIC_SERVER_USAGE'
+}
+PublicHeader auth check failed Error: Dynamic server usage: Route /guidelines couldn't be rendered statically because it used `cookies`. See more info here: https://nextjs.org/docs/messages/dynamic-server-error
+    at dc (lib/supabase/server.ts:20:29)
+    at s (components/layout/public-header.tsx:11:28)
+  18 |   }
+  19 |
+> 20 |   const cookieStore = await cookies();
+     |                             ^
+  21 |
+  22 |   return createServerClient(url, anonKey, {
+  23 |     cookies: { {
+  description: "Route /guidelines couldn't be rendered statically because it used `cookies`. See more info here: https://nextjs.org/docs/messages/dynamic-server-error",
+  digest: 'DYNAMIC_SERVER_USAGE'
+}
+  Generating static pages using 3 workers (6/13) 
+PublicHeader auth check failed Error: Dynamic server usage: Route /privacy couldn't be rendered statically because it used `cookies`. See more info here: https://nextjs.org/docs/messages/dynamic-server-error
+    at dc (lib/supabase/server.ts:20:29)
+    at s (components/layout/public-header.tsx:11:28)
+  18 |   }
+  19 |
+> 20 |   const cookieStore = await cookies();
+     |                             ^
+  21 |
+  22 |   return createServerClient(url, anonKey, {
+  23 |     cookies: { {
+  description: "Route /privacy couldn't be rendered statically because it used `cookies`. See more info here: https://nextjs.org/docs/messages/dynamic-server-error",
+  digest: 'DYNAMIC_SERVER_USAGE'
+}
+PublicHeader auth check failed Error: Dynamic server usage: Route /rising couldn't be rendered statically because it used `cookies`. See more info here: https://nextjs.org/docs/messages/dynamic-server-error
+    at dc (lib/supabase/server.ts:20:29)
+    at s (components/layout/public-header.tsx:11:28)
+  18 |   }
+  19 |
+> 20 |   const cookieStore = await cookies();
+     |                             ^
+  21 |
+  22 |   return createServerClient(url, anonKey, {
+  23 |     cookies: { {
+  description: "Route /rising couldn't be rendered statically because it used `cookies`. See more info here: https://nextjs.org/docs/messages/dynamic-server-error",
+  digest: 'DYNAMIC_SERVER_USAGE'
+}
+  Generating static pages using 3 workers (9/13) 
+PublicHeader auth check failed Error: Dynamic server usage: Route /terms couldn't be rendered statically because it used `cookies`. See more info here: https://nextjs.org/docs/messages/dynamic-server-error
+    at dc (lib/supabase/server.ts:20:29)
+    at s (components/layout/public-header.tsx:11:28)
+  18 |   }
+  19 |
+> 20 |   const cookieStore = await cookies();
+     |                             ^
+  21 |
+  22 |   return createServerClient(url, anonKey, {
+  23 |     cookies: { {
+  description: "Route /terms couldn't be rendered statically because it used `cookies`. See more info here: https://nextjs.org/docs/messages/dynamic-server-error",
+  digest: 'DYNAMIC_SERVER_USAGE'
+}
+PublicHeader auth check failed Error: Dynamic server usage: Route /quiet couldn't be rendered statically because it used `cookies`. See more info here: https://nextjs.org/docs/messages/dynamic-server-error
+    at dc (lib/supabase/server.ts:20:29)
+    at s (components/layout/public-header.tsx:11:28)
+  18 |   }
+  19 |
+> 20 |   const cookieStore = await cookies();
+     |                             ^
+  21 |
+  22 |   return createServerClient(url, anonKey, {
+  23 |     cookies: { {
+  description: "Route /quiet couldn't be rendered statically because it used `cookies`. See more info here: https://nextjs.org/docs/messages/dynamic-server-error",
+  digest: 'DYNAMIC_SERVER_USAGE'
+}
+✓ Generating static pages using 3 workers (13/13) in 470ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ƒ /
+├ ƒ /_not-found
+├ ƒ /about
+├ ƒ /admin
+├ ƒ /admin/daily
+├ ƒ /admin/daily/[id]
+├ ƒ /admin/daily/new
+├ ƒ /admin/members
+├ ƒ /admin/members/[userId]
+├ ƒ /admin/offerings
+├ ƒ /admin/offerings/[id]
+├ ƒ /admin/reports
+├ ƒ /admin/video-studio
+├ ƒ /admin/video-studio/[id]
+├ ƒ /admin/weekly
+├ ƒ /api/health
+├ ƒ /api/share/default
+├ ƒ /api/share/offering/[id]
+├ ƒ /api/share/profile/[username]
+├ ƒ /api/share/today
+├ ƒ /api/share/weekly
+├ ƒ /api/webhooks/resend
+├ ƒ /debug/auth
+├ ƒ /guidelines
+├ ƒ /invite
+├ ƒ /journey
+├ ƒ /login
+├ ○ /manifest.webmanifest
+├ ƒ /offerings
+├ ƒ /offerings/[id]
+├ ƒ /offerings/[id]/edit
+├ ƒ /offerings/new
+├ ƒ /people/[username]
+├ ƒ /privacy
+├ ƒ /quiet
+├ ƒ /rising
+├ ƒ /settings/newsletter
+├ ƒ /settings/profile
+├ ƒ /settings/reminders
+├ ƒ /signup
+├ ƒ /terms
+├ ƒ /today
+├ ƒ /today/archive
+├ ƒ /videos
+└ ƒ /weekly
+
+
+ƒ Proxy (Middleware)
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+
+┌──────────────────────────────┐
+│ OpenNext — Generating bundle │
+└──────────────────────────────┘
+
+Bundling middleware function...
+Bundling static assets...
+Bundling cache assets...
+Building server function: default...
+Applying code patches: 2.647s
+# copyPackageTemplateFiles
+[35m⚙️ Bundling the OpenNext server...
+[0m
+[35mWorker saved in `.open-next/worker.js` 🚀
+[0m
+OpenNext build complete.

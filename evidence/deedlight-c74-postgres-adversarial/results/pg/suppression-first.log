@@ -1,0 +1,14 @@
+BEGIN
+SET
+ deedlight_record_resend_verified 
+----------------------------------
+ recorded
+(1 row)
+
+C74_SUPPRESSION_LOCK_HELD
+ pg_sleep 
+----------
+ 
+(1 row)
+
+COMMIT

@@ -1,0 +1,1 @@
+c73/evidence/deedlight-c73-integrated-security-d8700788/results/C73_COMPLETE_RESOLVED_INTEGRATION.patch: OK

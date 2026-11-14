@@ -1,0 +1,7 @@
+SET
+ second_ingestion 
+------------------
+ pending
+(1 row)
+
+RESET

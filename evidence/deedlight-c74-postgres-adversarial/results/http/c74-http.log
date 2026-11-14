@@ -1,0 +1,14 @@
+raw-body signed Resend delivery: HTTP 200 PASS
+out-of-order durable pending: HTTP 202 PASS
+idempotent signed replay: HTTP 200 PASS
+conflicting signed association quarantined: HTTP 200 PASS
+database error requests provider retry: HTTP 503 PASS
+invalid signed payload rejected: HTTP 400 PASS
+invalid svix signature rejected: HTTP 400 PASS
+timestamp outside replay window rejected: HTTP 400 PASS
+unsupported event type denied: HTTP 400 PASS
+multiple recipient association denied: HTTP 400 PASS
+unclassified bounce denied: HTTP 400 PASS
+oversized signed envelope denied: HTTP 413 PASS
+missing privileged configuration fails closed: HTTP 503 PASS
+C74 real localhost HTTP adapter + actual route handler + official Svix: 13 PASS; no external provider calls
