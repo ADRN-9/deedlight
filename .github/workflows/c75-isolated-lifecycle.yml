@@ -234,6 +234,21 @@ jobs:
           cd app
           npm ci > ../c75-http-results/npm-ci.log 2>&1
           npm ls svix wrangler miniflare undici --all > ../c75-http-results/dependency-versions.log 2>&1 || true
+          # Synthetic-only diagnostic instrumentation; never print secrets or member data.
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('../c75-http-inputs/tests/real-postgres-http.mjs')
+          s=p.read_text()
+          a='throw Error(`Synthetic PostgreSQL operation failed (exit ${p.status})`);'
+          b='throw Error(`Synthetic PostgreSQL operation failed (exit ${p.status}): ${p.stderr.slice(-550)}`);'
+          assert a in s
+          s=s.replace(a,b)
+          a="} catch {\n    return { data: null, error: { code: 'C75_SYNTHETIC_DB_ERROR' } };"
+          b="} catch (error) {\n    console.error('Synthetic test DB op:', name, String(error.message).slice(0,700));\n    return { data: null, error: { code: 'C75_SYNTHETIC_DB_ERROR' } };"
+          assert a in s
+          s=s.replace(a,b)
+          p.write_text(s)
+          PY
           node ../c75-http-inputs/tests/real-postgres-http.mjs > ../c75-http-results/end-to-end-http-synthetic.log 2>&1
           node --test scripts/test-c73-provider-webhook.mjs > ../c75-http-results/official-svix.log 2>&1
           node scripts/verify-c73-security.mjs > ../c75-http-results/verify-c73.log 2>&1
