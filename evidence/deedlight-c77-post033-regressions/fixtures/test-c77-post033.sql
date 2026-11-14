@@ -83,7 +83,7 @@ BEGIN
    ORDER BY u.email LOOP
    IF public.mark_delivery_sent_identity_bound(
        r.job_id,r.claim_token,
-       'provider-c77-'||split_part(split_part(r.email,'@',1),'-',2)) IS DISTINCT FROM true
+       'provider-c77-'||lpad(split_part(split_part(r.email,'@',1),'-',2),3,'0')) IS DISTINCT FROM true
    THEN RAISE EXCEPTION 'Provider association failed after early event: %',r.email; END IF;
  END LOOP;
 END $promote$;
