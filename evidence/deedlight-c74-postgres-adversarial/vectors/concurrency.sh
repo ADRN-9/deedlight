@@ -11,7 +11,7 @@ BEGIN;
 SET LOCAL ROLE service_role;
 SELECT public.deedlight_record_resend_verified(
  'msg_c74_concurrent_dupe001','provider-c74-unknown-001','c73-b@example.test',
- 'email.delivered',now(),repeat('6',64),NULL) AS first_ingestion;
+ 'email.delivered',TIMESTAMPTZ '2026-11-14 17:00:00+00',repeat('6',64),NULL) AS first_ingestion;
 \echo C74_A_LOCK_HELD
 SELECT pg_sleep(3);
 COMMIT;
@@ -27,7 +27,7 @@ psql -X -v ON_ERROR_STOP=1 -d deedlight_c74_adversarial >"$OUT/duplicate-b.log" 
 SET ROLE service_role;
 SELECT public.deedlight_record_resend_verified(
  'msg_c74_concurrent_dupe001','provider-c74-unknown-001','c73-b@example.test',
- 'email.delivered',now(),repeat('6',64),NULL) AS second_ingestion;
+ 'email.delivered',TIMESTAMPTZ '2026-11-14 17:00:00+00',repeat('6',64),NULL) AS second_ingestion;
 RESET ROLE;
 SQL
 wait "$a"
@@ -45,7 +45,7 @@ END $$;
 SET ROLE service_role;
 SELECT public.deedlight_record_resend_verified(
  'msg_c74_concurrent_dupe001','provider-c74-unknown-001','c73-b@example.test',
- 'email.delivered',now(),repeat('7',64),NULL);
+ 'email.delivered',TIMESTAMPTZ '2026-11-14 17:00:00+00',repeat('7',64),NULL);
 RESET ROLE;
 DO $$
 BEGIN
