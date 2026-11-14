@@ -167,3 +167,56 @@ jobs:
           path: c74-results/
           if-no-files-found: warn
           retention-days: 14
+
+
+  publish_evidence:
+    needs: [postgres, http_build]
+    if: needs.postgres.result == 'success' && needs.http_build.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: write
+    env:
+      DELIVERY_ENABLED: "false"
+    steps:
+      - name: Checkout evidence-only branch
+        uses: actions/checkout@v7
+      - name: Read PostgreSQL security artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: c74-postgres16-adversarial
+          path: /tmp/deedlight-c74-pg
+      - name: Read HTTP and build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: c74-webhook-and-app
+          path: /tmp/deedlight-c74-http
+      - name: Verify exact source, patch, and sanitized evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +x
+          test "$DELIVERY_ENABLED" = false
+          test "$GITHUB_REF" = "refs/heads/evidence/deedlight-c74-postgres-adversarial-1cd95cac-v1"
+          test "$(cat /tmp/deedlight-c74-pg/source-tree.txt)" = dd4f8593fdb1b3032eb6cddd5f39e50ea9cb7682
+          test "$(cat /tmp/deedlight-c74-pg/c74-corrected-tree.txt)" = a9981c2672b316a07904ad7f6b498cd22f206a5b
+          cmp /tmp/deedlight-c74-pg/c74-corrected-tree.txt /tmp/deedlight-c74-http/c74-corrected-tree.txt
+          echo '71412f3345a34ba3e7ad1246cbfd0165b6d765fdbd719c97d045a6fae265a1fc  /tmp/deedlight-c74-pg/C74_POST_C73_CORRECTION.patch' | sha256sum --check
+          grep -q 'C74 SQL + concurrency + historical collision + bounce safety complete PASS' /tmp/deedlight-c74-pg/pg-pass.txt
+          grep -q 'C74 route HTTP, TypeScript, Next, Cloudflare, audit: PASS' /tmp/deedlight-c74-http/app-pass.txt
+          grep -q 'C74 real localhost HTTP adapter + actual route handler + official Svix: 13 PASS' /tmp/deedlight-c74-http/c74-http.log
+          mkdir -p evidence/deedlight-c74-postgres-adversarial/results/pg
+          mkdir -p evidence/deedlight-c74-postgres-adversarial/results/http
+          cp -a /tmp/deedlight-c74-pg/. evidence/deedlight-c74-postgres-adversarial/results/pg/
+          cp -a /tmp/deedlight-c74-http/. evidence/deedlight-c74-postgres-adversarial/results/http/
+          cd evidence/deedlight-c74-postgres-adversarial/results
+          find pg http -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+          sha256sum --strict --check SHA256SUMS.txt
+          cd "$GITHUB_WORKSPACE"
+          git add -- evidence/deedlight-c74-postgres-adversarial/results
+          if git diff --cached --name-only | grep -v '^evidence/deedlight-c74-postgres-adversarial/results/'; then
+            echo "Non-evidence path unexpectedly staged" >&2
+            exit 3
+          fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "evidence(c74): preserve exact corrected-tree PG16 and HTTP adversarial results"
+          git push origin HEAD:refs/heads/evidence/deedlight-c74-postgres-adversarial-1cd95cac-v1
