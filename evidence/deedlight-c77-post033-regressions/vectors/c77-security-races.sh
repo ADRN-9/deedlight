@@ -28,8 +28,8 @@ INSERT INTO public.profiles(user_id,is_suspended)
 INSERT INTO public.daily_reminder_preferences(user_id,daily_enabled,reminder_time,timezone)
  SELECT id,true,time '00:00','UTC' FROM auth.users WHERE email LIKE 'c77-race-%@example.test';
 INSERT INTO public.delivery_ledger(user_id,kind,delivery_key,scheduled_for)
- SELECT id,'daily_reminder','daily:'||(timezone('UTC',now())::date-4)::text,
-   now()-interval '4 days' FROM auth.users WHERE email LIKE 'c77-race-%@example.test';
+ SELECT id,'daily_reminder','daily:'||(timezone('UTC',now())::date-1)::text,
+   ((timezone('UTC',now())::date-1)+time '00:00') AT TIME ZONE 'UTC' FROM auth.users WHERE email LIKE 'c77-race-%@example.test';
 SET ROLE service_role;
 DO $first$
 DECLARE r record;i integer;started timestamptz; provider_id text;
@@ -52,8 +52,8 @@ BEGIN
 END $first$;
 RESET ROLE;
 INSERT INTO public.delivery_ledger(user_id,kind,delivery_key,scheduled_for)
- SELECT id,'daily_reminder','daily:'||(timezone('UTC',now())::date-3)::text,
-   now()-interval '3 days'
+ SELECT id,'daily_reminder','daily:'||timezone('UTC',now())::date::text,
+   (timezone('UTC',now())::date+time '00:00') AT TIME ZONE 'UTC'
  FROM auth.users WHERE email IN ('c77-race-96@example.test','c77-race-97@example.test');
 SET ROLE service_role;
 DO $retry$
@@ -199,7 +199,7 @@ BEGIN
  THEN RAISE EXCEPTION 'Concurrent recipient hold not monotone'; END IF;
  IF EXISTS (SELECT 1 FROM public.delivery_ledger l JOIN auth.users u ON u.id=l.user_id
    WHERE u.email IN ('c77-race-96@example.test','c77-race-97@example.test')
-     AND l.delivery_key='daily:'||(timezone('UTC',now())::date-3)::text
+     AND l.delivery_key='daily:'||timezone('UTC',now())::date::text
      AND l.transport_started_at IS NOT NULL)
  THEN RAISE EXCEPTION 'Concurrent final authorization began external transport'; END IF;
 END $verify$;
