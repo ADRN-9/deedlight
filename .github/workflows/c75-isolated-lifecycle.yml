@@ -251,9 +251,9 @@ jobs:
           b="data: value === '__NULL__' ? null : (value === 't' || value === 'true') ? true : (value === 'f' || value === 'false') ? false : value,"
           assert a in s
           s=s.replace(a,b)
-          a="function claim(kind) {\\n  sql(`SET ROLE service_role;\\n    SELECT count(*) FROM public.claim_delivery_jobs(:'kind',now(),100);\\n    RESET ROLE;`, { kind });\\n}"
-          b="function claim(kind) {\\n  const batches = kind === 'weekly_newsletter' ? 7 : 1;\\n  for (let i = 0; i < batches; i++) {\\n    sql(`SET ROLE service_role;\\n      SELECT count(*) FROM public.claim_delivery_jobs(:'kind',now(),1000);\\n      RESET ROLE;`, { kind });\\n  }\\n}"
-          assert a.replace('\\n','\\n') in s
+          a="function claim(kind) {\n  sql(`SET ROLE service_role;\n    SELECT count(*) FROM public.claim_delivery_jobs(:'kind',now(),100);\n    RESET ROLE;`, { kind });\n}"
+          b="function claim(kind) {\n  const batches = kind === 'weekly_newsletter' ? 7 : 1;\n  for (let i = 0; i < batches; i++) {\n    sql(`SET ROLE service_role;\n      SELECT count(*) FROM public.claim_delivery_jobs(:'kind',now(),1000);\n      RESET ROLE;`, { kind });\n  }\n}"
+          assert a in s
           s=s.replace(a,b)
           p.write_text(s)
           PY
