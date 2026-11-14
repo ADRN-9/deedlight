@@ -105,7 +105,7 @@ jobs:
           git -C app add -- .
           git -C app diff --cached --check
           git -C app write-tree | tee c73-test-results/verified-tree.txt
-          test "$(cat c73-test-results/verified-tree.txt)" = ba723d42d33664de7bebb49d1e9176e132b99a59
+          test "$(cat c73-test-results/verified-tree.txt)" = ea0fdf35a6403d4e759ab4478fe465f172e7519d
           cp app/package.json app/package-lock.json c73-test-results/
           git -C app diff --cached --binary > c73-test-results/C73_COMPLETE_SOURCE.patch
           echo 'Cycle72 exact replay + C73 authentic source and overlay: PASS' | tee c73-test-results/source-integrity.txt
