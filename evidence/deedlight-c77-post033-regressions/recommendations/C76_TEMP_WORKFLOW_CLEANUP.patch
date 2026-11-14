@@ -1,0 +1,500 @@
+diff --git a/.github/workflows/c76-export.yml b/.github/workflows/c76-export.yml
+deleted file mode 100644
+index 0c0f867..0000000
+--- a/.github/workflows/c76-export.yml
++++ /dev/null
+@@ -1,70 +0,0 @@
+-name: C76 export exact integrated C75 source
+-on:
+-  push:
+-    branches:
+-      - evidence/deedlight-c76-provider-scheduler-ac39b069-v1
+-    paths:
+-      - .github/workflows/c76-export.yml
+-permissions:
+-  contents: read
+-jobs:
+-  export:
+-    runs-on: ubuntu-latest
+-    timeout-minutes: 12
+-    env:
+-      DELIVERY_ENABLED: "false"
+-    steps:
+-      - uses: actions/checkout@v7
+-        with:
+-          ref: c983e2ed8b93c935139c935343261570ecea6978
+-          path: app
+-          persist-credentials: false
+-      - uses: actions/checkout@v7
+-        with:
+-          ref: a25a43a85d74a5a5b9d05309ad0840df8ddcd8cf
+-          path: c73
+-          persist-credentials: false
+-      - uses: actions/checkout@v7
+-        with:
+-          ref: 4b913640c16c1113d9f559b26e7d930a432f4ccb
+-          path: c74
+-          persist-credentials: false
+-      - uses: actions/checkout@v7
+-        with:
+-          ref: df1150dcee7c54a4e5bc2af1225afbc57c722309
+-          path: c75
+-          persist-credentials: false
+-      - name: Replay pinned C73-75 patches, assert all trees, export
+-        shell: bash
+-        run: |
+-          set -euo pipefail
+-          test "$DELIVERY_ENABLED" = false
+-          for key in DATABASE_URL SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY SUPABASE_PROJECT_REF RESEND_API_KEY RESEND_WEBHOOK_SECRET CLOUDFLARE_API_TOKEN; do test -z "$(printenv "$key" || true)"; done
+-          test "$(git -C app rev-parse HEAD)" = c983e2ed8b93c935139c935343261570ecea6978
+-          p73=c73/evidence/deedlight-c73-integrated-security-d8700788/results/C73_COMPLETE_RESOLVED_INTEGRATION.patch
+-          p74=c74/evidence/deedlight-c74-postgres-adversarial/results/pg/C74_POST_C73_CORRECTION.patch
+-          p75=c75/evidence/deedlight-c75-lifecycle/results/pg/C75_AFTER_C74_CORRECTION.patch
+-          printf '%s  %s\n' 864c3fae8df6b3c60fbcf17f0189e633ae1b1de54a01dde01738c545f53dc8d9 "$p73" | sha256sum --check
+-          printf '%s  %s\n' 71412f3345a34ba3e7ad1246cbfd0165b6d765fdbd719c97d045a6fae265a1fc "$p74" | sha256sum --check
+-          printf '%s  %s\n' 166c8834d48d3caaada8f766408a07b247a262ff5e042eb375be8bf5ae37484a "$p75" | sha256sum --check
+-          for rec in '73 dd4f8593fdb1b3032eb6cddd5f39e50ea9cb7682' '74 a9981c2672b316a07904ad7f6b498cd22f206a5b' '75 3ffedca10b5f38b375b08350ea7090e5a0a000d8'; do
+-            read -r step expected <<< "$rec"
+-            var=p"$step"
+-            git -C app apply --check "../${!var}"
+-            git -C app apply "../${!var}"
+-            git -C app add -A
+-            actual="$(git -C app write-tree)"
+-            test "$actual" = "$expected"
+-            echo "C$step exact tree: $actual"
+-          done
+-          git -C app diff --cached --check
+-          tar -C app --exclude=.git -czf c76_verified_c75_source.tar.gz .
+-          sha256sum c76_verified_c75_source.tar.gz > c76_source.sha256
+-      - uses: actions/upload-artifact@v4
+-        with:
+-          name: deedlight-c76-verified-c75-source
+-          path: |
+-            c76_verified_c75_source.tar.gz
+-            c76_source.sha256
+-          retention-days: 7
+-          if-no-files-found: error
+diff --git a/.github/workflows/c76-isolated-ci.yml b/.github/workflows/c76-isolated-ci.yml
+deleted file mode 100644
+index 40142d3..0000000
+--- a/.github/workflows/c76-isolated-ci.yml
++++ /dev/null
+@@ -1,227 +0,0 @@
+-name: C76 isolated provider contract and kind-scoped scheduler
+-on:
+-  push:
+-    branches:
+-      - evidence/deedlight-c76-provider-scheduler-ac39b069-v1
+-    paths:
+-      - .github/workflows/c76-isolated-ci.yml
+-      - evidence/deedlight-c76-provider-scheduler/inputs/**
+-permissions:
+-  contents: read
+-concurrency:
+-  group: c76-verified
+-  cancel-in-progress: true
+-jobs:
+-  postgres16:
+-    runs-on: ubuntu-latest
+-    timeout-minutes: 28
+-    services:
+-      postgres:
+-        image: postgres:16
+-        env:
+-          POSTGRES_PASSWORD: postgres
+-          POSTGRES_DB: postgres
+-        ports:
+-          - 5432:5432
+-        options: >-
+-          --health-cmd "pg_isready -U postgres -d postgres"
+-          --health-interval 5s
+-          --health-timeout 5s
+-          --health-retries 10
+-    env:
+-      DELIVERY_ENABLED: "false"
+-      PGHOST: 127.0.0.1
+-      PGPORT: "5432"
+-      PGUSER: postgres
+-      PGPASSWORD: postgres
+-    steps:
+-      - uses: actions/checkout@v7
+-        with:
+-          ref: c983e2ed8b93c935139c935343261570ecea6978
+-          path: app
+-          persist-credentials: false
+-      - uses: actions/checkout@v7
+-        with:
+-          ref: a25a43a85d74a5a5b9d05309ad0840df8ddcd8cf
+-          path: c73
+-          persist-credentials: false
+-      - uses: actions/checkout@v7
+-        with:
+-          ref: 4b913640c16c1113d9f559b26e7d930a432f4ccb
+-          path: c74
+-          persist-credentials: false
+-      - uses: actions/checkout@v7
+-        with:
+-          ref: df1150dcee7c54a4e5bc2af1225afbc57c722309
+-          path: c75
+-          persist-credentials: false
+-      - uses: actions/checkout@v7
+-        with:
+-          path: evidence
+-          persist-credentials: false
+-      - name: Install PostgreSQL client
+-        run: |
+-          sudo apt-get update -q
+-          sudo apt-get install -y postgresql-client
+-      - name: Exact-tree reconstruction and disposable PostgreSQL behavior
+-        shell: bash
+-        run: |
+-          set -euo pipefail
+-          mkdir -p c76-results/pg
+-          test "$DELIVERY_ENABLED" = false
+-          for key in DATABASE_URL SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY SUPABASE_PROJECT_REF SUPABASE_DB_PASSWORD RESEND_API_KEY RESEND_WEBHOOK_SECRET CLOUDFLARE_API_TOKEN; do
+-            test -z "$(printenv "$key" || true)"
+-          done
+-          p73=c73/evidence/deedlight-c73-integrated-security-d8700788/results/C73_COMPLETE_RESOLVED_INTEGRATION.patch
+-          p74=c74/evidence/deedlight-c74-postgres-adversarial/results/pg/C74_POST_C73_CORRECTION.patch
+-          p75=c75/evidence/deedlight-c75-lifecycle/results/pg/C75_AFTER_C74_CORRECTION.patch
+-          p76=evidence/evidence/deedlight-c76-provider-scheduler/inputs/C76_AFTER_C75.patch
+-          printf '%s  %s\n' 864c3fae8df6b3c60fbcf17f0189e633ae1b1de54a01dde01738c545f53dc8d9 "$p73" | sha256sum --check
+-          printf '%s  %s\n' 71412f3345a34ba3e7ad1246cbfd0165b6d765fdbd719c97d045a6fae265a1fc "$p74" | sha256sum --check
+-          printf '%s  %s\n' 166c8834d48d3caaada8f766408a07b247a262ff5e042eb375be8bf5ae37484a "$p75" | sha256sum --check
+-          printf '%s  %s\n' 88c57e35489b4c7b5b806be02612dff67ef3ffd401cd884976e1d76982251672 "$p76" | sha256sum --check
+-          apply_patch() {
+-            local patch="$1" expected="$2"
+-            git -C app apply --check "../$patch"
+-            git -C app apply "../$patch"
+-            git -C app add -A
+-            test "$(git -C app write-tree)" = "$expected"
+-            echo "$expected"
+-          }
+-          apply_patch "$p73" dd4f8593fdb1b3032eb6cddd5f39e50ea9cb7682
+-          apply_patch "$p74" a9981c2672b316a07904ad7f6b498cd22f206a5b
+-          apply_patch "$p75" 3ffedca10b5f38b375b08350ea7090e5a0a000d8
+-          apply_patch "$p76" 5b9fa485c0dcc67beb5b82e9623e5dff4e93260b
+-          git -C app diff --cached --check
+-          psql -X -At -v ON_ERROR_STOP=1 -d postgres -c 'show server_version;' > c76-results/pg/server-version.txt
+-          createdb deedlight_c76_security
+-          cd app
+-          psql -X -v ON_ERROR_STOP=1 -d deedlight_c76_security -f scripts/test-c73-integrated-provider-security.sql > ../c76-results/pg/019-030.log 2>&1
+-          psql -X -v ON_ERROR_STOP=1 -d deedlight_c76_security -f supabase/migrations/202611130031_c74_legacy_lifecycle_guard.sql > ../c76-results/pg/031.log 2>&1
+-          psql -X -v ON_ERROR_STOP=1 -d deedlight_c76_security -f supabase/migrations/202611130032_c75_monotone_recipient_conflict_hold.sql > ../c76-results/pg/032.log 2>&1
+-          psql -X -v ON_ERROR_STOP=1 -d deedlight_c76_security -f supabase/migrations/202611130033_c76_provider_classification_and_suppression.sql > ../c76-results/pg/033.log 2>&1
+-          psql -X -v ON_ERROR_STOP=1 -d deedlight_c76_security -f scripts/test-c76-provider-classification.sql > ../c76-results/pg/classification.log 2>&1
+-          echo 'C76 PG16 provider, suppression, kind isolation PASS' | tee ../c76-results/pg/result.txt
+-      - uses: actions/upload-artifact@v4
+-        if: always()
+-        with:
+-          name: c76-postgres16
+-          path: c76-results/pg/
+-          retention-days: 14
+-          if-no-files-found: warn
+-  http_build:
+-    runs-on: ubuntu-latest
+-    timeout-minutes: 33
+-    services:
+-      postgres:
+-        image: postgres:16
+-        env:
+-          POSTGRES_PASSWORD: postgres
+-          POSTGRES_DB: postgres
+-        ports:
+-          - 5432:5432
+-        options: >-
+-          --health-cmd "pg_isready -U postgres -d postgres"
+-          --health-interval 5s
+-          --health-timeout 5s
+-          --health-retries 10
+-    env:
+-      DELIVERY_ENABLED: "false"
+-      PGHOST: 127.0.0.1
+-      PGPORT: "5432"
+-      PGUSER: postgres
+-      PGPASSWORD: postgres
+-      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+-      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+-      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-not-a-secret
+-    steps:
+-      - uses: actions/checkout@v7
+-        with:
+-          ref: c983e2ed8b93c935139c935343261570ecea6978
+-          path: app
+-          persist-credentials: false
+-      - uses: actions/checkout@v7
+-        with:
+-          ref: a25a43a85d74a5a5b9d05309ad0840df8ddcd8cf
+-          path: c73
+-          persist-credentials: false
+-      - uses: actions/checkout@v7
+-        with:
+-          ref: 4b913640c16c1113d9f559b26e7d930a432f4ccb
+-          path: c74
+-          persist-credentials: false
+-      - uses: actions/checkout@v7
+-        with:
+-          ref: df1150dcee7c54a4e5bc2af1225afbc57c722309
+-          path: c75
+-          persist-credentials: false
+-      - uses: actions/checkout@v7
+-        with:
+-          path: evidence
+-          persist-credentials: false
+-      - uses: actions/setup-node@v7
+-        with:
+-          node-version: 24
+-          cache: npm
+-          cache-dependency-path: app/package-lock.json
+-
+-      - name: Install PostgreSQL client
+-        run: |
+-          sudo apt-get update -q
+-          sudo apt-get install -y postgresql-client
+-      - name: Exact-tree webhook HTTP, TypeScript, package and dependency audit
+-        shell: bash
+-        run: |
+-          set -euo pipefail
+-          mkdir -p c76-results/http
+-          test "$DELIVERY_ENABLED" = false
+-          for key in DATABASE_URL SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY SUPABASE_PROJECT_REF SUPABASE_DB_PASSWORD RESEND_API_KEY RESEND_WEBHOOK_SECRET CLOUDFLARE_API_TOKEN; do
+-            test -z "$(printenv "$key" || true)"
+-          done
+-          p73=c73/evidence/deedlight-c73-integrated-security-d8700788/results/C73_COMPLETE_RESOLVED_INTEGRATION.patch
+-          p74=c74/evidence/deedlight-c74-postgres-adversarial/results/pg/C74_POST_C73_CORRECTION.patch
+-          p75=c75/evidence/deedlight-c75-lifecycle/results/pg/C75_AFTER_C74_CORRECTION.patch
+-          p76=evidence/evidence/deedlight-c76-provider-scheduler/inputs/C76_AFTER_C75.patch
+-          printf '%s  %s\n' 864c3fae8df6b3c60fbcf17f0189e633ae1b1de54a01dde01738c545f53dc8d9 "$p73" | sha256sum --check
+-          printf '%s  %s\n' 71412f3345a34ba3e7ad1246cbfd0165b6d765fdbd719c97d045a6fae265a1fc "$p74" | sha256sum --check
+-          printf '%s  %s\n' 166c8834d48d3caaada8f766408a07b247a262ff5e042eb375be8bf5ae37484a "$p75" | sha256sum --check
+-          printf '%s  %s\n' 88c57e35489b4c7b5b806be02612dff67ef3ffd401cd884976e1d76982251672 "$p76" | sha256sum --check
+-          apply_patch() {
+-            local patch="$1" expected="$2"
+-            git -C app apply --check "../$patch"
+-            git -C app apply "../$patch"
+-            git -C app add -A
+-            test "$(git -C app write-tree)" = "$expected"
+-            echo "$expected"
+-          }
+-          apply_patch "$p73" dd4f8593fdb1b3032eb6cddd5f39e50ea9cb7682
+-          apply_patch "$p74" a9981c2672b316a07904ad7f6b498cd22f206a5b
+-          apply_patch "$p75" 3ffedca10b5f38b375b08350ea7090e5a0a000d8
+-          apply_patch "$p76" 5b9fa485c0dcc67beb5b82e9623e5dff4e93260b
+-          git -C app diff --cached --check
+-          cd app
+-          npm ci > ../c76-results/http/npm-ci.log 2>&1
+-          npm ls svix wrangler miniflare undici --all > ../c76-results/http/resolved-deps.txt 2>&1 || true
+-          node --test scripts/test-c73-provider-webhook.mjs > ../c76-results/http/c73-svix.log 2>&1
+-          node --test scripts/test-c76-provider-contract.mjs > ../c76-results/http/c76-contract.log 2>&1
+-          node scripts/verify-c73-security.mjs > ../c76-results/http/c73-security.log 2>&1
+-          node scripts/verify-delivery-consent-gates.mjs > ../c76-results/http/consent-security.log 2>&1
+-          node --test scripts/test-delivery-transport.mjs > ../c76-results/http/delivery-tests.log 2>&1
+-          createdb deedlight_c76_http
+-          psql -X -v ON_ERROR_STOP=1 -d deedlight_c76_http -f scripts/test-c73-integrated-provider-security.sql > ../c76-results/http/019-030.log 2>&1
+-          psql -X -v ON_ERROR_STOP=1 -d deedlight_c76_http -f supabase/migrations/202611130031_c74_legacy_lifecycle_guard.sql > ../c76-results/http/031.log 2>&1
+-          psql -X -v ON_ERROR_STOP=1 -d deedlight_c76_http -f supabase/migrations/202611130032_c75_monotone_recipient_conflict_hold.sql > ../c76-results/http/032.log 2>&1
+-          psql -X -v ON_ERROR_STOP=1 -d deedlight_c76_http -f supabase/migrations/202611130033_c76_provider_classification_and_suppression.sql > ../c76-results/http/033.log 2>&1
+-          node scripts/test-c76-route-http.mjs > ../c76-results/http/route-http-pg.log 2>&1
+-          npm audit --audit-level=high > ../c76-results/http/audit-high.log 2>&1
+-          npx tsc --noEmit > ../c76-results/http/typescript.log 2>&1
+-          npm run build > ../c76-results/http/next-build.log 2>&1
+-          npx opennextjs-cloudflare build > ../c76-results/http/cloudflare.log 2>&1
+-          echo 'C76 HTTP, Svix, consent, TypeScript, Next, Cloudflare, audit PASS' | tee ../c76-results/http/result.txt
+-      - uses: actions/upload-artifact@v4
+-        if: always()
+-        with:
+-          name: c76-http-build
+-          path: c76-results/http/
+-          retention-days: 14
+-          if-no-files-found: warn
+diff --git a/.github/workflows/c76-kind-concurrency.yml b/.github/workflows/c76-kind-concurrency.yml
+deleted file mode 100644
+index 42d21f0..0000000
+--- a/.github/workflows/c76-kind-concurrency.yml
++++ /dev/null
+@@ -1,111 +0,0 @@
+-name: C76 two-session kind isolation and consent regressions
+-on:
+-  push:
+-    branches:
+-      - evidence/deedlight-c76-provider-scheduler-ac39b069-v1
+-    paths:
+-      - .github/workflows/c76-kind-concurrency.yml
+-      - evidence/deedlight-c76-provider-scheduler/vectors/**
+-permissions:
+-  contents: read
+-jobs:
+-  concurrent_kind_postgres16:
+-    runs-on: ubuntu-latest
+-    timeout-minutes: 20
+-    services:
+-      postgres:
+-        image: postgres:16
+-        env:
+-          POSTGRES_PASSWORD: postgres
+-          POSTGRES_DB: postgres
+-        ports:
+-          - 5432:5432
+-        options: >-
+-          --health-cmd "pg_isready -U postgres -d postgres"
+-          --health-interval 5s
+-          --health-timeout 5s
+-          --health-retries 10
+-    env:
+-      DELIVERY_ENABLED: "false"
+-      PGHOST: 127.0.0.1
+-      PGPORT: "5432"
+-      PGUSER: postgres
+-      PGPASSWORD: postgres
+-    steps:
+-      - uses: actions/checkout@v7
+-        with:
+-          ref: c983e2ed8b93c935139c935343261570ecea6978
+-          path: app
+-          persist-credentials: false
+-      - uses: actions/checkout@v7
+-        with:
+-          ref: a25a43a85d74a5a5b9d05309ad0840df8ddcd8cf
+-          path: c73
+-          persist-credentials: false
+-      - uses: actions/checkout@v7
+-        with:
+-          ref: 4b913640c16c1113d9f559b26e7d930a432f4ccb
+-          path: c74
+-          persist-credentials: false
+-      - uses: actions/checkout@v7
+-        with:
+-          ref: df1150dcee7c54a4e5bc2af1225afbc57c722309
+-          path: c75
+-          persist-credentials: false
+-      - uses: actions/checkout@v7
+-        with:
+-          path: evidence
+-          persist-credentials: false
+-      - name: Install PostgreSQL 16 client
+-        run: |
+-          set -euo pipefail
+-          sudo apt-get update -q
+-          sudo apt-get install -y postgresql-client
+-      - name: Replay exact C76 tree and verify parallel scoped workers
+-        shell: bash
+-        run: |
+-          set -euo pipefail
+-          mkdir -p c76-kind-logs
+-          test "$DELIVERY_ENABLED" = false
+-          for key in DATABASE_URL SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY SUPABASE_PROJECT_REF SUPABASE_DB_PASSWORD RESEND_API_KEY RESEND_WEBHOOK_SECRET CLOUDFLARE_API_TOKEN; do
+-            test -z "$(printenv "$key" || true)"
+-          done
+-          p73=c73/evidence/deedlight-c73-integrated-security-d8700788/results/C73_COMPLETE_RESOLVED_INTEGRATION.patch
+-          p74=c74/evidence/deedlight-c74-postgres-adversarial/results/pg/C74_POST_C73_CORRECTION.patch
+-          p75=c75/evidence/deedlight-c75-lifecycle/results/pg/C75_AFTER_C74_CORRECTION.patch
+-          p76=evidence/evidence/deedlight-c76-provider-scheduler/inputs/C76_AFTER_C75.patch
+-          printf '%s  %s\n' 864c3fae8df6b3c60fbcf17f0189e633ae1b1de54a01dde01738c545f53dc8d9 "$p73" | sha256sum --check
+-          printf '%s  %s\n' 71412f3345a34ba3e7ad1246cbfd0165b6d765fdbd719c97d045a6fae265a1fc "$p74" | sha256sum --check
+-          printf '%s  %s\n' 166c8834d48d3caaada8f766408a07b247a262ff5e042eb375be8bf5ae37484a "$p75" | sha256sum --check
+-          printf '%s  %s\n' 88c57e35489b4c7b5b806be02612dff67ef3ffd401cd884976e1d76982251672 "$p76" | sha256sum --check
+-          replay() {
+-            git -C app apply --check "../$1"
+-            git -C app apply "../$1"
+-            git -C app add -A
+-            test "$(git -C app write-tree)" = "$2"
+-          }
+-          replay "$p73" dd4f8593fdb1b3032eb6cddd5f39e50ea9cb7682
+-          replay "$p74" a9981c2672b316a07904ad7f6b498cd22f206a5b
+-          replay "$p75" 3ffedca10b5f38b375b08350ea7090e5a0a000d8
+-          replay "$p76" 5b9fa485c0dcc67beb5b82e9623e5dff4e93260b
+-          git -C app diff --cached --check
+-          git -C app write-tree > c76-kind-logs/source-tree.txt
+-          sha256sum evidence/evidence/deedlight-c76-provider-scheduler/vectors/c76-cross-kind-concurrency.sh > c76-kind-logs/script-sha256.txt
+-          bash -n evidence/evidence/deedlight-c76-provider-scheduler/vectors/c76-cross-kind-concurrency.sh
+-          psql -X -At -v ON_ERROR_STOP=1 -d postgres -c 'show server_version;' > c76-kind-logs/pg-server-version.txt
+-          createdb deedlight_c76_kinds
+-          cd app
+-          psql -X -v ON_ERROR_STOP=1 -d deedlight_c76_kinds -f scripts/test-c73-integrated-provider-security.sql > ../c76-kind-logs/019-030.log 2>&1
+-          psql -X -v ON_ERROR_STOP=1 -d deedlight_c76_kinds -f supabase/migrations/202611130031_c74_legacy_lifecycle_guard.sql > ../c76-kind-logs/031.log 2>&1
+-          psql -X -v ON_ERROR_STOP=1 -d deedlight_c76_kinds -f supabase/migrations/202611130032_c75_monotone_recipient_conflict_hold.sql > ../c76-kind-logs/032.log 2>&1
+-          psql -X -v ON_ERROR_STOP=1 -d deedlight_c76_kinds -f supabase/migrations/202611130033_c76_provider_classification_and_suppression.sql > ../c76-kind-logs/033.log 2>&1
+-          bash ../evidence/evidence/deedlight-c76-provider-scheduler/vectors/c76-cross-kind-concurrency.sh
+-          (cd ../c76-kind-logs && find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -printf '%P\n' | sort | while IFS= read -r f; do sha256sum "$f"; done > SHA256SUMS.txt)
+-      - name: Retain immutable synthetic-only concurrency logs
+-        if: always()
+-        uses: actions/upload-artifact@v4
+-        with:
+-          name: c76-kind-concurrent-postgres16
+-          path: c76-kind-logs/
+-          retention-days: 14
+-          if-no-files-found: warn
+diff --git a/.github/workflows/c76-publish-evidence.yml b/.github/workflows/c76-publish-evidence.yml
+deleted file mode 100644
+index 3ee143b..0000000
+--- a/.github/workflows/c76-publish-evidence.yml
++++ /dev/null
+@@ -1,68 +0,0 @@
+-name: C76 publish immutable isolated verification evidence
+-on:
+-  push:
+-    branches:
+-      - evidence/deedlight-c76-provider-scheduler-ac39b069-v1
+-    paths:
+-      - .github/workflows/c76-publish-evidence.yml
+-permissions:
+-  contents: write
+-jobs:
+-  publish:
+-    runs-on: ubuntu-latest
+-    timeout-minutes: 12
+-    env:
+-      GH_TOKEN: ${{ github.token }}
+-    steps:
+-      - uses: actions/checkout@v7
+-        with:
+-          fetch-depth: 0
+-      - name: Verify exact successful CI runs and download sanitized artifacts
+-        shell: bash
+-        run: |
+-          set -euo pipefail
+-          set +x
+-          test "$GITHUB_REPOSITORY" = ADRN-9/deedlight
+-          test "$GITHUB_REF" = refs/heads/evidence/deedlight-c76-provider-scheduler-ac39b069-v1
+-          test "$(gh run view 43637087966 --json conclusion --jq '.conclusion')" = success
+-          test "$(gh run view 43637533235 --json conclusion --jq '.conclusion')" = success
+-          test "$(gh run view 43637087966 --json headSha --jq '.headSha')" = ac15d2d9c976dedf9206397cd7594f80cedcb11a
+-          test "$(gh run view 43637533235 --json headSha --jq '.headSha')" = d3fa0c60ce76f1ba8d09472935edeb3c2ac363a9
+-          result=evidence/deedlight-c76-provider-scheduler/results
+-          mkdir -p "$result"/postgres16 "$result"/http "$result"/concurrency \
+-            evidence/deedlight-c76-provider-scheduler/workflows
+-          gh run download 43637087966 -R "$GITHUB_REPOSITORY" \
+-            --name c76-postgres16 --dir "$result/postgres16"
+-          gh run download 43637087966 -R "$GITHUB_REPOSITORY" \
+-            --name c76-http-build --dir "$result/http"
+-          gh run download 43637533235 -R "$GITHUB_REPOSITORY" \
+-            --name c76-kind-concurrent-postgres16 --dir "$result/concurrency"
+-          gh run view 43637087966 --json databaseId,status,conclusion,headSha,createdAt,updatedAt \
+-            > "$result/run-43637087966.json"
+-          gh run view 43637533235 --json databaseId,status,conclusion,headSha,createdAt,updatedAt \
+-            > "$result/run-43637533235.json"
+-          cp .github/workflows/c76-export.yml evidence/deedlight-c76-provider-scheduler/workflows/
+-          cp .github/workflows/c76-isolated-ci.yml evidence/deedlight-c76-provider-scheduler/workflows/
+-          cp .github/workflows/c76-kind-concurrency.yml evidence/deedlight-c76-provider-scheduler/workflows/
+-          test -s "$result/postgres16/result.txt"
+-          test -s "$result/http/result.txt"
+-          test -s "$result/concurrency/concurrency-result.txt"
+-          test "$(cat "$result/concurrency/source-tree.txt")" = 5b9fa485c0dcc67beb5b82e9623e5dff4e93260b
+-          printf '%s  %s\n' 88c57e35489b4c7b5b806be02612dff67ef3ffd401cd884976e1d76982251672 \
+-            evidence/deedlight-c76-provider-scheduler/inputs/C76_AFTER_C75.patch | sha256sum --check
+-          printf '%s  %s\n' 4cde4d8464d5192b705007671dca26e661bd6335b19bd0977ef297f38d7b3b7e \
+-            evidence/deedlight-c76-provider-scheduler/vectors/c76-cross-kind-concurrency.sh | sha256sum --check
+-          find evidence/deedlight-c76-provider-scheduler -type f \
+-            ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum \
+-            > "$result/SHA256SUMS.txt"
+-          sha256sum --strict --check "$result/SHA256SUMS.txt" > "$result/manifest-verification.txt"
+-          git add -- evidence/deedlight-c76-provider-scheduler/results \
+-            evidence/deedlight-c76-provider-scheduler/workflows
+-          if git diff --cached --name-only | grep -Ev '^evidence/deedlight-c76-provider-scheduler/'; then
+-            echo 'Forbidden source path staged for evidence publication' >&2
+-            exit 3
+-          fi
+-          git -c user.name='github-actions[bot]' \
+-            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+-            commit -m 'evidence(c76): archive exact-tree PG16, signed HTTP and parallel worker security results'
+-          git push origin HEAD:refs/heads/evidence/deedlight-c76-provider-scheduler-ac39b069-v1
