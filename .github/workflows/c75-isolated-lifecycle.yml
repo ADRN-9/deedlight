@@ -247,6 +247,10 @@ jobs:
           b="} catch (error) {\n    console.error('Synthetic test DB op:', name, String(error.message).slice(0,700));\n    return { data: null, error: { code: 'C75_SYNTHETIC_DB_ERROR' } };"
           assert a in s
           s=s.replace(a,b)
+          a="data: value === '__NULL__' ? null : value === 't' ? true : value === 'f' ? false : value,"
+          b="data: value === '__NULL__' ? null : (value === 't' || value === 'true') ? true : (value === 'f' || value === 'false') ? false : value,"
+          assert a in s
+          s=s.replace(a,b)
           p.write_text(s)
           PY
           node ../c75-http-inputs/tests/real-postgres-http.mjs > ../c75-http-results/end-to-end-http-synthetic.log 2>&1
