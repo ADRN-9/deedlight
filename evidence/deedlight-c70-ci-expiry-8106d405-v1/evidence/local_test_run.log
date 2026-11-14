@@ -1,0 +1,32 @@
+test_expected_denials_catch_only_permission_error (test_c70_fixture.FixtureSourceTests.test_expected_denials_catch_only_permission_error) ... ok
+test_expired_claim_rejected_on_both_paths (test_c70_fixture.FixtureSourceTests.test_expired_claim_rejected_on_both_paths) ... ok
+test_fixture_uses_live_transaction_clock (test_c70_fixture.FixtureSourceTests.test_fixture_uses_live_transaction_clock) ... ok
+test_iso_week_derived_explicitly_in_utc (test_c70_fixture.FixtureSourceTests.test_iso_week_derived_explicitly_in_utc) ... ok
+test_only_one_existing_script_is_patched (test_c70_fixture.FixtureSourceTests.test_only_one_existing_script_is_patched) ... ok
+test_original_matches_github_blob_identity (test_c70_fixture.FixtureSourceTests.test_original_matches_github_blob_identity) ... ok
+test_patch_applies_to_original_byte_for_byte (test_c70_fixture.FixtureSourceTests.test_patch_applies_to_original_byte_for_byte) ... ok
+test_previous_security_and_terminal_fixtures_retained (test_c70_fixture.FixtureSourceTests.test_previous_security_and_terminal_fixtures_retained) ... ok
+test_reuse_and_claimed_state_are_verified (test_c70_fixture.FixtureSourceTests.test_reuse_and_claimed_state_are_verified) ... ok
+test_stale_token_rejected_on_both_paths (test_c70_fixture.FixtureSourceTests.test_stale_token_rejected_on_both_paths) ... ok
+test_bad_token_does_not_invalidate_good_claim (test_c70_fixture.TimeReferenceTests.test_bad_token_does_not_invalidate_good_claim) ... ok
+test_changed_recipient_denied (test_c70_fixture.TimeReferenceTests.test_changed_recipient_denied) ... ok
+test_delivery_kind_isolation (test_c70_fixture.TimeReferenceTests.test_delivery_kind_isolation) ... ok
+test_expired_claim_one_second_later (test_c70_fixture.TimeReferenceTests.test_expired_claim_one_second_later) ... ok
+test_expires_at_exact_boundary (test_c70_fixture.TimeReferenceTests.test_expires_at_exact_boundary) ... ok
+test_idempotent_transport_start (test_c70_fixture.TimeReferenceTests.test_idempotent_transport_start) ... ok
+test_legacy_fixed_october_claim_expired_in_november (test_c70_fixture.TimeReferenceTests.test_legacy_fixed_october_claim_expired_in_november) ... ok
+test_new_relative_clock_valid_in_any_year (test_c70_fixture.TimeReferenceTests.test_new_relative_clock_valid_in_any_year) ... ok
+test_positive_before_expiry (test_c70_fixture.TimeReferenceTests.test_positive_before_expiry) ... ok
+test_positive_live_claim (test_c70_fixture.TimeReferenceTests.test_positive_live_claim) ... ok
+test_revoked_consent_denied (test_c70_fixture.TimeReferenceTests.test_revoked_consent_denied) ... ok
+test_stale_token_cannot_start_transport (test_c70_fixture.TimeReferenceTests.test_stale_token_cannot_start_transport) ... ok
+test_stale_token_denied_before_expiry (test_c70_fixture.TimeReferenceTests.test_stale_token_denied_before_expiry) ... ok
+test_suspended_account_denied (test_c70_fixture.TimeReferenceTests.test_suspended_account_denied) ... ok
+test_utc_semantics_across_local_midnight (test_c70_fixture.TimeReferenceTests.test_utc_semantics_across_local_midnight) ... ok
+test_week_start_monday (test_c70_fixture.TimeReferenceTests.test_week_start_monday) ... ok
+test_year_boundary_iso_week (test_c70_fixture.TimeReferenceTests.test_year_boundary_iso_week) ... ok
+
+----------------------------------------------------------------------
+Ran 27 tests in 0.005s
+
+OK
