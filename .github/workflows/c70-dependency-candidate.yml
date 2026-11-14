@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - evidence/deedlight-c70-dependency-eval-36c53dad-v1
+    paths:
+      - '.github/workflows/c70-dependency-candidate.yml'
 
 permissions:
   contents: read
@@ -90,3 +92,36 @@ jobs:
             package.json
             package-lock.json
             c70-evidence/
+
+  publish_evidence:
+    needs: evaluate
+    if: ${{ success() && github.ref == 'refs/heads/evidence/deedlight-c70-dependency-eval-36c53dad-v1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          name: deedlight-c70-dependency-candidate
+          path: /tmp/deedlight-c70-candidate
+      - name: Verify and commit only immutable evidence files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/evidence/deedlight-c70-dependency-eval-36c53dad-v1"
+          cd /tmp/deedlight-c70-candidate
+          sha256sum -c c70-evidence/SHA256SUMS.txt
+          test "$(cat c70-evidence/audit-high-exit.txt)" = "0"
+          cd "$GITHUB_WORKSPACE"
+          mkdir -p evidence/c70-dependency-candidate-36c53dad
+          cp /tmp/deedlight-c70-candidate/package.json evidence/c70-dependency-candidate-36c53dad/package.json
+          cp /tmp/deedlight-c70-candidate/package-lock.json evidence/c70-dependency-candidate-36c53dad/package-lock.json
+          cp /tmp/deedlight-c70-candidate/c70-evidence/audit-high.txt evidence/c70-dependency-candidate-36c53dad/audit-high.txt
+          cp /tmp/deedlight-c70-candidate/c70-evidence/audit.json evidence/c70-dependency-candidate-36c53dad/audit.json
+          (cd evidence/c70-dependency-candidate-36c53dad && sha256sum package.json package-lock.json audit-high.txt audit.json > SHA256SUMS.txt)
+          git add evidence/c70-dependency-candidate-36c53dad
+          git diff --cached --check
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "evidence(c70): preserve verified dependency remediation candidate"
+          git push origin HEAD:refs/heads/evidence/deedlight-c70-dependency-eval-36c53dad-v1
