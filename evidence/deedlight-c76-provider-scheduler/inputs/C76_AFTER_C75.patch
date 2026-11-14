@@ -1,0 +1,1347 @@
+diff --git a/app/api/webhooks/resend/route.ts b/app/api/webhooks/resend/route.ts
+index efad7f3..b41889c 100644
+--- a/app/api/webhooks/resend/route.ts
++++ b/app/api/webhooks/resend/route.ts
+@@ -92,15 +92,31 @@ export async function POST(request: Request): Promise<Response> {
+     const client = createClient(supabaseUrl, serviceRoleKey, {
+       auth: { autoRefreshToken: false, detectSessionInUrl: false, persistSession: false },
+     });
+-    const { data, error } = await client.rpc("deedlight_record_resend_verified", {
+-      p_event_id: event.eventId,
+-      p_provider_email_id: event.providerEmailId,
+-      p_recipient_email: event.recipientEmail,
+-      p_event_type: event.eventType,
+-      p_event_at: event.eventAt,
+-      p_payload_sha256: event.payloadSha256,
+-      p_suppression_reason: event.suppressionReason,
+-    });
++    const operation = event.kind === "account_suppression"
++      ? "deedlight_record_resend_suppression_verified"
++      : "deedlight_record_resend_delivery_v2";
++    const args = event.kind === "account_suppression"
++      ? {
++          p_event_id: event.eventId,
++          p_suppression_id: event.suppressionId,
++          p_recipient_email: event.recipientEmail,
++          p_origin: event.origin,
++          p_source_id: event.sourceId,
++          p_event_type: event.eventType,
++          p_event_at: event.eventAt,
++          p_payload_sha256: event.payloadSha256,
++        }
++      : {
++          p_event_id: event.eventId,
++          p_provider_email_id: event.providerEmailId,
++          p_recipient_email: event.recipientEmail,
++          p_event_type: event.eventType,
++          p_event_at: event.eventAt,
++          p_payload_sha256: event.payloadSha256,
++          p_suppression_reason: event.suppressionReason,
++          p_bounce_type: event.bounceType,
++        };
++    const { data, error } = await client.rpc(operation, args);
+     if (error || !["recorded", "pending", "duplicate", "quarantined"].includes(data)) {
+       return new Response("Webhook temporarily unavailable", { status: 503, headers: responseHeaders });
+     }
+diff --git a/lib/delivery/resend-webhook.ts b/lib/delivery/resend-webhook.ts
+index c447aa9..edd8837 100644
+--- a/lib/delivery/resend-webhook.ts
++++ b/lib/delivery/resend-webhook.ts
+@@ -1,6 +1,9 @@
+ import { Webhook } from "svix";
+ 
++export type ResendBounceType = "Permanent" | "Transient" | "Undetermined";
++
+ export type VerifiedResendDeliveryEvent = {
++  kind: "delivery";
+   eventId: string;
+   providerEmailId: string;
+   recipientEmail: string;
+@@ -8,12 +11,30 @@ export type VerifiedResendDeliveryEvent = {
+   eventAt: string;
+   payloadSha256: string;
+   suppressionReason: "permanent_bounce" | "spam_complaint" | null;
++  bounceType: ResendBounceType | null;
+ };
+ 
+-const EVENT_TYPES = new Set([
++export type VerifiedResendSuppressionEvent = {
++  kind: "account_suppression";
++  eventId: string;
++  suppressionId: string;
++  recipientEmail: string;
++  eventType: "suppression.added" | "suppression.removed";
++  eventAt: string;
++  payloadSha256: string;
++  origin: "bounce" | "complaint" | "manual";
++  sourceId: string | null;
++};
++
++export type VerifiedResendWebhookEvent =
++  | VerifiedResendDeliveryEvent
++  | VerifiedResendSuppressionEvent;
++
++const DELIVERY_TYPES = new Set([
+   "email.sent", "email.delivered", "email.delivery_delayed", "email.failed",
+   "email.bounced", "email.complained", "email.suppressed",
+ ]);
++const SUPPRESSION_TYPES = new Set(["suppression.added", "suppression.removed"]);
+ const MAX_WEBHOOK_BYTES = 128 * 1024;
+ const MAX_TIMESTAMP_SKEW_SECONDS = 300;
+ 
+@@ -32,12 +53,32 @@ function requiredHeader(headers: Headers, name: string): string {
+   return value;
+ }
+ 
++function requiredEmail(value: unknown): string {
++  if (typeof value !== "string" || value.length < 3 || value.length > 320
++    || !/^[!-~]+@[A-Za-z0-9.-]+$/.test(value)) {
++    throw new InvalidResendWebhook("Provider recipient association is ambiguous");
++  }
++  return value;
++}
++
++function validEventTime(value: unknown, now: Date): string {
++  if (typeof value !== "string") {
++    throw new InvalidResendWebhook("Missing event creation timestamp");
++  }
++  const date = new Date(value);
++  if (Number.isNaN(date.getTime()) || date.getTime() > now.getTime() + 300_000
++    || date.getTime() < Date.UTC(2020, 0, 1)) {
++    throw new InvalidResendWebhook("Invalid event creation timestamp");
++  }
++  return date.toISOString();
++}
++
+ export async function verifyResendDeliveryWebhook(input: {
+   rawBody: string;
+   headers: Headers;
+   secret: string;
+   now?: Date;
+-}): Promise<VerifiedResendDeliveryEvent> {
++}): Promise<VerifiedResendWebhookEvent> {
+   const { rawBody, headers, secret, now = new Date() } = input;
+   if (!/^whsec_[A-Za-z0-9+/=_-]{20,}$/.test(secret)) {
+     throw new Error("Resend webhook signing secret is unavailable");
+@@ -53,8 +94,7 @@ export async function verifyResendDeliveryWebhook(input: {
+     throw new InvalidResendWebhook("Invalid signed event identity");
+   }
+   const signedAt = Number(timestamp);
+-  if (!Number.isSafeInteger(signedAt)
+-    || !Number.isFinite(now.getTime())
++  if (!Number.isSafeInteger(signedAt) || !Number.isFinite(now.getTime())
+     || Math.abs(now.getTime() / 1000 - signedAt) > MAX_TIMESTAMP_SKEW_SECONDS) {
+     throw new InvalidResendWebhook("Webhook signature timestamp outside allowed window");
+   }
+@@ -66,7 +106,7 @@ export async function verifyResendDeliveryWebhook(input: {
+       "svix-timestamp": timestamp,
+       "svix-signature": signature,
+     });
+-    // The SDK verifies bytes; decode exactly those authenticated bytes.
++    // Parse only the exact raw bytes authenticated by Svix.
+     envelope = JSON.parse(rawBody);
+   } catch {
+     throw new InvalidResendWebhook("Webhook signature verification failed");
+@@ -77,41 +117,65 @@ export async function verifyResendDeliveryWebhook(input: {
+   const obj = envelope as Record<string, unknown>;
+   const type = obj.type;
+   const data = obj.data;
+-  if (typeof type !== "string" || !EVENT_TYPES.has(type)
+-    || !data || typeof data !== "object" || Array.isArray(data)) {
++  if (typeof type !== "string" || !data || typeof data !== "object"
++    || Array.isArray(data)) {
+     throw new InvalidResendWebhook("Unsupported verified provider event");
+   }
+   const body = data as Record<string, unknown>;
++  const eventAt = validEventTime(obj.created_at, now);
++  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(rawBody));
++  const payloadSha256 = Array.from(new Uint8Array(hash),
++    (byte) => byte.toString(16).padStart(2, "0")).join("");
++
++  if (SUPPRESSION_TYPES.has(type)) {
++    // These account-level events have NO outbound email_id and cannot be
++    // correlated using the delivery-only webhook schema.
++    if (typeof body.id !== "string" || !/^[A-Za-z0-9-]{10,128}$/.test(body.id)
++      || !["bounce", "complaint", "manual"].includes(String(body.origin))
++      || !(body.source_id === null || (typeof body.source_id === "string"
++        && body.source_id.length >= 1 && body.source_id.length <= 255
++        && !/[\x00-\x1f\x7f]/.test(body.source_id)))) {
++      throw new InvalidResendWebhook("Invalid account suppression event");
++    }
++    validEventTime(body.created_at, now);
++    return {
++      kind: "account_suppression",
++      eventId,
++      suppressionId: body.id,
++      recipientEmail: requiredEmail(body.email),
++      eventType: type as VerifiedResendSuppressionEvent["eventType"],
++      eventAt,
++      payloadSha256,
++      origin: body.origin as VerifiedResendSuppressionEvent["origin"],
++      sourceId: body.source_id,
++    } as VerifiedResendSuppressionEvent;
++  }
++
++  if (!DELIVERY_TYPES.has(type)) {
++    throw new InvalidResendWebhook("Unsupported verified provider event");
++  }
+   const to = body.to;
+   if (typeof body.email_id !== "string" || body.email_id.length < 1
+     || body.email_id.length > 255 || /[\x00-\x1f\x7f]/.test(body.email_id)
+-    || !Array.isArray(to) || to.length !== 1
+-    || typeof to[0] !== "string" || to[0].length > 320
+-    || !/^[!-~]+@[A-Za-z0-9.-]+$/.test(to[0])) {
++    || !Array.isArray(to) || to.length !== 1) {
+     throw new InvalidResendWebhook("Provider recipient association is ambiguous");
+   }
+-  if (typeof obj.created_at !== "string") {
+-    throw new InvalidResendWebhook("Missing event creation timestamp");
+-  }
+-  const eventDate = new Date(obj.created_at);
+-  if (Number.isNaN(eventDate.getTime()) || eventDate.getTime() > now.getTime() + 300_000
+-    || eventDate.getTime() < Date.UTC(2020, 0, 1)) {
+-    throw new InvalidResendWebhook("Invalid event creation timestamp");
+-  }
+-
++  const recipientEmail = requiredEmail(to[0]);
+   let suppressionReason: VerifiedResendDeliveryEvent["suppressionReason"] = null;
++  let bounceType: ResendBounceType | null = null;
+   if (type === "email.complained") suppressionReason = "spam_complaint";
+   if (type === "email.bounced") {
+     const bounce = body.bounce;
+-    if (!bounce || typeof bounce !== "object" || Array.isArray(bounce)
+-      || typeof (bounce as Record<string, unknown>).type !== "string") {
++    if (!bounce || typeof bounce !== "object" || Array.isArray(bounce)) {
+       throw new InvalidResendWebhook("Ambiguous provider bounce classification");
+     }
+-    const bounceType = (bounce as Record<string, unknown>).type;
+-    if (bounceType === "Permanent") suppressionReason = "permanent_bounce";
+-    else if (bounceType !== "Transient") {
++    const classification = (bounce as Record<string, unknown>).type;
++    if (classification !== "Permanent" && classification !== "Transient"
++      && classification !== "Undetermined") {
+       throw new InvalidResendWebhook("Unsupported provider bounce classification");
+     }
++    bounceType = classification;
++    if (bounceType === "Permanent") suppressionReason = "permanent_bounce";
+   }
+   if (type === "email.suppressed") {
+     const suppressed = body.suppressed;
+@@ -119,15 +183,15 @@ export async function verifyResendDeliveryWebhook(input: {
+       throw new InvalidResendWebhook("Provider suppression classification missing");
+     }
+   }
+-  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(rawBody));
+-  const payloadSha256 = Array.from(new Uint8Array(hash), (b) => b.toString(16).padStart(2, "0")).join("");
+   return {
++    kind: "delivery",
+     eventId,
+     providerEmailId: body.email_id,
+-    recipientEmail: to[0],
++    recipientEmail,
+     eventType: type,
+-    eventAt: eventDate.toISOString(),
++    eventAt,
+     payloadSha256,
+     suppressionReason,
++    bounceType,
+   };
+ }
+diff --git a/lib/delivery/scheduler.ts b/lib/delivery/scheduler.ts
+index 9644bb9..e545cd9 100644
+--- a/lib/delivery/scheduler.ts
++++ b/lib/delivery/scheduler.ts
+@@ -8,7 +8,7 @@ import {
+ } from "./supabase-runtime.ts";
+ 
+ export const DAILY_DELIVERY_CRON = "*/5 * * * *";
+-export const WEEKLY_DELIVERY_CRON = "0 16 * * 1";
++export const WEEKLY_DELIVERY_CRON = "0 16 * * MON";
+ 
+ export type DeliverySchedulerSummary = {
+   enabled: boolean;
+@@ -77,6 +77,17 @@ export async function runScheduledDelivery(
+     throw new Error("Scheduled delivery timestamp is invalid.");
+   }
+ 
++  // Cloudflare scheduledTime is the original UTC schedule instant. Ignore
++  // displaced/synthetic cron claims rather than running the wrong delivery kind.
++  if (scheduledAt.getUTCSeconds() !== 0 || scheduledAt.getUTCMilliseconds() !== 0
++    || (input.cron === DAILY_DELIVERY_CRON && scheduledAt.getUTCMinutes() % 5 !== 0)
++    || (input.cron === WEEKLY_DELIVERY_CRON && (
++      scheduledAt.getUTCDay() !== 1 || scheduledAt.getUTCHours() !== 16
++      || scheduledAt.getUTCMinutes() !== 0))) {
++    summary.ignored = true;
++    return summary;
++  }
++
+   const runtime = createSupabaseDeliveryRuntime(config);
+   const transport = createResendTransport({
+     apiKey: config.resendApiKey,
+diff --git a/scripts/test-c76-provider-classification.sql b/scripts/test-c76-provider-classification.sql
+new file mode 100644
+index 0000000..fa2ca05
+--- /dev/null
++++ b/scripts/test-c76-provider-classification.sql
+@@ -0,0 +1,241 @@
++\set ON_ERROR_STOP on
++-- C76 ONLY. Run in a fresh synthetic postgres:16 database AFTER C73 test
++-- migrations 019-030 and reviewed migrations 031,032,033. NO Production.
++DO $acl$
++DECLARE r record;
++BEGIN
++  IF has_function_privilege('service_role',
++    'public.deedlight_record_resend_verified(text,text,text,text,timestamptz,text,text)','EXECUTE')
++    OR NOT has_function_privilege('service_role',
++      'public.deedlight_record_resend_delivery_v2(text,text,text,text,timestamptz,text,text,text)','EXECUTE')
++    OR NOT has_function_privilege('service_role',
++      'public.deedlight_record_resend_suppression_verified(text,text,text,text,text,text,timestamptz,text)','EXECUTE')
++    OR has_function_privilege('anon',
++      'public.deedlight_record_resend_suppression_verified(text,text,text,text,text,text,timestamptz,text)','EXECUTE')
++    OR has_function_privilege('authenticated',
++      'public.deedlight_record_resend_delivery_v2(text,text,text,text,timestamptz,text,text,text)','EXECUTE')
++    OR has_table_privilege('service_role','deedlight_event_private.c76_uncertain_bounces','SELECT')
++    OR has_table_privilege('anon','deedlight_event_private.c76_account_suppression_events','INSERT')
++  THEN RAISE EXCEPTION 'C76 privileged entry-point or private-table ACL failure'; END IF;
++  FOR r IN SELECT p.oid::regprocedure AS name,p.prosecdef,p.proconfig
++    FROM pg_catalog.pg_proc p WHERE p.oid IN (
++      'public.deedlight_record_resend_delivery_v2(text,text,text,text,timestamptz,text,text,text)'::regprocedure,
++      'public.deedlight_record_resend_suppression_verified(text,text,text,text,text,text,timestamptz,text)'::regprocedure,
++      'deedlight_event_private.c76_preserve_uncertain_bounce_hold()'::regprocedure)
++  LOOP
++    IF NOT r.prosecdef OR NOT ('search_path=pg_catalog,pg_temp'=ANY(r.proconfig)) THEN
++      RAISE EXCEPTION 'Unsafe SECURITY DEFINER configuration: %',r.name;
++    END IF;
++  END LOOP;
++  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger
++    WHERE tgname='c76_preserve_uncertain_bounce_hold'
++      AND tgrelid='public.delivery_recipient_state'::regclass AND tgenabled='A') THEN
++    RAISE EXCEPTION 'Uncertain bounce ALWAYS trigger missing';
++  END IF;
++END $acl$;
++
++INSERT INTO auth.users(id,email,email_confirmed_at) VALUES
++  ('70000000-0000-0000-0000-000000000076','c76-uncertain@example.test',now()),
++  ('70000000-0000-0000-0000-000000000077','c76-provider@example.test',now()),
++  ('70000000-0000-0000-0000-000000000078','c76-transient@example.test',now()),
++  ('70000000-0000-0000-0000-000000000079','c76-permanent@example.test',now());
++INSERT INTO public.profiles(user_id,is_suspended)
++  SELECT id,false FROM auth.users WHERE id IN (
++  '70000000-0000-0000-0000-000000000076','70000000-0000-0000-0000-000000000077',
++  '70000000-0000-0000-0000-000000000078','70000000-0000-0000-0000-000000000079');
++INSERT INTO public.daily_reminder_preferences(user_id,daily_enabled,reminder_time,timezone)
++  SELECT id,true,'00:00','UTC' FROM auth.users WHERE id IN (
++  '70000000-0000-0000-0000-000000000076','70000000-0000-0000-0000-000000000077',
++  '70000000-0000-0000-0000-000000000078','70000000-0000-0000-0000-000000000079');
++INSERT INTO public.newsletter_preferences(user_id,weekly_enabled,consented_at)
++  SELECT id,true,now() FROM auth.users WHERE id IN (
++  '70000000-0000-0000-0000-000000000076','70000000-0000-0000-0000-000000000077',
++  '70000000-0000-0000-0000-000000000078','70000000-0000-0000-0000-000000000079');
++INSERT INTO public.weekly_goodness_features(week_start)
++  VALUES (timezone('UTC',now())::date - (extract(isodow from timezone('UTC',now()))::integer-1))
++  ON CONFLICT DO NOTHING;
++INSERT INTO public.delivery_ledger(user_id,kind,delivery_key,scheduled_for)
++  SELECT id,'daily_reminder','daily:'||(timezone('UTC',now())::date-1)::text,
++    ((timezone('UTC',now())::date-1)+time '00:00') AT TIME ZONE 'UTC'
++  FROM auth.users WHERE id IN ('70000000-0000-0000-0000-000000000076',
++    '70000000-0000-0000-0000-000000000078','70000000-0000-0000-0000-000000000079');
++INSERT INTO public.delivery_ledger(user_id,kind,delivery_key,scheduled_for)
++  SELECT id,'weekly_newsletter',
++    'weekly:'||(timezone('UTC',now())::date-(extract(isodow from timezone('UTC',now()))::integer-1))::text,
++    now()-interval '1 minute'
++  FROM auth.users WHERE id IN ('70000000-0000-0000-0000-000000000076',
++    '70000000-0000-0000-0000-000000000077');
++
++-- Claim and finalize one synthetic provider message for each bounce class.
++SET ROLE service_role;
++DO $original_send$
++DECLARE v_id uuid;v_token uuid;v_start timestamptz;v_user uuid;v_email text;v_result text;i integer;
++BEGIN
++  FOR v_user,v_email IN SELECT * FROM (VALUES
++    ('70000000-0000-0000-0000-000000000076'::uuid,'c76-uncertain@example.test'),
++    ('70000000-0000-0000-0000-000000000078'::uuid,'c76-transient@example.test'),
++    ('70000000-0000-0000-0000-000000000079'::uuid,'c76-permanent@example.test')
++  ) x(id,email) LOOP
++    FOR i IN 1..10 LOOP
++      EXIT WHEN EXISTS (SELECT 1 FROM public.delivery_ledger
++        WHERE user_id=v_user AND kind='daily_reminder' AND state='claimed');
++      PERFORM count(*) FROM public.claim_delivery_jobs('daily_reminder',now(),1000);
++    END LOOP;
++    SELECT id,claim_token INTO v_id,v_token FROM public.delivery_ledger
++      WHERE user_id=v_user AND kind='daily_reminder';
++    IF v_token IS NULL THEN RAISE EXCEPTION 'C76 synthetic daily claim missing'; END IF;
++    v_start:=public.begin_delivery_transport_identity_bound(v_id,v_token,v_email);
++    IF v_start IS NULL THEN RAISE EXCEPTION 'C76 synthetic first send denied'; END IF;
++    IF public.mark_delivery_sent_identity_bound(v_id,v_token,
++      'provider-c76-'||right(v_user::text,3)) IS DISTINCT FROM true THEN
++      RAISE EXCEPTION 'C76 provider message correlation failed';
++    END IF;
++  END LOOP;
++END $original_send$;
++RESET ROLE;
++
++SET ROLE service_role;
++DO $events$
++DECLARE v_ts timestamptz:=clock_timestamp(); v_status text;
++BEGIN
++  v_status:=public.deedlight_record_resend_delivery_v2(
++    'msg_c76_undetermined_0001','provider-c76-076','c76-uncertain@example.test',
++    'email.bounced',v_ts,repeat('a',64),NULL,'Undetermined');
++  IF v_status<>'recorded' THEN RAISE EXCEPTION 'Undetermined event not recorded: %',v_status; END IF;
++  v_status:=public.deedlight_record_resend_delivery_v2(
++    'msg_c76_transient_000001','provider-c76-078','c76-transient@example.test',
++    'email.bounced',v_ts,repeat('b',64),NULL,'Transient');
++  IF v_status<>'recorded' THEN RAISE EXCEPTION 'Transient event not recorded: %',v_status; END IF;
++  v_status:=public.deedlight_record_resend_delivery_v2(
++    'msg_c76_permanent_000001','provider-c76-079','c76-permanent@example.test',
++    'email.bounced',v_ts,repeat('c',64),'permanent_bounce','Permanent');
++  IF v_status<>'recorded' THEN RAISE EXCEPTION 'Permanent event not recorded: %',v_status; END IF;
++  v_status:=public.deedlight_record_resend_suppression_verified(
++    'msg_c76_account_add_00001','fe9751fd-9b5f-4aa8-9e04-50abbb6ad241',
++    'c76-provider@example.test','manual',NULL,'suppression.added',v_ts,repeat('d',64));
++  IF v_status<>'recorded' THEN RAISE EXCEPTION 'Account suppression not recorded: %',v_status; END IF;
++  v_status:=public.deedlight_record_resend_suppression_verified(
++    'msg_c76_account_add_00001','fe9751fd-9b5f-4aa8-9e04-50abbb6ad241',
++    'c76-provider@example.test','manual',NULL,'suppression.added',v_ts,repeat('d',64));
++  IF v_status<>'duplicate' THEN RAISE EXCEPTION 'Duplicate account event not deduplicated'; END IF;
++  v_status:=public.deedlight_record_resend_suppression_verified(
++    'msg_c76_account_remove01','fe9751fd-9b5f-4aa8-9e04-50abbb6ad241',
++    'c76-provider@example.test','manual',NULL,'suppression.removed',v_ts,repeat('e',64));
++  IF v_status<>'recorded' THEN RAISE EXCEPTION 'Removal audit not durable'; END IF;
++  BEGIN
++    PERFORM public.deedlight_record_resend_delivery_v2(
++      'msg_c76_invalidclass0001','provider-c76-078','c76-transient@example.test',
++      'email.bounced',v_ts,repeat('f',64),NULL,NULL);
++    RAISE EXCEPTION 'Unclassified bounce bypassed new RPC' USING ERRCODE='ZX001';
++  EXCEPTION WHEN SQLSTATE '22023' THEN NULL;
++  END;
++END $events$;
++RESET ROLE;
++
++-- Confirm the registry is one ID per event and classification is immutable.
++DO $audit$
++BEGIN
++  IF NOT EXISTS (SELECT 1 FROM deedlight_event_private.c76_bounce_classifications
++    WHERE event_id='msg_c76_undetermined_0001' AND bounce_type='Undetermined')
++    OR NOT EXISTS (SELECT 1 FROM deedlight_event_private.c76_bounce_classifications
++    WHERE event_id='msg_c76_transient_000001' AND bounce_type='Transient')
++    OR NOT EXISTS (SELECT 1 FROM deedlight_event_private.c76_bounce_classifications
++    WHERE event_id='msg_c76_permanent_000001' AND bounce_type='Permanent')
++    OR (SELECT count(*) FROM deedlight_event_private.provider_event_registry
++      WHERE event_id='msg_c76_account_add_00001')<>1
++    OR (SELECT count(*) FROM deedlight_event_private.c76_account_suppression_events
++      WHERE event_id='msg_c76_account_add_00001')<>1
++    OR NOT EXISTS (SELECT 1 FROM public.delivery_recipient_state s
++      JOIN deedlight_private.recipient_fingerprints('c76-uncertain@example.test') f
++        ON f.fingerprint=s.recipient_fingerprint
++      WHERE s.pending_unmatched AND s.suppression_reason IS NULL AND NOT s.provider_suppressed)
++    OR NOT EXISTS (SELECT 1 FROM public.delivery_recipient_state s
++      JOIN deedlight_private.recipient_fingerprints('c76-provider@example.test') f
++        ON f.fingerprint=s.recipient_fingerprint
++      WHERE s.provider_suppressed AND s.pending_unmatched)
++    OR EXISTS (SELECT 1 FROM public.delivery_recipient_state s
++      JOIN deedlight_private.recipient_fingerprints('c76-transient@example.test') f
++        ON f.fingerprint=s.recipient_fingerprint
++      WHERE s.suppression_reason IS NOT NULL OR s.provider_suppressed OR s.pending_unmatched)
++    OR NOT EXISTS (SELECT 1 FROM public.delivery_recipient_state s
++      JOIN deedlight_private.recipient_fingerprints('c76-permanent@example.test') f
++        ON f.fingerprint=s.recipient_fingerprint
++      WHERE s.suppression_reason='permanent_bounce') THEN
++    RAISE EXCEPTION 'C76 bounce classification or durable suppression invariant failed';
++  END IF;
++END $audit$;
++
++-- An unrelated signed delivery success cannot erase the uncertain hold.
++SET ROLE service_role;
++DO $after_success$
++DECLARE v_status text;
++BEGIN
++  v_status:=public.deedlight_record_resend_delivery_v2(
++    'msg_c76_late_success0001','provider-c76-076','c76-uncertain@example.test',
++    'email.delivered',clock_timestamp(),repeat('1',64),NULL,NULL);
++  IF v_status<>'recorded' THEN RAISE EXCEPTION 'Late success not recorded'; END IF;
++END $after_success$;
++RESET ROLE;
++DO $safety$
++BEGIN
++  IF NOT EXISTS (SELECT 1 FROM public.delivery_recipient_state s
++    JOIN deedlight_private.recipient_fingerprints('c76-uncertain@example.test') f
++      ON f.fingerprint=s.recipient_fingerprint
++    WHERE s.pending_unmatched AND s.suppression_reason IS NULL) THEN
++    RAISE EXCEPTION 'Delivery success cleared Undetermined hold';
++  END IF;
++END $safety$;
++
++-- Key rotation must not clear a prior suppression or temporary hold.
++UPDATE deedlight_private.delivery_recipient_key_control SET mode='locked' WHERE singleton;
++UPDATE deedlight_private.delivery_recipient_keyring SET phase='legacy' WHERE key_version=1;
++INSERT INTO deedlight_private.delivery_recipient_keyring(key_version,secret_bytes,phase)
++  VALUES (2,decode(repeat('d6',32),'hex'),'active');
++UPDATE deedlight_private.delivery_recipient_key_control SET
++  required_key_versions=ARRAY[1,2]::smallint[],mode='ready' WHERE singleton;
++DO $rotation$
++BEGIN
++  IF (SELECT count(*) FROM deedlight_private.recipient_fingerprints('c76-provider@example.test'))<>2
++    OR NOT EXISTS (SELECT 1 FROM deedlight_private.recipient_fingerprints('c76-provider@example.test') f
++      JOIN public.delivery_recipient_state s USING(recipient_fingerprint)
++      WHERE f.phase='legacy' AND s.provider_suppressed) THEN
++    RAISE EXCEPTION 'Historical HMAC key lost account-level provider suppression';
++  END IF;
++END $rotation$;
++
++-- Even a claimed Weekly job cannot use previous consent or the old key to send.
++UPDATE public.delivery_ledger SET state='claimed',claim_token=gen_random_uuid(),
++  claim_expires_at=clock_timestamp()+interval '5 minutes',attempt_count=1
++WHERE user_id IN ('70000000-0000-0000-0000-000000000076',
++  '70000000-0000-0000-0000-000000000077') AND kind='weekly_newsletter' AND state='queued';
++SET ROLE service_role;
++DO $cross_kind$
++DECLARE v_id uuid;v_token uuid;v_email text;v_ts timestamptz;
++BEGIN
++  FOR v_id,v_token,v_email IN SELECT l.id,l.claim_token,u.email
++    FROM public.delivery_ledger l JOIN auth.users u ON u.id=l.user_id
++    WHERE l.user_id IN ('70000000-0000-0000-0000-000000000076',
++      '70000000-0000-0000-0000-000000000077') AND l.kind='weekly_newsletter'
++  LOOP
++    BEGIN
++      v_ts:=public.begin_delivery_transport_identity_bound(v_id,v_token,v_email);
++      IF v_ts IS NOT NULL THEN
++        RAISE EXCEPTION 'Weekly send escaped Daily provider hold' USING ERRCODE='ZX001';
++      END IF;
++    EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
++    END;
++  END LOOP;
++END $cross_kind$;
++RESET ROLE;
++
++SELECT jsonb_build_object(
++  'c76_postgres_security','pass',
++  'undetermined_hold_survives_success','pass',
++  'transient_nonpermanent','pass',
++  'permanent_bounce','pass',
++  'account_suppression_added','pass',
++  'provider_removal_no_auto_release','pass',
++  'legacy_fingerprint_rotation','pass',
++  'cross_kind_final_send_denied','pass',
++  'registered_event_identity','pass'
++) AS c76_security_result;
+diff --git a/scripts/test-c76-provider-contract.mjs b/scripts/test-c76-provider-contract.mjs
+new file mode 100644
+index 0000000..eb9ff3f
+--- /dev/null
++++ b/scripts/test-c76-provider-contract.mjs
+@@ -0,0 +1,128 @@
++import assert from "node:assert/strict";
++import { createHmac, randomBytes } from "node:crypto";
++import { readFileSync } from "node:fs";
++import test from "node:test";
++
++import { InvalidResendWebhook, verifyResendDeliveryWebhook } from "../lib/delivery/resend-webhook.ts";
++import { DAILY_DELIVERY_CRON, WEEKLY_DELIVERY_CRON, runScheduledDelivery } from "../lib/delivery/scheduler.ts";
++
++const signingKey = randomBytes(32);
++const secret = `whsec_${signingKey.toString("base64")}`;
++const now = new Date();
++let sequence = 0;
++function signed(type, data, options = {}) {
++  const rawBody = JSON.stringify({ type, created_at: now.toISOString(), data });
++  const eventId = `msg_c76_${String(++sequence).padStart(8, "0")}`;
++  const stamp = options.timestamp ?? String(Math.floor(now.getTime() / 1000));
++  const sig = `v1,${createHmac("sha256", signingKey)
++    .update(`${eventId}.${stamp}.${rawBody}`).digest("base64")}`;
++  return {
++    rawBody: options.modified ?? rawBody,
++    headers: new Headers({
++      "svix-id": eventId,
++      "svix-timestamp": stamp,
++      "svix-signature": options.signature ?? sig,
++    }),
++    secret,
++    now,
++  };
++}
++const delivery = (extra = {}) => ({
++  email_id: "provider-c76-synthetic-01",
++  to: ["c76@example.test"],
++  ...extra,
++});
++const suppression = (extra = {}) => ({
++  id: "fe9751fd-9b5f-4aa8-9e04-50abbb6ad241",
++  email: "c76@example.test",
++  origin: "manual",
++  source_id: null,
++  created_at: now.toISOString(),
++  ...extra,
++});
++
++test("official signed suppression.added is distinct from a message event", async () => {
++  const result = await verifyResendDeliveryWebhook(signed("suppression.added", suppression()));
++  assert.equal(result.kind, "account_suppression");
++  assert.equal(result.eventType, "suppression.added");
++  assert.equal(result.recipientEmail, "c76@example.test");
++  assert.equal(result.sourceId, null);
++  assert.match(result.payloadSha256, /^[0-9a-f]{64}$/);
++});
++
++test("signed suppression.removed retains classification; removal is audit-only", async () => {
++  const result = await verifyResendDeliveryWebhook(signed("suppression.removed", suppression({
++    origin: "complaint", source_id: "provider-c76-synthetic-01",
++  })));
++  assert.equal(result.kind, "account_suppression");
++  assert.equal(result.origin, "complaint");
++  assert.equal(result.sourceId, "provider-c76-synthetic-01");
++});
++
++test("missing or forged suppression identity and classification fail closed", async () => {
++  for (const payload of [
++    suppression({ email: undefined }),
++    suppression({ id: null }),
++    suppression({ origin: "unknown" }),
++    suppression({ source_id: { id: "provider" } }),
++    suppression({ created_at: "not-a-time" }),
++  ]) {
++    await assert.rejects(verifyResendDeliveryWebhook(signed("suppression.added", payload)), InvalidResendWebhook);
++  }
++  await assert.rejects(verifyResendDeliveryWebhook(signed("suppression.added", suppression(), {
++    signature: "v1,invalid",
++  })), InvalidResendWebhook);
++  await assert.rejects(verifyResendDeliveryWebhook(signed("suppression.added", suppression(), {
++    timestamp: "1600000000",
++  })), InvalidResendWebhook);
++  const altered = signed("suppression.removed", suppression());
++  altered.rawBody += " ";
++  await assert.rejects(verifyResendDeliveryWebhook(altered), InvalidResendWebhook);
++});
++
++test("Permanent, Transient, and Undetermined retain original bounce class", async () => {
++  for (const type of ["Permanent", "Transient", "Undetermined"]) {
++    const result = await verifyResendDeliveryWebhook(signed("email.bounced", delivery({
++      bounce: { type, subType: "Undetermined", message: "synthetic", diagnosticCode: [] },
++    })));
++    assert.equal(result.kind, "delivery");
++    assert.equal(result.bounceType, type);
++    assert.equal(result.suppressionReason, type === "Permanent" ? "permanent_bounce" : null);
++  }
++  await assert.rejects(verifyResendDeliveryWebhook(signed("email.bounced", delivery({
++    bounce: { type: "Unknown" },
++  }))), InvalidResendWebhook);
++});
++
++test("no arbitrary recipient association or unsigned provider event", async () => {
++  await assert.rejects(verifyResendDeliveryWebhook(signed("email.delivered", delivery({
++    to: ["a@example.test", "b@example.test"],
++  }))), InvalidResendWebhook);
++  await assert.rejects(verifyResendDeliveryWebhook(signed("contact.created", {})), InvalidResendWebhook);
++});
++
++test("Cloudflare Monday is MON (not Sunday numeric 1); Production cron remains disabled", async () => {
++  assert.equal(DAILY_DELIVERY_CRON, "*/5 * * * *");
++  assert.equal(WEEKLY_DELIVERY_CRON, "0 16 * * MON");
++  assert.deepEqual(JSON.parse(readFileSync("wrangler.jsonc", "utf8")).triggers.crons, []);
++  const validConfig = {
++    DELIVERY_ENABLED: "true", DELIVERY_PROVIDER: "resend", SUPABASE_URL: "https://example.supabase.co",
++    SUPABASE_SERVICE_ROLE_KEY: "synthetic", RESEND_API_KEY: "re_synthetic",
++    DELIVERY_FROM_EMAIL: "hello@example.test", NEXT_PUBLIC_SITE_URL: "https://example.test",
++  };
++  for (const iso of ["2026-11-15T16:00:00Z", "2026-11-17T16:00:00Z", "2026-11-16T16:01:00Z"]) {
++    const out = await runScheduledDelivery(validConfig, { cron: WEEKLY_DELIVERY_CRON,
++      scheduledTime: Date.parse(iso) });
++    assert.equal(out.ignored, true);
++    assert.equal(out.claimed, 0);
++  }
++  const oldSunday = await runScheduledDelivery(validConfig, {
++    cron: "0 16 * * 1", scheduledTime: Date.parse("2026-11-15T16:00:00Z"),
++  });
++  assert.equal(oldSunday.ignored, true);
++  const disabled = await runScheduledDelivery({ DELIVERY_ENABLED: "false" }, {
++    cron: WEEKLY_DELIVERY_CRON, scheduledTime: Date.parse("2026-11-16T16:00:00Z"),
++  });
++  assert.equal(disabled.enabled, false);
++  assert.equal(disabled.sent, 0);
++});
+diff --git a/scripts/test-c76-route-http.mjs b/scripts/test-c76-route-http.mjs
+new file mode 100644
+index 0000000..91a712d
+--- /dev/null
++++ b/scripts/test-c76-route-http.mjs
+@@ -0,0 +1,401 @@
++import assert from 'node:assert/strict';
++import { spawnSync } from 'node:child_process';
++import { createHash, createHmac, randomBytes } from 'node:crypto';
++import fs from 'node:fs';
++import { createServer } from 'node:http';
++import { createRequire } from 'node:module';
++import { resolve } from 'node:path';
++import { pathToFileURL } from 'node:url';
++
++// Execute from the isolated application checkout with Node 24 + npm ci.
++const requireApp = createRequire(resolve('package.json'));
++const ts = requireApp('typescript');
++const postgresDb = 'deedlight_c76_http';
++const signer = randomBytes(32);
++const signingSecret = `whsec_${signer.toString('base64')}`;
++const providerCalls = [];
++const rpcCalls = [];
++
++process.env.RESEND_WEBHOOK_SECRET = signingSecret;
++process.env.SUPABASE_URL = 'https://c76-synthetic.supabase.co';
++process.env.SUPABASE_SERVICE_ROLE_KEY = 'c76-local-synthetic-role';
++process.env.DELIVERY_ENABLED = 'false';
++
++function sql(text, vars = {}) {
++  const args = [
++    '-X', '-At', '-q', '-v', 'ON_ERROR_STOP=1', '-d', postgresDb,
++    ...Object.entries(vars).flatMap(([key, value]) => ['-v', `${key}=${String(value)}`]),
++  ];
++  const p = spawnSync('psql', args, {
++    input: text,
++    encoding: 'utf8',
++    env: { ...process.env, PGHOST: '127.0.0.1', PGPORT: '5432', PGUSER: 'postgres', PGPASSWORD: 'postgres' },
++    timeout: 15000,
++    maxBuffer: 1024 * 1024,
++  });
++  if (p.status !== 0) {
++    throw Error(`Synthetic PostgreSQL operation failed (exit ${p.status})`);
++  }
++  return p.stdout.trim().split('\n').filter(Boolean).at(-1) ?? '';
++}
++
++function quoted(v) {
++  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(v)) throw Error('Invalid SQL variable name');
++  return `:'${v}'`;
++}
++
++async function rpc(name, args) {
++  rpcCalls.push(name);
++  const operations = {
++    deedlight_record_resend_delivery_v2: {
++      vars: ['p_event_id', 'p_provider_email_id', 'p_recipient_email', 'p_event_type', 'p_event_at', 'p_payload_sha256', 'p_suppression_reason', 'p_bounce_type'],
++      sql: `SELECT public.deedlight_record_resend_delivery_v2(
++        :'p_event_id', :'p_provider_email_id', :'p_recipient_email', :'p_event_type',
++        :'p_event_at'::timestamptz, :'p_payload_sha256', NULLIF(:'p_suppression_reason', '__NULL__'),
++        NULLIF(:'p_bounce_type', '__NULL__'));`,
++    },
++    deedlight_record_resend_suppression_verified: {
++      vars: ['p_event_id', 'p_suppression_id', 'p_recipient_email', 'p_origin', 'p_source_id', 'p_event_type', 'p_event_at', 'p_payload_sha256'],
++      sql: `SELECT public.deedlight_record_resend_suppression_verified(
++        :'p_event_id', :'p_suppression_id', :'p_recipient_email', :'p_origin',
++        NULLIF(:'p_source_id', '__NULL__'), :'p_event_type', :'p_event_at'::timestamptz,
++        :'p_payload_sha256');`,
++    },
++    authorize_delivery_job: {
++      vars: ['p_job_id', 'p_claim_token'],
++      sql: `SELECT public.authorize_delivery_job(:'p_job_id'::uuid, :'p_claim_token'::uuid)::text;`,
++    },
++    begin_delivery_transport_identity_bound: {
++      vars: ['p_job_id', 'p_claim_token', 'p_expected_email'],
++      sql: `SELECT coalesce(public.begin_delivery_transport_identity_bound(
++        :'p_job_id'::uuid, :'p_claim_token'::uuid, :'p_expected_email')::text, '__NULL__');`,
++    },
++    mark_delivery_sent_identity_bound: {
++      vars: ['p_job_id', 'p_claim_token', 'p_provider_email_id'],
++      sql: `SELECT public.mark_delivery_sent_identity_bound(
++        :'p_job_id'::uuid, :'p_claim_token'::uuid, :'p_provider_email_id')::text;`,
++    },
++    mark_delivery_failed: {
++      vars: ['p_job_id', 'p_claim_token', 'p_error_code'],
++      sql: `SELECT public.mark_delivery_failed(:'p_job_id'::uuid, :'p_claim_token'::uuid, :'p_error_code')::text;`,
++    },
++    retry_delivery_job: {
++      vars: ['p_job_id', 'p_claim_token', 'p_retry_at', 'p_error_code'],
++      sql: `SELECT public.retry_delivery_job(
++        :'p_job_id'::uuid, :'p_claim_token'::uuid, :'p_retry_at'::timestamptz, :'p_error_code')::text;`,
++    },
++  };
++  const op = operations[name];
++  if (!op) throw Error(`Unexpected synthetic RPC ${name}`);
++  const safeVars = Object.fromEntries(op.vars.map((key) => [key, args[key] ?? '__NULL__']));
++  try {
++    const value = sql(`SET ROLE service_role;\n${op.sql}\nRESET ROLE;`, safeVars);
++    return {
++      data: value === '__NULL__' ? null : ['t','true'].includes(value) ? true : ['f','false'].includes(value) ? false : value,
++      error: null,
++    };
++  } catch {
++    return { data: null, error: { code: 'C75_SYNTHETIC_DB_ERROR' } };
++  }
++}
++
++function loadTs(filename, overrides = {}) {
++  const source = fs.readFileSync(resolve(filename), 'utf8');
++  const transformed = ts.transpileModule(source, {
++    fileName: filename,
++    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
++    reportDiagnostics: true,
++  });
++  if (transformed.diagnostics?.length) throw Error('TypeScript transpilation diagnostics');
++  const module = { exports: {} };
++  const dependent = (name) => Object.hasOwn(overrides, name) ? overrides[name] : requireApp(name);
++  new Function('module', 'exports', 'require', 'process', transformed.outputText)(
++    module, module.exports, dependent, process,
++  );
++  return module.exports;
++}
++
++const verifier = loadTs('lib/delivery/resend-webhook.ts');
++const route = loadTs('app/api/webhooks/resend/route.ts', {
++  '@supabase/supabase-js': {
++    createClient(url, key, opts) {
++      assert.equal(url, 'https://c76-synthetic.supabase.co');
++      assert.equal(key, 'c76-local-synthetic-role');
++      assert.equal(opts.auth.persistSession, false);
++      return { rpc };
++    },
++  },
++  '@/lib/delivery/resend-webhook': verifier,
++});
++const { processClaimedDelivery } = await import(pathToFileURL(resolve('lib/delivery/run-delivery.ts')).href);
++const { parseDeliveryRuntimeConfig } = await import(pathToFileURL(resolve('lib/delivery/config.ts')).href);
++const { SupabaseDeliveryRuntime } = await import(pathToFileURL(resolve('lib/delivery/supabase-runtime.ts')).href);
++const { runScheduledDelivery } = await import(pathToFileURL(resolve('lib/delivery/scheduler.ts')).href);
++
++const databaseGateway = new SupabaseDeliveryRuntime({ rpc });
++const reader = createServer(async (incoming, outgoing) => {
++  try {
++    const pieces = [];
++    for await (const piece of incoming) pieces.push(piece);
++    const raw = Buffer.concat(pieces);
++    const request = new Request('http://127.0.0.1/webhooks/resend', {
++      method: 'POST', body: raw, headers: incoming.headers,
++    });
++    const result = await route.POST(request);
++    outgoing.writeHead(result.status, Object.fromEntries(result.headers));
++    outgoing.end(Buffer.from(await result.arrayBuffer()));
++  } catch {
++    outgoing.writeHead(500);
++    outgoing.end('Synthetic adapter failed');
++  }
++});
++await new Promise((ok) => reader.listen(0, '127.0.0.1', ok));
++const url = `http://127.0.0.1:${reader.address().port}/webhooks/resend`;
++const syntheticEmail = 'c76-roundtrip@example.test';
++const identity = '70000000-0000-0000-0000-000000000076';
++const monday = new Date();
++monday.setUTCDate(monday.getUTCDate() - (monday.getUTCDay() + 6) % 7);
++const weekStart = monday.toISOString().slice(0, 10);
++
++function signedEvent(eventId, type, extras = {}) {
++  const now = Date.now();
++  const body = JSON.stringify({
++    type,
++    created_at: new Date(now).toISOString(),
++    data: { email_id: 'provider-c76-roundtrip-001', to: [syntheticEmail], ...extras },
++  });
++  const timestamp = String(Math.floor(now / 1000));
++  const signature = 'v1,' + createHmac('sha256', signer)
++    .update(`${eventId}.${timestamp}.${body}`).digest('base64');
++  return { body, headers: {
++    'content-type': 'application/json',
++    'svix-id': eventId,
++    'svix-timestamp': timestamp,
++    'svix-signature': signature,
++  } };
++}
++
++function signedAccountEvent(eventId, type, email, sourceId = null) {
++  const now = Date.now();
++  const body = JSON.stringify({
++    type, created_at: new Date(now).toISOString(),
++    data: {
++      id: 'fe9751fd-9b5f-4aa8-9e04-50abbb6ad241',
++      email, origin: 'manual', source_id: sourceId,
++      created_at: new Date(now).toISOString(),
++    },
++  });
++  const timestamp = String(Math.floor(now / 1000));
++  const signature = 'v1,' + createHmac('sha256', signer)
++    .update(`${eventId}.${timestamp}.${body}`).digest('base64');
++  return { body, headers: {
++    'content-type': 'application/json', 'svix-id': eventId,
++    'svix-timestamp': timestamp, 'svix-signature': signature,
++  } };
++}
++
++function syntheticMember() {
++  sql(`
++    INSERT INTO auth.users(id,email,email_confirmed_at)
++      VALUES (:'identity'::uuid,:'email',now());
++    INSERT INTO public.profiles(user_id,is_suspended)
++      VALUES (:'identity'::uuid,false);
++    INSERT INTO public.daily_reminder_preferences(user_id,daily_enabled,reminder_time,timezone)
++      VALUES (:'identity'::uuid,true,'00:00','UTC');
++    INSERT INTO public.newsletter_preferences(user_id,weekly_enabled,consented_at)
++      VALUES (:'identity'::uuid,true,now());
++    INSERT INTO public.weekly_goodness_features(week_start)
++      VALUES (:'week_start'::date) ON CONFLICT DO NOTHING;
++  `, { identity, email: syntheticEmail, week_start: weekStart });
++}
++function queue(kind, deliveryKey, scheduledAtSql) {
++  const key = kind === 'daily_reminder' ? 'daily:' + scheduledAtSql : 'weekly:' + weekStart;
++  // Caller-chosen string is passed as an interpolated psql variable, not SQL.
++  const scheduleExpr = kind === 'daily_reminder'
++    ? `(:'delivery_key_date'::date + time '00:00') AT TIME ZONE 'UTC'`
++    : `now() - interval '1 minute'`;
++  sql(`INSERT INTO public.delivery_ledger(user_id,kind,delivery_key,scheduled_for)
++      VALUES (:'identity'::uuid,:'kind',:'key',${scheduleExpr});`, {
++    identity, kind, key, delivery_key_date: scheduledAtSql,
++  });
++  return key;
++}
++function claim(kind) {
++  sql(`SET ROLE service_role;
++    SELECT count(*) FROM public.claim_delivery_jobs(:'kind',now(),100);
++    RESET ROLE;`, { kind });
++}
++function job(key) {
++  const line = sql(`
++    SELECT id::text || '|' || user_id::text || '|' || kind || '|' ||
++      delivery_key || '|' || scheduled_for::text || '|' || claim_token::text
++    FROM public.delivery_ledger WHERE user_id=:'identity'::uuid AND delivery_key=:'key';`,
++    { identity, key });
++  const [jobId,userId,kind,deliveryKey,scheduledFor,claimToken] = line.split('|');
++  assert(jobId && claimToken, 'Synthetic claimed job unavailable');
++  return { jobId,userId,kind,deliveryKey,scheduledFor,claimToken };
++}
++async function dispatch(jobToSend) {
++  const oldCount = providerCalls.length;
++  const result = await processClaimedDelivery({
++    job: jobToSend,
++    gateway: databaseGateway,
++    recipientResolver: { async resolve() { return { email: syntheticEmail }; } },
++    transport: { async send(delivery) {
++      providerCalls.push({ id: delivery.jobId, kind: delivery.kind });
++      return { status: 'sent', providerResultId: 'provider-c76-roundtrip-001' };
++    } },
++  });
++  return { result, attempted: providerCalls.length - oldCount };
++}
++let cases = 0;
++try {
++  syntheticMember();
++  const yesterday = new Date(Date.now()-86400000).toISOString().slice(0,10);
++  const today = new Date().toISOString().slice(0,10);
++  const first = queue('daily_reminder', '', yesterday);
++  claim('daily_reminder');
++  const out = await dispatch(job(first));
++  assert.deepEqual(out, { result: 'sent', attempted: 1 });
++  cases++;
++  console.log('Claim -> current consent -> DB final authorization -> one synthetic provider send -> mark-sent: PASS');
++
++  const bounced = signedEvent('msg_c76_roundtrip_bounce001', 'email.bounced', {
++    bounce: { type: 'Permanent', subType: 'General' },
++  });
++  const response = await fetch(url,{method:'POST',headers:bounced.headers,body:bounced.body});
++  assert.equal(response.status, 200);
++  const payloadHash=createHash('sha256').update(bounced.body).digest('hex');
++  assert.equal(sql(`SELECT payload_sha256 FROM public.delivery_provider_events WHERE svix_event_id=:'event_id'`,
++    {event_id:'msg_c76_roundtrip_bounce001'}),payloadHash);
++  assert.equal(sql(`SELECT reason FROM public.delivery_recipient_suppressions s
++    JOIN public.delivery_provider_submissions p USING(recipient_fingerprint)
++    WHERE p.provider_email_id='provider-c76-roundtrip-001'`),'permanent_bounce');
++  cases++;
++  console.log('Signed localhost HTTP webhook -> actual PostgreSQL registry -> durable bounce suppression: PASS');
++
++  const replay = await fetch(url,{method:'POST',headers:bounced.headers,body:bounced.body});
++  assert.equal(replay.status,200);
++  assert.equal(sql(`SELECT count(*) FROM deedlight_event_private.provider_event_registry
++    WHERE event_id='msg_c76_roundtrip_bounce001'`),'1');
++  cases++;
++  console.log('Signed duplicate webhook HTTP -> one global provider identity: PASS');
++
++  const second = queue('daily_reminder','',today);
++  claim('daily_reminder');
++  const cancelled = await dispatch(job(second));
++  assert.deepEqual(cancelled,{result:'cancelled',attempted:0});
++  cases++;
++  console.log('Permanent bounce blocks subsequent Daily external send attempt: PASS');
++
++  const weekly = queue('weekly_newsletter','',weekStart);
++  claim('weekly_newsletter');
++  const weeklyResult=await dispatch(job(weekly));
++  assert.deepEqual(weeklyResult,{result:'cancelled',attempted:0});
++  cases++;
++  console.log('Permanent bounce blocks Weekly external send on same recipient: PASS');
++
++  const disabled = await runScheduledDelivery({DELIVERY_ENABLED:'false'}, {
++    cron:'*/5 * * * *',scheduledTime:Date.now(),
++  });
++  assert.equal(disabled.enabled,false);
++  assert.equal(disabled.claimed,0);
++  assert.equal(providerCalls.length,1);
++  cases++;
++  console.log('DELIVERY_ENABLED=false prevents scheduling and synthetic transport: PASS');
++
++  assert.equal(parseDeliveryRuntimeConfig({}).enabled,false);
++  assert.throws(()=>parseDeliveryRuntimeConfig({DELIVERY_ENABLED:'true'}));
++  cases++;
++  console.log('Missing delivery configuration remains fail-closed: PASS');
++
++  // A second signed complaint must not undo the original recipient suppression.
++  const complained = signedEvent('msg_c76_roundtrip_complaint001','email.complained');
++  const resp2=await fetch(url,{method:'POST',headers:complained.headers,body:complained.body});
++  assert.equal(resp2.status,200);
++  assert.equal(sql(`SELECT suppression_reason FROM public.delivery_recipient_state s
++    JOIN public.delivery_provider_submissions p USING(recipient_fingerprint)
++    WHERE p.provider_email_id='provider-c76-roundtrip-001'`),'spam_complaint');
++  cases++;
++  console.log('Signed complaint escalates bounce to durable spam hold: PASS');
++
++  const add = signedAccountEvent('msg_c76_account_added01','suppression.added',syntheticEmail,'provider-c76-roundtrip-001');
++  const addResponse = await fetch(url,{method:'POST',headers:add.headers,body:add.body});
++  assert.equal(addResponse.status,200);
++  assert.equal(sql(`SELECT count(*) FROM deedlight_event_private.c76_account_suppression_events
++    WHERE event_id='msg_c76_account_added01'`),'1');
++  assert.equal(sql(`SELECT provider_suppressed::text FROM public.delivery_recipient_state s
++    JOIN public.delivery_provider_submissions p USING(recipient_fingerprint)
++    WHERE p.provider_email_id='provider-c76-roundtrip-001'`),'true');
++  cases++;
++  console.log('Signed account suppression.added -> PostgreSQL global registry + durable recipient hold: PASS');
++
++  const remove = signedAccountEvent('msg_c76_account_removed1','suppression.removed',syntheticEmail,'provider-c76-roundtrip-001');
++  const removeResponse = await fetch(url,{method:'POST',headers:remove.headers,body:remove.body});
++  assert.equal(removeResponse.status,200);
++  assert.equal(sql(`SELECT suppression_reason FROM public.delivery_recipient_state s
++    JOIN public.delivery_provider_submissions p USING(recipient_fingerprint)
++    WHERE p.provider_email_id='provider-c76-roundtrip-001'`),'spam_complaint');
++  assert.equal(sql(`SELECT provider_suppressed::text FROM public.delivery_recipient_state s
++    JOIN public.delivery_provider_submissions p USING(recipient_fingerprint)
++    WHERE p.provider_email_id='provider-c76-roundtrip-001'`),'true');
++  cases++;
++  console.log('Signed account suppression.removed commits audit only, no release of complaint: PASS');
++
++  const secondEmail='c76-uncertain-http@example.test';
++  const secondId='70000000-0000-0000-0000-000000000096';
++  sql(`INSERT INTO auth.users(id,email,email_confirmed_at) VALUES (:'uid'::uuid,:'email',now());
++    INSERT INTO public.profiles(user_id,is_suspended) VALUES (:'uid'::uuid,false);
++    INSERT INTO public.daily_reminder_preferences(user_id,daily_enabled,reminder_time,timezone)
++      VALUES (:'uid'::uuid,true,'00:00','UTC');
++    INSERT INTO public.newsletter_preferences(user_id,weekly_enabled,consented_at)
++      VALUES (:'uid'::uuid,true,now());
++    INSERT INTO public.delivery_ledger(user_id,kind,delivery_key,scheduled_for)
++      VALUES (:'uid'::uuid,'daily_reminder','daily:' || (timezone('UTC',now())::date - 1)::text,
++        ((timezone('UTC',now())::date - 1) + time '00:00') AT TIME ZONE 'UTC');`,
++    {uid:secondId,email:secondEmail});
++  claim('daily_reminder');
++  const secondJobString=sql(`SELECT id::text || '|' || user_id::text || '|' || kind || '|' ||
++    delivery_key || '|' || scheduled_for::text || '|' || claim_token::text
++    FROM public.delivery_ledger WHERE user_id=:'uid'::uuid`,{uid:secondId});
++  const [secondJobId,secondUserId,secondKind,secondKey,secondScheduled,secondToken]=secondJobString.split('|');
++  assert(secondToken && secondKind==='daily_reminder');
++  const secondJob={jobId:secondJobId,userId:secondUserId,kind:secondKind,
++    deliveryKey:secondKey,scheduledFor:secondScheduled,claimToken:secondToken};
++  let secondAttempted=0;
++  const secondSend=await processClaimedDelivery({job:secondJob,gateway:databaseGateway,
++    recipientResolver:{async resolve(){return {email:secondEmail};}},
++    transport:{async send(){secondAttempted++;return {status:'sent',providerResultId:'provider-c76-uncertain-001'};}}});
++  assert.equal(secondSend,'sent');
++  assert.equal(secondAttempted,1);
++  const unknownBounce=signedEvent('msg_c76_undetermined_http01','email.bounced',{
++    email_id:'provider-c76-uncertain-001',to:[secondEmail],
++    bounce:{type:'Undetermined',subType:'Undetermined',diagnosticCode:[],message:'synthetic'},
++  });
++  const uncertainResponse=await fetch(url,{method:'POST',headers:unknownBounce.headers,body:unknownBounce.body});
++  assert.equal(uncertainResponse.status,200);
++  assert.equal(sql(`SELECT count(*) FROM deedlight_event_private.c76_bounce_classifications
++    WHERE event_id='msg_c76_undetermined_http01' AND bounce_type='Undetermined'`),'1');
++  assert.equal(sql(`SELECT s.pending_unmatched::text FROM public.delivery_recipient_state s
++    JOIN public.delivery_provider_submissions p USING(recipient_fingerprint)
++    WHERE p.provider_email_id='provider-c76-uncertain-001'`),'true');
++  cases++;
++  console.log('Signed Undetermined bounce -> PostgreSQL classification + fail-closed temporary hold: PASS');
++
++  // An informational success after the unknown bounce must not release it.
++  const lateSuccess=signedEvent('msg_c76_late_delivery001','email.delivered',{
++    email_id:'provider-c76-uncertain-001',to:[secondEmail],
++  });
++  assert.equal((await fetch(url,{method:'POST',headers:lateSuccess.headers,body:lateSuccess.body})).status,200);
++  assert.equal(sql(`SELECT s.pending_unmatched::text FROM public.delivery_recipient_state s
++    JOIN public.delivery_provider_submissions p USING(recipient_fingerprint)
++    WHERE p.provider_email_id='provider-c76-uncertain-001'`),'true');
++  cases++;
++  console.log('Out-of-order delivery success cannot release Undetermined recipient hold: PASS');
++
++  assert.equal(providerCalls.length,1,'Only one synthetic external send ever attempted');
++  console.log(JSON.stringify({c76_end_to_end:'pass',cases,synthetic_provider_attempts:providerCalls.length,
++    db_rpc_calls:rpcCalls.length,real_provider_calls:0}));
++} finally {
++  await new Promise((ok)=>reader.close(ok));
++}
+diff --git a/scripts/verify-c73-security.mjs b/scripts/verify-c73-security.mjs
+index 86796a9..29a0488 100644
+--- a/scripts/verify-c73-security.mjs
++++ b/scripts/verify-c73-security.mjs
+@@ -28,7 +28,8 @@ assert(sql.includes("deedlight_record_resend_verified"));
+ assert(route.includes('readLimitedRawBody(request)'));
+ assert(route.includes('isValidSupabaseUrl(supabaseUrl)'));
+ assert(route.includes('status: 503'));
+-assert(route.includes('deedlight_record_resend_verified'));
++assert(route.includes('deedlight_record_resend_delivery_v2'));
++assert(route.includes('deedlight_record_resend_suppression_verified'));
+ assert(!route.includes("NEXT_PUBLIC_"));
+ assert(verifier.includes('new Webhook(secret).verify(rawBody'));
+ assert(verifier.includes('svix-timestamp'));
+diff --git a/supabase/migrations/202611130033_c76_provider_classification_and_suppression.sql b/supabase/migrations/202611130033_c76_provider_classification_and_suppression.sql
+new file mode 100644
+index 0000000..6da4d2c
+--- /dev/null
++++ b/supabase/migrations/202611130033_c76_provider_classification_and_suppression.sql
+@@ -0,0 +1,259 @@
++-- Cycle 76 isolated candidate: official Resend account suppressions and uncertain bounces.
++-- Never apply to Production until exclusive ownership, migration reconciliation and review.
++BEGIN;
++SET LOCAL lock_timeout='5s';
++SET LOCAL statement_timeout='45s';
++
++DO $preflight$
++BEGIN
++  IF to_regclass('deedlight_event_private.provider_event_registry') IS NULL
++    OR to_regclass('public.delivery_recipient_state') IS NULL
++    OR to_regclass('public.delivery_provider_submissions') IS NULL
++    OR to_regprocedure('public.deedlight_record_resend_verified(text,text,text,text,timestamptz,text,text)') IS NULL
++    OR to_regprocedure('deedlight_event_private.c75_preserve_recipient_conflict_hold()') IS NULL
++    OR to_regprocedure('deedlight_private.recipient_fingerprints(text)') IS NULL
++    OR to_regprocedure('public.deedlight_record_resend_delivery_v2(text,text,text,text,timestamptz,text,text,text)') IS NOT NULL
++    OR to_regclass('deedlight_event_private.c76_uncertain_bounces') IS NOT NULL THEN
++    RAISE EXCEPTION 'C76 requires the exact unreplaced 032 provider security contracts' USING ERRCODE='55000';
++  END IF;
++  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger
++    WHERE tgrelid='public.delivery_recipient_state'::regclass
++      AND tgname='c75_preserve_recipient_conflict_hold' AND tgenabled='A') THEN
++    RAISE EXCEPTION 'C76 refuses migration without monotonic 032 recipient hold' USING ERRCODE='55000';
++  END IF;
++END $preflight$;
++
++-- Private audit: original classification is immutable, including Transient and
++-- Undetermined. Provider payload, email, signing keys and member ID are NOT stored.
++CREATE TABLE deedlight_event_private.c76_bounce_classifications (
++  provider text NOT NULL DEFAULT 'resend' CHECK (provider='resend'),
++  event_id text NOT NULL,
++  bounce_type text NOT NULL CHECK (bounce_type IN ('Permanent','Transient','Undetermined')),
++  observed_at timestamptz NOT NULL DEFAULT clock_timestamp(),
++  PRIMARY KEY(provider,event_id),
++  FOREIGN KEY(provider,event_id)
++    REFERENCES deedlight_event_private.provider_event_registry(provider,event_id) ON DELETE RESTRICT
++);
++CREATE TABLE deedlight_event_private.c76_uncertain_bounces (
++  provider text NOT NULL DEFAULT 'resend' CHECK (provider='resend'),
++  event_id text NOT NULL,
++  recipient_fingerprint text NOT NULL CHECK (recipient_fingerprint ~ '^[0-9a-f]{64}$'),
++  key_version smallint NOT NULL CHECK (key_version>0),
++  observed_at timestamptz NOT NULL DEFAULT clock_timestamp(),
++  PRIMARY KEY(provider,event_id,recipient_fingerprint),
++  FOREIGN KEY(provider,event_id) REFERENCES deedlight_event_private.c76_bounce_classifications(provider,event_id)
++    ON DELETE RESTRICT
++);
++CREATE INDEX c76_uncertain_bounces_fingerprint ON deedlight_event_private.c76_uncertain_bounces(recipient_fingerprint);
++
++-- Account-list changes do not have a provider EMAIL message_id. Do not forge a
++-- delivery-message association. Use one existing global registry ID instead.
++CREATE TABLE deedlight_event_private.c76_account_suppression_events (
++  provider text NOT NULL DEFAULT 'resend' CHECK (provider='resend'),
++  event_id text NOT NULL,
++  suppression_id text NOT NULL CHECK (length(suppression_id) BETWEEN 10 AND 128),
++  event_type text NOT NULL CHECK (event_type IN ('suppression.added','suppression.removed')),
++  origin text NOT NULL CHECK (origin IN ('bounce','complaint','manual')),
++  source_id text CHECK (source_id IS NULL OR (length(source_id) BETWEEN 1 AND 255 AND source_id !~ '[[:cntrl:]]')),
++  event_at timestamptz NOT NULL,
++  recorded_at timestamptz NOT NULL DEFAULT clock_timestamp(),
++  PRIMARY KEY(provider,event_id),
++  FOREIGN KEY(provider,event_id) REFERENCES deedlight_event_private.provider_event_registry(provider,event_id)
++    ON DELETE RESTRICT
++);
++CREATE TABLE deedlight_event_private.c76_account_suppression_recipients (
++  provider text NOT NULL DEFAULT 'resend' CHECK (provider='resend'),
++  event_id text NOT NULL,
++  recipient_fingerprint text NOT NULL CHECK (recipient_fingerprint ~ '^[0-9a-f]{64}$'),
++  key_version smallint NOT NULL CHECK (key_version>0),
++  PRIMARY KEY(provider,event_id,recipient_fingerprint),
++  FOREIGN KEY(provider,event_id) REFERENCES deedlight_event_private.c76_account_suppression_events(provider,event_id)
++    ON DELETE RESTRICT
++);
++
++DO $privacy$
++DECLARE t text;
++BEGIN
++  FOREACH t IN ARRAY ARRAY['c76_bounce_classifications','c76_uncertain_bounces',
++    'c76_account_suppression_events','c76_account_suppression_recipients'] LOOP
++    EXECUTE format('ALTER TABLE deedlight_event_private.%I ENABLE ROW LEVEL SECURITY',t);
++    EXECUTE format('REVOKE ALL ON deedlight_event_private.%I FROM PUBLIC,anon,authenticated,service_role',t);
++  END LOOP;
++END $privacy$;
++
++-- A later delivered/sent event must NEVER clear an unresolved Undetermined
++-- bounce. There is deliberately no automatic release function in this cycle.
++CREATE FUNCTION deedlight_event_private.c76_preserve_uncertain_bounce_hold()
++RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
++SET search_path=pg_catalog,pg_temp AS $guard$
++BEGIN
++  IF NOT NEW.pending_unmatched AND EXISTS (
++    SELECT 1 FROM deedlight_event_private.c76_uncertain_bounces b
++      WHERE b.recipient_fingerprint=NEW.recipient_fingerprint
++  ) THEN
++    NEW.pending_unmatched:=true;
++  END IF;
++  RETURN NEW;
++END $guard$;
++REVOKE ALL ON FUNCTION deedlight_event_private.c76_preserve_uncertain_bounce_hold()
++  FROM PUBLIC,anon,authenticated,service_role;
++CREATE TRIGGER c76_preserve_uncertain_bounce_hold
++  BEFORE UPDATE ON public.delivery_recipient_state FOR EACH ROW
++  EXECUTE FUNCTION deedlight_event_private.c76_preserve_uncertain_bounce_hold();
++ALTER TABLE public.delivery_recipient_state ENABLE ALWAYS TRIGGER c76_preserve_uncertain_bounce_hold;
++
++-- This is the sole service-callable DELIVERED/MESSAGE webhook RPC after C76.
++-- The prior 7-argument definer is now internal-only to prevent a caller
++-- omitting the Undetermined classification and bypassing a safety hold.
++CREATE FUNCTION public.deedlight_record_resend_delivery_v2(
++  p_event_id text,p_provider_email_id text,p_recipient_email text,
++  p_event_type text,p_event_at timestamptz,p_payload_sha256 text,
++  p_suppression_reason text,p_bounce_type text
++) RETURNS text LANGUAGE plpgsql SECURITY DEFINER
++SET search_path=pg_catalog,pg_temp AS $handler$
++DECLARE v_result text; v_actual text; v_fp record;
++BEGIN
++  IF (p_event_type='email.bounced' AND (
++       p_bounce_type NOT IN ('Permanent','Transient','Undetermined') OR p_bounce_type IS NULL
++       OR (p_bounce_type='Permanent' AND p_suppression_reason IS DISTINCT FROM 'permanent_bounce')
++       OR (p_bounce_type IN ('Transient','Undetermined') AND p_suppression_reason IS NOT NULL)
++     )) OR (p_event_type IS DISTINCT FROM 'email.bounced' AND p_bounce_type IS NOT NULL) THEN
++    RAISE EXCEPTION 'Missing or inconsistent authenticated bounce classification' USING ERRCODE='22023';
++  END IF;
++  -- The original 030 function locks all current + historical fingerprints,
++  -- reserves the sole event identity and processes/pends/quarantines atomically.
++  v_result:=public.deedlight_record_resend_verified(
++    p_event_id,p_provider_email_id,p_recipient_email,p_event_type,p_event_at,
++    p_payload_sha256,p_suppression_reason);
++  IF p_event_type='email.bounced' AND v_result<>'quarantined' THEN
++    INSERT INTO deedlight_event_private.c76_bounce_classifications(event_id,bounce_type)
++      VALUES(p_event_id,p_bounce_type) ON CONFLICT (provider,event_id) DO NOTHING;
++    IF EXISTS (SELECT 1 FROM deedlight_event_private.c76_bounce_classifications b
++        WHERE b.event_id=p_event_id AND b.bounce_type IS DISTINCT FROM p_bounce_type) THEN
++      RAISE EXCEPTION 'Bounce classification changed under same event ID' USING ERRCODE='23505';
++    END IF;
++    IF p_bounce_type='Undetermined' THEN
++      -- Unknown association remains a pending safety hold; conflicting known
++      -- association is quarantined by the underlying 030 function instead.
++      SELECT s.recipient_fingerprint INTO v_actual FROM public.delivery_provider_submissions s
++        WHERE s.provider_email_id=p_provider_email_id;
++      IF v_actual IS NULL OR EXISTS (
++        SELECT 1 FROM deedlight_private.recipient_fingerprints(p_recipient_email) f
++          WHERE f.fingerprint=v_actual) THEN
++        FOR v_fp IN SELECT * FROM deedlight_private.recipient_fingerprints(p_recipient_email)
++            ORDER BY fingerprint LOOP
++          INSERT INTO deedlight_event_private.c76_uncertain_bounces
++            (event_id,recipient_fingerprint,key_version)
++            VALUES(p_event_id,v_fp.fingerprint,v_fp.key_version)
++            ON CONFLICT DO NOTHING;
++          INSERT INTO public.delivery_recipient_state(recipient_fingerprint)
++            VALUES(v_fp.fingerprint) ON CONFLICT DO NOTHING;
++          UPDATE public.delivery_recipient_state SET pending_unmatched=true,
++            updated_at=clock_timestamp() WHERE recipient_fingerprint=v_fp.fingerprint;
++        END LOOP;
++      END IF;
++    END IF;
++  END IF;
++  RETURN v_result;
++END $handler$;
++REVOKE ALL ON FUNCTION public.deedlight_record_resend_delivery_v2(text,text,text,text,timestamptz,text,text,text)
++  FROM PUBLIC,anon,authenticated,service_role;
++GRANT EXECUTE ON FUNCTION public.deedlight_record_resend_delivery_v2(text,text,text,text,timestamptz,text,text,text)
++  TO service_role;
++REVOKE ALL ON FUNCTION public.deedlight_record_resend_verified(text,text,text,text,timestamptz,text,text)
++  FROM PUBLIC,anon,authenticated,service_role;
++
++-- Official suppression.added / suppression.removed events have a SUPPRESSION
++-- id and account email, not an outbound message id. Signature verification
++-- happens before this narrow RPC; fingerprints are computed only in the DB.
++CREATE FUNCTION public.deedlight_record_resend_suppression_verified(
++  p_event_id text,p_suppression_id text,p_recipient_email text,
++  p_origin text,p_source_id text,p_event_type text,p_event_at timestamptz,
++  p_payload_sha256 text
++) RETURNS text LANGUAGE plpgsql SECURITY DEFINER
++SET search_path=pg_catalog,pg_temp AS $handler$
++DECLARE v_r record; v_actual text; v_reserved text;
++BEGIN
++  IF p_event_id IS NULL OR p_event_id !~ '^msg_[A-Za-z0-9_-]{6,180}$'
++    OR p_suppression_id IS NULL OR p_suppression_id !~ '^[A-Za-z0-9-]{10,128}$'
++    OR p_recipient_email IS NULL OR p_event_type IS NULL
++    OR p_event_type NOT IN ('suppression.added','suppression.removed')
++    OR p_event_at IS NULL OR p_payload_sha256 IS NULL OR p_payload_sha256 !~ '^[0-9a-f]{64}$'
++    OR p_origin IS NULL OR p_origin NOT IN ('bounce','complaint','manual')
++    OR (p_source_id IS NOT NULL AND (length(p_source_id) NOT BETWEEN 1 AND 255
++      OR p_source_id ~ '[[:cntrl:]]')) THEN
++    RAISE EXCEPTION 'Invalid verified account suppression metadata' USING ERRCODE='22023';
++  END IF;
++  -- Database-authoritative source correlation, only if source ID is an
++  -- already known outbound provider message. No guessed member from email.
++  IF p_source_id IS NOT NULL THEN
++    SELECT s.recipient_fingerprint INTO v_actual FROM public.delivery_provider_submissions s
++      WHERE s.provider_email_id=p_source_id;
++  END IF;
++  FOR v_r IN SELECT DISTINCT fingerprint FROM (
++    SELECT f.fingerprint FROM deedlight_private.recipient_fingerprints(p_recipient_email) f
++    UNION ALL SELECT v_actual WHERE v_actual IS NOT NULL
++  ) ids ORDER BY fingerprint LOOP
++    INSERT INTO public.delivery_recipient_state(recipient_fingerprint)
++      VALUES(v_r.fingerprint) ON CONFLICT DO NOTHING;
++    PERFORM 1 FROM public.delivery_recipient_state s
++      WHERE s.recipient_fingerprint=v_r.fingerprint FOR UPDATE;
++  END LOOP;
++  v_reserved:=public.deedlight_reserve_provider_event(
++    'resend',p_event_id,decode(p_payload_sha256,'hex'),p_event_type,NULL);
++  IF v_reserved IN ('IDENTITY_CONFLICT','QUARANTINED') THEN
++    IF v_actual IS NOT NULL THEN
++      UPDATE public.delivery_recipient_state SET pending_unmatched=true,
++        updated_at=clock_timestamp() WHERE recipient_fingerprint=v_actual;
++    END IF;
++    RETURN 'quarantined';
++  END IF;
++  IF v_reserved='DUPLICATE_PROCESSED' THEN RETURN 'duplicate'; END IF;
++  IF v_reserved<>'NEW_PENDING' THEN
++    RAISE EXCEPTION 'Unexpected incomplete suppression reservation' USING ERRCODE='55000';
++  END IF;
++  IF v_actual IS NOT NULL AND NOT EXISTS (
++    SELECT 1 FROM deedlight_private.recipient_fingerprints(p_recipient_email) f
++      WHERE f.fingerprint=v_actual) THEN
++    UPDATE deedlight_event_private.provider_event_registry
++      SET state='identity_conflict',updated_at=clock_timestamp()
++      WHERE provider='resend' AND event_id=p_event_id;
++    INSERT INTO deedlight_event_private.provider_event_quarantine
++      (provider,event_id,reason,conflicting_sha256)
++      VALUES('resend',p_event_id,'ambiguous_provider_delivery',decode(p_payload_sha256,'hex'))
++      ON CONFLICT DO NOTHING;
++    UPDATE public.delivery_recipient_state SET pending_unmatched=true,
++      updated_at=clock_timestamp() WHERE recipient_fingerprint=v_actual;
++    RETURN 'quarantined';
++  END IF;
++  INSERT INTO deedlight_event_private.c76_account_suppression_events
++    (event_id,suppression_id,event_type,origin,source_id,event_at)
++  VALUES(p_event_id,p_suppression_id,p_event_type,p_origin,p_source_id,p_event_at)
++  ON CONFLICT (provider,event_id) DO NOTHING;
++  FOR v_r IN SELECT * FROM deedlight_private.recipient_fingerprints(p_recipient_email)
++      ORDER BY fingerprint LOOP
++    INSERT INTO deedlight_event_private.c76_account_suppression_recipients
++      (event_id,recipient_fingerprint,key_version)
++      VALUES(p_event_id,v_r.fingerprint,v_r.key_version)
++      ON CONFLICT DO NOTHING;
++    IF p_event_type='suppression.added' THEN
++      -- A signed suppression.added is an account-wide do-not-send event.
++      -- A removal NEVER revokes this or an independent complaint/consent hold.
++      UPDATE public.delivery_recipient_state
++        SET provider_suppressed=true,pending_unmatched=true,updated_at=clock_timestamp()
++        WHERE recipient_fingerprint=v_r.fingerprint;
++    END IF;
++  END LOOP;
++  UPDATE deedlight_event_private.provider_event_registry
++    SET state='processed',updated_at=clock_timestamp()
++    WHERE provider='resend' AND event_id=p_event_id AND state='pending';
++  IF NOT FOUND AND v_reserved='NEW_PENDING' THEN
++    RAISE EXCEPTION 'Suppression event lost global registry identity' USING ERRCODE='55000';
++  END IF;
++  RETURN 'recorded';
++END $handler$;
++REVOKE ALL ON FUNCTION public.deedlight_record_resend_suppression_verified(text,text,text,text,text,text,timestamptz,text)
++  FROM PUBLIC,anon,authenticated,service_role;
++GRANT EXECUTE ON FUNCTION public.deedlight_record_resend_suppression_verified(text,text,text,text,text,text,timestamptz,text)
++  TO service_role;
++COMMIT;
