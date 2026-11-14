@@ -210,4 +210,105 @@ SELECT jsonb_build_object(
  'cross_session_postgresql','pass',
  'synthetic_only','pass') AS c77_concurrency;
 SQL
-printf 'C77 cross-session complaint, identity, removal races PASS\n' > "$OUT/result.txt"
+
+# A/B: a claim transaction is held open while another PostgreSQL connection
+# independently revokes Daily/Weekly consent before the final send gate.
+psql -X -v ON_ERROR_STOP=1 -d "$DB" > "$OUT/consent-setup.log" 2>&1 <<'SQL'
+INSERT INTO auth.users(id,email,email_confirmed_at) VALUES
+ ('70000000-0000-0000-0000-000000000099','c77-race-99@example.test',now()),
+ ('70000000-0000-0000-0000-000000000100','c77-race-100@example.test',now());
+INSERT INTO public.profiles(user_id,is_suspended) VALUES
+ ('70000000-0000-0000-0000-000000000099',false),
+ ('70000000-0000-0000-0000-000000000100',false);
+INSERT INTO public.daily_reminder_preferences(user_id,daily_enabled,reminder_time,timezone)
+ VALUES('70000000-0000-0000-0000-000000000099',true,time '00:00','UTC');
+INSERT INTO public.newsletter_preferences(user_id,weekly_enabled,consented_at)
+ VALUES('70000000-0000-0000-0000-000000000100',true,now());
+INSERT INTO public.weekly_goodness_features(week_start)
+ VALUES(timezone('UTC',now())::date-(extract(isodow from timezone('UTC',now()))::integer-1))
+ ON CONFLICT DO NOTHING;
+INSERT INTO public.delivery_ledger(user_id,kind,delivery_key,scheduled_for) VALUES
+ ('70000000-0000-0000-0000-000000000099','daily_reminder',
+   'daily:'||(timezone('UTC',now())::date-1)::text,
+   ((timezone('UTC',now())::date-1)+time '00:00') AT TIME ZONE 'UTC'),
+ ('70000000-0000-0000-0000-000000000100','weekly_newsletter',
+   'weekly:'||(timezone('UTC',now())::date-(extract(isodow from timezone('UTC',now()))::integer-1))::text,
+   now()-interval '1 minute');
+SQL
+
+psql -X -v ON_ERROR_STOP=1 -d "$DB" > "$OUT/daily-claim-writer.log" 2>&1 <<'SQL' &
+BEGIN;
+SET LOCAL ROLE service_role;
+DO $claim$
+BEGIN
+ PERFORM count(*) FROM public.claim_delivery_jobs('daily_reminder',now(),1000);
+ IF NOT EXISTS (SELECT 1 FROM public.delivery_ledger
+   WHERE user_id='70000000-0000-0000-0000-000000000099' AND state='claimed')
+ THEN RAISE EXCEPTION 'Daily concurrency claim missing'; END IF;
+END $claim$;
+\echo C77_DAILY_CLAIM_HELD
+SELECT pg_sleep(4);
+COMMIT;
+SQL
+worker=$!
+wait_for C77_DAILY_CLAIM_HELD "$OUT/daily-claim-writer.log" "$worker"
+psql -X -v ON_ERROR_STOP=1 -d "$DB" > "$OUT/daily-revocation.log" 2>&1 <<'SQL'
+UPDATE public.daily_reminder_preferences SET daily_enabled=false
+ WHERE user_id='70000000-0000-0000-0000-000000000099';
+SQL
+wait "$worker"
+
+psql -X -v ON_ERROR_STOP=1 -d "$DB" > "$OUT/weekly-claim-writer.log" 2>&1 <<'SQL' &
+BEGIN;
+SET LOCAL ROLE service_role;
+DO $claim$
+BEGIN
+ PERFORM count(*) FROM public.claim_delivery_jobs('weekly_newsletter',now(),1000);
+ IF NOT EXISTS (SELECT 1 FROM public.delivery_ledger
+   WHERE user_id='70000000-0000-0000-0000-000000000100' AND state='claimed')
+ THEN RAISE EXCEPTION 'Weekly concurrency claim missing'; END IF;
+END $claim$;
+\echo C77_WEEKLY_CLAIM_HELD
+SELECT pg_sleep(4);
+COMMIT;
+SQL
+worker=$!
+wait_for C77_WEEKLY_CLAIM_HELD "$OUT/weekly-claim-writer.log" "$worker"
+psql -X -v ON_ERROR_STOP=1 -d "$DB" > "$OUT/weekly-revocation.log" 2>&1 <<'SQL'
+UPDATE public.newsletter_preferences SET weekly_enabled=false
+ WHERE user_id='70000000-0000-0000-0000-000000000100';
+SQL
+wait "$worker"
+
+psql -X -v ON_ERROR_STOP=1 -d "$DB" > "$OUT/consent-final.log" 2>&1 <<'SQL'
+SET ROLE service_role;
+DO $deny$
+DECLARE r record;ts timestamptz;checked integer:=0;
+BEGIN
+ FOR r IN SELECT l.id,l.claim_token,u.email
+ FROM public.delivery_ledger l JOIN auth.users u ON u.id=l.user_id
+ WHERE u.email IN ('c77-race-99@example.test','c77-race-100@example.test')
+  AND l.state='claimed' LOOP
+  checked:=checked+1;
+  BEGIN
+   ts:=public.begin_delivery_transport_identity_bound(r.id,r.claim_token,r.email);
+   IF ts IS NOT NULL THEN RAISE EXCEPTION 'Consent race authorized external transport' USING ERRCODE='ZX004'; END IF;
+  EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
+  END;
+ END LOOP;
+ IF checked<>2 THEN RAISE EXCEPTION 'Not both revoked claims examined: %',checked; END IF;
+END $deny$;
+RESET ROLE;
+DO $assert$
+BEGIN
+ IF EXISTS(SELECT 1 FROM public.delivery_ledger l JOIN auth.users u ON u.id=l.user_id
+   WHERE u.email IN ('c77-race-99@example.test','c77-race-100@example.test')
+    AND l.transport_started_at IS NOT NULL)
+ THEN RAISE EXCEPTION 'Revocation lost final-send race'; END IF;
+END $assert$;
+SELECT jsonb_build_object(
+ 'daily_claim_vs_consent_revocation','pass',
+ 'weekly_claim_vs_consent_revocation','pass',
+ 'no_transport_after_revocation','pass') AS c77_consent_races;
+SQL
+printf 'C77 cross-session provider + Daily/Weekly consent races PASS\n' > "$OUT/result.txt"
