@@ -87,6 +87,10 @@ BEGIN
   IF public.mark_delivery_sent_identity_bound(j,t,'provider-c74-pending-001') IS DISTINCT FROM true THEN
     RAISE EXCEPTION 'Provider correlation/pending promotion failed';
   END IF;
+END $c74_promotion$;
+RESET ROLE;
+DO $c74_check_promotion$
+BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM public.delivery_provider_events
       WHERE svix_event_id='msg_c74_presuppression00001'
@@ -101,8 +105,7 @@ BEGIN
     ) THEN
     RAISE EXCEPTION 'Pending provider suppression did not survive promotion';
   END IF;
-END $c74_promotion$;
-RESET ROLE;
+END $c74_check_promotion$;
 
 INSERT INTO public.delivery_ledger(user_id,kind,delivery_key,scheduled_for)
   VALUES ('70000000-0000-0000-0000-000000000005','daily_reminder',
@@ -138,9 +141,8 @@ INSERT INTO public.delivery_ledger(user_id,kind,delivery_key,scheduled_for)
   VALUES ('70000000-0000-0000-0000-000000000005','daily_reminder',
     'daily:' || (timezone('UTC',now())::date - 2)::text,
     ((timezone('UTC',now())::date - 2) + time '00:00') AT TIME ZONE 'UTC');
-SET ROLE service_role;
-DO $c74_rotation$
-DECLARE j uuid;t uuid;stamp timestamptz;n integer;
+DO $c74_rotation_catalog$
+DECLARE n integer;
 BEGIN
   SELECT count(*) INTO n FROM deedlight_private.recipient_fingerprints('c74-pending@EXAMPLE.TEST');
   IF n<>2 THEN RAISE EXCEPTION 'Expected both historical and active fingerprints'; END IF;
@@ -149,6 +151,11 @@ BEGIN
     JOIN public.delivery_recipient_state s ON s.recipient_fingerprint=f.fingerprint
     WHERE f.phase='legacy' AND s.provider_suppressed
   ) THEN RAISE EXCEPTION 'Prior key fingerprint lost suppression'; END IF;
+END $c74_rotation_catalog$;
+SET ROLE service_role;
+DO $c74_rotation$
+DECLARE j uuid;t uuid;stamp timestamptz;
+BEGIN
   PERFORM public.claim_delivery_jobs('daily_reminder',now(),100);
   SELECT id,claim_token INTO j,t FROM public.delivery_ledger
     WHERE delivery_key='daily:' || (timezone('UTC',now())::date - 2)::text AND
