@@ -280,10 +280,10 @@ index 9644bb9..e545cd9 100644
      apiKey: config.resendApiKey,
 diff --git a/scripts/test-c76-provider-classification.sql b/scripts/test-c76-provider-classification.sql
 new file mode 100644
-index 0000000..d326b25
+index 0000000..def8f42
 --- /dev/null
 +++ b/scripts/test-c76-provider-classification.sql
-@@ -0,0 +1,241 @@
+@@ -0,0 +1,252 @@
 +\set ON_ERROR_STOP on
 +-- C76 ONLY. Run in a fresh synthetic postgres:16 database AFTER C73 test
 +-- migrations 019-030 and reviewed migrations 031,032,033. NO Production.
@@ -490,11 +490,22 @@ index 0000000..d326b25
 +END $rotation$;
 +
 +-- Even a claimed Weekly job cannot use previous consent or the old key to send.
-+UPDATE public.delivery_ledger SET state='claimed',claim_token=gen_random_uuid(),
-+  claim_expires_at=clock_timestamp()+interval '5 minutes',attempt_count=1
-+WHERE user_id IN ('70000000-0000-0000-0000-000000000076',
-+  '70000000-0000-0000-0000-000000000077') AND kind='weekly_newsletter' AND state='queued';
 +SET ROLE service_role;
++DO $claim_weekly$
++DECLARE i integer; n integer;
++BEGIN
++  FOR i IN 1..10 LOOP
++    EXIT WHEN (SELECT count(*) FROM public.delivery_ledger
++      WHERE user_id IN ('70000000-0000-0000-0000-000000000076',
++        '70000000-0000-0000-0000-000000000077')
++      AND kind='weekly_newsletter' AND state='claimed')=2;
++    PERFORM count(*) FROM public.claim_delivery_jobs('weekly_newsletter',now(),1000);
++  END LOOP;
++  SELECT count(*) INTO n FROM public.delivery_ledger
++    WHERE user_id IN ('70000000-0000-0000-0000-000000000076',
++      '70000000-0000-0000-0000-000000000077') AND kind='weekly_newsletter' AND state='claimed';
++  IF n<>2 THEN RAISE EXCEPTION 'Weekly scoped claim did not reach both held members: %',n; END IF;
++END $claim_weekly$;
 +DO $cross_kind$
 +DECLARE v_id uuid;v_token uuid;v_email text;v_ts timestamptz;
 +BEGIN
