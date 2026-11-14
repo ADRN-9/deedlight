@@ -280,7 +280,7 @@ index 9644bb9..e545cd9 100644
      apiKey: config.resendApiKey,
 diff --git a/scripts/test-c76-provider-classification.sql b/scripts/test-c76-provider-classification.sql
 new file mode 100644
-index 0000000..1a2d912
+index 0000000..d326b25
 --- /dev/null
 +++ b/scripts/test-c76-provider-classification.sql
 @@ -0,0 +1,241 @@
@@ -483,7 +483,7 @@ index 0000000..1a2d912
 +BEGIN
 +  IF (SELECT count(*) FROM deedlight_private.recipient_fingerprints('c76-provider@example.test'))<>2
 +    OR NOT EXISTS (SELECT 1 FROM deedlight_private.recipient_fingerprints('c76-provider@example.test') f
-+      JOIN public.delivery_recipient_state s USING(recipient_fingerprint)
++      JOIN public.delivery_recipient_state s ON s.recipient_fingerprint=f.fingerprint
 +      WHERE f.phase='legacy' AND s.provider_suppressed) THEN
 +    RAISE EXCEPTION 'Historical HMAC key lost account-level provider suppression';
 +  END IF;
