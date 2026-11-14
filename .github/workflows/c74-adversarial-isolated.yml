@@ -1,0 +1,154 @@
+name: C74 exact-C73 isolated adversarial suite
+on:
+  push:
+    branches:
+      - evidence/deedlight-c74-postgres-adversarial-1cd95cac-v1
+    paths:
+      - .github/workflows/c74-adversarial-isolated.yml
+      - evidence/deedlight-c74-postgres-adversarial/vectors/**
+permissions:
+  contents: read
+concurrency:
+  group: c74-adversarial-isolated
+  cancel-in-progress: true
+jobs:
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DELIVERY_ENABLED: "false"
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: c983e2ed8b93c935139c935343261570ecea6978
+          path: app
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: a25a43a85d74a5a5b9d05309ad0840df8ddcd8cf
+          path: c73
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          path: evidence-src
+          persist-credentials: false
+      - name: PostgreSQL client
+        run: |
+          set -euo pipefail
+          sudo apt-get update -q
+          sudo apt-get install -y postgresql-client
+      - name: Exact C73 source replay and disposable adversarial SQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p c74-results
+          test "$DELIVERY_ENABLED" = false
+          for key in DATABASE_URL SUPABASE_URL SUPABASE_PROJECT_REF SUPABASE_SERVICE_ROLE_KEY SUPABASE_DB_PASSWORD SUPABASE_ACCESS_TOKEN RESEND_API_KEY RESEND_WEBHOOK_SECRET CLOUDFLARE_API_TOKEN; do
+            test -z "$(printenv "$key" || true)"
+          done
+          p=c73/evidence/deedlight-c73-integrated-security-d8700788/results/C73_COMPLETE_RESOLVED_INTEGRATION.patch
+          printf '%s  %s\n' 864c3fae8df6b3c60fbcf17f0189e633ae1b1de54a01dde01738c545f53dc8d9 "$p" | sha256sum --check > c74-results/source-check.txt
+          test "$(git -C app rev-parse HEAD)" = c983e2ed8b93c935139c935343261570ecea6978
+          git -C app apply --check "../$p"
+          git -C app apply "../$p"
+          git -C app diff --check
+          git -C app add -A
+          test "$(git -C app write-tree)" = dd4f8593fdb1b3032eb6cddd5f39e50ea9cb7682
+          git -C app write-tree > c74-results/source-tree.txt
+          psql -X -At -v ON_ERROR_STOP=1 -d postgres -c 'show server_version;' > c74-results/pg-version.txt
+          createdb deedlight_c74_adversarial
+          cd app
+          psql -X -v ON_ERROR_STOP=1 -d deedlight_c74_adversarial -f scripts/test-c73-integrated-provider-security.sql > ../c74-results/c73-synthetic-019-to-030.log 2>&1
+          psql -X -v ON_ERROR_STOP=1 -d deedlight_c74_adversarial -f ../evidence-src/evidence/deedlight-c74-postgres-adversarial/vectors/postgres-security.sql > ../c74-results/c74-negative.log 2>&1
+          bash ../evidence-src/evidence/deedlight-c74-postgres-adversarial/vectors/concurrency.sh
+          echo 'C74 SQL + concurrency complete PASS' | tee ../c74-results/pg-pass.txt
+      - name: Preserve synthetic logs even on assertion failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: c74-postgres16-adversarial
+          path: c74-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+  http_build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DELIVERY_ENABLED: "false"
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-not-a-secret
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: c983e2ed8b93c935139c935343261570ecea6978
+          path: app
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: a25a43a85d74a5a5b9d05309ad0840df8ddcd8cf
+          path: c73
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          path: evidence-src
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Exact integrated source with route HTTP and application regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p c74-results
+          test "$DELIVERY_ENABLED" = false
+          for key in DATABASE_URL SUPABASE_URL SUPABASE_PROJECT_REF SUPABASE_SERVICE_ROLE_KEY SUPABASE_DB_PASSWORD SUPABASE_ACCESS_TOKEN RESEND_API_KEY RESEND_WEBHOOK_SECRET CLOUDFLARE_API_TOKEN; do
+            test -z "$(printenv "$key" || true)"
+          done
+          p=c73/evidence/deedlight-c73-integrated-security-d8700788/results/C73_COMPLETE_RESOLVED_INTEGRATION.patch
+          printf '%s  %s\n' 864c3fae8df6b3c60fbcf17f0189e633ae1b1de54a01dde01738c545f53dc8d9 "$p" | sha256sum --check
+          git -C app apply --check "../$p"
+          git -C app apply "../$p"
+          git -C app add -A
+          test "$(git -C app write-tree)" = dd4f8593fdb1b3032eb6cddd5f39e50ea9cb7682
+          cd app
+          npm ci > ../c74-results/npm-ci.log 2>&1
+          npm ls svix wrangler miniflare undici --all > ../c74-results/resolved-deps.log 2>&1 || true
+          node --test scripts/test-c73-provider-webhook.mjs > ../c74-results/c73-svix.log 2>&1
+          node ../evidence-src/evidence/deedlight-c74-postgres-adversarial/vectors/route-http.mjs > ../c74-results/c74-http.log 2>&1
+          node scripts/verify-c73-security.mjs > ../c74-results/verify-c73.log 2>&1
+          node scripts/verify-delivery-consent-gates.mjs > ../c74-results/verify-consent.log 2>&1
+          node --test scripts/test-delivery-transport.mjs > ../c74-results/delivery-tests.log 2>&1
+          npm audit --audit-level=high > ../c74-results/audit-high.log 2>&1
+          npx tsc --noEmit > ../c74-results/typescript.log 2>&1
+          npm run build > ../c74-results/next-build.log 2>&1
+          npx opennextjs-cloudflare build > ../c74-results/cloudflare.log 2>&1
+          echo 'C74 route HTTP, TypeScript, Next, Cloudflare, audit: PASS' > ../c74-results/app-pass.txt
+      - name: Preserve synthetic logs even on assertion failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: c74-webhook-and-app
+          path: c74-results/
+          if-no-files-found: warn
+          retention-days: 14
