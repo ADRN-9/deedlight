@@ -1,0 +1,121 @@
+name: C72 PR10 + C70 isolated integration rehearsal
+
+on:
+  push:
+    branches:
+      - evidence/deedlight-c72-pr10-c70-rehearsal-62bf07c1-v1
+    paths:
+      - evidence/deedlight-c72-pr10-c70/inputs/**
+      - .github/workflows/c72-pr10-c70-isolated-rehearsal.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: c72-rehearsal-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rehearsal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CI: "true"
+      DELIVERY_ENABLED: "false"
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-not-a-secret
+      PGPASSWORD: postgres
+    steps:
+      - name: Isolated evidence source
+        uses: actions/checkout@v7
+        with:
+          path: evidence-src
+          persist-credentials: false
+      - name: Immutable PR10 application source
+        uses: actions/checkout@v7
+        with:
+          ref: c983e2ed8b93c935139c935343261570ecea6978
+          path: app
+          persist-credentials: false
+      - name: Immutable PR11 metadata-only audit source
+        uses: actions/checkout@v7
+        with:
+          ref: aed588d771dc04fda5e5c18d8611239ac926a513
+          path: audit
+          persist-credentials: false
+      - name: Setup Node 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: PostgreSQL client
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -q
+          sudo apt-get install -y postgresql-client
+      - name: Apply patch to disposable checkout and execute full validation
+        shell: bash
+        run: bash evidence-src/evidence/deedlight-c72-pr10-c70/inputs/rehearse.sh
+      - name: Preserve tests, patch, tree identity and sanitized evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deedlight-c72-pr10-c70-isolated
+          path: c72-output/
+          if-no-files-found: warn
+          retention-days: 14
+
+  publish_evidence_only:
+    needs: rehearsal
+    if: needs.rehearsal.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout isolated evidence-only branch
+        uses: actions/checkout@v7
+      - name: Retrieve exactly tested artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: deedlight-c72-pr10-c70-isolated
+          path: /tmp/deedlight-c72-artifacts
+      - name: Verify manifest and publish only evidence files
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +x
+          test "$GITHUB_REF" = "refs/heads/evidence/deedlight-c72-pr10-c70-rehearsal-62bf07c1-v1"
+          cd /tmp/deedlight-c72-artifacts
+          sha256sum --strict --check SHA256SUMS.txt
+          test "$(cat pr10-base-commit.txt)" = "c983e2ed8b93c935139c935343261570ecea6978"
+          test -s integration-tree.txt
+          test -s C72_PR10_C70_INTEGRATION.patch
+          cd "$GITHUB_WORKSPACE"
+          mkdir -p evidence/deedlight-c72-pr10-c70/results
+          cp /tmp/deedlight-c72-artifacts/* evidence/deedlight-c72-pr10-c70/results/
+          git add -- evidence/deedlight-c72-pr10-c70/results
+          # Raw CI logs and patch text may have intentional terminal whitespace.
+          # The isolated source patch already passed git diff --check and a replay.
+          if git diff --cached --name-only | grep -v '^evidence/deedlight-c72-pr10-c70/results/'; then
+            echo "Unauthorized source path staged" >&2
+            exit 3
+          fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "evidence(c72): preserve verified PR10+C70 patch and validation logs"
+          git push origin HEAD:refs/heads/evidence/deedlight-c72-pr10-c70-rehearsal-62bf07c1-v1
