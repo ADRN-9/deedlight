@@ -133,3 +133,122 @@ jobs:
           path: c75-results/
           retention-days: 14
           if-no-files-found: warn
+
+
+  http_and_build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DELIVERY_ENABLED: "false"
+      CI: "true"
+      PGHOST: "127.0.0.1"
+      PGPORT: "5432"
+      PGUSER: "postgres"
+      PGPASSWORD: "postgres"
+      NEXT_PUBLIC_SITE_URL: "http://127.0.0.1:3000"
+      NEXT_PUBLIC_SUPABASE_URL: "https://example.supabase.co"
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "ci-placeholder-not-a-secret"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: c983e2ed8b93c935139c935343261570ecea6978
+          path: app
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: a25a43a85d74a5a5b9d05309ad0840df8ddcd8cf
+          path: c73
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: 4b913640c16c1113d9f559b26e7d930a432f4ccb
+          path: c74
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          path: evidence-src
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: PostgreSQL client (synthetic service only)
+        run: |
+          set -euo pipefail
+          sudo apt-get update -q
+          sudo apt-get install -y postgresql-client
+      - name: Recreate exactly corrected C75 integration tree and test inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p c75-http-results
+          test "$DELIVERY_ENABLED" = false
+          for key in DATABASE_URL SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY SUPABASE_DB_PASSWORD SUPABASE_ACCESS_TOKEN SUPABASE_PROJECT_REF CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID RESEND_API_KEY RESEND_WEBHOOK_SECRET; do
+            test -z "$(printenv "$key" || true)"
+          done
+          c73=c73/evidence/deedlight-c73-integrated-security-d8700788/results/C73_COMPLETE_RESOLVED_INTEGRATION.patch
+          c74=c74/evidence/deedlight-c74-postgres-adversarial/results/pg/C74_POST_C73_CORRECTION.patch
+          printf '%s  %s\n' 864c3fae8df6b3c60fbcf17f0189e633ae1b1de54a01dde01738c545f53dc8d9 "$c73" | sha256sum --check
+          printf '%s  %s\n' 71412f3345a34ba3e7ad1246cbfd0165b6d765fdbd719c97d045a6fae265a1fc "$c74" | sha256sum --check
+          git -C app apply "../$c73"
+          git -C app add -A
+          test "$(git -C app write-tree)" = dd4f8593fdb1b3032eb6cddd5f39e50ea9cb7682
+          git -C app apply "../$c74"
+          git -C app add -A
+          test "$(git -C app write-tree)" = a9981c2672b316a07904ad7f6b498cd22f206a5b
+          base64 -d evidence-src/evidence/deedlight-c75-lifecycle/inputs/C75_PG_TEST_SOURCES.tar.gz.base64.txt > /tmp/c75-pg.tar.gz
+          base64 -d evidence-src/evidence/deedlight-c75-lifecycle/inputs/C75_HTTP_INTEGRATION.tar.gz.base64.txt > /tmp/c75-http.tar.gz
+          printf '%s  %s\n' 6efb5efc566e201e72e511a0e50f8609233078b571bc3a7e47f7cff0da821a78 /tmp/c75-pg.tar.gz | sha256sum --check
+          printf '%s  %s\n' 967a27f88cdbf98a6727030477ce125517456ef3d0a03d2de369cbd0d676d239 /tmp/c75-http.tar.gz | sha256sum --check
+          mkdir -p c75-pg-inputs c75-http-inputs
+          tar -xzf /tmp/c75-pg.tar.gz -C c75-pg-inputs
+          tar -xzf /tmp/c75-http.tar.gz -C c75-http-inputs
+          cp c75-pg-inputs/src/supabase/migrations/202611130032_c75_monotone_recipient_conflict_hold.sql app/supabase/migrations/
+          git -C app add -- supabase/migrations/202611130032_c75_monotone_recipient_conflict_hold.sql
+          git -C app diff --cached --check
+          test "$(git -C app write-tree)" = 3ffedca10b5f38b375b08350ea7090e5a0a000d8
+          git -C app write-tree > c75-http-results/candidate-tree.txt
+          psql -X -At -v ON_ERROR_STOP=1 -d postgres -c "show server_version;" > c75-http-results/postgresql-version.txt
+          createdb deedlight_c75_http
+          psql -X -v ON_ERROR_STOP=1 -d deedlight_c75_http -f app/scripts/test-c73-integrated-provider-security.sql > c75-http-results/019-030.log 2>&1
+          psql -X -v ON_ERROR_STOP=1 -d deedlight_c75_http -f app/supabase/migrations/202611130031_c74_legacy_lifecycle_guard.sql > c75-http-results/031.log 2>&1
+          psql -X -v ON_ERROR_STOP=1 -d deedlight_c75_http -f app/supabase/migrations/202611130032_c75_monotone_recipient_conflict_hold.sql > c75-http-results/032.log 2>&1
+      - name: Signed localhost webhook -> actual PostgreSQL -> synthetic delivery and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd app
+          npm ci > ../c75-http-results/npm-ci.log 2>&1
+          npm ls svix wrangler miniflare undici --all > ../c75-http-results/dependency-versions.log 2>&1 || true
+          node ../c75-http-inputs/tests/real-postgres-http.mjs > ../c75-http-results/end-to-end-http-synthetic.log 2>&1
+          node --test scripts/test-c73-provider-webhook.mjs > ../c75-http-results/official-svix.log 2>&1
+          node scripts/verify-c73-security.mjs > ../c75-http-results/verify-c73.log 2>&1
+          node scripts/verify-delivery-consent-gates.mjs > ../c75-http-results/verify-consent.log 2>&1
+          node --test scripts/test-delivery-transport.mjs > ../c75-http-results/delivery-behavior.log 2>&1
+          npm audit --audit-level=high > ../c75-http-results/audit-high.log 2>&1
+          npx tsc --noEmit > ../c75-http-results/typescript.log 2>&1
+          npm run build > ../c75-http-results/next-build.log 2>&1
+          npx opennextjs-cloudflare build > ../c75-http-results/cloudflare.log 2>&1
+          echo 'C75 HTTP->PostgreSQL, SDK, security, TS, Next, Cloudflare, high/critical audit: PASS' > ../c75-http-results/app-result.txt
+      - name: Preserve exact-tree CI results, including failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deedlight-c75-integrated-http-build
+          path: c75-http-results/
+          retention-days: 14
+          if-no-files-found: warn
