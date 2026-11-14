@@ -79,7 +79,7 @@ jobs:
           printf '%s  %s\n' 864c3fae8df6b3c60fbcf17f0189e633ae1b1de54a01dde01738c545f53dc8d9 "$p73" | sha256sum --check
           printf '%s  %s\n' 71412f3345a34ba3e7ad1246cbfd0165b6d765fdbd719c97d045a6fae265a1fc "$p74" | sha256sum --check
           printf '%s  %s\n' 166c8834d48d3caaada8f766408a07b247a262ff5e042eb375be8bf5ae37484a "$p75" | sha256sum --check
-          printf '%s  %s\n' 0c697ff400d8c687841dea0f6540994c3da54b58c9a30c6773cf2e34a738164b "$p76" | sha256sum --check
+          printf '%s  %s\n' 88c57e35489b4c7b5b806be02612dff67ef3ffd401cd884976e1d76982251672 "$p76" | sha256sum --check
           apply_patch() {
             local patch="$1" expected="$2"
             git -C app apply --check "../$patch"
@@ -91,7 +91,7 @@ jobs:
           apply_patch "$p73" dd4f8593fdb1b3032eb6cddd5f39e50ea9cb7682
           apply_patch "$p74" a9981c2672b316a07904ad7f6b498cd22f206a5b
           apply_patch "$p75" 3ffedca10b5f38b375b08350ea7090e5a0a000d8
-          apply_patch "$p76" cbf3a863fe79061e71c053b500c2bc143068550f
+          apply_patch "$p76" 5b9fa485c0dcc67beb5b82e9623e5dff4e93260b
           git -C app diff --cached --check
           psql -X -At -v ON_ERROR_STOP=1 -d postgres -c 'show server_version;' > c76-results/pg/server-version.txt
           createdb deedlight_c76_security
@@ -185,7 +185,7 @@ jobs:
           printf '%s  %s\n' 864c3fae8df6b3c60fbcf17f0189e633ae1b1de54a01dde01738c545f53dc8d9 "$p73" | sha256sum --check
           printf '%s  %s\n' 71412f3345a34ba3e7ad1246cbfd0165b6d765fdbd719c97d045a6fae265a1fc "$p74" | sha256sum --check
           printf '%s  %s\n' 166c8834d48d3caaada8f766408a07b247a262ff5e042eb375be8bf5ae37484a "$p75" | sha256sum --check
-          printf '%s  %s\n' 0c697ff400d8c687841dea0f6540994c3da54b58c9a30c6773cf2e34a738164b "$p76" | sha256sum --check
+          printf '%s  %s\n' 88c57e35489b4c7b5b806be02612dff67ef3ffd401cd884976e1d76982251672 "$p76" | sha256sum --check
           apply_patch() {
             local patch="$1" expected="$2"
             git -C app apply --check "../$patch"
@@ -197,7 +197,7 @@ jobs:
           apply_patch "$p73" dd4f8593fdb1b3032eb6cddd5f39e50ea9cb7682
           apply_patch "$p74" a9981c2672b316a07904ad7f6b498cd22f206a5b
           apply_patch "$p75" 3ffedca10b5f38b375b08350ea7090e5a0a000d8
-          apply_patch "$p76" cbf3a863fe79061e71c053b500c2bc143068550f
+          apply_patch "$p76" 5b9fa485c0dcc67beb5b82e9623e5dff4e93260b
           git -C app diff --cached --check
           cd app
           npm ci > ../c76-results/http/npm-ci.log 2>&1
