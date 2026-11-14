@@ -1,0 +1,71 @@
+name: C73 publish verified isolated source evidence
+on:
+  push:
+    branches: [evidence/deedlight-c73-integrated-security-d8700788-v1]
+    paths: [.github/workflows/c73-publish-verified-evidence.yml]
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          ref: c983e2ed8b93c935139c935343261570ecea6978
+          path: app
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: deedlight-c73-integrated-security-disposable
+          run-id: 43626835988
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: c73-verified
+      - name: Verify CI source, replay patch, preserve resolved lock and publish evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/evidence/deedlight-c73-integrated-security-d8700788-v1
+          test "$(git -C app rev-parse HEAD)" = c983e2ed8b93c935139c935343261570ecea6978
+          (cd c73-verified && sha256sum --strict --check SHA256SUMS.txt >/dev/null)
+          test "$(cat c73-verified/verified-tree.txt)" = ea0fdf35a6403d4e759ab4478fe465f172e7519d
+          echo '8a6a0a8b8567edbb75cce9070aeb35de3fc599e73d6d4506deb59ae0ec8d23d2  c73-verified/C73_COMPLETE_SOURCE.patch' | sha256sum --check
+          echo 'a4502fb65bec1c4c50b66aea37fe4888710dda02576bf35ff9104368a163eec5  c73-verified/package-lock.json' | sha256sum --check
+          echo '9ad641aab3376ab7b60a5b87d3d16ad7964aef8ddabac502ff37877b5368000c  c73-verified/package.json' | sha256sum --check
+          git -C app apply --check ../c73-verified/C73_COMPLETE_SOURCE.patch
+          git -C app apply ../c73-verified/C73_COMPLETE_SOURCE.patch
+          git -C app add -- .
+          test "$(git -C app write-tree)" = ea0fdf35a6403d4e759ab4478fe465f172e7519d
+          cp c73-verified/package.json c73-verified/package-lock.json app/
+          node - <<'NODE'
+          const p=require('./app/package.json'),l=require('./app/package-lock.json');
+          if(p.dependencies.svix!=='2.10.0'||l.packages['node_modules/svix']?.version!=='2.10.0'
+            ||p.devDependencies.wrangler!=='4.162.0'||p.overrides?.['source-map-js']!=='^1.2.2'
+            ||!p.scripts['supabase:push'].includes('guard-supabase-linked-project.sh')
+            ||JSON.stringify(l.packages[''].dependencies)!==JSON.stringify(p.dependencies)
+            ||JSON.stringify(l.packages[''].devDependencies)!==JSON.stringify(p.devDependencies))
+            throw Error('npm artifact violates PR10 guarded source invariants');
+          NODE
+          git -C app add -- .
+          git -C app diff --cached --check
+          mkdir -p evidence/deedlight-c73-integrated-security-d8700788/results
+          result=evidence/deedlight-c73-integrated-security-d8700788/results
+          git -C app write-tree > "$result/INTEGRATED_RESOLVED_TREE.txt"
+          git -C app diff --cached --binary > "$result/C73_COMPLETE_RESOLVED_INTEGRATION.patch"
+          git -C app diff --cached --name-only > "$result/CHANGED_FILES.txt"
+          test -s "$result/C73_COMPLETE_RESOLVED_INTEGRATION.patch"
+          cp c73-verified/* "$result/"
+          (
+            cd "$result"
+            find . -maxdepth 1 -type f ! -name SHA256SUMS_FINAL.txt -printf '%P\n' | sort |
+              while IFS= read -r f; do sha256sum "$f"; done > SHA256SUMS_FINAL.txt
+            sha256sum --strict --check SHA256SUMS_FINAL.txt >/dev/null
+          )
+          git add -- "$result"
+          if git diff --cached --name-only | grep -v '^evidence/deedlight-c73-integrated-security-d8700788/results/'; then
+            echo 'Unauthorized source publication' >&2; exit 3
+          fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "evidence(c73): publish validated resolved integration patch and PostgreSQL logs"
+          git push origin HEAD:refs/heads/evidence/deedlight-c73-integrated-security-d8700788-v1
