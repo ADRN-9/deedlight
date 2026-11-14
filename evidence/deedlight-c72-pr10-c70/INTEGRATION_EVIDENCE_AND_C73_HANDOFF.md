@@ -88,7 +88,7 @@ Source input files under `inputs/` are immutable C70 SQL and the exact CI rehear
 
 For review (in an authorized isolated workspace, NEVER Production), check out PR #10 **exactly**, fetch the evidence patch from the immutable evidence commit, then:
 
-`bash
+```bash
 git checkout --detach c983e2ed8b93c935139c935343261570ecea6978
 git apply --check C72_PR10_C70_INTEGRATION.patch
 git apply C72_PR10_C70_INTEGRATION.patch
@@ -102,7 +102,7 @@ node --test scripts/test-delivery-transport.mjs
 npx tsc --noEmit
 npm run build
 npx opennextjs-cloudflare build
-`
+```
 
 For actual PostgreSQL execution, use only the separate approved GitHub-hosted disposable `postgres:16` job: create one synthetic database per listed `results/test-commands.log` fixture, run with `psql -X -v ON_ERROR_STOP=1` and the pinned source. Never point fixture scripts or `supabase db push` to Production. Full instructions and exact commands are in the archived `inputs/rehearse.sh` and `WORKFLOW_REFERENCE.yml`.
 
