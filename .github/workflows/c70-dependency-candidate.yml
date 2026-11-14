@@ -1,0 +1,92 @@
+name: C70 dependency candidate verification (disposable)
+
+on:
+  push:
+    branches:
+      - evidence/deedlight-c70-dependency-eval-36c53dad-v1
+
+permissions:
+  contents: read
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-not-a-secret
+      DELIVERY_ENABLED: "false"
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v7
+      - name: Refuse Production credentials
+        run: |
+          set -euo pipefail
+          test "$DELIVERY_ENABLED" = "false"
+          test "$NEXT_PUBLIC_SITE_URL" != "https://deedlight.com"
+          test -z "${CLOUDFLARE_API_TOKEN:-}"
+          test -z "${CLOUDFLARE_ACCOUNT_ID:-}"
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}"
+          test -z "${SUPABASE_ACCESS_TOKEN:-}"
+          test -z "${SUPABASE_DB_PASSWORD:-}"
+          test -z "${RESEND_API_KEY:-}"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - name: Resolve targeted patched versions into candidate lockfile
+        run: |
+          set -euo pipefail
+          mkdir -p c70-evidence
+          node --version | tee c70-evidence/node-version.txt
+          npm --version | tee c70-evidence/npm-version.txt
+          npm install --package-lock-only --save-exact next@16.4.6 zod@4.6.7 2>&1 | tee c70-evidence/resolve-direct.log
+          npm install --package-lock-only --save-dev --save-exact wrangler@4.162.0 2>&1 | tee c70-evidence/resolve-wrangler.log
+          set +e
+          npm audit fix --package-lock-only >c70-evidence/audit-fix.log 2>&1
+          echo $? >c70-evidence/audit-fix-exit.txt
+          set -e
+          node -e "const p=require('./package.json'); const l=require('./package-lock.json'); for(const name of ['next','zod','wrangler']) if((p.dependencies?.[name]||p.devDependencies?.[name]) !== (l.packages[''].dependencies?.[name]||l.packages[''].devDependencies?.[name])) process.exit(2);"
+          git diff --check
+          git diff --stat > c70-evidence/patch-stat.txt
+          sha256sum package.json package-lock.json >c70-evidence/SHA256SUMS.txt
+      - name: Install candidate lockfile
+        run: npm ci
+      - name: Audit patched lockfile
+        continue-on-error: true
+        run: |
+          set +e
+          npm audit --json >c70-evidence/audit.json
+          npm audit --audit-level=high >c70-evidence/audit-high.txt 2>&1
+          rc=$?
+          echo "$rc" >c70-evidence/audit-high-exit.txt
+          cat c70-evidence/audit-high.txt
+          exit "$rc"
+      - name: Delivery security assertions
+        continue-on-error: true
+        run: |
+          node scripts/verify-sprint12-2-delivery-security.mjs
+          node scripts/verify-delivery-reliability.mjs
+          node scripts/verify-gentle-delivery-transport.mjs
+          node --test scripts/test-delivery-transport.mjs
+      - name: TypeScript
+        continue-on-error: true
+        run: npx tsc --noEmit
+      - name: Next.js build
+        continue-on-error: true
+        run: npm run build
+      - name: Cloudflare package
+        continue-on-error: true
+        run: npx opennextjs-cloudflare build
+      - name: Preserve candidate files and audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deedlight-c70-dependency-candidate
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            package.json
+            package-lock.json
+            c70-evidence/
