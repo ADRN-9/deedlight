@@ -70,7 +70,7 @@ DO $$
 DECLARE j uuid;t uuid;
 BEGIN
  PERFORM public.claim_delivery_jobs('daily_reminder',now(),100);
- SELECT id,claim_token INTO j,t FROM public.delivery_ledger WHERE delivery_key='daily:' || (timezone('UTC',now())::date - 1)::text;
+ SELECT id,claim_token INTO j,t FROM public.delivery_ledger WHERE delivery_key='daily:' || (timezone('UTC',now())::date - 1)::text AND user_id='70000000-0000-0000-0000-000000000006';
  IF public.begin_delivery_transport_identity_bound(j,t,'c74-race@example.test') IS NULL
  OR public.mark_delivery_sent_identity_bound(j,t,'provider-c74-race-001') IS DISTINCT FROM true
  THEN RAISE EXCEPTION 'Initial provider correlation failed'; END IF;
@@ -99,7 +99,7 @@ SET ROLE service_role;
 DO $$
 DECLARE j uuid;t uuid;attempt timestamptz;
 BEGIN
- SELECT id,claim_token INTO j,t FROM public.delivery_ledger WHERE delivery_key='daily:' || timezone('UTC',now())::date::text;
+ SELECT id,claim_token INTO j,t FROM public.delivery_ledger WHERE delivery_key='daily:' || timezone('UTC',now())::date::text AND user_id='70000000-0000-0000-0000-000000000006';
  BEGIN
   attempt:=public.begin_delivery_transport_identity_bound(j,t,'c74-race@example.test');
   IF attempt IS NOT NULL THEN RAISE EXCEPTION 'C74 UNSAFE SEND: complaint raced final send'; END IF;
@@ -116,7 +116,7 @@ DO $$
 BEGIN
  IF NOT EXISTS(SELECT 1 FROM public.delivery_provider_submissions p JOIN public.delivery_recipient_state r ON r.recipient_fingerprint=p.recipient_fingerprint
  WHERE p.provider_email_id='provider-c74-race-001' AND r.suppression_reason='spam_complaint')
- OR EXISTS(SELECT 1 FROM public.delivery_ledger WHERE delivery_key='daily:' || timezone('UTC',now())::date::text AND transport_started_at IS NOT NULL)
+ OR EXISTS(SELECT 1 FROM public.delivery_ledger WHERE delivery_key='daily:' || timezone('UTC',now())::date::text AND user_id='70000000-0000-0000-0000-000000000006' AND transport_started_at IS NOT NULL)
  THEN RAISE EXCEPTION 'Complaint/send race broke permanent safety'; END IF;
 END $$;
 SQL
