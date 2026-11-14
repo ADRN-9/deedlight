@@ -1,0 +1,357 @@
+diff --git a/security/review-only/deedlight-c69/PROPOSED_post029_c69_authentic_webhook_transport_hard_stop.sql b/security/review-only/deedlight-c69/PROPOSED_post029_c69_authentic_webhook_transport_hard_stop.sql
+new file mode 100644
+index 0000000..af0f495
+--- /dev/null
++++ b/security/review-only/deedlight-c69/PROPOSED_post029_c69_authentic_webhook_transport_hard_stop.sql
+@@ -0,0 +1,351 @@
++-- DeedLight C69: REVIEW-ONLY, stop-only successor to unmerged C65/C67 proposals.
++-- Authentic 025-028 source: GitHub f4bffa2d24f5241012b99f673eaaa39ac1dc2907.
++-- C61 registry must already be installed, DISABLED, and unreconciled history retained.
++-- Does not enable delivery, webhook intake, or provider interaction.
++-- NEVER run in Production. Use an approved disposable PostgreSQL 16 database.
++BEGIN;
++SET LOCAL lock_timeout = '5s';
++SET LOCAL statement_timeout = '30s';
++
++DO $preflight$
++DECLARE
++  v_name text;
++  v_signature text;
++  v_expected text[] := ARRAY[
++    'begin_delivery_transport(uuid,uuid,text)',
++    'begin_delivery_transport_with_suppression(uuid,uuid,text,text)',
++    'begin_delivery_transport_identity_bound(uuid,uuid,text)',
++    'mark_delivery_sent(uuid,uuid,text)',
++    'mark_delivery_sent_with_recipient(uuid,uuid,text,text)',
++    'mark_delivery_sent_identity_bound(uuid,uuid,text)',
++    'record_resend_webhook_event(text,text,text,text,timestamp with time zone,text,text)',
++    'record_resend_webhook_event_identity_bound(text,text,text,text,timestamp with time zone,text,text)'
++  ];
++BEGIN
++  IF pg_catalog.to_regclass('deedlight_event_private.registry_control') IS NULL
++     OR pg_catalog.to_regclass('deedlight_event_private.provider_event_registry') IS NULL
++     OR pg_catalog.to_regclass('deedlight_event_private.provider_event_quarantine') IS NULL
++     OR pg_catalog.to_regclass('public.delivery_ledger') IS NULL
++     OR pg_catalog.to_regclass('public.delivery_provider_submissions') IS NULL
++     OR pg_catalog.to_regclass('public.delivery_recipient_state') IS NULL
++     OR pg_catalog.to_regclass('public.delivery_recipient_suppressions') IS NULL
++     OR pg_catalog.to_regclass('public.delivery_transport_intents') IS NULL
++     OR pg_catalog.to_regclass('deedlight_private.delivery_recipient_key_control') IS NULL
++     OR pg_catalog.to_regclass('public.delivery_provider_events') IS NULL
++     OR pg_catalog.to_regclass('public.delivery_provider_pending_events') IS NULL
++     OR pg_catalog.to_regclass('public.delivery_provider_identity_conflicts') IS NULL
++     OR pg_catalog.to_regclass('deedlight_event_private.c69_retired_function_inventory') IS NOT NULL
++     OR pg_catalog.to_regprocedure('public.deedlight_reserve_provider_event(text,text,bytea,text,text)') IS NULL
++     OR pg_catalog.to_regprocedure('public.deedlight_bind_provider_event(text,text)') IS NULL
++     OR pg_catalog.to_regprocedure('public.deedlight_process_nonsuppressing_event(text,text)') IS NULL
++     OR pg_catalog.to_regprocedure('public.claim_delivery_jobs(text,timestamp with time zone,integer)') IS NULL
++     OR pg_catalog.to_regprocedure('public.claim_delivery_jobs(timestamp with time zone,integer)') IS NOT NULL
++     OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='service_role')
++     OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='anon')
++     OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='authenticated') THEN
++    RAISE EXCEPTION 'C69 requires authentic 024-028 and the disabled C61 registry; no changes applied'
++      USING ERRCODE='55000';
++  END IF;
++
++  IF (SELECT pg_catalog.count(*) FROM deedlight_event_private.registry_control) <> 1
++     OR (SELECT accepting_new_events FROM deedlight_event_private.registry_control
++         WHERE singleton=true) IS DISTINCT FROM false THEN
++    RAISE EXCEPTION 'C69 registry is missing, drifted or enabled; no changes applied'
++      USING ERRCODE='55000';
++  END IF;
++
++  -- Exact authentic 026-028 event-ID stores; each uses svix_event_id TEXT PRIMARY KEY.
++  FOREACH v_name IN ARRAY ARRAY[
++    'delivery_provider_events',
++    'delivery_provider_pending_events',
++    'delivery_provider_identity_conflicts'
++  ] LOOP
++    IF NOT EXISTS (
++      SELECT 1 FROM pg_catalog.pg_class c
++      JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
++      JOIN pg_catalog.pg_attribute a ON a.attrelid=c.oid
++      WHERE n.nspname='public' AND c.relname=v_name AND c.relkind='r'
++        AND a.attname='svix_event_id' AND a.atttypid='pg_catalog.text'::pg_catalog.regtype
++        AND a.attnotnull AND a.attnum>0 AND NOT a.attisdropped
++        AND EXISTS (
++          SELECT 1 FROM pg_catalog.pg_constraint co
++          WHERE co.conrelid=c.oid AND co.contype='p'
++            AND co.conkey=ARRAY[a.attnum]::int2[]
++        )
++    ) THEN
++      RAISE EXCEPTION 'C69 verified svix_event_id primary-key contract missing on %',v_name
++        USING ERRCODE='55000';
++    END IF;
++  END LOOP;
++
++  -- Catch unforeseen event-ID tables, not relying on a table-name wildcard.
++  IF EXISTS (
++    SELECT 1 FROM pg_catalog.pg_attribute a
++    JOIN pg_catalog.pg_class c ON c.oid=a.attrelid
++    JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
++    WHERE n.nspname='public' AND c.relkind='r'
++      AND a.attname='svix_event_id' AND a.attnum>0 AND NOT a.attisdropped
++      AND c.relname NOT IN ('delivery_provider_events',
++        'delivery_provider_pending_events','delivery_provider_identity_conflicts')
++  ) THEN
++    RAISE EXCEPTION 'C69 unreviewed svix_event_id acceptance table; no changes applied'
++      USING ERRCODE='55000';
++  END IF;
++
++  -- Every known 024/026/027/028 transport, finalization, and webhook RPC must
++  -- match the exact signature, and no extra overload may remain callable.
++  FOREACH v_signature IN ARRAY v_expected LOOP
++    IF pg_catalog.to_regprocedure('public.'||v_signature) IS NULL THEN
++      RAISE EXCEPTION 'C69 missing authentic function signature %',v_signature
++        USING ERRCODE='55000';
++    END IF;
++  END LOOP;
++  IF (
++    SELECT pg_catalog.count(*) FROM pg_catalog.pg_proc p
++    JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
++    WHERE n.nspname='public' AND p.prokind='f'
++      AND p.proname IN (
++        'begin_delivery_transport', 'begin_delivery_transport_with_suppression',
++        'begin_delivery_transport_identity_bound', 'mark_delivery_sent',
++        'mark_delivery_sent_with_recipient', 'mark_delivery_sent_identity_bound',
++        'record_resend_webhook_event', 'record_resend_webhook_event_identity_bound'
++      )
++  ) <> pg_catalog.array_length(v_expected,1) THEN
++    RAISE EXCEPTION 'C69 unexpected legacy RPC overload' USING ERRCODE='55000';
++  END IF;
++
++  -- Unreviewed SECURITY DEFINER call chains are a hard stop. Catalogue is
++  -- source-grounded, not inferred solely by revoking the lowest-level function.
++  IF EXISTS (
++    SELECT 1 FROM pg_catalog.pg_proc p
++    JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
++    WHERE n.nspname='public' AND p.prokind='f' AND p.prosecdef
++      AND p.prosrc ~* '(begin_delivery_transport|record_resend_webhook_event|delivery_provider_events|delivery_provider_pending_events|delivery_provider_identity_conflicts)'
++      AND p.proname NOT IN (
++        'begin_delivery_transport', 'begin_delivery_transport_with_suppression',
++        'begin_delivery_transport_identity_bound', 'mark_delivery_sent_with_recipient',
++        'record_resend_webhook_event', 'record_resend_webhook_event_identity_bound'
++      )
++  ) THEN
++    RAISE EXCEPTION 'C69 unreviewed privileged lifecycle wrapper detected'
++      USING ERRCODE='55000';
++  END IF;
++
++  IF EXISTS (
++    SELECT 1 FROM pg_catalog.pg_proc p
++    JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
++    WHERE n.nspname='public'
++      AND p.proname IN ('begin_delivery_transport','begin_delivery_transport_with_suppression',
++        'begin_delivery_transport_identity_bound','mark_delivery_sent',
++        'mark_delivery_sent_with_recipient','mark_delivery_sent_identity_bound',
++        'record_resend_webhook_event','record_resend_webhook_event_identity_bound')
++      AND (NOT p.prosecdef
++        OR coalesce(pg_catalog.array_to_string(p.proconfig,','),'') NOT LIKE '%search_path=%')
++  ) THEN
++    RAISE EXCEPTION 'C69 unexpected privileged RPC definition' USING ERRCODE='55000';
++  END IF;
++
++  IF EXISTS (
++    SELECT 1 FROM pg_catalog.pg_class c
++    JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
++    WHERE n.nspname='public' AND c.relname IN (
++      'delivery_provider_events','delivery_provider_pending_events','delivery_provider_identity_conflicts'
++    ) AND (pg_catalog.pg_has_role('service_role',c.relowner,'MEMBER')
++      OR pg_catalog.pg_has_role('anon',c.relowner,'MEMBER')
++      OR pg_catalog.pg_has_role('authenticated',c.relowner,'MEMBER'))
++  ) THEN
++    RAISE EXCEPTION 'C69 caller can own or disable event-table guards'
++      USING ERRCODE='42501';
++  END IF;
++END
++$preflight$;
++
++CREATE TABLE deedlight_event_private.c69_retired_function_inventory (
++  function_signature text PRIMARY KEY,
++  prior_source_md5 text NOT NULL,
++  prior_owner text NOT NULL,
++  security_definer boolean NOT NULL,
++  service_role_execute_before boolean NOT NULL,
++  captured_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp()
++);
++REVOKE ALL ON deedlight_event_private.c69_retired_function_inventory
++  FROM PUBLIC, anon, authenticated, service_role;
++
++INSERT INTO deedlight_event_private.c69_retired_function_inventory
++  (function_signature,prior_source_md5,prior_owner,security_definer,service_role_execute_before)
++SELECT p.oid::pg_catalog.regprocedure::text, pg_catalog.md5(p.prosrc),
++  pg_catalog.pg_get_userbyid(p.proowner),p.prosecdef,
++  pg_catalog.has_function_privilege('service_role',p.oid,'EXECUTE')
++FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
++WHERE n.nspname='public' AND p.proname IN (
++  'begin_delivery_transport','begin_delivery_transport_with_suppression',
++  'begin_delivery_transport_identity_bound','mark_delivery_sent',
++  'mark_delivery_sent_with_recipient','mark_delivery_sent_identity_bound',
++  'record_resend_webhook_event','record_resend_webhook_event_identity_bound'
++);
++
++-- No DROP CASCADE. Replacing bodies preserves dependency links and exact RPC
++-- signatures, but makes even privileged indirect invocations fail closed.
++CREATE OR REPLACE FUNCTION public.begin_delivery_transport(
++  p_job_id uuid,p_claim_token uuid,p_expected_email text
++) RETURNS timestamptz LANGUAGE plpgsql SECURITY DEFINER
++SET search_path=pg_catalog,pg_temp AS $deny$
++BEGIN RAISE EXCEPTION 'C69 outbound transport disabled pending audited registry and suppression cutover'
++  USING ERRCODE='42501'; END
++$deny$;
++CREATE OR REPLACE FUNCTION public.begin_delivery_transport_with_suppression(
++  p_job_id uuid,p_claim_token uuid,p_expected_email text,p_recipient_fingerprint text
++) RETURNS timestamptz LANGUAGE plpgsql SECURITY DEFINER
++SET search_path=pg_catalog,pg_temp AS $deny$
++BEGIN RAISE EXCEPTION 'C69 outbound transport disabled pending audited registry and suppression cutover'
++  USING ERRCODE='42501'; END
++$deny$;
++CREATE OR REPLACE FUNCTION public.begin_delivery_transport_identity_bound(
++  p_job_id uuid,p_claim_token uuid,p_expected_email text
++) RETURNS timestamptz LANGUAGE plpgsql SECURITY DEFINER
++SET search_path=pg_catalog,pg_temp AS $deny$
++BEGIN RAISE EXCEPTION 'C69 outbound transport disabled pending audited registry and suppression cutover'
++  USING ERRCODE='42501'; END
++$deny$;
++CREATE OR REPLACE FUNCTION public.mark_delivery_sent(
++  p_job_id uuid,p_claim_token uuid,p_provider_result_id text DEFAULT NULL
++) RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER
++SET search_path=pg_catalog,pg_temp AS $deny$
++BEGIN RAISE EXCEPTION 'C69 provider finalization disabled pending audited cutover'
++  USING ERRCODE='42501'; END
++$deny$;
++CREATE OR REPLACE FUNCTION public.mark_delivery_sent_with_recipient(
++  p_job_id uuid,p_claim_token uuid,p_provider_email_id text,p_recipient_fingerprint text
++) RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER
++SET search_path=pg_catalog,pg_temp AS $deny$
++BEGIN RAISE EXCEPTION 'C69 provider finalization disabled pending audited cutover'
++  USING ERRCODE='42501'; END
++$deny$;
++CREATE OR REPLACE FUNCTION public.mark_delivery_sent_identity_bound(
++  p_job_id uuid,p_claim_token uuid,p_provider_email_id text
++) RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER
++SET search_path=pg_catalog,pg_temp AS $deny$
++BEGIN RAISE EXCEPTION 'C69 provider finalization disabled pending audited cutover'
++  USING ERRCODE='42501'; END
++$deny$;
++CREATE OR REPLACE FUNCTION public.record_resend_webhook_event(
++  p_event_id text,p_provider_email_id text,p_recipient_fingerprint text,
++  p_event_type text,p_event_at timestamptz,p_payload_sha256 text,
++  p_suppression_reason text DEFAULT NULL
++) RETURNS text LANGUAGE plpgsql SECURITY DEFINER
++SET search_path=pg_catalog,pg_temp AS $deny$
++BEGIN RAISE EXCEPTION 'C69 legacy webhook intake disabled pending audited registry cutover'
++  USING ERRCODE='42501'; END
++$deny$;
++CREATE OR REPLACE FUNCTION public.record_resend_webhook_event_identity_bound(
++  p_event_id text,p_provider_email_id text,p_recipient_email text,
++  p_event_type text,p_event_at timestamptz,p_payload_sha256 text,
++  p_suppression_reason text DEFAULT NULL
++) RETURNS text LANGUAGE plpgsql SECURITY DEFINER
++SET search_path=pg_catalog,pg_temp AS $deny$
++BEGIN RAISE EXCEPTION 'C69 legacy webhook intake disabled pending audited registry cutover'
++  USING ERRCODE='42501'; END
++$deny$;
++
++-- Revoke direct calls even though every body is replaced. A SECURITY DEFINER
++-- caller might otherwise inherit function-owner privileges; body denies too.
++REVOKE ALL ON FUNCTION public.begin_delivery_transport(uuid,uuid,text),
++  public.begin_delivery_transport_with_suppression(uuid,uuid,text,text),
++  public.begin_delivery_transport_identity_bound(uuid,uuid,text),
++  public.mark_delivery_sent(uuid,uuid,text),
++  public.mark_delivery_sent_with_recipient(uuid,uuid,text,text),
++  public.mark_delivery_sent_identity_bound(uuid,uuid,text),
++  public.record_resend_webhook_event(text,text,text,text,timestamptz,text,text),
++  public.record_resend_webhook_event_identity_bound(text,text,text,text,timestamptz,text,text),
++  public.deedlight_reserve_provider_event(text,text,bytea,text,text),
++  public.deedlight_bind_provider_event(text,text),
++  public.deedlight_process_nonsuppressing_event(text,text)
++FROM PUBLIC,anon,authenticated,service_role;
++
++CREATE FUNCTION deedlight_event_private.c69_reject_legacy_provider_event_dml()
++RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path=pg_catalog,pg_temp
++AS $deny$ BEGIN
++  RAISE EXCEPTION 'C69 legacy webhook event table writes prohibited'
++    USING ERRCODE='42501';
++  RETURN NULL;
++END $deny$;
++REVOKE ALL ON FUNCTION deedlight_event_private.c69_reject_legacy_provider_event_dml()
++  FROM PUBLIC,anon,authenticated,service_role;
++
++-- Explicit 026/027/028 table inventory. ALWAYSON veto protects even definer
++-- callers who own the table, while not modifying historical evidence rows.
++DO $install$
++DECLARE v_table text;
++BEGIN
++  FOREACH v_table IN ARRAY ARRAY[
++    'delivery_provider_events',
++    'delivery_provider_pending_events',
++    'delivery_provider_identity_conflicts'
++  ] LOOP
++    EXECUTE pg_catalog.format(
++      'CREATE TRIGGER c69_veto_event_dml BEFORE INSERT OR UPDATE OR DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION deedlight_event_private.c69_reject_legacy_provider_event_dml()',v_table);
++    EXECUTE pg_catalog.format(
++      'ALTER TABLE public.%I ENABLE ALWAYS TRIGGER c69_veto_event_dml',v_table);
++    EXECUTE pg_catalog.format(
++      'CREATE TRIGGER c69_veto_event_truncate BEFORE TRUNCATE ON public.%I FOR EACH STATEMENT EXECUTE FUNCTION deedlight_event_private.c69_reject_legacy_provider_event_dml()',v_table);
++    EXECUTE pg_catalog.format(
++      'ALTER TABLE public.%I ENABLE ALWAYS TRIGGER c69_veto_event_truncate',v_table);
++    EXECUTE pg_catalog.format(
++      'ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY',v_table);
++    EXECUTE pg_catalog.format(
++      'REVOKE ALL ON TABLE public.%I FROM PUBLIC,anon,authenticated,service_role',v_table);
++  END LOOP;
++END $install$;
++
++-- A previous unpublished event cannot be admitted into an enabled C61 registry.
++CREATE FUNCTION deedlight_event_private.c69_reject_registry_activation()
++RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path=pg_catalog,pg_temp
++AS $deny$
++BEGIN
++  IF TG_OP='DELETE' OR NEW.singleton IS DISTINCT FROM true
++      OR NEW.accepting_new_events IS DISTINCT FROM false THEN
++    RAISE EXCEPTION 'C69 registry activation requires audited reconciliation and cutover'
++      USING ERRCODE='42501';
++  END IF;
++  RETURN NEW;
++END $deny$;
++REVOKE ALL ON FUNCTION deedlight_event_private.c69_reject_registry_activation()
++  FROM PUBLIC,anon,authenticated,service_role;
++CREATE TRIGGER c69_registry_activation_veto
++BEFORE INSERT OR UPDATE OR DELETE ON deedlight_event_private.registry_control
++FOR EACH ROW EXECUTE FUNCTION deedlight_event_private.c69_reject_registry_activation();
++ALTER TABLE deedlight_event_private.registry_control
++ENABLE ALWAYS TRIGGER c69_registry_activation_veto;
++
++DO $verify$
++DECLARE v_fn text;
++BEGIN
++  IF (SELECT accepting_new_events FROM deedlight_event_private.registry_control
++      WHERE singleton=true) IS DISTINCT FROM false THEN
++    RAISE EXCEPTION 'C69 registry activated' USING ERRCODE='55000';
++  END IF;
++  FOREACH v_fn IN ARRAY ARRAY[
++    'public.begin_delivery_transport(uuid,uuid,text)',
++    'public.begin_delivery_transport_with_suppression(uuid,uuid,text,text)',
++    'public.begin_delivery_transport_identity_bound(uuid,uuid,text)',
++    'public.mark_delivery_sent(uuid,uuid,text)',
++    'public.mark_delivery_sent_with_recipient(uuid,uuid,text,text)',
++    'public.mark_delivery_sent_identity_bound(uuid,uuid,text)',
++    'public.record_resend_webhook_event(text,text,text,text,timestamptz,text,text)',
++    'public.record_resend_webhook_event_identity_bound(text,text,text,text,timestamptz,text,text)',
++    'public.deedlight_reserve_provider_event(text,text,bytea,text,text)',
++    'public.deedlight_bind_provider_event(text,text)',
++    'public.deedlight_process_nonsuppressing_event(text,text)'
++  ] LOOP
++    IF pg_catalog.has_function_privilege('service_role',v_fn,'EXECUTE')
++      OR pg_catalog.has_function_privilege('anon',v_fn,'EXECUTE')
++      OR pg_catalog.has_function_privilege('authenticated',v_fn,'EXECUTE') THEN
++      RAISE EXCEPTION 'C69 event or transport RPC remains externally callable: %',v_fn
++        USING ERRCODE='42501';
++    END IF;
++  END LOOP;
++  IF (SELECT count(*) FROM deedlight_event_private.c69_retired_function_inventory) <> 8 THEN
++    RAISE EXCEPTION 'C69 incomplete legacy function inventory' USING ERRCODE='55000';
++  END IF;
++END $verify$;
++COMMIT;
