@@ -1,0 +1,18 @@
+(node:4284) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/deedlight/deedlight/app/lib/delivery/resend-webhook.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /home/runner/work/deedlight/deedlight/app/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ official Svix verifier authenticates raw Resend envelope (20.373019ms)
+✔ signature alteration and replay timestamp fail closed (2.240153ms)
+✔ verified payload cannot forge multiple recipient associations (0.9627ms)
+✔ permanent bounce, complaint and provider suppression remain explicit (2.800146ms)
+✔ DELIVERY_ENABLED=false is strictly no-send even with missing provider secrets (0.782972ms)
+✔ kind-isolated claim RPC includes kind and fails on a cross-kind response (0.43404ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 140.926233

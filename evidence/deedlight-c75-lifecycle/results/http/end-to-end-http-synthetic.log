@@ -1,0 +1,13 @@
+(node:4200) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/deedlight/deedlight/app/lib/delivery/run-delivery.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /home/runner/work/deedlight/deedlight/app/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+Claim -> current consent -> DB final authorization -> one synthetic provider send -> mark-sent: PASS
+Signed localhost HTTP webhook -> actual PostgreSQL registry -> durable bounce suppression: PASS
+Signed duplicate webhook HTTP -> one global provider identity: PASS
+Permanent bounce blocks subsequent Daily external send attempt: PASS
+Permanent bounce blocks Weekly external send on same recipient: PASS
+DELIVERY_ENABLED=false prevents scheduling and synthetic transport: PASS
+Missing delivery configuration remains fail-closed: PASS
+Signed complaint escalates bounce to durable spam hold: PASS
+{"c75_end_to_end":"pass","cases":8,"synthetic_provider_attempts":1,"db_rpc_calls":13,"real_provider_calls":0}

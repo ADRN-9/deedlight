@@ -1,0 +1,28 @@
+BEGIN
+UPDATE 1
+ALTER TABLE
+ALTER TABLE
+INSERT 0 1
+ALTER TABLE
+ALTER TABLE
+DO
+ROLLBACK
+DO
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+SET
+DO
+RESET
+DO
+SET
+DO
+RESET
+                                                                                                                        c74_history_bounce_result                                                                                                                         
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"permanent_bounce": "suppressed", "transient_bounce": "recorded", "complaint_escalation": "pass", "provider_suppression": "durable", "historical_duplicate_reenable": "denied", "weekly_after_daily_suppression": "denied", "late_delivery_did_not_unsuppress": "pass"}
+(1 row)
+

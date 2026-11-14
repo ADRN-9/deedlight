@@ -1,0 +1,12 @@
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+SET
+DO
+RESET
+DO
+SET
+DO
+RESET
+{"observed_prior_bug": true, "original_recipient_hold": false, "unresolved_identity_conflict": true}

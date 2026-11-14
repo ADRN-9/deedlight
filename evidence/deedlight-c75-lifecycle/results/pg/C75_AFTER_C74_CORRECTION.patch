@@ -1,0 +1,112 @@
+diff --git a/supabase/migrations/202611130032_c75_monotone_recipient_conflict_hold.sql b/supabase/migrations/202611130032_c75_monotone_recipient_conflict_hold.sql
+new file mode 100644
+index 0000000..e193f6f
+--- /dev/null
++++ b/supabase/migrations/202611130032_c75_monotone_recipient_conflict_hold.sql
+@@ -0,0 +1,106 @@
++-- C75 isolated security proposal after reviewed migration 031.
++-- Keep unresolved provider/recipient identity conflicts from being cleared
++-- by a later informational event or a legacy recipient-state update.
++-- Synthetic-only: no Production migration or history modification.
++BEGIN;
++SET LOCAL lock_timeout = '5s';
++SET LOCAL statement_timeout = '45s';
++
++DO $c75_preflight$
++DECLARE v_trigger_count integer;
++BEGIN
++  IF to_regclass('public.delivery_recipient_state') IS NULL
++    OR to_regclass('public.delivery_provider_identity_conflicts') IS NULL
++    OR to_regclass('public.delivery_provider_submissions') IS NULL
++    OR to_regclass('deedlight_event_private.provider_event_registry') IS NULL
++    OR to_regprocedure('public.deedlight_record_resend_verified(text,text,text,text,timestamptz,text,text)') IS NULL
++    OR to_regprocedure('deedlight_event_private.c74_legacy_projection_guard()') IS NULL
++    OR to_regprocedure('deedlight_event_private.c75_preserve_recipient_conflict_hold()') IS NOT NULL THEN
++    RAISE EXCEPTION 'C75 requires an unmodified 031 lifecycle/security baseline'
++      USING ERRCODE='55000';
++  END IF;
++  SELECT count(*) INTO v_trigger_count
++  FROM pg_catalog.pg_trigger t
++  WHERE t.tgname='c74_lifecycle_guard' AND t.tgenabled='A'
++    AND t.tgrelid IN (
++      'public.delivery_provider_events'::regclass,
++      'public.delivery_provider_pending_events'::regclass,
++      'public.delivery_provider_identity_conflicts'::regclass
++    );
++  IF v_trigger_count <> 3 THEN
++    RAISE EXCEPTION 'C75 expected all three existing 031 ALWAYS lifecycle guards'
++      USING ERRCODE='55000';
++  END IF;
++END $c75_preflight$;
++
++CREATE FUNCTION deedlight_event_private.c75_preserve_recipient_conflict_hold()
++RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
++SET search_path=pg_catalog,pg_temp AS $guard$
++BEGIN
++  IF OLD.suppression_reason IS NOT NULL AND (
++    NEW.suppression_reason IS NULL
++    OR (OLD.suppression_reason='spam_complaint'
++       AND NEW.suppression_reason IS DISTINCT FROM 'spam_complaint')
++    OR NEW.suppressed_at IS NULL
++  ) THEN
++    RAISE EXCEPTION 'Existing recipient suppression cannot be removed or downgraded'
++      USING ERRCODE='42501';
++  END IF;
++  IF OLD.provider_suppressed AND NOT NEW.provider_suppressed THEN
++    RAISE EXCEPTION 'Provider suppression cannot be removed by event processing'
++      USING ERRCODE='42501';
++  END IF;
++  IF NOT NEW.pending_unmatched AND (
++    NEW.provider_suppressed
++    OR EXISTS (
++      SELECT 1 FROM public.delivery_provider_pending_events p
++      WHERE p.recipient_fingerprint=NEW.recipient_fingerprint
++    )
++    OR EXISTS (
++      SELECT 1 FROM public.delivery_provider_identity_conflicts c
++      WHERE c.original_recipient_fingerprint=NEW.recipient_fingerprint
++    )
++    OR EXISTS (
++      SELECT 1 FROM deedlight_event_private.provider_event_registry r
++      JOIN public.delivery_provider_submissions s
++        ON s.provider_email_id=r.provider_message_id
++      WHERE r.provider='resend' AND r.state='identity_conflict'
++        AND s.recipient_fingerprint=NEW.recipient_fingerprint
++    )
++  ) THEN
++    NEW.pending_unmatched:=true;
++  END IF;
++  RETURN NEW;
++END $guard$;
++
++REVOKE ALL ON FUNCTION deedlight_event_private.c75_preserve_recipient_conflict_hold()
++  FROM PUBLIC,anon,authenticated,service_role;
++CREATE TRIGGER c75_preserve_recipient_conflict_hold
++  BEFORE UPDATE ON public.delivery_recipient_state
++  FOR EACH ROW EXECUTE FUNCTION deedlight_event_private.c75_preserve_recipient_conflict_hold();
++ALTER TABLE public.delivery_recipient_state
++  ENABLE ALWAYS TRIGGER c75_preserve_recipient_conflict_hold;
++
++-- Conservatively reinstate holds already lost to this exact older transition.
++-- This never deletes, unsuppresses, changes ownership, or guesses an identity.
++UPDATE public.delivery_recipient_state s
++SET pending_unmatched=true, updated_at=clock_timestamp()
++WHERE NOT s.pending_unmatched AND (
++  s.provider_suppressed
++  OR EXISTS (
++    SELECT 1 FROM public.delivery_provider_pending_events p
++    WHERE p.recipient_fingerprint=s.recipient_fingerprint
++  )
++  OR EXISTS (
++    SELECT 1 FROM public.delivery_provider_identity_conflicts c
++    WHERE c.original_recipient_fingerprint=s.recipient_fingerprint
++  )
++  OR EXISTS (
++    SELECT 1 FROM deedlight_event_private.provider_event_registry r
++    JOIN public.delivery_provider_submissions sub
++      ON sub.provider_email_id=r.provider_message_id
++    WHERE r.provider='resend' AND r.state='identity_conflict'
++      AND sub.recipient_fingerprint=s.recipient_fingerprint
++  )
++);
++COMMIT;

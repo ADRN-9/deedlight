@@ -1,0 +1,3 @@
+Concurrent same-ID ingestion + mismatched replay: PASS
+Complaint-before-final-authorization serialization: PASS
+Transaction rollback / retry: PASS

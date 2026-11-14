@@ -1,0 +1,11 @@
+DO
+SET
+DO
+RESET
+DO
+INSERT 0 1
+SET
+DO
+RESET
+DO
+{"hold_reinstated": "pass", "complaint_downgrade_denied": "pass", "benign_delivery_does_not_clear_conflict": "pass", "direct_state_update_cannot_clear_conflict": "pass", "claimed_job_cannot_authorize_after_conflict": "pass"}
