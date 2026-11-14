@@ -68,10 +68,15 @@ BEGIN
    'msg_c77_removed_ahead_0005','f59508fe-2cf3-4e12-9989-529c712e7777',
    'c77-91@example.test','manual',NULL,'suppression.removed',ts,repeat('e',64));
  IF state<>'recorded' THEN RAISE EXCEPTION 'Early removal not audited: %',state; END IF;
+END $pending_events$;
+RESET ROLE;
+DO $pending_assert$
+BEGIN
  IF (SELECT count(*) FROM public.delivery_provider_pending_events
       WHERE svix_event_id LIKE 'msg_c77_pending_%')<>4
  THEN RAISE EXCEPTION 'Pending projections missing'; END IF;
-END $pending_events$;
+END $pending_assert$;
+SET ROLE service_role;
 
 DO $promote$
 DECLARE r record; state text;
