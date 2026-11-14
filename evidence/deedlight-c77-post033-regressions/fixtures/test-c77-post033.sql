@@ -236,3 +236,43 @@ SELECT jsonb_build_object(
  'unrelated_recipient_not_suppressed','pass',
  'historical_binding_and_hold','pass'
 ) AS c77_post033_regression;
+
+-- Fail closed if historical key catalog names a missing version; exception rolls back fixture change.
+DO $missing_key$
+BEGIN
+ BEGIN
+  UPDATE deedlight_private.delivery_recipient_key_control
+    SET required_key_versions=ARRAY[1,2,99]::smallint[] WHERE singleton;
+  PERFORM count(*) FROM deedlight_private.recipient_fingerprints('c77-95@example.test');
+  RAISE EXCEPTION 'Unknown historical key version silently accepted' USING ERRCODE='ZX077';
+ EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
+ END;
+ IF (SELECT required_key_versions FROM deedlight_private.delivery_recipient_key_control WHERE singleton)
+    IS DISTINCT FROM ARRAY[1,2]::smallint[] THEN
+   RAISE EXCEPTION 'Missing-key test failed to restore key catalog'; END IF;
+END $missing_key$;
+
+DO $guess_denial$
+DECLARE v_id uuid;v_token uuid;
+BEGIN
+ SELECT l.id,l.claim_token INTO v_id,v_token
+ FROM public.delivery_ledger l JOIN auth.users u ON u.id=l.user_id
+ WHERE u.email='c77-95@example.test' AND l.kind='daily_reminder' LIMIT 1;
+ IF v_id IS NULL OR v_token IS NULL THEN RAISE EXCEPTION 'Expected synthetic delivery absent'; END IF;
+END $guess_denial$;
+SET ROLE service_role;
+DO $wrong_email$
+DECLARE v_id uuid;v_token uuid;
+BEGIN
+ SELECT l.id,l.claim_token INTO v_id,v_token
+ FROM public.delivery_ledger l JOIN auth.users u ON u.id=l.user_id
+ WHERE u.email='c77-95@example.test' AND l.kind='daily_reminder' LIMIT 1;
+ BEGIN
+   PERFORM public.begin_delivery_transport_identity_bound(v_id,v_token,'c77-94@example.test');
+   RAISE EXCEPTION 'Guessed Auth recipient authorized transport' USING ERRCODE='ZX078';
+ EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
+ END;
+END $wrong_email$;
+RESET ROLE;
+SELECT jsonb_build_object('unknown_key_version','pass',
+  'guessed_recipient_denied','pass') AS c77_key_fencing;
