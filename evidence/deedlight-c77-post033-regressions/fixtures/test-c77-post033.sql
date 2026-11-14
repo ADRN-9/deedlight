@@ -252,26 +252,31 @@ BEGIN
    RAISE EXCEPTION 'Missing-key test failed to restore key catalog'; END IF;
 END $missing_key$;
 
-DO $guess_denial$
-DECLARE v_id uuid;v_token uuid;
-BEGIN
- SELECT l.id,l.claim_token INTO v_id,v_token
- FROM public.delivery_ledger l JOIN auth.users u ON u.id=l.user_id
- WHERE u.email='c77-95@example.test' AND l.kind='daily_reminder' LIMIT 1;
- IF v_id IS NULL OR v_token IS NULL THEN RAISE EXCEPTION 'Expected synthetic delivery absent'; END IF;
-END $guess_denial$;
+INSERT INTO public.delivery_ledger(user_id,kind,delivery_key,scheduled_for)
+ SELECT id,'daily_reminder','daily:'||timezone('UTC',now())::date::text,
+   (timezone('UTC',now())::date+time '00:00') AT TIME ZONE 'UTC'
+ FROM auth.users WHERE email='c77-95@example.test';
 SET ROLE service_role;
 DO $wrong_email$
-DECLARE v_id uuid;v_token uuid;
+DECLARE v_id uuid;v_token uuid;i integer;started timestamptz;
 BEGIN
- SELECT l.id,l.claim_token INTO v_id,v_token
- FROM public.delivery_ledger l JOIN auth.users u ON u.id=l.user_id
- WHERE u.email='c77-95@example.test' AND l.kind='daily_reminder' LIMIT 1;
+ FOR i IN 1..12 LOOP
+   EXIT WHEN EXISTS(SELECT 1 FROM public.delivery_ledger l JOIN auth.users u ON u.id=l.user_id
+     WHERE u.email='c77-95@example.test' AND l.kind='daily_reminder' AND l.state='claimed');
+   PERFORM count(*) FROM public.claim_delivery_jobs('daily_reminder',now(),1000);
+ END LOOP;
+ SELECT l.id,l.claim_token INTO v_id,v_token FROM public.delivery_ledger l
+ JOIN auth.users u ON u.id=l.user_id WHERE u.email='c77-95@example.test'
+   AND l.kind='daily_reminder' AND l.state='claimed';
+ IF v_id IS NULL OR v_token IS NULL THEN
+   RAISE EXCEPTION 'Eligible synthetic identity-control claim unavailable'; END IF;
  BEGIN
    PERFORM public.begin_delivery_transport_identity_bound(v_id,v_token,'c77-94@example.test');
    RAISE EXCEPTION 'Guessed Auth recipient authorized transport' USING ERRCODE='ZX078';
  EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
  END;
+ started:=public.begin_delivery_transport_identity_bound(v_id,v_token,'c77-95@example.test');
+ IF started IS NULL THEN RAISE EXCEPTION 'Correct recipient positive control failed'; END IF;
 END $wrong_email$;
 RESET ROLE;
 SELECT jsonb_build_object('unknown_key_version','pass',
