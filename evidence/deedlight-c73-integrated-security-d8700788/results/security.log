@@ -1,0 +1,93 @@
+PASS: Offering saves use the privacy-minimized public projection
+PASS: Cross-member reactions authorize through the public projection
+PASS: Both save and reaction authorization reference offerings_public
+PASS: Owner edit RPC is SECURITY DEFINER with a constrained search_path
+PASS: Owner edit blocks rejected Offerings
+PASS: Owner edit blocks moderator-hidden Offerings
+PASS: Restore requires an active, non-suspended profile
+PASS: Restore only accepts owner-removed hidden Offerings
+PASS: Owner-removed rows are constrained to hidden status
+PASS: Removal hotfix blocks rejected Offerings
+PASS: Removal hotfix blocks moderator-hidden Offerings
+PASS: Removal hotfix is idempotent only for already owner-removed rows
+PASS: Removal RPC execution is revoked before authenticated re-grant
+PASS: Owner UI does not offer Remove for rejected content
+PASS: Detail ownership is derived through the private owner lookup
+PASS: Detail page never derives ownership from public user_id
+PASS: Saved Offering hydration reads offerings_public
+PASS: Reaction hydration recognizes inspired_me
+PASS: Reaction hydration recognizes i_did_this_too
+PASS: Legacy inspired reaction key is not accepted
+PASS: Legacy did_too reaction key is not accepted
+Sprint 12.1 security assertions: PASS
+PASS: Reminder writes use a validating SECURITY DEFINER RPC
+PASS: Authenticated direct reminder INSERT and UPDATE privileges are revoked
+PASS: Reminder server action uses the validating RPC
+PASS: Reminder server action no longer directly upserts preference rows
+PASS: Delivery ledger has RLS enabled
+PASS: Browser roles have no delivery ledger privileges
+PASS: Delivery ledger privileges are service-role only
+PASS: enqueue_due_daily_reminders is SECURITY DEFINER with a constrained search path
+PASS: enqueue_due_daily_reminders browser execution is revoked before service-role grant
+PASS: enqueue_weekly_goodness_delivery is SECURITY DEFINER with a constrained search path
+PASS: enqueue_weekly_goodness_delivery browser execution is revoked before service-role grant
+PASS: claim_delivery_jobs is SECURITY DEFINER with a constrained search path
+PASS: claim_delivery_jobs browser execution is revoked before service-role grant
+PASS: authorize_delivery_job is SECURITY DEFINER with a constrained search path
+PASS: authorize_delivery_job browser execution is revoked before service-role grant
+PASS: mark_delivery_sent is SECURITY DEFINER with a constrained search path
+PASS: mark_delivery_sent browser execution is revoked before service-role grant
+PASS: mark_delivery_failed is SECURITY DEFINER with a constrained search path
+PASS: mark_delivery_failed browser execution is revoked before service-role grant
+PASS: Daily enqueue filters for enabled preferences and non-suspended profiles
+PASS: Daily enqueue validates stored timezones through PostgreSQL timezone catalog
+PASS: Weekly enqueue requires current newsletter consent
+PASS: Weekly enqueue requires an active member and confirmed account email
+PASS: Queue deduplication is enforced by a unique key
+PASS: Pre-transport authorization cancels stale jobs
+PASS: Delivery ledger does not store recipient email addresses
+PASS: Delivery ledger does not store reflection or Offering content
+PASS: No outbound email/SMS provider dependency is introduced
+PASS: Cloudflare Cron Triggers remain disabled
+PASS: Sprint documentation explicitly keeps outbound delivery inactive
+Sprint 12.2 delivery security assertions: PASS
+PASS: Delivery ledger adds claim_expires_at
+PASS: Delivery ledger adds attempt_count
+PASS: Delivery ledger adds last_attempt_at
+PASS: Delivery ledger adds next_attempt_at
+PASS: Migration refuses live claimed jobs
+PASS: Attempt count is bounded
+PASS: Claim state requires a token and finite lease
+PASS: Claim RPC reclaims expired leases
+PASS: Each claim gets a five minute lease and increments attempts
+PASS: Expired fifth attempts become terminal retry exhaustion
+PASS: claim_delivery_jobs is SECURITY DEFINER with constrained search path
+PASS: claim_delivery_jobs remains service-role only
+PASS: authorize_delivery_job is SECURITY DEFINER with constrained search path
+PASS: authorize_delivery_job remains service-role only
+PASS: retry_delivery_job is SECURITY DEFINER with constrained search path
+PASS: retry_delivery_job remains service-role only
+PASS: mark_delivery_sent is SECURITY DEFINER with constrained search path
+PASS: mark_delivery_sent remains service-role only
+PASS: mark_delivery_failed is SECURITY DEFINER with constrained search path
+PASS: mark_delivery_failed remains service-role only
+PASS: Authorization requires a live lease
+PASS: Retry time is bounded to 24 hours
+PASS: Temporary retry uses next_attempt_at
+PASS: Retry does not rewrite semantic scheduled_for
+PASS: mark_delivery_sent requires an unexpired lease
+PASS: mark_delivery_failed requires an unexpired lease
+PASS: Reliability migration does not add recipient email storage
+PASS: No outbound provider dependency is introduced
+PASS: Cloudflare Cron Triggers remain disabled
+PASS: Reliability documentation keeps outbound delivery inactive
+PASS: canonical migration is mirrored verbatim in aggregate SQL
+Delivery reliability security assertions: PASS
+Gentle delivery transport security assertions: PASS
+Delivery consent, batching, terminal retry and migration guard assertions: PASS
+Cycle 5 recipient, lease, capacity and migration guard assertions: PASS
+Linked project mismatch and missing-link checks: PASS
+Cycle 7 migration attestation and serialized weekly-capacity assertions: PASS
+Cycle 9 exact migration contract and sanitized capacity error assertions: PASS
+Auth pgcrypto schema-qualification security assertions PASS
+C73 provider event, webhook and kind-isolation security assertions: PASS

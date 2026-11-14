@@ -1,0 +1,16 @@
+app/api/webhooks/resend/route.ts
+lib/delivery/resend-webhook.ts
+lib/delivery/scheduler.ts
+lib/delivery/supabase-runtime.ts
+package-lock.json
+package.json
+scripts/test-c73-integrated-provider-security.sql
+scripts/test-c73-provider-webhook.mjs
+scripts/test-gentle-delivery-transport.sql
+scripts/verify-c73-security.mjs
+supabase/migrations/202611130025_delivery_kind_claim_isolation.sql
+supabase/migrations/202611130026_resend_webhook_lifecycle.sql
+supabase/migrations/202611130027_recipient_suppression_serialization.sql
+supabase/migrations/202611130028_database_authoritative_recipient_binding.sql
+supabase/migrations/202611130029_global_provider_event_registry.sql
+supabase/migrations/202611130030_global_provider_security_cutover.sql
