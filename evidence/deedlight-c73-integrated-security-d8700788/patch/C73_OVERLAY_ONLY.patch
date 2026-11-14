@@ -118,10 +118,10 @@ index 0000000..efad7f3
 +}
 diff --git a/lib/delivery/resend-webhook.ts b/lib/delivery/resend-webhook.ts
 new file mode 100644
-index 0000000..f3d58c3
+index 0000000..c447aa9
 --- /dev/null
 +++ b/lib/delivery/resend-webhook.ts
-@@ -0,0 +1,131 @@
+@@ -0,0 +1,133 @@
 +import { Webhook } from "svix";
 +
 +export type VerifiedResendDeliveryEvent = {
@@ -185,11 +185,13 @@ index 0000000..f3d58c3
 +
 +  let envelope: unknown;
 +  try {
-+    envelope = new Webhook(secret).verify(rawBody, {
++    new Webhook(secret).verify(rawBody, {
 +      "svix-id": eventId,
 +      "svix-timestamp": timestamp,
 +      "svix-signature": signature,
 +    });
++    // The SDK verifies bytes; decode exactly those authenticated bytes.
++    envelope = JSON.parse(rawBody);
 +  } catch {
 +    throw new InvalidResendWebhook("Webhook signature verification failed");
 +  }
