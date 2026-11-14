@@ -1,0 +1,68 @@
+name: C76 publish immutable isolated verification evidence
+on:
+  push:
+    branches:
+      - evidence/deedlight-c76-provider-scheduler-ac39b069-v1
+    paths:
+      - .github/workflows/c76-publish-evidence.yml
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Verify exact successful CI runs and download sanitized artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +x
+          test "$GITHUB_REPOSITORY" = ADRN-9/deedlight
+          test "$GITHUB_REF" = refs/heads/evidence/deedlight-c76-provider-scheduler-ac39b069-v1
+          test "$(gh run view 43637087966 --json conclusion --jq '.conclusion')" = success
+          test "$(gh run view 43637533235 --json conclusion --jq '.conclusion')" = success
+          test "$(gh run view 43637087966 --json headSha --jq '.headSha')" = ac15d2d9c976dedf9206397cd7594f80cedcb11a
+          test "$(gh run view 43637533235 --json headSha --jq '.headSha')" = d3fa0c60ce76f1ba8d09472935edeb3c2ac363a9
+          result=evidence/deedlight-c76-provider-scheduler/results
+          mkdir -p "$result"/postgres16 "$result"/http "$result"/concurrency \
+            evidence/deedlight-c76-provider-scheduler/workflows
+          gh run download 43637087966 -R "$GITHUB_REPOSITORY" \
+            --name c76-postgres16 --dir "$result/postgres16"
+          gh run download 43637087966 -R "$GITHUB_REPOSITORY" \
+            --name c76-http-build --dir "$result/http"
+          gh run download 43637533235 -R "$GITHUB_REPOSITORY" \
+            --name c76-kind-concurrent-postgres16 --dir "$result/concurrency"
+          gh run view 43637087966 --json databaseId,status,conclusion,headSha,createdAt,updatedAt \
+            > "$result/run-43637087966.json"
+          gh run view 43637533235 --json databaseId,status,conclusion,headSha,createdAt,updatedAt \
+            > "$result/run-43637533235.json"
+          cp .github/workflows/c76-export.yml evidence/deedlight-c76-provider-scheduler/workflows/
+          cp .github/workflows/c76-isolated-ci.yml evidence/deedlight-c76-provider-scheduler/workflows/
+          cp .github/workflows/c76-kind-concurrency.yml evidence/deedlight-c76-provider-scheduler/workflows/
+          test -s "$result/postgres16/result.txt"
+          test -s "$result/http/result.txt"
+          test -s "$result/concurrency/concurrency-result.txt"
+          test "$(cat "$result/concurrency/source-tree.txt")" = 5b9fa485c0dcc67beb5b82e9623e5dff4e93260b
+          printf '%s  %s\n' 88c57e35489b4c7b5b806be02612dff67ef3ffd401cd884976e1d76982251672 \
+            evidence/deedlight-c76-provider-scheduler/inputs/C76_AFTER_C75.patch | sha256sum --check
+          printf '%s  %s\n' 4cde4d8464d5192b705007671dca26e661bd6335b19bd0977ef297f38d7b3b7e \
+            evidence/deedlight-c76-provider-scheduler/vectors/c76-cross-kind-concurrency.sh | sha256sum --check
+          find evidence/deedlight-c76-provider-scheduler -type f \
+            ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum \
+            > "$result/SHA256SUMS.txt"
+          sha256sum --strict --check "$result/SHA256SUMS.txt" > "$result/manifest-verification.txt"
+          git add -- evidence/deedlight-c76-provider-scheduler/results \
+            evidence/deedlight-c76-provider-scheduler/workflows
+          if git diff --cached --name-only | grep -Ev '^evidence/deedlight-c76-provider-scheduler/'; then
+            echo 'Forbidden source path staged for evidence publication' >&2
+            exit 3
+          fi
+          git -c user.name='github-actions[bot]' \
+            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m 'evidence(c76): archive exact-tree PG16, signed HTTP and parallel worker security results'
+          git push origin HEAD:refs/heads/evidence/deedlight-c76-provider-scheduler-ac39b069-v1
