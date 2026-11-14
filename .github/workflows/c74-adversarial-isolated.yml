@@ -86,7 +86,9 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -d deedlight_c74_adversarial -f supabase/migrations/202611130031_c74_legacy_lifecycle_guard.sql > ../c74-results/c74-migration-031.log 2>&1
           psql -X -v ON_ERROR_STOP=1 -d deedlight_c74_adversarial -f ../evidence-src/evidence/deedlight-c74-postgres-adversarial/vectors/postgres-security.sql > ../c74-results/c74-negative.log 2>&1
           bash ../evidence-src/evidence/deedlight-c74-postgres-adversarial/vectors/concurrency.sh
-          echo 'C74 SQL + concurrency complete PASS' | tee ../c74-results/pg-pass.txt
+          psql -X -v ON_ERROR_STOP=1 -d deedlight_c74_adversarial -f ../evidence-src/evidence/deedlight-c74-postgres-adversarial/vectors/history-bounce.sql > ../c74-results/c74-history-bounce.log 2>&1
+          grep -q c74_history_bounce_result ../c74-results/c74-history-bounce.log
+          echo 'C74 SQL + concurrency + historical collision + bounce safety complete PASS' | tee ../c74-results/pg-pass.txt
       - name: Preserve synthetic logs even on assertion failure
         if: always()
         uses: actions/upload-artifact@v4
