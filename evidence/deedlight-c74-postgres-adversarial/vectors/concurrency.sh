@@ -61,14 +61,16 @@ INSERT INTO auth.users(id,email,email_confirmed_at) VALUES ('70000000-0000-0000-
 INSERT INTO public.profiles(user_id,is_suspended) VALUES ('70000000-0000-0000-0000-000000000006',false);
 INSERT INTO public.daily_reminder_preferences(user_id,daily_enabled,reminder_time,timezone) VALUES ('70000000-0000-0000-0000-000000000006',true,'00:00','UTC');
 INSERT INTO public.delivery_ledger(user_id,kind,delivery_key,scheduled_for) VALUES
- ('70000000-0000-0000-0000-000000000006','daily_reminder','daily:c74-race-first',now()-interval '1 minute'),
- ('70000000-0000-0000-0000-000000000006','daily_reminder','daily:c74-race-second',now()-interval '1 minute');
+ ('70000000-0000-0000-0000-000000000006','daily_reminder','daily:' || (timezone('UTC',now())::date - 1)::text,
+    ((timezone('UTC',now())::date - 1) + time '00:00') AT TIME ZONE 'UTC'),
+ ('70000000-0000-0000-0000-000000000006','daily_reminder','daily:' || timezone('UTC',now())::date::text,
+    (timezone('UTC',now())::date + time '00:00') AT TIME ZONE 'UTC');
 SET ROLE service_role;
 DO $$
 DECLARE j uuid;t uuid;
 BEGIN
  PERFORM public.claim_delivery_jobs('daily_reminder',now(),100);
- SELECT id,claim_token INTO j,t FROM public.delivery_ledger WHERE delivery_key='daily:c74-race-first';
+ SELECT id,claim_token INTO j,t FROM public.delivery_ledger WHERE delivery_key='daily:' || (timezone('UTC',now())::date - 1)::text;
  IF public.begin_delivery_transport_identity_bound(j,t,'c74-race@example.test') IS NULL
  OR public.mark_delivery_sent_identity_bound(j,t,'provider-c74-race-001') IS DISTINCT FROM true
  THEN RAISE EXCEPTION 'Initial provider correlation failed'; END IF;
@@ -97,7 +99,7 @@ SET ROLE service_role;
 DO $$
 DECLARE j uuid;t uuid;attempt timestamptz;
 BEGIN
- SELECT id,claim_token INTO j,t FROM public.delivery_ledger WHERE delivery_key='daily:c74-race-second';
+ SELECT id,claim_token INTO j,t FROM public.delivery_ledger WHERE delivery_key='daily:' || timezone('UTC',now())::date::text;
  BEGIN
   attempt:=public.begin_delivery_transport_identity_bound(j,t,'c74-race@example.test');
   IF attempt IS NOT NULL THEN RAISE EXCEPTION 'C74 UNSAFE SEND: complaint raced final send'; END IF;
@@ -114,7 +116,7 @@ DO $$
 BEGIN
  IF NOT EXISTS(SELECT 1 FROM public.delivery_provider_submissions p JOIN public.delivery_recipient_state r ON r.recipient_fingerprint=p.recipient_fingerprint
  WHERE p.provider_email_id='provider-c74-race-001' AND r.suppression_reason='spam_complaint')
- OR EXISTS(SELECT 1 FROM public.delivery_ledger WHERE delivery_key='daily:c74-race-second' AND transport_started_at IS NOT NULL)
+ OR EXISTS(SELECT 1 FROM public.delivery_ledger WHERE delivery_key='daily:' || timezone('UTC',now())::date::text AND transport_started_at IS NOT NULL)
  THEN RAISE EXCEPTION 'Complaint/send race broke permanent safety'; END IF;
 END $$;
 SQL
