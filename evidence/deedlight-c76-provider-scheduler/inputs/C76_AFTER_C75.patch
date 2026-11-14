@@ -280,7 +280,7 @@ index 9644bb9..e545cd9 100644
      apiKey: config.resendApiKey,
 diff --git a/scripts/test-c76-provider-classification.sql b/scripts/test-c76-provider-classification.sql
 new file mode 100644
-index 0000000..fa2ca05
+index 0000000..1a2d912
 --- /dev/null
 +++ b/scripts/test-c76-provider-classification.sql
 @@ -0,0 +1,241 @@
@@ -309,7 +309,7 @@ index 0000000..fa2ca05
 +      'public.deedlight_record_resend_suppression_verified(text,text,text,text,text,text,timestamptz,text)'::regprocedure,
 +      'deedlight_event_private.c76_preserve_uncertain_bounce_hold()'::regprocedure)
 +  LOOP
-+    IF NOT r.prosecdef OR NOT ('search_path=pg_catalog,pg_temp'=ANY(r.proconfig)) THEN
++    IF NOT r.prosecdef OR NOT ('search_path=pg_catalog,pg_temp'=ANY(r.proconfig) OR 'search_path=pg_catalog, pg_temp'=ANY(r.proconfig)) THEN
 +      RAISE EXCEPTION 'Unsafe SECURITY DEFINER configuration: %',r.name;
 +    END IF;
 +  END LOOP;
