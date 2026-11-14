@@ -111,7 +111,8 @@ jobs:
           mkdir -p evidence/deedlight-c72-pr10-c70/results
           cp /tmp/deedlight-c72-artifacts/* evidence/deedlight-c72-pr10-c70/results/
           git add -- evidence/deedlight-c72-pr10-c70/results
-          git diff --cached --check
+          # Raw CI logs and patch text may have intentional terminal whitespace.
+          # The isolated source patch already passed git diff --check and a replay.
           if git diff --cached --name-only | grep -v '^evidence/deedlight-c72-pr10-c70/results/'; then
             echo "Unauthorized source path staged" >&2
             exit 3
