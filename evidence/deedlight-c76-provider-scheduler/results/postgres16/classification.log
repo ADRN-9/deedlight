@@ -1,0 +1,33 @@
+DO
+INSERT 0 4
+INSERT 0 4
+INSERT 0 4
+INSERT 0 4
+INSERT 0 0
+INSERT 0 3
+INSERT 0 2
+SET
+DO
+RESET
+SET
+DO
+RESET
+DO
+SET
+DO
+RESET
+DO
+UPDATE 1
+UPDATE 1
+INSERT 0 1
+UPDATE 1
+DO
+SET
+DO
+DO
+RESET
+                                                                                                                                                                c76_security_result                                                                                                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"permanent_bounce": "pass", "c76_postgres_security": "pass", "transient_nonpermanent": "pass", "account_suppression_added": "pass", "registered_event_identity": "pass", "legacy_fingerprint_rotation": "pass", "cross_kind_final_send_denied": "pass", "provider_removal_no_auto_release": "pass", "undetermined_hold_survives_success": "pass"}
+(1 row)
+

@@ -1,0 +1,10 @@
+BEGIN
+SET
+DO
+C76_DAILY_TRANSACTION_LOCK_HELD
+ pg_sleep 
+----------
+ 
+(1 row)
+
+COMMIT

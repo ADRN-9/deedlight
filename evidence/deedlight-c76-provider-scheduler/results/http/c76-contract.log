@@ -1,0 +1,18 @@
+(node:4218) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/deedlight/deedlight/app/lib/delivery/resend-webhook.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /home/runner/work/deedlight/deedlight/app/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ official signed suppression.added is distinct from a message event (24.023659ms)
+✔ signed suppression.removed retains classification; removal is audit-only (1.398348ms)
+✔ missing or forged suppression identity and classification fail closed (4.279993ms)
+✔ Permanent, Transient, and Undetermined retain original bounce class (1.571139ms)
+✔ no arbitrary recipient association or unsigned provider event (0.986097ms)
+✔ Cloudflare Monday is MON (not Sunday numeric 1); Production cron remains disabled (0.997985ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 165.50285

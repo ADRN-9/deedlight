@@ -1,0 +1,14 @@
+DO
+SET
+DO
+RESET
+UPDATE 1
+UPDATE 1
+SET
+DO
+RESET
+                                                                                                                                   c76_concurrent_kind_security                                                                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"stale_claim_token_rejected": "pass", "expired_lease_kind_isolation": "pass", "revoked_daily_consent_denied": "pass", "revoked_weekly_consent_denied": "pass", "browser_claim_privilege_denied": "pass", "concurrent_daily_weekly_claims": "pass", "idempotent_delivery_key_preserved": "pass"}
+(1 row)
+
