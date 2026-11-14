@@ -1,0 +1,95 @@
+name: C73 isolated verified baseline export
+on:
+  push:
+    branches:
+      - evidence/deedlight-c73-integrated-security-d8700788-v1
+    paths:
+      - .github/workflows/c73-isolated-source-export.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      DELIVERY_ENABLED: "false"
+    steps:
+      - name: Refuse privileged configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$DELIVERY_ENABLED" = false
+          for key in DATABASE_URL SUPABASE_URL SUPABASE_PROJECT_REF SUPABASE_SERVICE_ROLE_KEY SUPABASE_ACCESS_TOKEN SUPABASE_DB_PASSWORD CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID RESEND_API_KEY RESEND_WEBHOOK_SECRET; do
+            test -z "$(printenv "$key" || true)"
+          done
+      - name: C73 evidence branch
+        uses: actions/checkout@v7
+        with:
+          path: evidence
+          persist-credentials: false
+      - name: Exact PR10 application baseline
+        uses: actions/checkout@v7
+        with:
+          ref: c983e2ed8b93c935139c935343261570ecea6978
+          path: app
+          persist-credentials: false
+      - name: Immutable C72 patch
+        uses: actions/checkout@v7
+        with:
+          ref: fd12decb00d82658eaeea929171190c3be53883d
+          path: c72
+          persist-credentials: false
+      - name: Authentic C68 migration sources
+        uses: actions/checkout@v7
+        with:
+          ref: f4bffa2d24f5241012b99f673eaaa39ac1dc2907
+          path: c68
+          persist-credentials: false
+      - name: C61 and C69 preserved source
+        uses: actions/checkout@v7
+        with:
+          ref: 55fcb8f7beb4fff62a9e252455ff8f53590cbfe5
+          path: c69
+          persist-credentials: false
+      - name: C61 original registry archive
+        uses: actions/checkout@v7
+        with:
+          ref: 80fed7f0b3e07c3c9ee0cf0fdb0675559a54b9bd
+          path: c61
+          persist-credentials: false
+      - name: Verify C72 patch reproduces exact application Git tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C app rev-parse HEAD)" = c983e2ed8b93c935139c935343261570ecea6978
+          test "$(git -C c72 rev-parse HEAD)" = fd12decb00d82658eaeea929171190c3be53883d
+          test "$(git -C c68 rev-parse HEAD)" = f4bffa2d24f5241012b99f673eaaa39ac1dc2907
+          test "$(git -C c69 rev-parse HEAD)" = 55fcb8f7beb4fff62a9e252455ff8f53590cbfe5
+          test "$(git -C c61 rev-parse HEAD)" = 80fed7f0b3e07c3c9ee0cf0fdb0675559a54b9bd
+          p=c72/evidence/deedlight-c72-pr10-c70/results/C72_PR10_C70_INTEGRATION.patch
+          echo 'f1b77f2d339a939e996be7806d59f6885f7b2fd837130f8cc23436d26e6605ad  '"$p" | sha256sum --check
+          git -C app apply --check "../$p"
+          git -C app apply "../$p"
+          git -C app diff --check
+          git -C app add -- package.json package-lock.json scripts/test-gentle-delivery-transport.sql
+          test "$(git -C app write-tree)" = d0a91a2d623b248d82588736c394fe252e0b7927
+          printf 'PR10: %s\nC72 app tree: %s\n' c983e2ed8b93c935139c935343261570ecea6978 d0a91a2d623b248d82588736c394fe252e0b7927 > SOURCE_IDENTITIES.txt
+          mkdir -p export/app export/sources
+          tar --exclude=.git -C app -cf - . | tar -C export/app -xf -
+          cp c68/evidence/deedlight-c68-authentic-migrations-01f441aa/*.sql export/sources/
+          cp c68/evidence/deedlight-c68-authentic-migrations-01f441aa/SHA256SUMS.txt export/sources/SHA256SUMS_025-028.txt
+          cp c69/evidence/deedlight-c69-authentic-wrapper-9b6ab5c6-v1/C69_COMPLETE_PACKAGE.zip export/sources/
+          cp c61/evidence/cycle61-provider-event-registry/ORIGINAL_C61_PACKAGE.zip.base64.txt export/sources/
+          cp SOURCE_IDENTITIES.txt export/
+          (cd export/sources && sha256sum --check SHA256SUMS_025-028.txt)
+          (cd export && find . -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS_ALL.txt)
+          tar -C export -czf c73-isolated-source.tar.gz .
+          sha256sum c73-isolated-source.tar.gz
+      - name: Export verified isolated source, never Production
+        uses: actions/upload-artifact@v4
+        with:
+          name: deedlight-c73-verified-isolated-source
+          retention-days: 5
+          if-no-files-found: error
+          path: c73-isolated-source.tar.gz
