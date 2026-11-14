@@ -72,10 +72,18 @@ jobs:
           git -C app add -A
           test "$(git -C app write-tree)" = dd4f8593fdb1b3032eb6cddd5f39e50ea9cb7682
           git -C app write-tree > c74-results/source-tree.txt
+          git -C app -c user.name=c74-isolated -c user.email=c74@invalid.test commit -qm 'local-only verified C73 baseline'
+          cp evidence-src/evidence/deedlight-c74-postgres-adversarial/vectors/202611130031_c74_legacy_lifecycle_guard.sql app/supabase/migrations/
+          git -C app add -- supabase/migrations/202611130031_c74_legacy_lifecycle_guard.sql
+          git -C app diff --cached --check
+          git -C app diff --cached --binary > c74-results/C74_POST_C73_CORRECTION.patch
+          git -C app write-tree > c74-results/c74-corrected-tree.txt
+          sha256sum c74-results/C74_POST_C73_CORRECTION.patch > c74-results/c74-patch-sha256.txt
           psql -X -At -v ON_ERROR_STOP=1 -d postgres -c 'show server_version;' > c74-results/pg-version.txt
           createdb deedlight_c74_adversarial
           cd app
           psql -X -v ON_ERROR_STOP=1 -d deedlight_c74_adversarial -f scripts/test-c73-integrated-provider-security.sql > ../c74-results/c73-synthetic-019-to-030.log 2>&1
+          psql -X -v ON_ERROR_STOP=1 -d deedlight_c74_adversarial -f supabase/migrations/202611130031_c74_legacy_lifecycle_guard.sql > ../c74-results/c74-migration-031.log 2>&1
           psql -X -v ON_ERROR_STOP=1 -d deedlight_c74_adversarial -f ../evidence-src/evidence/deedlight-c74-postgres-adversarial/vectors/postgres-security.sql > ../c74-results/c74-negative.log 2>&1
           bash ../evidence-src/evidence/deedlight-c74-postgres-adversarial/vectors/concurrency.sh
           echo 'C74 SQL + concurrency complete PASS' | tee ../c74-results/pg-pass.txt
@@ -131,6 +139,11 @@ jobs:
           git -C app apply "../$p"
           git -C app add -A
           test "$(git -C app write-tree)" = dd4f8593fdb1b3032eb6cddd5f39e50ea9cb7682
+          git -C app -c user.name=c74-isolated -c user.email=c74@invalid.test commit -qm 'local-only verified C73 baseline'
+          cp evidence-src/evidence/deedlight-c74-postgres-adversarial/vectors/202611130031_c74_legacy_lifecycle_guard.sql app/supabase/migrations/
+          git -C app add -- supabase/migrations/202611130031_c74_legacy_lifecycle_guard.sql
+          git -C app diff --cached --check
+          git -C app write-tree > c74-results/c74-corrected-tree.txt
           cd app
           npm ci > ../c74-results/npm-ci.log 2>&1
           npm ls svix wrangler miniflare undici --all > ../c74-results/resolved-deps.log 2>&1 || true
