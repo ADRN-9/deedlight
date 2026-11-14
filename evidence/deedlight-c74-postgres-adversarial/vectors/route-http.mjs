@@ -4,9 +4,9 @@ import { createHmac, createHash, randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
-import ts from "typescript";
 
-const nativeRequire = createRequire(import.meta.url);
+const nativeRequire = createRequire(resolve("package.json"));
+const ts = nativeRequire("typescript");
 const realVerifier = loadTs("lib/delivery/resend-webhook.ts");
 const calls = [];
 let rpcResult = { data: "recorded", error: null };
