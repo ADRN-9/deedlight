@@ -73,14 +73,15 @@ VALUES ('83020000-0000-0000-0000-000000000001',
 INSERT INTO public.invitation_acceptances(invitation_id,invited_user_id)
 VALUES ('83020000-0000-0000-0000-000000000001',
  '83000000-0000-0000-0000-000000000002');
-INSERT INTO public.offerings(id,user_id,offering_type,title,body,status,is_anonymous,published_at)
+INSERT INTO public.offerings(id,user_id,offering_type,title,body,status,is_anonymous,published_at,moderation_note)
 VALUES
  ('83030000-0000-0000-0000-000000000001',
  '83000000-0000-0000-0000-000000000001','gratitude','C83 quiet kindness',
- 'A synthetic anonymous deed with no identifying details.', 'approved',true,now()),
+ 'A synthetic anonymous deed with no identifying details.', 'approved',true,now(),
+ 'c83-synthetic-internal-moderation-note'),
  ('83030000-0000-0000-0000-000000000002',
  '83000000-0000-0000-0000-000000000002','gratitude','C83 visible kindness',
- 'A synthetic nonanonymous deed for the public projection.', 'approved',false,now());
+ 'A synthetic nonanonymous deed for the public projection.', 'approved',false,now(),null);
 INSERT INTO public.weekly_goodness_features(week_start,offering_id)
 VALUES (date_trunc('week',timezone('UTC',now()))::date,
  '83030000-0000-0000-0000-000000000001');
@@ -225,6 +226,10 @@ SELECT c83_test.record('authenticated_anonymous_author_uuid_denied',
  WHERE id='83030000-0000-0000-0000-000000000001'
    AND is_anonymous=true
    AND user_id='83000000-0000-0000-0000-000000000001'$q$,0));
+SELECT c83_test.record('authenticated_private_moderation_note_denied',
+ c83_test.check_count($q$SELECT count(*) FROM public.offerings
+ WHERE id='83030000-0000-0000-0000-000000000001'
+ AND moderation_note='c83-synthetic-internal-moderation-note'$q$,0));
 SELECT c83_test.record('member_moderation_and_auth_denied',
  c83_test.check_count('SELECT count(*) FROM public.member_moderation_events',0,true)
  AND c83_test.check_count('SELECT count(*) FROM auth.users',0,true));
@@ -255,6 +260,12 @@ SELECT c83_test.record('admin_private_journey_update_denied',
  WHERE user_id='83000000-0000-0000-0000-000000000001'
  RETURNING id
  ) SELECT count(*) FROM changed$q$,0,true));
+SELECT c83_test.record('admin_private_journey_delete_denied',
+ c83_test.check_count($q$WITH removed AS (
+ DELETE FROM public.daily_reflections
+ WHERE user_id='83000000-0000-0000-0000-000000000001'
+ RETURNING id
+ ) SELECT count(*) FROM removed$q$,0,true));
 RESET ROLE;
 
 -- Emit all scenarios before failing CI; never print synthetic row contents.
