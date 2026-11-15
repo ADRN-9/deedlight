@@ -1,0 +1,94 @@
+name: C83 adversarial member privacy (disposable PostgreSQL 16)
+on:
+  push:
+    branches:
+      - evidence/deedlight-c83-member-privacy-a7faa7fb-v1
+
+permissions:
+  contents: read
+
+concurrency:
+  group: c83-member-privacy
+  cancel-in-progress: true
+
+jobs:
+  full_schema_privacy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
+      PGOPTIONS: "-c search_path=public,extensions,pg_catalog"
+      DELIVERY_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Reject Production configuration and verify source provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$DELIVERY_ENABLED" = "false"
+          test "$(git merge-base e7f0898b52e4e58b807d1c14a134684e740e5295 HEAD)" = "e7f0898b52e4e58b807d1c14a134684e740e5295"
+          for key in DATABASE_URL SUPABASE_URL SUPABASE_PROJECT_REF SUPABASE_ACCESS_TOKEN SUPABASE_DB_PASSWORD SUPABASE_SERVICE_ROLE_KEY CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID RESEND_API_KEY RESEND_WEBHOOK_SECRET; do
+            test -z "$(printenv "$key" || true)"
+          done
+          test "$PGHOST" = "127.0.0.1"
+          test "$PGPORT" = "5432"
+          git rev-parse HEAD
+          git rev-parse HEAD^{tree}
+      - name: Install disposable PostgreSQL client
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y postgresql-client
+      - name: Bootstrap synthetic Supabase roles
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p c83-results
+          psql -X -At -v ON_ERROR_STOP=1 -c 'show server_version;' | tee c83-results/postgres-version.txt
+          psql -X -v ON_ERROR_STOP=1 -f scripts/c83-bootstrap.sql > c83-results/bootstrap.log 2>&1
+      - name: Install exact-source migration chain 001–033
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > c83-results/migrations.log
+          while IFS= read -r file; do
+            echo "APPLY $file" >> c83-results/migrations.log
+            if ! psql -X -v ON_ERROR_STOP=1 -f "$file" >> c83-results/migrations.log 2>&1; then
+              echo "::error::Disposable migration failure in $file"
+              tail -n 35 c83-results/migrations.log
+              exit 1
+            fi
+          done < <(find supabase/migrations -maxdepth 1 -name '*.sql' -type f | LC_ALL=C sort)
+          echo "ALL 001–033 source migrations applied to disposable database" | tee c83-results/migration-summary.txt
+      - name: Exercise real anon and authenticated privacy boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -f scripts/test-c83-member-privacy.sql 2>&1 | tee c83-results/privacy.log
+      - name: Preserve sanitized evidence on failure and success
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: c83-member-privacy-postgres16
+          if-no-files-found: warn
+          retention-days: 21
+          path: c83-results/
