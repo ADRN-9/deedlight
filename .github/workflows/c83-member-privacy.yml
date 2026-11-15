@@ -71,6 +71,11 @@ jobs:
           set -euo pipefail
           : > c83-results/migrations.log
           while IFS= read -r file; do
+            # Historical Sprint 6 migration seeds only an empty daily_posts.
+            # Model an existing valid legacy Daily post, without altering DDL.
+            if [[ "$file" == "supabase/migrations/202607260007_sprint6_daily_deedlight.sql" ]]; then
+              psql -X -v ON_ERROR_STOP=1 -c "INSERT INTO public.daily_posts (date,slug,title,reflection,daily_action,status) VALUES (current_date,'c83-legacy-seed','C83 existing Daily','Synthetic historical reflection','Synthetic historical action','published')" >> c83-results/migrations.log 2>&1
+            fi
             echo "APPLY $file" >> c83-results/migrations.log
             if ! psql -X -v ON_ERROR_STOP=1 -f "$file" >> c83-results/migrations.log 2>&1; then
               echo "::error::Disposable migration failure in $file"
