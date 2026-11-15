@@ -1,0 +1,106 @@
+name: DeedLight catalog audit - disposable PostgreSQL 16
+
+on:
+  push:
+    branches:
+      - security/deedlight-audit-fixtures-c18
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit-postgres16:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      DELIVERY_ENABLED: "false"
+      DEEDLIGHT_DISPOSABLE_ACK: I_ACCEPT_DISPOSABLE_DATABASE_DELETION
+      DEEDLIGHT_AUDIT_CI_ONLY: "true"
+    steps:
+      - name: Checkout separate audit branch
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Refuse Production configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${DELIVERY_ENABLED}" = "false"
+          for variable in DATABASE_URL SUPABASE_URL SUPABASE_PROJECT_REF SUPABASE_ACCESS_TOKEN SUPABASE_DB_PASSWORD SUPABASE_SERVICE_ROLE_KEY CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID RESEND_API_KEY; do
+            test -z "${!variable:-}"
+          done
+          test "${PGHOST}" = "127.0.0.1"
+          test "${PGPORT}" = "5432"
+          test "${PGUSER}" = "postgres"
+
+      - name: Install PostgreSQL client
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -q
+          sudo apt-get install -y postgresql-client
+          psql -X -At --host 127.0.0.1 --port 5432 --username postgres --dbname postgres -c 'show server_version;'
+
+      - name: Check out reviewed delivery-security source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git worktree add --detach "$RUNNER_TEMP/deedlight-reviewed" c983e2ed8b93c935139c935343261570ecea6978
+          test "$(git -C "$RUNNER_TEMP/deedlight-reviewed" rev-parse HEAD)" = "c983e2ed8b93c935139c935343261570ecea6978"
+          echo "DEEDLIGHT_SOURCE_REPO=$RUNNER_TEMP/deedlight-reviewed" >> "$GITHUB_ENV"
+
+      - name: Verify exact file SHA-256 manifest
+        shell: bash
+        working-directory: security/audit-deedlight
+        run: |
+          set -euo pipefail
+          sha256sum --strict --check MANIFEST.sha256
+
+      - name: Offline static and parser unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 security/audit-deedlight/original/check_package_static.py
+          python3 security/audit-deedlight/audited/check_package_static.py
+          python3 -m unittest discover -s security/audit-deedlight/tests -v
+          python3 -m json.tool security/audit-deedlight/invariant_inventory.json >/dev/null
+          bash -n security/audit-deedlight/run_disposable_fixture.sh
+
+      - name: Execute ten isolated PostgreSQL fixtures and strict evidence checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          for case in A B C D E F G H I J; do
+            bash security/audit-deedlight/run_disposable_fixture.sh "$case"
+          done
+
+      - name: Archive sanitized catalog-only fixture evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deedlight-catalog-audit-pg16
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            security/audit-deedlight/results/*/preflight.txt
+            security/audit-deedlight/results/*/audit.txt
+            security/audit-deedlight/results/*/preflight.stderr

@@ -1,0 +1,366 @@
+-- DeedLight C61: ISOLATED REVIEW PATCH, not an approved Supabase migration.
+-- PostgreSQL 16 target. DO NOT APPLY TO PRODUCTION OR BY AUTOMATED db push.
+-- Ensure 025-028 and their historical events are reconciled before activating.
+BEGIN;
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '30s';
+
+DO $preflight$
+BEGIN
+  IF pg_catalog.to_regclass('public.delivery_ledger') IS NULL
+     OR pg_catalog.to_regprocedure('public.begin_delivery_transport(uuid,uuid,text)') IS NULL
+     OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'service_role')
+     OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'anon')
+     OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'authenticated') THEN
+    RAISE EXCEPTION 'C61 registry requires reviewed delivery-024 source and browser/service role prerequisites'
+      USING ERRCODE = '55000';
+  END IF;
+  IF pg_catalog.to_regnamespace('deedlight_event_private') IS NOT NULL THEN
+    RAISE EXCEPTION 'C61 registry schema already exists; inspect and reconcile, never overwrite'
+      USING ERRCODE = '55000';
+  END IF;
+END
+$preflight$;
+
+-- A provider message ID must not map to multiple logical deliveries.
+-- If historical duplicates exist, index creation fails atomically: reconcile
+-- the source data, do not silently choose a recipient.
+CREATE UNIQUE INDEX delivery_ledger_provider_result_unique_c61
+  ON public.delivery_ledger (provider_result_id)
+  WHERE provider_result_id IS NOT NULL;
+
+CREATE SCHEMA deedlight_event_private;
+REVOKE ALL ON SCHEMA deedlight_event_private FROM PUBLIC, anon, authenticated, service_role;
+
+-- Disabled by default: cannot claim historical event-ID uniqueness until legacy
+-- processed/pending/conflict tables have been inspected and reconciled.
+CREATE TABLE deedlight_event_private.registry_control (
+  singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+  accepting_new_events boolean NOT NULL DEFAULT false,
+  reconciled_at timestamptz,
+  reconciled_evidence text CHECK (reconciled_evidence IS NULL OR char_length(reconciled_evidence) BETWEEN 16 AND 255),
+  CHECK (
+    (NOT accepting_new_events)
+    OR (reconciled_at IS NOT NULL AND reconciled_evidence IS NOT NULL)
+  )
+);
+INSERT INTO deedlight_event_private.registry_control (singleton) VALUES (true);
+
+-- One and ONLY one authoritative identity across all lifecycle states.
+-- Never store raw provider JSON, emails, external tokens or member identifiers.
+CREATE TABLE deedlight_event_private.provider_event_registry (
+  provider text NOT NULL CHECK (provider = 'resend'),
+  event_id text NOT NULL CHECK (
+    char_length(event_id) BETWEEN 1 AND 255
+    AND event_id ~ '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,254}$'
+  ),
+  payload_sha256 bytea NOT NULL CHECK (octet_length(payload_sha256) = 32),
+  event_type text NOT NULL CHECK (
+    char_length(event_type) BETWEEN 1 AND 128
+    AND event_type ~ '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$'
+  ),
+  provider_message_id text CHECK (
+    provider_message_id IS NULL
+    OR (char_length(provider_message_id) BETWEEN 1 AND 255
+        AND provider_message_id !~ '[[:cntrl:]]')
+  ),
+  state text NOT NULL DEFAULT 'pending'
+    CHECK (state IN ('pending', 'processed', 'identity_conflict')),
+  bound_delivery_id uuid,
+  created_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
+  updated_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
+  PRIMARY KEY (provider, event_id)
+);
+CREATE INDEX provider_event_registry_provider_message_idx
+  ON deedlight_event_private.provider_event_registry (provider, provider_message_id)
+  WHERE provider_message_id IS NOT NULL;
+
+-- An attempted conflicting replay is evidence, NOT a second accepted event.
+-- Event identity continues to live exclusively in provider_event_registry.
+CREATE TABLE deedlight_event_private.provider_event_quarantine (
+  provider text NOT NULL,
+  event_id text NOT NULL,
+  reason text NOT NULL CHECK (reason IN (
+    'payload_or_metadata_conflict',
+    'ambiguous_provider_delivery',
+    'changed_provider_delivery_binding'
+  )),
+  conflicting_sha256 bytea NOT NULL CHECK (octet_length(conflicting_sha256) = 32),
+  observed_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
+  PRIMARY KEY (provider, event_id, reason, conflicting_sha256),
+  FOREIGN KEY (provider, event_id)
+    REFERENCES deedlight_event_private.provider_event_registry(provider, event_id)
+    ON DELETE RESTRICT
+);
+
+-- State-specific projections. No extra physical acceptance tables exist here.
+CREATE VIEW deedlight_event_private.pending_provider_events AS
+  SELECT provider, event_id, event_type, provider_message_id, bound_delivery_id
+  FROM deedlight_event_private.provider_event_registry WHERE state = 'pending';
+CREATE VIEW deedlight_event_private.processed_provider_events AS
+  SELECT provider, event_id, event_type, provider_message_id, bound_delivery_id
+  FROM deedlight_event_private.provider_event_registry WHERE state = 'processed';
+CREATE VIEW deedlight_event_private.conflicted_provider_events AS
+  SELECT provider, event_id, event_type, provider_message_id, bound_delivery_id
+  FROM deedlight_event_private.provider_event_registry WHERE state = 'identity_conflict';
+
+-- Only server-side service_role can call this function. Caller MUST have
+-- authenticated the untouched webhook body with the exact Resend SDK contract.
+-- The digest is for same-event comparison only, NEVER recipient authority.
+CREATE FUNCTION public.deedlight_reserve_provider_event(
+  p_provider text,
+  p_event_id text,
+  p_payload_sha256 bytea,
+  p_event_type text,
+  p_provider_message_id text DEFAULT NULL
+)
+RETURNS text
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $fn$
+DECLARE
+  v_record deedlight_event_private.provider_event_registry%ROWTYPE;
+  v_inserted integer;
+BEGIN
+  IF p_provider IS DISTINCT FROM 'resend'
+     OR p_event_id IS NULL
+     OR char_length(p_event_id) NOT BETWEEN 1 AND 255
+     OR p_event_id !~ '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,254}$'
+     OR p_payload_sha256 IS NULL OR octet_length(p_payload_sha256) <> 32
+     OR p_event_type IS NULL OR char_length(p_event_type) NOT BETWEEN 1 AND 128
+     OR p_event_type !~ '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$'
+     OR (p_provider_message_id IS NOT NULL AND (
+       char_length(p_provider_message_id) NOT BETWEEN 1 AND 255
+       OR p_provider_message_id ~ '[[:cntrl:]]'
+     )) THEN
+    RAISE EXCEPTION 'Invalid or unsupported provider event metadata'
+      USING ERRCODE = '22023';
+  END IF;
+
+  -- A table-lookup error, missing control row, or incomplete migration fails closed.
+  IF NOT EXISTS (
+    SELECT 1 FROM deedlight_event_private.registry_control c
+    WHERE c.singleton = true AND c.accepting_new_events = true
+      AND c.reconciled_at IS NOT NULL AND c.reconciled_evidence IS NOT NULL
+    FOR SHARE
+  ) THEN
+    RAISE EXCEPTION 'Provider registry historical reconciliation incomplete'
+      USING ERRCODE = '55000';
+  END IF;
+
+  -- Unique btree conflict handling serializes concurrent identical event IDs.
+  -- The winner is committed before a losing transaction can inspect its row.
+  INSERT INTO deedlight_event_private.provider_event_registry (
+    provider, event_id, payload_sha256, event_type, provider_message_id
+  ) VALUES (p_provider, p_event_id, p_payload_sha256, p_event_type, p_provider_message_id)
+  ON CONFLICT (provider, event_id) DO NOTHING;
+  GET DIAGNOSTICS v_inserted = ROW_COUNT;
+  IF v_inserted = 1 THEN
+    RETURN 'NEW_PENDING';
+  END IF;
+
+  SELECT * INTO v_record
+  FROM deedlight_event_private.provider_event_registry r
+  WHERE r.provider = p_provider AND r.event_id = p_event_id
+  FOR UPDATE;
+  IF NOT FOUND THEN
+    -- E.g. unexpected snapshot/isolation behavior. Never accept by default.
+    RAISE EXCEPTION 'Provider event identity invisible after uniqueness conflict'
+      USING ERRCODE = '40001';
+  END IF;
+
+  IF v_record.payload_sha256 IS DISTINCT FROM p_payload_sha256
+     OR v_record.event_type IS DISTINCT FROM p_event_type
+     OR v_record.provider_message_id IS DISTINCT FROM p_provider_message_id THEN
+    INSERT INTO deedlight_event_private.provider_event_quarantine (
+      provider, event_id, reason, conflicting_sha256
+    ) VALUES (p_provider, p_event_id, 'payload_or_metadata_conflict', p_payload_sha256)
+    ON CONFLICT DO NOTHING;
+    UPDATE deedlight_event_private.provider_event_registry
+      SET state = 'identity_conflict', updated_at = pg_catalog.clock_timestamp()
+    WHERE provider = p_provider AND event_id = p_event_id;
+    RETURN 'IDENTITY_CONFLICT';
+  END IF;
+
+  IF v_record.state = 'identity_conflict' THEN RETURN 'QUARANTINED'; END IF;
+  IF v_record.state = 'processed' THEN RETURN 'DUPLICATE_PROCESSED'; END IF;
+  RETURN 'DUPLICATE_PENDING';
+END
+$fn$;
+
+-- Bind a pending authenticated event using ONLY the database's provider ID
+-- -> ledger association. No caller-controlled user ID, email, or fingerprint.
+-- This does not mark bounce/complaint events processed or apply suppression:
+-- those require an independently reviewed atomic suppression pipeline.
+CREATE FUNCTION public.deedlight_bind_provider_event(p_provider text, p_event_id text)
+RETURNS text
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $fn$
+DECLARE
+  v_record deedlight_event_private.provider_event_registry%ROWTYPE;
+  v_matches uuid[];
+  v_target uuid;
+BEGIN
+  IF p_provider IS DISTINCT FROM 'resend' OR p_event_id IS NULL
+     OR char_length(p_event_id) NOT BETWEEN 1 AND 255
+     OR p_event_id !~ '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,254}$' THEN
+    RAISE EXCEPTION 'Invalid provider event identity' USING ERRCODE = '22023';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM deedlight_event_private.registry_control
+    WHERE singleton = true AND accepting_new_events
+      AND reconciled_at IS NOT NULL AND reconciled_evidence IS NOT NULL
+    FOR SHARE
+  ) THEN
+    RAISE EXCEPTION 'Provider registry historical reconciliation incomplete'
+      USING ERRCODE = '55000';
+  END IF;
+
+  SELECT * INTO v_record
+  FROM deedlight_event_private.provider_event_registry
+  WHERE provider = p_provider AND event_id = p_event_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Unknown provider event' USING ERRCODE = '22023';
+  END IF;
+  IF v_record.state = 'identity_conflict' THEN RETURN 'QUARANTINED'; END IF;
+  IF v_record.state = 'processed' THEN RETURN 'DUPLICATE_PROCESSED'; END IF;
+  IF v_record.provider_message_id IS NULL THEN RETURN 'PENDING_UNMATCHED'; END IF;
+
+  SELECT pg_catalog.array_agg(c.id) INTO v_matches
+  FROM (
+    SELECT dl.id
+    FROM public.delivery_ledger dl
+    WHERE dl.provider_result_id = v_record.provider_message_id
+    ORDER BY dl.id LIMIT 2
+    FOR SHARE OF dl
+  ) AS c;
+
+  IF pg_catalog.coalesce(pg_catalog.array_length(v_matches, 1), 0) = 0 THEN
+    RETURN 'PENDING_UNMATCHED';
+  END IF;
+  IF pg_catalog.array_length(v_matches, 1) > 1 THEN
+    INSERT INTO deedlight_event_private.provider_event_quarantine (
+      provider, event_id, reason, conflicting_sha256
+    ) VALUES (
+      v_record.provider, v_record.event_id,
+      'ambiguous_provider_delivery', v_record.payload_sha256
+    ) ON CONFLICT DO NOTHING;
+    UPDATE deedlight_event_private.provider_event_registry
+      SET state = 'identity_conflict', updated_at = pg_catalog.clock_timestamp()
+    WHERE provider = p_provider AND event_id = p_event_id;
+    RETURN 'IDENTITY_CONFLICT';
+  END IF;
+
+  v_target := v_matches[1];
+  IF v_record.bound_delivery_id IS NOT NULL
+     AND v_record.bound_delivery_id IS DISTINCT FROM v_target THEN
+    INSERT INTO deedlight_event_private.provider_event_quarantine (
+      provider, event_id, reason, conflicting_sha256
+    ) VALUES (
+      v_record.provider, v_record.event_id,
+      'changed_provider_delivery_binding', v_record.payload_sha256
+    ) ON CONFLICT DO NOTHING;
+    UPDATE deedlight_event_private.provider_event_registry
+      SET state = 'identity_conflict', updated_at = pg_catalog.clock_timestamp()
+    WHERE provider = p_provider AND event_id = p_event_id;
+    RETURN 'IDENTITY_CONFLICT';
+  END IF;
+
+  UPDATE deedlight_event_private.provider_event_registry
+    SET bound_delivery_id = v_target, updated_at = pg_catalog.clock_timestamp()
+  WHERE provider = p_provider AND event_id = p_event_id;
+  RETURN 'BOUND_PENDING';
+END
+$fn$;
+
+-- Finalize only notification events that have NO suppression side effect.
+-- Bounce, complaint, failed and provider suppression events remain pending
+-- until an independently reviewed atomic suppression pipeline is installed.
+-- A delayed delivery notification never clears a prior suppression.
+CREATE FUNCTION public.deedlight_process_nonsuppressing_event(
+  p_provider text,
+  p_event_id text
+)
+RETURNS text
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $fn$
+DECLARE
+  v_record deedlight_event_private.provider_event_registry%ROWTYPE;
+  v_matching uuid;
+BEGIN
+  IF p_provider IS DISTINCT FROM 'resend' OR p_event_id IS NULL
+     OR char_length(p_event_id) NOT BETWEEN 1 AND 255
+     OR p_event_id !~ '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,254}$' THEN
+    RAISE EXCEPTION 'Invalid provider event identity' USING ERRCODE = '22023';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM deedlight_event_private.registry_control
+    WHERE singleton AND accepting_new_events
+      AND reconciled_at IS NOT NULL AND reconciled_evidence IS NOT NULL
+    FOR SHARE
+  ) THEN
+    RAISE EXCEPTION 'Provider registry historical reconciliation incomplete'
+      USING ERRCODE = '55000';
+  END IF;
+  SELECT * INTO v_record
+  FROM deedlight_event_private.provider_event_registry
+  WHERE provider = p_provider AND event_id = p_event_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Unknown provider event' USING ERRCODE = '22023'; END IF;
+  IF v_record.state = 'identity_conflict' THEN RETURN 'QUARANTINED'; END IF;
+  IF v_record.state = 'processed' THEN RETURN 'DUPLICATE_PROCESSED'; END IF;
+  IF v_record.event_type NOT IN ('email.sent','email.delivered') THEN
+    RAISE EXCEPTION 'Suppression-sensitive events require reviewed atomic lifecycle handler'
+      USING ERRCODE = '55000';
+  END IF;
+  IF v_record.bound_delivery_id IS NULL THEN RETURN 'PENDING_UNMATCHED'; END IF;
+  -- Reverify against immutable/uniquely indexed ledger correlation under
+  -- row lock; a stale or replaced mapping is quarantined, never processed.
+  SELECT dl.id INTO v_matching FROM public.delivery_ledger dl
+  WHERE dl.id = v_record.bound_delivery_id
+    AND dl.provider_result_id = v_record.provider_message_id
+  FOR SHARE OF dl;
+  IF NOT FOUND THEN
+    INSERT INTO deedlight_event_private.provider_event_quarantine (
+      provider, event_id, reason, conflicting_sha256
+    ) VALUES (
+      v_record.provider, v_record.event_id,
+      'changed_provider_delivery_binding', v_record.payload_sha256
+    ) ON CONFLICT DO NOTHING;
+    UPDATE deedlight_event_private.provider_event_registry
+      SET state = 'identity_conflict', updated_at = pg_catalog.clock_timestamp()
+    WHERE provider = p_provider AND event_id = p_event_id;
+    RETURN 'IDENTITY_CONFLICT';
+  END IF;
+  UPDATE deedlight_event_private.provider_event_registry
+    SET state = 'processed', updated_at = pg_catalog.clock_timestamp()
+  WHERE provider = p_provider AND event_id = p_event_id;
+  RETURN 'PROCESSED';
+END
+$fn$;
+
+-- No recipient-unsuppress or suppression-sensitive mark-processed RPC exists.
+-- The existing recipient suppression pipeline must remain monotone.
+REVOKE ALL ON ALL TABLES IN SCHEMA deedlight_event_private
+  FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA deedlight_event_private
+  FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.deedlight_reserve_provider_event(text,text,bytea,text,text)
+  FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.deedlight_bind_provider_event(text,text)
+  FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.deedlight_process_nonsuppressing_event(text,text)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.deedlight_reserve_provider_event(text,text,bytea,text,text)
+  TO service_role;
+GRANT EXECUTE ON FUNCTION public.deedlight_bind_provider_event(text,text)
+  TO service_role;
+GRANT EXECUTE ON FUNCTION public.deedlight_process_nonsuppressing_event(text,text)
+  TO service_role;
+COMMENT ON SCHEMA deedlight_event_private IS
+  'Private DeedLight event identity registry. Disabled until verified legacy backfill and lifecycle integration.';
+COMMIT;

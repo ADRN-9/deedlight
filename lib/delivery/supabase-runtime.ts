@@ -5,6 +5,7 @@ import type {
   AuthorizedRecipient,
   ClaimedDeliveryJob,
   DeliveryGateway,
+  DeliveryKind,
   DeliveryRecipientResolver,
 } from "./types.ts";
 
@@ -112,13 +113,16 @@ export class SupabaseDeliveryRuntime implements DeliveryGateway, DeliveryRecipie
     return data;
   }
 
-  async claim(now: Date, limit: number): Promise<ClaimedDeliveryJob[]> {
+  async claim(kind: DeliveryKind, now: Date, limit: number): Promise<ClaimedDeliveryJob[]> {
     const { data, error } = await this.client.rpc("claim_delivery_jobs", {
+      p_kind: kind,
       p_now: now.toISOString(),
       p_limit: limit,
     });
     if (error || !Array.isArray(data)) fail("claim jobs");
-    return data.map((row) => parseClaimedJob(row as Record<string, unknown>));
+    const claimed = data.map((row) => parseClaimedJob(row as Record<string, unknown>));
+    if (claimed.some((job) => job.kind !== kind)) fail("cross-kind claim response");
+    return claimed;
   }
 
   async authorize(job: ClaimedDeliveryJob): Promise<boolean> {
@@ -131,7 +135,7 @@ export class SupabaseDeliveryRuntime implements DeliveryGateway, DeliveryRecipie
   }
 
   async beginTransport(job: ClaimedDeliveryJob, recipient: AuthorizedRecipient): Promise<Date | null> {
-    const { data, error } = await this.client.rpc("begin_delivery_transport", {
+    const { data, error } = await this.client.rpc("begin_delivery_transport_identity_bound", {
       p_job_id: job.jobId,
       p_claim_token: job.claimToken,
       p_expected_email: recipient.email,
@@ -145,10 +149,10 @@ export class SupabaseDeliveryRuntime implements DeliveryGateway, DeliveryRecipie
   }
 
   async markSent(job: ClaimedDeliveryJob, providerResultId: string): Promise<void> {
-    const { data, error } = await this.client.rpc("mark_delivery_sent", {
+    const { data, error } = await this.client.rpc("mark_delivery_sent_identity_bound", {
       p_job_id: job.jobId,
       p_claim_token: job.claimToken,
-      p_provider_result_id: providerResultId,
+      p_provider_email_id: providerResultId,
     });
     if (error || data !== true) fail("mark sent");
   }

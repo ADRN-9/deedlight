@@ -8,7 +8,7 @@ import {
 } from "./supabase-runtime.ts";
 
 export const DAILY_DELIVERY_CRON = "*/5 * * * *";
-export const WEEKLY_DELIVERY_CRON = "0 16 * * 1";
+export const WEEKLY_DELIVERY_CRON = "0 16 * * MON";
 
 export type DeliverySchedulerSummary = {
   enabled: boolean;
@@ -77,6 +77,17 @@ export async function runScheduledDelivery(
     throw new Error("Scheduled delivery timestamp is invalid.");
   }
 
+  // Cloudflare scheduledTime is the original UTC schedule instant. Ignore
+  // displaced/synthetic cron claims rather than running the wrong delivery kind.
+  if (scheduledAt.getUTCSeconds() !== 0 || scheduledAt.getUTCMilliseconds() !== 0
+    || (input.cron === DAILY_DELIVERY_CRON && scheduledAt.getUTCMinutes() % 5 !== 0)
+    || (input.cron === WEEKLY_DELIVERY_CRON && (
+      scheduledAt.getUTCDay() !== 1 || scheduledAt.getUTCHours() !== 16
+      || scheduledAt.getUTCMinutes() !== 0))) {
+    summary.ignored = true;
+    return summary;
+  }
+
   const runtime = createSupabaseDeliveryRuntime(config);
   const transport = createResendTransport({
     apiKey: config.resendApiKey,
@@ -97,7 +108,10 @@ export async function runScheduledDelivery(
     );
   }
 
-  const jobs = await runtime.claim(scheduledAt, config.batchSize);
+  const claimKind = input.cron === DAILY_DELIVERY_CRON
+    ? "daily_reminder"
+    : "weekly_newsletter";
+  const jobs = await runtime.claim(claimKind, scheduledAt, config.batchSize);
   summary.claimed = jobs.length;
 
   for (const job of jobs) {

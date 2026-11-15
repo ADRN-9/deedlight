@@ -1,0 +1,293 @@
+name: C79 exact-head integrated security candidate
+on:
+  push:
+    branches:
+      - integration/deedlight-c79-925c97ee-isolated-v1
+permissions:
+  contents: read
+concurrency:
+  group: deedlight-c79-exact-head
+  cancel-in-progress: true
+
+jobs:
+  provider_postgres16:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DELIVERY_ENABLED: "false"
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install disposable PostgreSQL 16 client
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y postgresql-client
+      - name: Exact-commit migrations 019–033, provider security and C77 post-033
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +x
+          mkdir -p c79-results/pg
+          test "$DELIVERY_ENABLED" = false
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git rev-parse HEAD > c79-results/pg/commit.txt
+          git rev-parse HEAD^{tree} > c79-results/pg/source-tree.txt
+          for key in DATABASE_URL SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY SUPABASE_PROJECT_REF SUPABASE_DB_PASSWORD SUPABASE_ACCESS_TOKEN RESEND_API_KEY RESEND_WEBHOOK_SECRET CLOUDFLARE_API_TOKEN; do
+            test -z "$(printenv "$key" || true)"
+          done
+          psql -X -At -v ON_ERROR_STOP=1 -d postgres -c 'show server_version;' > c79-results/pg/version.txt
+          provision() {
+            local db="$1" prefix="$2"
+            createdb "$db"
+            psql -X -v ON_ERROR_STOP=1 -d "$db" -f scripts/test-c73-integrated-provider-security.sql > "c79-results/pg/${prefix}-019-030.log" 2>&1
+            psql -X -v ON_ERROR_STOP=1 -d "$db" -f supabase/migrations/202611130031_c74_legacy_lifecycle_guard.sql > "c79-results/pg/${prefix}-031.log" 2>&1
+            psql -X -v ON_ERROR_STOP=1 -d "$db" -f supabase/migrations/202611130032_c75_monotone_recipient_conflict_hold.sql > "c79-results/pg/${prefix}-032.log" 2>&1
+            psql -X -v ON_ERROR_STOP=1 -d "$db" -f supabase/migrations/202611130033_c76_provider_classification_and_suppression.sql > "c79-results/pg/${prefix}-033.log" 2>&1
+          }
+          provision deedlight_c79_provider provider
+          psql -X -v ON_ERROR_STOP=1 -d deedlight_c79_provider -f scripts/test-c76-provider-classification.sql > c79-results/pg/provider-classification.log 2>&1
+          provision deedlight_c79_post033 post033
+          psql -X -v ON_ERROR_STOP=1 -d deedlight_c79_post033 -f scripts/test-c77-post033.sql > c79-results/pg/c77-post033.log 2>&1
+          echo "C79 exact-head migrations, registry, provider classification, C77 post033 PASS" | tee c79-results/pg/result.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: c79-integrated-postgres16
+          path: c79-results/pg/
+          retention-days: 14
+          if-no-files-found: warn
+
+  consent_concurrency_postgres16:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DELIVERY_ENABLED: "false"
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install disposable PostgreSQL 16 client
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y postgresql-client
+      - name: Exact-head real PostgreSQL sessions, kind isolation, revocation and provider races
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +x
+          test "$DELIVERY_ENABLED" = false
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          for key in DATABASE_URL SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY SUPABASE_PROJECT_REF SUPABASE_DB_PASSWORD SUPABASE_ACCESS_TOKEN RESEND_API_KEY RESEND_WEBHOOK_SECRET CLOUDFLARE_API_TOKEN; do
+            test -z "$(printenv "$key" || true)"
+          done
+          for db in deedlight_c76_kinds deedlight_c77_races; do
+            createdb "$db"
+            psql -X -v ON_ERROR_STOP=1 -d "$db" -f scripts/test-c73-integrated-provider-security.sql > "/tmp/${db}-base.log" 2>&1
+            for file in supabase/migrations/202611130031_c74_legacy_lifecycle_guard.sql supabase/migrations/202611130032_c75_monotone_recipient_conflict_hold.sql supabase/migrations/202611130033_c76_provider_classification_and_suppression.sql; do
+              psql -X -v ON_ERROR_STOP=1 -d "$db" -f "$file" > "/tmp/${db}-$(basename "$file").log" 2>&1
+            done
+          done
+          bash scripts/test-c76-cross-kind-concurrency.sh
+          bash scripts/test-c77-security-races.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: c79-integrated-concurrency
+          path: |
+            c76-kind-logs/
+            c77-race-logs/
+          retention-days: 14
+          if-no-files-found: warn
+
+  webhook_app_build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DELIVERY_ENABLED: "false"
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-not-a-secret
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install disposable PostgreSQL 16 client
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y postgresql-client
+      - name: Exact-head signed webhooks, app assertions, TypeScript, Next, Cloudflare, audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +x
+          mkdir -p c79-results/app
+          test "$DELIVERY_ENABLED" = false
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          for key in DATABASE_URL SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY SUPABASE_PROJECT_REF SUPABASE_DB_PASSWORD SUPABASE_ACCESS_TOKEN RESEND_API_KEY RESEND_WEBHOOK_SECRET CLOUDFLARE_API_TOKEN; do
+            test -z "$(printenv "$key" || true)"
+          done
+          git rev-parse HEAD > c79-results/app/commit.txt
+          git rev-parse HEAD^{tree} > c79-results/app/source-tree.txt
+          npm ci > c79-results/app/npm-ci.log 2>&1
+          npm ls svix wrangler miniflare undici --all > c79-results/app/deps.txt 2>&1 || true
+          node --test scripts/test-c73-provider-webhook.mjs > c79-results/app/c73-svix.log 2>&1
+          node --test scripts/test-c76-provider-contract.mjs > c79-results/app/c76-contract.log 2>&1
+          node scripts/verify-c73-security.mjs > c79-results/app/c73-security.log 2>&1
+          node scripts/verify-delivery-consent-gates.mjs > c79-results/app/consent.log 2>&1
+          node --test scripts/test-delivery-transport.mjs > c79-results/app/delivery-transport.log 2>&1
+          createdb deedlight_c76_http
+          psql -X -v ON_ERROR_STOP=1 -d deedlight_c76_http -f scripts/test-c73-integrated-provider-security.sql > c79-results/app/019-030.log 2>&1
+          psql -X -v ON_ERROR_STOP=1 -d deedlight_c76_http -f supabase/migrations/202611130031_c74_legacy_lifecycle_guard.sql > c79-results/app/031.log 2>&1
+          psql -X -v ON_ERROR_STOP=1 -d deedlight_c76_http -f supabase/migrations/202611130032_c75_monotone_recipient_conflict_hold.sql > c79-results/app/032.log 2>&1
+          psql -X -v ON_ERROR_STOP=1 -d deedlight_c76_http -f supabase/migrations/202611130033_c76_provider_classification_and_suppression.sql > c79-results/app/033.log 2>&1
+          node scripts/test-c76-route-http.mjs > c79-results/app/route-http-pg.log 2>&1
+          npm audit --audit-level=high > c79-results/app/audit-high.log 2>&1
+          npm audit --json > c79-results/app/audit.json 2>/dev/null || test "$?" -eq 1
+          npx tsc --noEmit > c79-results/app/typescript.log 2>&1
+          npm run build > c79-results/app/next-build.log 2>&1
+          npx opennextjs-cloudflare build > c79-results/app/cloudflare.log 2>&1
+          echo "C79 exact-head signed HTTP, transport, TypeScript, Next, Cloudflare and high-threshold audit PASS" | tee c79-results/app/result.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: c79-integrated-app-build
+          path: c79-results/app/
+          retention-days: 14
+          if-no-files-found: warn
+
+  pr11_integrated_audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DELIVERY_ENABLED: "false"
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      DEEDLIGHT_DISPOSABLE_ACK: I_ACCEPT_DISPOSABLE_DATABASE_DELETION
+      DEEDLIGHT_AUDIT_CI_ONLY: "true"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install disposable PostgreSQL 16 client
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y postgresql-client
+      - name: Original PR11 package integrity and static/parsing tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +x
+          test "$DELIVERY_ENABLED" = false
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          for key in DATABASE_URL SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY SUPABASE_PROJECT_REF SUPABASE_DB_PASSWORD SUPABASE_ACCESS_TOKEN RESEND_API_KEY RESEND_WEBHOOK_SECRET CLOUDFLARE_API_TOKEN; do
+            test -z "$(printenv "$key" || true)"
+          done
+          (cd security/audit-deedlight && sha256sum --strict --check MANIFEST.sha256)
+          python3 security/audit-deedlight/original/check_package_static.py
+          python3 security/audit-deedlight/audited/check_package_static.py
+          python3 -m unittest discover -s security/audit-deedlight/tests -v
+          python3 -m json.tool security/audit-deedlight/invariant_inventory.json > /dev/null
+          bash -n scripts/c79-run-pr11-audit-fixtures.sh
+      - name: Original PR11 ten-fixture matrix on the committed integration source
+        shell: bash
+        env:
+          DEEDLIGHT_SOURCE_REPO: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          set +x
+          for case in A B C D E F G H I J; do
+            bash scripts/c79-run-pr11-audit-fixtures.sh "$case"
+          done
+      - name: Catalog-only PR11 audit on post-033 disposable schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +x
+          mkdir -p c79-results/audit-033
+          createdb deedlight_c79_audit033
+          psql -X -v ON_ERROR_STOP=1 -d deedlight_c79_audit033 -f scripts/test-c73-integrated-provider-security.sql > c79-results/audit-033/base.log 2>&1
+          for file in supabase/migrations/202611130031_c74_legacy_lifecycle_guard.sql supabase/migrations/202611130032_c75_monotone_recipient_conflict_hold.sql supabase/migrations/202611130033_c76_provider_classification_and_suppression.sql; do
+            psql -X -v ON_ERROR_STOP=1 -d deedlight_c79_audit033 -f "$file" > "c79-results/audit-033/$(basename "$file").log" 2>&1
+          done
+          psql -X -At -v ON_ERROR_STOP=1 -d deedlight_c79_audit033 -f security/audit-deedlight/audited/00_preflight.sql > c79-results/audit-033/preflight.txt
+          psql -X -At -v ON_ERROR_STOP=1 -d deedlight_c79_audit033 -f security/audit-deedlight/audited/01_catalog_audit.sql > c79-results/audit-033/catalog.txt
+          python3 security/audit-deedlight/assert_fixture_result.py A --preflight c79-results/audit-033/preflight.txt --audit c79-results/audit-033/catalog.txt
+          echo "PR11 metadata audit accepted its historical 019-024 expectations on integrated schema" > c79-results/audit-033/result.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: c79-pr11-integrated-audit
+          path: |
+            security/audit-deedlight/results/*/preflight.txt
+            security/audit-deedlight/results/*/audit.txt
+            security/audit-deedlight/results/*/preflight.stderr
+            c79-results/audit-033/
+          retention-days: 14
+          if-no-files-found: warn

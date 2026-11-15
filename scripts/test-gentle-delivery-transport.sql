@@ -28,34 +28,36 @@ begin
 end;
 $$;
 
--- Use a curated week not consumed by the reliability terminal fixtures.
+-- Use the actual database transaction clock for both claim lease and final authorization.
+-- Keep curation and claim in one transaction so a UTC week boundary cannot drift.
+begin;
 insert into public.weekly_goodness_features (week_start)
-values ((timezone('UTC', now())::date - (extract(isodow from timezone('UTC', now()))::integer - 1)))
+select timezone('UTC', now())::date
+  - (extract(isodow from timezone('UTC', now()))::integer - 1)
 on conflict (week_start) do nothing;
 
-set role service_role;
+set local role service_role;
 do $$
 declare
+  v_now timestamptz := now();
+  v_week_start date := timezone('UTC', now())::date
+    - (extract(isodow from timezone('UTC', now()))::integer - 1);
+  v_delivery_key text := 'weekly:' || v_week_start::text;
   v_inserted integer;
   v_inserted_again integer;
   v_id uuid;
   v_token uuid;
+  v_wrong_token uuid := '00000000-0000-0000-0000-000000000000'::uuid;
   v_started_1 timestamptz;
   v_started_2 timestamptz;
 begin
-  v_inserted := public.enqueue_current_weekly_goodness_if_curated(
-    now(),
-    5000
-  );
+  v_inserted := public.enqueue_current_weekly_goodness_if_curated(v_now, 5000);
 
   if v_inserted <> 1 then
     raise exception 'Expected one eligible curated weekly delivery, got %.', v_inserted;
   end if;
 
-  v_inserted_again := public.enqueue_current_weekly_goodness_if_curated(
-    now(),
-    5000
-  );
+  v_inserted_again := public.enqueue_current_weekly_goodness_if_curated(v_now, 5000);
 
   if v_inserted_again <> 0 then
     raise exception 'Repeated weekly scheduler call created duplicate logical deliveries.';
@@ -63,14 +65,37 @@ begin
 
   select job_id, claim_token
   into v_id, v_token
-  from public.claim_delivery_jobs(now(), 100)
-  where delivery_key = 'weekly:' || (timezone('UTC', now())::date - (extract(isodow from timezone('UTC', now()))::integer - 1))::text
+  from public.claim_delivery_jobs(v_now, 100)
+  where delivery_key = v_delivery_key
   limit 1;
 
   if v_id is null or v_token is null then
     raise exception 'Transport test delivery was not claimed.';
   end if;
 
+  if not exists (
+    select 1 from public.delivery_ledger
+    where id = v_id and state = 'claimed'
+      and claim_token = v_token and claim_expires_at > now()
+  ) then
+    raise exception 'Fresh claim did not receive a live lease.';
+  end if;
+
+  -- A stale claim token must not authorize or start transport.
+  begin
+    perform public.authorize_delivery_job(v_id, v_wrong_token);
+    raise exception 'Stale token unexpectedly authorized.';
+  exception when sqlstate '42501' then
+    null;
+  end;
+  begin
+    perform public.begin_delivery_transport(v_id, v_wrong_token);
+    raise exception 'Stale token unexpectedly began transport.';
+  exception when sqlstate '42501' then
+    null;
+  end;
+
+  -- The correct live token still succeeds after the stale-token probes.
   if public.authorize_delivery_job(v_id, v_token) is not true then
     raise exception 'Transport test delivery was unexpectedly unauthorized.';
   end if;
@@ -82,10 +107,17 @@ begin
     raise exception 'Transport start timestamp is not stable across retries.';
   end if;
 
+  -- Explicitly expire the real lease; neither authorization nor transport may pass.
   update public.delivery_ledger
   set claim_expires_at = now() - interval '1 second'
   where id = v_id;
 
+  begin
+    perform public.authorize_delivery_job(v_id, v_token);
+    raise exception 'Expired claim unexpectedly authorized.';
+  exception when sqlstate '42501' then
+    null;
+  end;
   begin
     perform public.begin_delivery_transport(v_id, v_token);
     raise exception 'Expired claim unexpectedly began transport.';
@@ -95,6 +127,7 @@ begin
 end;
 $$;
 reset role;
+commit;
 
 select jsonb_build_object(
   'gentle_delivery_transport_db', 'pass',
