@@ -218,6 +218,13 @@ SELECT c83_test.record('cross_member_invitation_and_profile',
 SELECT c83_test.record('cross_member_base_offering_private',
  c83_test.check_count($q$SELECT count(*) FROM public.offerings
  WHERE user_id='83000000-0000-0000-0000-000000000001'$q$,0));
+-- An authenticated stranger must never be able to resolve the account UUID
+-- behind an anonymous public Offering through its original base table.
+SELECT c83_test.record('authenticated_anonymous_author_uuid_denied',
+ c83_test.check_count($q$SELECT count(*) FROM public.offerings
+ WHERE id='83030000-0000-0000-0000-000000000001'
+   AND is_anonymous=true
+   AND user_id='83000000-0000-0000-0000-000000000001'$q$,0));
 SELECT c83_test.record('member_moderation_and_auth_denied',
  c83_test.check_count('SELECT count(*) FROM public.member_moderation_events',0,true)
  AND c83_test.check_count('SELECT count(*) FROM auth.users',0,true));
@@ -240,6 +247,14 @@ SELECT c83_test.record('admin_context_excludes_private_journey',
 SELECT c83_test.record('admin_member_private_journey_denied',
  c83_test.check_count($q$SELECT count(*) FROM public.daily_reflections
  WHERE user_id='83000000-0000-0000-0000-000000000001'$q$,0,true));
+-- Also detect privileged browser-role modification of a private Journey note.
+-- The entire database is disposable and contains synthetic records only.
+SELECT c83_test.record('admin_private_journey_update_denied',
+ c83_test.check_count($q$WITH changed AS (
+ UPDATE public.daily_reflections SET reflection_text='c83-unauthorized-edit'
+ WHERE user_id='83000000-0000-0000-0000-000000000001'
+ RETURNING id
+ ) SELECT count(*) FROM changed$q$,0,true));
 RESET ROLE;
 
 -- Emit all scenarios before failing CI; never print synthetic row contents.
