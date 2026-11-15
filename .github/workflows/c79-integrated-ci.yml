@@ -278,8 +278,8 @@ jobs:
           done
           psql -X -At -v ON_ERROR_STOP=1 -d deedlight_c79_audit033 -f security/audit-deedlight/audited/00_preflight.sql > c79-results/audit-033/preflight.txt
           psql -X -At -v ON_ERROR_STOP=1 -d deedlight_c79_audit033 -f security/audit-deedlight/audited/01_catalog_audit.sql > c79-results/audit-033/catalog.txt
-          python3 security/audit-deedlight/assert_fixture_result.py A --preflight c79-results/audit-033/preflight.txt --audit c79-results/audit-033/catalog.txt
-          echo "PR11 metadata audit accepted its historical 019-024 expectations on integrated schema" > c79-results/audit-033/result.txt
+          psql -X -At -v ON_ERROR_STOP=1 -d deedlight_c79_audit033 -f scripts/test-c79-post033-catalog.sql > c79-results/audit-033/c79-catalog.txt
+          python3 scripts/verify-c79-audit-compat.py c79-results/audit-033/preflight.txt c79-results/audit-033/catalog.txt c79-results/audit-033/c79-catalog.txt | tee c79-results/audit-033/result.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:

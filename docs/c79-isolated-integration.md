@@ -40,3 +40,25 @@ PR merge, or completion tag is authorized by this branch.
 OPEN: general PR Validation, independent security review, nine moderate
 glob/minimatch advisories, complete post-033 audit expectations, Production
 migration history and staged Production release benchmarks.
+
+## Cycle 79 PR11 post-033 compatibility accounting
+
+The original PR11 audit has exact PR10 (019–024) invariants and SHA pins,
+retained byte-identically. The post-033 disposable fixture intentionally lacks
+some full Production profile/RLS setup and migration 025 removes the unscoped
+claim RPC while 028/030 revoke legacy privileged entrypoints. Therefore a
+raw PR11 "case A" acceptance on a post-033 fixture must FAIL.
+
+\`scripts/verify-c79-audit-compat.py\` requires an **exactly enumerated**
+nine-item legacy FAILED set and the synthetic Production-identity BLOCKED
+item, plus the complete unchanged 82-item PR11 result inventory. It fails on
+any new or unexplained negative classification. The separate catalog-only
+\`scripts/test-c79-post033-catalog.sql\` asserts 19 contemporary privilege,
+RLS, trigger, event-identity, keyring and service-RPC invariants. The CI job
+is successful only when the original PR11 ten-fixture matrix passes and every
+new C79 invariant passes.
+
+This is a compatibility regression check, **not** an independent, full-schema
+post-033 audit or Product/Production acceptance. In particular, the historical
+source SHA embedded in PR11's catalog output remains PR10, and this synthetic
+database does not attest actual Production RLS or project identity.
