@@ -52,7 +52,7 @@ VALUES
 INSERT INTO public.daily_lights(id,scheduled_date,title,status) VALUES
  ('83010000-0000-0000-0000-000000000001',current_date,'C83 gentle daily action','published');
 INSERT INTO public.daily_lights(id,scheduled_date,title,status) VALUES
- ('83010000-0000-0000-0000-000000000002',current_date,'C101 private Journey test','published');
+ ('83010000-0000-0000-0000-000000000002',current_date + 1,'C101 private Journey test','published');
 INSERT INTO public.daily_reflections(user_id,daily_light_id,reflection_text,reflection)
 VALUES ('83000000-0000-0000-0000-000000000001',
  '83010000-0000-0000-0000-000000000001',
