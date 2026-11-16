@@ -101,6 +101,9 @@ jobs:
           git rev-parse HEAD > release-evidence/validate/commit.txt
           git rev-parse HEAD^{tree} > release-evidence/validate/tree.txt
           printf 'PASS\n' > release-evidence/validate/result.txt
+      - name: Record canonical per-job run and attempt provenance
+        if: success()
+        run: node scripts/write-release-evidence-receipt.mjs
       - name: Retain validate check receipt
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -170,6 +173,9 @@ jobs:
           git rev-parse HEAD > release-evidence/sprint12_2_database_behavior/commit.txt
           git rev-parse HEAD^{tree} > release-evidence/sprint12_2_database_behavior/tree.txt
           printf 'PASS\n' > release-evidence/sprint12_2_database_behavior/result.txt
+      - name: Record canonical per-job run and attempt provenance
+        if: success()
+        run: node scripts/write-release-evidence-receipt.mjs
       - name: Retain sprint12_2_database_behavior check receipt
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -239,6 +245,9 @@ jobs:
           git rev-parse HEAD > release-evidence/delivery_reliability_database_behavior/commit.txt
           git rev-parse HEAD^{tree} > release-evidence/delivery_reliability_database_behavior/tree.txt
           printf 'PASS\n' > release-evidence/delivery_reliability_database_behavior/result.txt
+      - name: Record canonical per-job run and attempt provenance
+        if: success()
+        run: node scripts/write-release-evidence-receipt.mjs
       - name: Retain delivery_reliability_database_behavior check receipt
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -311,6 +320,9 @@ jobs:
           git rev-parse HEAD > release-evidence/gentle_delivery_transport_database_behavior/commit.txt
           git rev-parse HEAD^{tree} > release-evidence/gentle_delivery_transport_database_behavior/tree.txt
           printf 'PASS\n' > release-evidence/gentle_delivery_transport_database_behavior/result.txt
+      - name: Record canonical per-job run and attempt provenance
+        if: success()
+        run: node scripts/write-release-evidence-receipt.mjs
       - name: Retain gentle_delivery_transport_database_behavior check receipt
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -380,6 +392,9 @@ jobs:
           git rev-parse HEAD > release-evidence/auth_pgcrypto_database_behavior/commit.txt
           git rev-parse HEAD^{tree} > release-evidence/auth_pgcrypto_database_behavior/tree.txt
           printf 'PASS\n' > release-evidence/auth_pgcrypto_database_behavior/result.txt
+      - name: Record canonical per-job run and attempt provenance
+        if: success()
+        run: node scripts/write-release-evidence-receipt.mjs
       - name: Retain auth_pgcrypto_database_behavior check receipt
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -442,6 +457,9 @@ jobs:
           git rev-parse HEAD > release-evidence/delivery_migration_order_database_behavior/commit.txt
           git rev-parse HEAD^{tree} > release-evidence/delivery_migration_order_database_behavior/tree.txt
           printf 'PASS\n' > release-evidence/delivery_migration_order_database_behavior/result.txt
+      - name: Record canonical per-job run and attempt provenance
+        if: success()
+        run: node scripts/write-release-evidence-receipt.mjs
       - name: Retain delivery_migration_order_database_behavior check receipt
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -537,6 +555,9 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -f scripts/test-c101-member-privacy.sql 2>&1 | tee release-evidence/release_privacy_pg16/privacy.log
           node scripts/verify-release-privacy-inventory.mjs release-evidence/release_privacy_pg16/privacy.log | tee release-evidence/release_privacy_pg16/inventory.txt
           printf 'PASS\n' > release-evidence/release_privacy_pg16/result.txt
+      - name: Record canonical per-job run and attempt provenance
+        if: success()
+        run: node scripts/write-release-evidence-receipt.mjs
       - name: Preserve sanitized evidence on failure and success
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -585,6 +606,9 @@ jobs:
           node --test --test-reporter=tap scripts/test-c103-moderation-actions.mjs 2>&1 | tee release-evidence/release_action_privacy/app-privacy.log
           node scripts/verify-release-action-inventory.mjs release-evidence/release_action_privacy/app-privacy.log | tee release-evidence/release_action_privacy/inventory.txt
           printf 'PASS\n' > release-evidence/release_action_privacy/result.txt
+      - name: Record canonical per-job run and attempt provenance
+        if: success()
+        run: node scripts/write-release-evidence-receipt.mjs
       - name: Retain sanitized application-action evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -651,30 +675,6 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -d deedlight_c79_post033 -f scripts/test-c77-post033.sql > release-evidence/release_provider_pg16/c77-post033.log 2>&1
           echo "Synthetic 019–033 provider migration and post-033 tests PASS" | tee release-evidence/release_provider_pg16/provider-result.txt
           printf 'PASS\n' > release-evidence/release_provider_pg16/result.txt
-      - name: Record canonical per-job run and attempt provenance
-        if: success()
-        run: node scripts/write-release-evidence-receipt.mjs
-      - name: Record canonical per-job run and attempt provenance
-        if: success()
-        run: node scripts/write-release-evidence-receipt.mjs
-      - name: Record canonical per-job run and attempt provenance
-        if: success()
-        run: node scripts/write-release-evidence-receipt.mjs
-      - name: Record canonical per-job run and attempt provenance
-        if: success()
-        run: node scripts/write-release-evidence-receipt.mjs
-      - name: Record canonical per-job run and attempt provenance
-        if: success()
-        run: node scripts/write-release-evidence-receipt.mjs
-      - name: Record canonical per-job run and attempt provenance
-        if: success()
-        run: node scripts/write-release-evidence-receipt.mjs
-      - name: Record canonical per-job run and attempt provenance
-        if: success()
-        run: node scripts/write-release-evidence-receipt.mjs
-      - name: Record canonical per-job run and attempt provenance
-        if: success()
-        run: node scripts/write-release-evidence-receipt.mjs
       - name: Record canonical per-job run and attempt provenance
         if: success()
         run: node scripts/write-release-evidence-receipt.mjs

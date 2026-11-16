@@ -165,8 +165,21 @@ for (const job of platformJobs.jobs) {
       assert.ok(job.steps?.some((x) => x.name === step && x.conclusion === "success"),
         "Required real execution step missing/failed " + job.name + "/" + step);
     }
+    const uploadName = [
+      "validate", "sprint12_2_database_behavior",
+      "delivery_reliability_database_behavior",
+      "gentle_delivery_transport_database_behavior",
+      "auth_pgcrypto_database_behavior",
+      "delivery_migration_order_database_behavior",
+    ].includes(job.name)
+      ? "Retain " + job.name + " check receipt"
+      : job.name === "release_privacy_pg16"
+        ? "Preserve sanitized evidence on failure and success"
+        : job.name === "release_action_privacy"
+          ? "Retain sanitized application-action evidence"
+          : "Run actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02";
     assert.ok(job.steps?.some((x) =>
-      x.name === "Run actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" && x.conclusion === "success"),
+      x.name === uploadName && x.conclusion === "success"),
       "Expected successful artifact upload step missing " + job.name);
   } else {
     assert.equal(job.status, "in_progress", "Gate must audit during its own attempt");
