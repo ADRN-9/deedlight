@@ -209,7 +209,7 @@ export default async function AdminOfferingDetailPage({
 
               <form action={requestOfferingEdit} className="rounded-3xl border border-[rgba(217,164,65,0.20)] bg-white p-3">
                 <input type="hidden" name="id" value={offering.id} />
-                <textarea name="moderation_note" className="min-h-20 w-full rounded-2xl border border-[rgba(217,164,65,0.20)] px-3 py-2 text-sm outline-none focus:border-[#D9A441]" placeholder="Edit request note…" />
+                <ModerationDecisionFields prefix="request-edit" />
                 <button className="focus-ring mt-2 flex w-full items-center justify-center gap-2 rounded-full border border-[rgba(217,164,65,0.30)] bg-white px-5 py-3 font-extrabold text-[#26231F]" type="submit">
                   <PencilLine className="h-4 w-4" /> Request edit
                 </button>
@@ -217,7 +217,7 @@ export default async function AdminOfferingDetailPage({
 
               <form action={rejectOffering} className="rounded-3xl border border-[#E7B7A5] bg-[#FFF0EC] p-3">
                 <input type="hidden" name="id" value={offering.id} />
-                <textarea name="moderation_note" className="min-h-20 w-full rounded-2xl border border-[#E7B7A5] bg-white px-3 py-2 text-sm outline-none focus:border-[#D9A441]" placeholder="Reason for rejection…" />
+                <ModerationDecisionFields prefix="reject" />
                 <button className="focus-ring mt-2 flex w-full items-center justify-center gap-2 rounded-full border border-[#E7B7A5] bg-[#FFF0EC] px-5 py-3 font-extrabold text-[#8D381D]" type="submit">
                   <XCircle className="h-4 w-4" /> Reject
                 </button>
@@ -225,7 +225,7 @@ export default async function AdminOfferingDetailPage({
 
               <form action={hideOffering} className="rounded-3xl border border-[rgba(38,35,31,0.16)] bg-white p-3">
                 <input type="hidden" name="id" value={offering.id} />
-                <textarea name="moderation_note" className="min-h-20 w-full rounded-2xl border border-[rgba(38,35,31,0.12)] px-3 py-2 text-sm outline-none focus:border-[#D9A441]" placeholder="Reason for hiding…" />
+                <ModerationDecisionFields prefix="hide" />
                 <button className="focus-ring mt-2 flex w-full items-center justify-center gap-2 rounded-full bg-[#26231F] px-5 py-3 font-extrabold text-white shadow-lg" type="submit">
                   <EyeOff className="h-4 w-4" /> Hide saved Offering from public
                 </button>
@@ -240,6 +240,47 @@ export default async function AdminOfferingDetailPage({
         </aside>
       </div>
     </section>
+  );
+}
+
+// Staff notes and member feedback are independent decisions, never copied.
+function ModerationDecisionFields({ prefix }: { prefix: string }) {
+  return (
+    <div className="space-y-3">
+      <div>
+        <label htmlFor={`${prefix}-internal`} className="block text-sm font-extrabold text-[#26231F]">
+          Internal moderation note · Staff only
+        </label>
+        <p id={`${prefix}-internal-help`} className="mt-1 text-xs leading-5 text-[#7C715F]">
+          For the moderation team only. Never shown to the member.
+        </p>
+        <textarea
+          id={`${prefix}-internal`}
+          name="moderation_note"
+          maxLength={1000}
+          aria-describedby={`${prefix}-internal-help`}
+          className="mt-2 min-h-20 w-full rounded-2xl border border-[rgba(217,164,65,0.24)] bg-white px-3 py-2 text-sm outline-none focus:border-[#D9A441]"
+          placeholder="Private review details…"
+        />
+      </div>
+      <div>
+        <label htmlFor={`${prefix}-feedback`} className="block text-sm font-extrabold text-[#26231F]">
+          Feedback from moderators · Visible to the member
+        </label>
+        <p id={`${prefix}-feedback-help`} className="mt-1 text-xs leading-5 text-[#7C715F]">
+          Write a separate, respectful explanation. Do not include report identities or internal notes.
+          Leave blank to show only the status change.
+        </p>
+        <textarea
+          id={`${prefix}-feedback`}
+          name="owner_feedback"
+          maxLength={1000}
+          aria-describedby={`${prefix}-feedback-help`}
+          className="mt-2 min-h-20 w-full rounded-2xl border border-[rgba(217,164,65,0.24)] bg-white px-3 py-2 text-sm outline-none focus:border-[#D9A441]"
+          placeholder="Optional explanation for the member…"
+        />
+      </div>
+    </div>
   );
 }
 

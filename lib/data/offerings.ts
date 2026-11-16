@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { fallbackOfferings } from "./fallback";
-import type { AdminOffering, Offering, ProfileSummary, ReportItem } from "@/lib/types";
+import type { AdminOffering, MemberOffering, Offering, ProfileSummary, ReportItem } from "@/lib/types";
 
 const publicOfferingColumns = `
   id,
@@ -104,19 +104,8 @@ const ownerOfferingColumns = `
   owner_feedback
 `;
 
-type OwnerOfferingRow = Omit<AdminOffering, "moderation_note"> & {
-  owner_feedback: string | null;
-};
-
-function memberOffering(row: OwnerOfferingRow): AdminOffering {
-  const { owner_feedback, ...fields } = row;
-  const memberFeedbackStates = ["needs_edit", "rejected", "hidden"];
-  return {
-    ...fields,
-    moderation_note: memberFeedbackStates.includes(row.status) ? owner_feedback : null,
-  };
-}
-
+// Only the explicitly member-visible projection crosses this boundary.
+// Never synthesize a moderation_note field in owner-facing page props.
 const reportColumns = `
   id,
   offering_id,
@@ -258,7 +247,7 @@ export async function getAdminOffering(id: string): Promise<AdminOffering | null
   return withAuthors[0] ?? null;
 }
 
-export async function getMyOffering(id: string): Promise<AdminOffering | null> {
+export async function getMyOffering(id: string): Promise<MemberOffering | null> {
   const supabase = await createClient({ allowMissingEnv: true });
   if (!supabase) return null;
 
@@ -276,7 +265,7 @@ export async function getMyOffering(id: string): Promise<AdminOffering | null> {
     .maybeSingle();
 
   if (error || !data) return null;
-  const withAuthors = await addAuthorNames([memberOffering(data as OwnerOfferingRow)]);
+  const withAuthors = await addAuthorNames([data as MemberOffering]);
   return withAuthors[0] ?? null;
 }
 
@@ -306,7 +295,7 @@ export async function getViewerOwnedOfferingIds(
   return new Set(rows.map((item) => String(item.id)));
 }
 
-export async function getMyOfferings(limit = 24): Promise<AdminOffering[]> {
+export async function getMyOfferings(limit = 24): Promise<MemberOffering[]> {
   const supabase = await createClient({ allowMissingEnv: true });
   if (!supabase) return [];
 
@@ -324,7 +313,7 @@ export async function getMyOfferings(limit = 24): Promise<AdminOffering[]> {
     .limit(limit);
 
   if (error || !data) return [];
-  return addAuthorNames((data as OwnerOfferingRow[]).map(memberOffering));
+  return addAuthorNames(data as MemberOffering[]);
 }
 
 export async function getReportsForOffering(offeringId: string): Promise<ReportItem[]> {

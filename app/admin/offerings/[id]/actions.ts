@@ -26,9 +26,35 @@ function readId(formData: FormData) {
   return idSchema.parse(String(formData.get("id") || ""));
 }
 
+// These fields have different audiences. Never use the internal note as
+// member-visible feedback, including when the feedback field is blank.
+const decisionTextSchema = z.object({
+  moderation_note: z.string().trim().max(1000),
+  owner_feedback: z.string().trim().max(1000),
+});
+
+function readModerationDecision(formData: FormData, id: string): {
+  moderation_note: string | null;
+  owner_feedback: string | null;
+} {
+  const parsed = decisionTextSchema.safeParse({
+    moderation_note: formData.get("moderation_note") ?? "",
+    owner_feedback: formData.get("owner_feedback") ?? "",
+  });
+  if (!parsed.success) {
+    redirect(`/admin/offerings/${id}?error=Moderation%20fields%20must%20be%20text%20of%20at%20most%201000%20characters`);
+  }
+  return {
+    moderation_note: parsed.data.moderation_note || null,
+    owner_feedback: parsed.data.owner_feedback || null,
+  };
+}
+
+// Decision transitions replace both fields. Empty feedback deliberately clears
+// prior owner-facing text instead of revealing, copying, or retaining staff notes.
 function readNote(formData: FormData) {
-  const note = String(formData.get("moderation_note") || "").trim();
-  return note.length ? note.slice(0, 1000) : null;
+  const parsed = z.string().trim().max(1000).safeParse(formData.get("moderation_note") ?? "");
+  return parsed.success ? parsed.data || null : null;
 }
 
 function cleanOptional(value: string | undefined) {
@@ -145,38 +171,34 @@ export async function approveOffering(formData: FormData) {
 
 export async function rejectOffering(formData: FormData) {
   const id = readId(formData);
-  const note = readNote(formData);
   const { supabase } = await requireAdmin(`/admin/offerings/${id}`);
+  const notes = readModerationDecision(formData, id);
 
-  await updateOfferingOrRedirect(supabase, id, { status: "rejected", moderation_note: note, owner_feedback: note }, "rejected");
+  await updateOfferingOrRedirect(supabase, id, { status: "rejected", ...notes }, "rejected");
 }
 
 export async function requestOfferingEdit(formData: FormData) {
   const id = readId(formData);
-  const note = readNote(formData);
   const { supabase } = await requireAdmin(`/admin/offerings/${id}`);
+  const notes = readModerationDecision(formData, id);
 
   await updateOfferingOrRedirect(
     supabase,
     id,
-    {
-      status: "needs_edit",
-      moderation_note: note || "Please revise this Offering so it better protects dignity and inspires goodness.",
-      owner_feedback: note || "Please revise this Offering so it better protects dignity and inspires goodness."
-    },
+    { status: "needs_edit", ...notes },
     "needs_edit"
   );
 }
 
 export async function hideOffering(formData: FormData) {
   const id = readId(formData);
-  const note = readNote(formData);
   const { supabase } = await requireAdmin(`/admin/offerings/${id}`);
+  const notes = readModerationDecision(formData, id);
 
   await updateOfferingOrRedirect(
     supabase,
     id,
-    { status: "hidden", moderation_note: note || "Hidden by admin review.", owner_feedback: note || "Hidden by admin review." },
+    { status: "hidden", ...notes },
     "hidden"
   );
 }

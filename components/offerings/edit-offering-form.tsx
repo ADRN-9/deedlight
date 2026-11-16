@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { updateOwnOfferingAction } from "@/app/offerings/owner-actions";
 import { PendingOwnerActionButton } from "@/components/offerings/pending-owner-action-button";
-import type { AdminOffering } from "@/lib/types";
+import type { MemberOffering } from "@/lib/types";
 
 const OFFERING_TYPES = [
   ["good_deed", "Good Deed"],
@@ -13,7 +13,7 @@ const OFFERING_TYPES = [
 ] as const;
 
 type EditOfferingFormProps = {
-  offering: AdminOffering;
+  offering: MemberOffering;
 };
 
 export function EditOfferingForm({ offering }: EditOfferingFormProps) {

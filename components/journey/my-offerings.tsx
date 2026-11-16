@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { OfferingOwnerMenu } from "@/components/offerings/offering-owner-menu";
-import type { AdminOffering } from "@/lib/types";
+import type { MemberOffering } from "@/lib/types";
 
 type MyOfferingFilter = "all" | "published" | "review" | "attention" | "removed";
 
 type MyOfferingsProps = {
-  offerings: AdminOffering[];
+  offerings: MemberOffering[];
   filter?: string;
 };
 
@@ -23,11 +23,11 @@ function normalizeFilter(value?: string): MyOfferingFilter {
     : "all";
 }
 
-function isOwnerRemoved(offering: AdminOffering) {
+function isOwnerRemoved(offering: MemberOffering) {
   return Boolean(offering.owner_removed_at);
 }
 
-function matchesFilter(offering: AdminOffering, filter: MyOfferingFilter) {
+function matchesFilter(offering: MemberOffering, filter: MyOfferingFilter) {
   if (filter === "all") return true;
   if (filter === "removed") return isOwnerRemoved(offering);
   if (isOwnerRemoved(offering)) return false;
@@ -39,10 +39,10 @@ function matchesFilter(offering: AdminOffering, filter: MyOfferingFilter) {
   );
 }
 
-function statusLabel(offering: AdminOffering) {
+function statusLabel(offering: MemberOffering) {
   if (isOwnerRemoved(offering)) return "Removed by you";
 
-  const labels: Record<AdminOffering["status"], string> = {
+  const labels: Record<MemberOffering["status"], string> = {
     draft: "Draft",
     pending: "In review",
     approved: "Published",
@@ -54,7 +54,7 @@ function statusLabel(offering: AdminOffering) {
   return labels[offering.status];
 }
 
-function statusClass(offering: AdminOffering) {
+function statusClass(offering: MemberOffering) {
   if (isOwnerRemoved(offering)) return "bg-stone-100 text-stone-700";
   if (offering.status === "approved") return "bg-emerald-50 text-emerald-800";
   if (offering.status === "pending") return "bg-sky-50 text-sky-800";
@@ -167,10 +167,10 @@ export function MyOfferings({ offerings, filter: rawFilter }: MyOfferingsProps) 
                         : ""}
                     </p>
 
-                    {item.moderation_note && ["needs_edit", "rejected", "hidden"].includes(item.status) ? (
+                    {item.owner_feedback && ["needs_edit", "rejected", "hidden"].includes(item.status) ? (
                       <div className="mt-4 rounded-2xl border border-amber-100 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
-                        <span className="font-extrabold">Moderation note:</span>{" "}
-                        {item.moderation_note}
+                        <span className="font-extrabold">Feedback from moderators:</span>{" "}
+                        {item.owner_feedback}
                       </div>
                     ) : null}
 

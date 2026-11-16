@@ -45,6 +45,14 @@ export type Offering = {
   author_username?: string | null;
 };
 
+// Serialized member-facing Offering data excludes staff-only moderation fields.
+export type MemberOffering = Offering & {
+  theme_id?: string | null;
+  status: "draft" | "pending" | "approved" | "rejected" | "needs_edit" | "hidden";
+  owner_feedback: string | null;
+  owner_removed_at?: string | null;
+};
+
 export type AdminOffering = Offering & {
   theme_id?: string | null;
   status: "draft" | "pending" | "approved" | "rejected" | "needs_edit" | "hidden";
