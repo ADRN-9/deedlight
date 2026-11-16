@@ -3,8 +3,7 @@ on:
   push:
     branches:
       - work/deedlight-c101-privacy-f96d1108-v1
-  pull_request:
-    branches: [main]
+  # Historical branch-specific evidence only. Durable PR checks live in PR Validation.
 
 permissions:
   contents: read
