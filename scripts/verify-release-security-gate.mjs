@@ -28,7 +28,7 @@ const requiredFiles = {
     "provider-032.log", "provider-033.log",
     "provider-classification.log", "post033-019-030.log",
     "post033-031.log", "post033-032.log", "post033-033.log",
-    "post033-regressions.log",
+    "c77-post033.log",
   ],
   release_consent_races: ["c76-kind-logs", "c77-race-logs"],
   release_webhook_http: [
