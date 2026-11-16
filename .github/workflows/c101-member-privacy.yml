@@ -1,0 +1,107 @@
+name: Required member privacy PostgreSQL 16
+on:
+  push:
+    branches:
+      - work/deedlight-c101-privacy-f96d1108-v1
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: c101-member-privacy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  full_schema_privacy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
+      PGOPTIONS: "-c search_path=public,extensions,pg_catalog"
+      DELIVERY_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Reject Production configuration and verify source provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$DELIVERY_ENABLED" = "false"
+          test "$(git merge-base e7f0898b52e4e58b807d1c14a134684e740e5295 HEAD)" = "e7f0898b52e4e58b807d1c14a134684e740e5295"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -f supabase/migrations/202611150034_c101_member_privacy_boundaries.sql
+          test "$(find supabase/migrations -maxdepth 1 -type f -name '*.sql' | wc -l)" -eq 35
+          mkdir -p c101-results
+          printf '%s\n' "$(git rev-parse HEAD)" > c101-results/source-commit.txt
+          printf '%s\n' "$(git rev-parse HEAD^{tree})" > c101-results/source-tree.txt
+          for key in DATABASE_URL SUPABASE_URL SUPABASE_PROJECT_REF SUPABASE_ACCESS_TOKEN SUPABASE_DB_PASSWORD SUPABASE_SERVICE_ROLE_KEY CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID RESEND_API_KEY RESEND_WEBHOOK_SECRET; do
+            test -z "$(printenv "$key" || true)"
+          done
+          test "$PGHOST" = "127.0.0.1"
+          test "$PGPORT" = "5432"
+          git rev-parse HEAD
+          git rev-parse HEAD^{tree}
+      - name: Install disposable PostgreSQL client
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y postgresql-client
+      - name: Bootstrap synthetic Supabase roles
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p c101-results
+          psql -X -At -v ON_ERROR_STOP=1 -c 'show server_version;' | tee c101-results/postgres-version.txt
+          psql -X -v ON_ERROR_STOP=1 -f scripts/c101-bootstrap.sql > c101-results/bootstrap.log 2>&1
+      - name: Install exact-source migration chain 001–034
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > c101-results/migrations.log
+          while IFS= read -r file; do
+            # Historical Sprint 6 migration seeds only an empty daily_posts.
+            # Model an existing valid legacy Daily post, without altering DDL.
+            if [[ "$file" == "supabase/migrations/202607260007_sprint6_daily_deedlight.sql" ]]; then
+              psql -X -v ON_ERROR_STOP=1 -c "INSERT INTO public.daily_posts (date,slug,title,reflection,daily_action,status) VALUES (current_date,'c83-legacy-seed','C83 existing Daily','Synthetic historical reflection','Synthetic historical action','published')" >> c101-results/migrations.log 2>&1
+            fi
+            echo "APPLY $file" >> c101-results/migrations.log
+            if ! psql -X -v ON_ERROR_STOP=1 -f "$file" >> c101-results/migrations.log 2>&1; then
+              echo "::error::Disposable migration failure in $file"
+              tail -n 35 c101-results/migrations.log
+              exit 1
+            fi
+          done < <(find supabase/migrations -maxdepth 1 -name '*.sql' -type f | LC_ALL=C sort)
+          echo "ALL 001–034 source migrations applied to disposable database" | tee c101-results/migration-summary.txt
+      - name: Exercise real anon and authenticated privacy boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -f scripts/test-c101-member-privacy.sql 2>&1 | tee c101-results/privacy.log
+      - name: Preserve sanitized evidence on failure and success
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: c101-required-member-privacy-postgres16
+          if-no-files-found: warn
+          retention-days: 21
+          path: c101-results/

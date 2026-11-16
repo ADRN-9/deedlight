@@ -133,9 +133,8 @@ export async function getApprovedOfferingsForDailySelect(limit = 80) {
   if (!supabase) return [];
 
   const { data, error } = await supabase
-    .from("offerings")
-    .select("id,title,body,offering_type,author_name,display_name,published_at")
-    .eq("status", "approved")
+    .from("offerings_public")
+    .select("id,title,body,offering_type,author_name,author_username,published_at")
     .order("published_at", { ascending: false })
     .limit(limit);
 

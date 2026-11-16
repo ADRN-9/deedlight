@@ -1,0 +1,488 @@
+\set ON_ERROR_STOP on
+-- C83: synthetic identities against migrated PostgreSQL 16; never Production.
+-- Explicit user-role checks (SET ROLE), not superuser-only policy inspection.
+SET statement_timeout = '20s';
+CREATE SCHEMA c83_test;
+CREATE TABLE c83_test.results (
+  scenario text PRIMARY KEY,
+  passed boolean NOT NULL
+);
+GRANT USAGE ON SCHEMA c83_test TO anon, authenticated;
+GRANT INSERT ON c83_test.results TO anon, authenticated;
+
+CREATE FUNCTION c83_test.check_count(
+  p_sql text, p_expected bigint, p_permission_denied_ok boolean DEFAULT false
+) RETURNS boolean
+LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public AS $fn$
+DECLARE v_actual bigint;
+BEGIN
+  EXECUTE p_sql INTO v_actual;
+  RETURN v_actual IS NOT DISTINCT FROM p_expected;
+EXCEPTION
+  WHEN insufficient_privilege THEN RETURN p_permission_denied_ok;
+  WHEN OTHERS THEN RETURN false;
+END;
+$fn$;
+CREATE FUNCTION c83_test.record(p_scenario text, p_passed boolean)
+RETURNS void
+LANGUAGE sql SECURITY INVOKER SET search_path = pg_catalog, public AS $fn$
+  INSERT INTO c83_test.results(scenario, passed)
+  VALUES (p_scenario, coalesce(p_passed, false));
+$fn$;
+REVOKE ALL ON FUNCTION c83_test.check_count(text,bigint,boolean) FROM PUBLIC;
+REVOKE ALL ON FUNCTION c83_test.record(text,boolean) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION c83_test.check_count(text,bigint,boolean) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION c83_test.record(text,boolean) TO anon, authenticated;
+
+-- Auth signup triggers depend on Supabase infrastructure absent from the
+-- disposable bootstrap. Seed auth rows as fixture-owner, not through signup.
+ALTER TABLE auth.users DISABLE TRIGGER USER;
+INSERT INTO auth.users(id,email,email_confirmed_at) VALUES
+ ('83000000-0000-0000-0000-000000000001','c83-a@example.test',now()),
+ ('83000000-0000-0000-0000-000000000002','c83-b@example.test',now()),
+ ('83000000-0000-0000-0000-000000000003','c83-admin@example.test',now());
+ALTER TABLE auth.users ENABLE TRIGGER USER;
+
+INSERT INTO public.profiles(user_id,username,display_name,role,is_public)
+VALUES
+ ('83000000-0000-0000-0000-000000000001','c83-alice','C83 Alice','member',false),
+ ('83000000-0000-0000-0000-000000000002','c83-bob','C83 Bob','member',true),
+ ('83000000-0000-0000-0000-000000000003','c83-admin','C83 Moderator','admin',false);
+
+INSERT INTO public.daily_lights(id,scheduled_date,title,status) VALUES
+ ('83010000-0000-0000-0000-000000000001',current_date,'C83 gentle daily action','published');
+INSERT INTO public.daily_lights(id,scheduled_date,title,status) VALUES
+ ('83010000-0000-0000-0000-000000000002',current_date,'C101 private Journey test','published');
+INSERT INTO public.daily_reflections(user_id,daily_light_id,reflection_text,reflection)
+VALUES ('83000000-0000-0000-0000-000000000001',
+ '83010000-0000-0000-0000-000000000001',
+ 'synthetic-private-journey-note','synthetic-private-journey-note');
+INSERT INTO public.daily_deed_completions(user_id,daily_light_id)
+VALUES ('83000000-0000-0000-0000-000000000001',
+ '83010000-0000-0000-0000-000000000001');
+INSERT INTO public.saved_lights(user_id,daily_light_id)
+VALUES ('83000000-0000-0000-0000-000000000001',
+ '83010000-0000-0000-0000-000000000001');
+INSERT INTO public.daily_reminder_preferences(user_id,daily_enabled)
+VALUES ('83000000-0000-0000-0000-000000000001',true),
+       ('83000000-0000-0000-0000-000000000002',false);
+INSERT INTO public.newsletter_preferences(user_id,weekly_enabled,consented_at,consent_source)
+VALUES ('83000000-0000-0000-0000-000000000001',true,now(),'settings'),
+       ('83000000-0000-0000-0000-000000000002',false,null,null);
+INSERT INTO public.invitation_links(id,inviter_user_id,code,accepted_count)
+VALUES ('83020000-0000-0000-0000-000000000001',
+ '83000000-0000-0000-0000-000000000001',repeat('a',36),1);
+INSERT INTO public.invitation_acceptances(invitation_id,invited_user_id)
+VALUES ('83020000-0000-0000-0000-000000000001',
+ '83000000-0000-0000-0000-000000000002');
+INSERT INTO public.offerings(id,user_id,offering_type,title,body,status,is_anonymous,published_at,moderation_note)
+VALUES
+ ('83030000-0000-0000-0000-000000000001',
+ '83000000-0000-0000-0000-000000000001','gratitude','C83 quiet kindness',
+ 'A synthetic anonymous deed with no identifying details.', 'approved',true,now(),
+ 'c83-synthetic-internal-moderation-note'),
+ ('83030000-0000-0000-0000-000000000002',
+ '83000000-0000-0000-0000-000000000002','gratitude','C83 visible kindness',
+ 'A synthetic nonanonymous deed for the public projection.', 'approved',false,now(),null);
+INSERT INTO public.weekly_goodness_features(week_start,offering_id)
+VALUES (date_trunc('week',timezone('UTC',now()))::date,
+ '83030000-0000-0000-0000-000000000001');
+INSERT INTO public.member_moderation_events(member_user_id,actor_user_id,action,reason)
+VALUES ('83000000-0000-0000-0000-000000000001',
+ '83000000-0000-0000-0000-000000000003','restored',
+ 'Synthetic moderation context only');
+INSERT INTO public.reports(offering_id,reported_by,reason,details)
+VALUES ('83030000-0000-0000-0000-000000000001',
+ '83000000-0000-0000-0000-000000000002','privacy_concern',
+ 'Synthetic private report details');
+
+-- Catalog: exact grant and RLS controls, including private email schema.
+SELECT c83_test.record('catalog_private_tables_rls',
+ (SELECT coalesce(bool_and(c.relrowsecurity),false)
+  FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+  WHERE n.nspname='public'
+    AND c.relname IN ('daily_reflections','daily_deed_completions',
+      'saved_lights','daily_reminder_preferences','newsletter_preferences',
+      'invitation_links','invitation_acceptances','member_moderation_events'))
+ AND (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+  WHERE n.nspname='public' AND c.relkind='r' AND c.relname IN
+  ('daily_reflections','daily_deed_completions','saved_lights',
+   'daily_reminder_preferences','newsletter_preferences','invitation_links',
+   'invitation_acceptances','member_moderation_events'))=8);
+SELECT c83_test.record('catalog_auth_users_no_browser_select',
+ NOT has_table_privilege('anon','auth.users','SELECT') AND
+ NOT has_table_privilege('authenticated','auth.users','SELECT'));
+SELECT c83_test.record('catalog_moderation_private',
+ NOT has_table_privilege('anon','public.member_moderation_events','SELECT')
+ AND NOT has_table_privilege('authenticated','public.member_moderation_events','SELECT')
+ AND NOT has_table_privilege('anon','public.invitation_acceptances','SELECT')
+ AND NOT has_table_privilege('authenticated','public.invitation_acceptances','SELECT'));
+SELECT c83_test.record('catalog_public_projection_columns',
+ NOT EXISTS (
+   SELECT 1 FROM information_schema.columns
+   WHERE table_schema='public'
+     AND table_name IN ('profiles_public','offerings_public','offerings_rising',
+         'daily_deed_completion_counts')
+     AND column_name IN ('email','inviter_user_id','invited_user_id','moderation_note',
+        'reflection','reflection_text','consent_source','reminder_time','timezone')
+ ));
+
+-- Real anon database role, no JWT subject.
+SELECT set_config('request.jwt.claim.sub','',false);
+SET ROLE anon;
+SELECT c83_test.record('anon_private_journey',
+ c83_test.check_count('SELECT count(*) FROM public.daily_reflections',0,true));
+SELECT c83_test.record('anon_private_completions',
+ c83_test.check_count('SELECT count(*) FROM public.daily_deed_completions',0,true));
+SELECT c83_test.record('anon_saved_lights',
+ c83_test.check_count('SELECT count(*) FROM public.saved_lights',0,true));
+SELECT c83_test.record('anon_reminder_preferences',
+ c83_test.check_count('SELECT count(*) FROM public.daily_reminder_preferences',0,true));
+SELECT c83_test.record('anon_newsletter_consent',
+ c83_test.check_count('SELECT count(*) FROM public.newsletter_preferences',0,true));
+SELECT c83_test.record('anon_invitation_attribution',
+ c83_test.check_count('SELECT count(*) FROM public.invitation_links',0,true)
+ AND c83_test.check_count('SELECT count(*) FROM public.invitation_acceptances',0,true));
+SELECT c83_test.record('anon_moderation_and_report_details',
+ c83_test.check_count('SELECT count(*) FROM public.member_moderation_events',0,true)
+ AND c83_test.check_count('SELECT count(*) FROM public.reports',0,true));
+SELECT c83_test.record('anon_auth_addresses',
+ c83_test.check_count('SELECT count(*) FROM auth.users',0,true));
+SELECT c83_test.record('anon_base_offerings',
+ c83_test.check_count('SELECT count(*) FROM public.offerings',0,true));
+SELECT c83_test.record('anon_profile_opt_in',
+ c83_test.check_count('SELECT count(*) FROM public.profiles_public',1));
+SELECT c83_test.record('anon_anonymous_offering_projection',
+ c83_test.check_count($q$SELECT count(*) FROM public.offerings_public
+ WHERE id='83030000-0000-0000-0000-000000000001'
+   AND is_anonymous AND user_id IS NULL
+   AND author_name IS NULL AND author_username IS NULL$q$,1));
+SELECT c83_test.record('anon_rising_anonymity',
+ c83_test.check_count($q$SELECT count(*) FROM public.offerings_rising
+ WHERE id='83030000-0000-0000-0000-000000000001'
+   AND user_id IS NULL AND author_name IS NULL AND author_username IS NULL$q$,1));
+SELECT c83_test.record('anon_weekly_anonymity',
+ c83_test.check_count($q$SELECT count(*) FROM public.get_weekly_goodness(12)
+ WHERE id='83030000-0000-0000-0000-000000000001'
+ AND author_name IS NULL AND author_username IS NULL$q$,1)
+ AND c83_test.check_count($q$SELECT count(*) FROM public.get_current_weekly_goodness_feature()
+ WHERE id='83030000-0000-0000-0000-000000000001'
+ AND author_name IS NULL AND author_username IS NULL$q$,1));
+SELECT c83_test.record('anon_public_profile_no_private_fields',
+ c83_test.check_count($q$SELECT count(*) FROM public.profiles_public
+ WHERE username='c83-bob' AND display_name='C83 Bob'$q$,1)
+ AND c83_test.check_count($q$SELECT count(*) FROM public.profiles_public
+ WHERE username='c83-alice'$q$,0));
+SELECT c83_test.record('anon_admin_functions_denied',
+ c83_test.check_count($q$SELECT count(*) FROM public.admin_list_members('all')$q$,0,true)
+ AND c83_test.check_count($q$SELECT count(*) FROM public.admin_get_member_context(
+   '83000000-0000-0000-0000-000000000001')$q$,0,true));
+RESET ROLE;
+
+-- Member A: owner access must continue working.
+SELECT set_config('request.jwt.claim.sub','83000000-0000-0000-0000-000000000001',false);
+SET ROLE authenticated;
+SELECT c83_test.record('owner_private_journey_and_completion',
+ c83_test.check_count('SELECT count(*) FROM public.daily_reflections',1)
+ AND c83_test.check_count('SELECT count(*) FROM public.daily_deed_completions',1));
+SELECT c83_test.record('owner_saved_lights',
+ c83_test.check_count('SELECT count(*) FROM public.saved_lights',1));
+SELECT c83_test.record('owner_preferences_and_consent',
+ c83_test.check_count('SELECT count(*) FROM public.daily_reminder_preferences',1)
+ AND c83_test.check_count('SELECT count(*) FROM public.newsletter_preferences',1));
+SELECT c83_test.record('owner_invitation_and_profile',
+ c83_test.check_count('SELECT count(*) FROM public.invitation_links',1)
+ AND c83_test.check_count('SELECT count(*) FROM public.profiles',1));
+SELECT c83_test.record('owner_base_offerings_only',
+ c83_test.check_count('SELECT count(*) FROM public.offerings',1));
+SELECT c83_test.record('owner_invitee_attribution_denied',
+ c83_test.check_count('SELECT count(*) FROM public.invitation_acceptances',0,true));
+RESET ROLE;
+
+-- Member B: cannot read member A's private rows or privileges.
+SELECT set_config('request.jwt.claim.sub','83000000-0000-0000-0000-000000000002',false);
+SET ROLE authenticated;
+SELECT c83_test.record('cross_member_journey_completion',
+ c83_test.check_count('SELECT count(*) FROM public.daily_reflections',0)
+ AND c83_test.check_count('SELECT count(*) FROM public.daily_deed_completions',0));
+SELECT c83_test.record('cross_member_saved_lights',
+ c83_test.check_count('SELECT count(*) FROM public.saved_lights',0));
+SELECT c83_test.record('cross_member_preferences',
+ c83_test.check_count('SELECT count(*) FROM public.daily_reminder_preferences',1)
+ AND c83_test.check_count('SELECT count(*) FROM public.newsletter_preferences',1)
+ AND c83_test.check_count($q$SELECT count(*) FROM public.daily_reminder_preferences
+ WHERE user_id='83000000-0000-0000-0000-000000000001'$q$,0)
+ AND c83_test.check_count($q$SELECT count(*) FROM public.newsletter_preferences
+ WHERE user_id='83000000-0000-0000-0000-000000000001'$q$,0));
+SELECT c83_test.record('cross_member_invitation_and_profile',
+ c83_test.check_count('SELECT count(*) FROM public.invitation_links',0)
+ AND c83_test.check_count($q$SELECT count(*) FROM public.profiles
+ WHERE user_id='83000000-0000-0000-0000-000000000001'$q$,0));
+SELECT c83_test.record('cross_member_base_offering_private',
+ c83_test.check_count($q$SELECT count(*) FROM public.offerings
+ WHERE user_id='83000000-0000-0000-0000-000000000001'$q$,0));
+-- An authenticated stranger must never be able to resolve the account UUID
+-- behind an anonymous public Offering through its original base table.
+SELECT c83_test.record('authenticated_anonymous_author_uuid_denied',
+ c83_test.check_count($q$SELECT count(*) FROM public.offerings
+ WHERE id='83030000-0000-0000-0000-000000000001'
+   AND is_anonymous=true
+   AND user_id='83000000-0000-0000-0000-000000000001'$q$,0));
+SELECT c83_test.record('authenticated_private_moderation_note_denied',
+ c83_test.check_count($q$SELECT count(*) FROM public.offerings
+ WHERE id='83030000-0000-0000-0000-000000000001'
+ AND moderation_note='c83-synthetic-internal-moderation-note'$q$,0));
+SELECT c83_test.record('member_moderation_and_auth_denied',
+ c83_test.check_count('SELECT count(*) FROM public.member_moderation_events',0,true)
+ AND c83_test.check_count('SELECT count(*) FROM auth.users',0,true));
+SELECT c83_test.record('member_admin_rpc_denied',
+ c83_test.check_count($q$SELECT count(*) FROM public.admin_list_members('all')$q$,0,true)
+ AND c83_test.check_count($q$SELECT count(*) FROM public.admin_get_member_context(
+ '83000000-0000-0000-0000-000000000001')$q$,0,true));
+RESET ROLE;
+
+-- Admin authority is limited to moderation, not the member's private Diary.
+SELECT set_config('request.jwt.claim.sub','83000000-0000-0000-0000-000000000003',false);
+SET ROLE authenticated;
+SELECT c83_test.record('admin_moderation_rpc_authorized',
+ c83_test.check_count($q$SELECT count(*) FROM public.admin_get_member_context(
+ '83000000-0000-0000-0000-000000000001')$q$,1));
+SELECT c83_test.record('admin_context_excludes_private_journey',
+ c83_test.check_count($q$SELECT count(*) FROM public.admin_get_member_context(
+ '83000000-0000-0000-0000-000000000001') v
+ WHERE v::text LIKE '%synthetic-private-journey-note%'$q$,0));
+SELECT c83_test.record('admin_member_private_journey_denied',
+ c83_test.check_count($q$SELECT count(*) FROM public.daily_reflections
+ WHERE user_id='83000000-0000-0000-0000-000000000001'$q$,0,true));
+-- Also detect privileged browser-role modification of a private Journey note.
+-- The entire database is disposable and contains synthetic records only.
+SELECT c83_test.record('admin_private_journey_update_denied',
+ c83_test.check_count($q$WITH changed AS (
+ UPDATE public.daily_reflections SET reflection_text='c83-unauthorized-edit'
+ WHERE user_id='83000000-0000-0000-0000-000000000001'
+ RETURNING id
+ ) SELECT count(*) FROM changed$q$,0,true));
+SELECT c83_test.record('admin_private_journey_delete_denied',
+ c83_test.check_count($q$WITH removed AS (
+ DELETE FROM public.daily_reflections
+ WHERE user_id='83000000-0000-0000-0000-000000000001'
+ RETURNING id
+ ) SELECT count(*) FROM removed$q$,0,true));
+RESET ROLE;
+
+-- C101: positive compatibility and direct privileged-field probes. C83's original
+-- 39 assertions remain unchanged and execute before these additional checks.
+SELECT c83_test.record('c101_admin_fields_column_privilege_closed',
+ NOT has_column_privilege('authenticated','public.offerings','moderation_note','SELECT')
+ AND NOT has_column_privilege('authenticated','public.offerings','open_report_count','SELECT')
+ AND has_column_privilege('authenticated','public.offerings','owner_feedback','SELECT'));
+SELECT c83_test.record('c101_legacy_public_select_policy_removed',
+ NOT EXISTS (SELECT 1 FROM pg_policies
+   WHERE schemaname='public' AND tablename='offerings'
+     AND policyname='offerings_select_public_or_own'));
+SELECT c83_test.record('c101_admin_reflection_policies_removed',
+ NOT EXISTS (SELECT 1 FROM pg_policies
+   WHERE schemaname='public' AND tablename='daily_reflections'
+     AND (policyname LIKE '%admin%' OR qual LIKE '%is_admin%')));
+SELECT c83_test.record('c101_public_projection_never_exposes_moderation_note',
+ NOT EXISTS (SELECT 1 FROM information_schema.columns
+ WHERE table_schema='public'
+ AND table_name IN ('offerings_public','offerings_rising','profiles_public')
+ AND column_name IN ('moderation_note','owner_feedback','open_report_count','inviter_user_id')));
+
+SELECT set_config('request.jwt.claim.sub','',false);
+SET ROLE anon;
+SELECT c83_test.record('c101_anon_admin_offerings_rpc_denied',
+ c83_test.check_count($q$SELECT count(*) FROM
+ public.admin_list_offerings('all',25,NULL)$q$,0,true));
+RESET ROLE;
+
+SELECT set_config('request.jwt.claim.sub','83000000-0000-0000-0000-000000000002',false);
+SET ROLE authenticated;
+SELECT c83_test.record('c101_other_member_admin_offerings_rpc_denied',
+ c83_test.check_count($q$SELECT count(*) FROM
+ public.admin_list_offerings('all',25,NULL)$q$,0,true));
+SELECT c83_test.record('c101_other_member_owner_feedback_denied',
+ c83_test.check_count($q$SELECT count(*) FROM public.offerings
+ WHERE id='83030000-0000-0000-0000-000000000001'
+ AND owner_feedback IS NOT NULL$q$,0));
+RESET ROLE;
+
+SELECT set_config('request.jwt.claim.sub','83000000-0000-0000-0000-000000000003',false);
+SET ROLE authenticated;
+SELECT c83_test.record('c101_admin_internal_moderation_read_allowed',
+ c83_test.check_count($q$SELECT count(*) FROM
+ public.admin_list_offerings('all',25,ARRAY[
+ '83030000-0000-0000-0000-000000000001'::uuid])
+ WHERE moderation_note='c83-synthetic-internal-moderation-note'$q$,1));
+SELECT c83_test.record('c101_admin_reports_read_allowed',
+ c83_test.check_count($q$SELECT count(*) FROM public.reports
+ WHERE offering_id='83030000-0000-0000-0000-000000000001'$q$,1));
+SELECT c83_test.record('c101_admin_modification_allowed',
+ c83_test.check_count($q$WITH changed AS (
+   UPDATE public.offerings SET status='needs_edit',
+     moderation_note='c101-internal-synthetic-only',
+     owner_feedback='c101-owner-visible-feedback'
+   WHERE id='83030000-0000-0000-0000-000000000001'
+   RETURNING id
+ ) SELECT count(*) FROM changed$q$,1));
+RESET ROLE;
+
+SELECT set_config('request.jwt.claim.sub','83000000-0000-0000-0000-000000000001',false);
+SET ROLE authenticated;
+SELECT c83_test.record('c101_owner_feedback_visible',
+ c83_test.check_count($q$SELECT count(*) FROM public.offerings
+ WHERE id='83030000-0000-0000-0000-000000000001'
+ AND owner_feedback='c101-owner-visible-feedback'$q$,1));
+SELECT c83_test.record('c101_owner_cannot_read_internal_moderation_note',
+ c83_test.check_count($q$SELECT count(*) FROM public.offerings
+ WHERE id='83030000-0000-0000-0000-000000000001'
+ AND moderation_note IS NOT NULL$q$,0,true));
+SELECT c83_test.record('c101_owner_cannot_forge_feedback',
+ c83_test.check_count($q$WITH changed AS (
+   UPDATE public.offerings SET owner_feedback='forged-internal-value'
+   WHERE id='83030000-0000-0000-0000-000000000001'
+   RETURNING id
+ ) SELECT count(*) FROM changed$q$,0,true));
+SELECT c83_test.record('c101_owner_journey_create',
+ c83_test.check_count($q$WITH created AS (
+   INSERT INTO public.daily_reflections (user_id,daily_light_id,reflection,intention)
+   VALUES ('83000000-0000-0000-0000-000000000001',
+     '83010000-0000-0000-0000-000000000002',
+     'c101 member-controlled synthetic private note','a kind intention')
+   RETURNING id
+ ) SELECT count(*) FROM created$q$,1));
+SELECT c83_test.record('c101_owner_journey_update',
+ c83_test.check_count($q$WITH changed AS (
+   UPDATE public.daily_reflections SET reflection='c101 edited private note'
+   WHERE daily_light_id='83010000-0000-0000-0000-000000000002'
+   AND user_id='83000000-0000-0000-0000-000000000001'
+   RETURNING id
+ ) SELECT count(*) FROM changed$q$,1));
+SELECT c83_test.record('c101_owner_journey_delete',
+ c83_test.check_count($q$WITH removed AS (
+   DELETE FROM public.daily_reflections
+   WHERE daily_light_id='83010000-0000-0000-0000-000000000002'
+   AND user_id='83000000-0000-0000-0000-000000000001'
+   RETURNING id
+ ) SELECT count(*) FROM removed$q$,1));
+SELECT c83_test.record('c101_owner_original_journey_preserved',
+ c83_test.check_count($q$SELECT count(*) FROM public.daily_reflections
+ WHERE user_id='83000000-0000-0000-0000-000000000001'
+ AND reflection_text='synthetic-private-journey-note'$q$,1));
+SELECT c83_test.record('c101_owner_offering_edit',
+ c83_test.check_count($q$SELECT count(*) FROM
+ public.update_own_offering(
+ '83030000-0000-0000-0000-000000000001'::uuid,
+ 'gratitude','C101 member update','A synthetic changed description of kindness.',
+ NULL::text,NULL::text,NULL::text,true,true)$q$,1));
+SELECT c83_test.record('c101_owner_offering_edited_pending',
+ c83_test.check_count($q$SELECT count(*) FROM public.offerings
+ WHERE id='83030000-0000-0000-0000-000000000001'
+ AND status='pending' AND is_anonymous=true$q$,1));
+SELECT c83_test.record('c101_owner_offering_remove',
+ c83_test.check_count($q$SELECT count(*) FROM
+ public.remove_own_offering(
+ '83030000-0000-0000-0000-000000000001'::uuid)$q$,1));
+SELECT c83_test.record('c101_owner_offering_hidden_privately',
+ c83_test.check_count($q$SELECT count(*) FROM public.offerings
+ WHERE id='83030000-0000-0000-0000-000000000001'
+ AND status='hidden' AND owner_removed_at IS NOT NULL$q$,1));
+SELECT c83_test.record('c101_owner_offering_restore',
+ c83_test.check_count($q$SELECT count(*) FROM
+ public.restore_own_offering(
+ '83030000-0000-0000-0000-000000000001'::uuid)$q$,1));
+RESET ROLE;
+
+-- Suspension must bar new community writes without deleting private Journey.
+SELECT set_config('request.jwt.claim.sub','83000000-0000-0000-0000-000000000003',false);
+SET ROLE authenticated;
+SELECT c83_test.record('c101_admin_member_suspension_allowed',
+ c83_test.check_count($q$SELECT count(*) FROM public.set_member_suspension(
+ '83000000-0000-0000-0000-000000000001'::uuid,
+ true,'C101 synthetic moderation reason')$q$,1));
+RESET ROLE;
+SELECT set_config('request.jwt.claim.sub','83000000-0000-0000-0000-000000000001',false);
+SET ROLE authenticated;
+SELECT c83_test.record('c101_suspended_new_community_offering_denied',
+ c83_test.check_count($q$WITH created AS (
+ INSERT INTO public.offerings(user_id,offering_type,title,body,status)
+ VALUES ('83000000-0000-0000-0000-000000000001','gratitude',
+ 'C101 suspended attempt','Synthetic Offering should never be accepted.',
+ 'pending') RETURNING id
+ ) SELECT count(*) FROM created$q$,0,true));
+SELECT c83_test.record('c101_suspended_private_journey_still_owned',
+ c83_test.check_count($q$SELECT count(*) FROM public.daily_reflections
+ WHERE user_id='83000000-0000-0000-0000-000000000001'$q$,1)
+ AND c83_test.check_count('SELECT count(*) FROM public.saved_lights',1));
+RESET ROLE;
+
+-- Emit all scenarios before failing CI; never print synthetic row contents.
+SELECT jsonb_build_object('scenario',scenario,
+ 'status',CASE WHEN passed THEN 'PASS' ELSE 'FAIL' END)
+AS c83_privacy_result FROM c83_test.results ORDER BY scenario;
+SELECT jsonb_build_object('scenarios',count(*),
+ 'passed',count(*) FILTER (WHERE passed),
+ 'failed',count(*) FILTER (WHERE NOT passed),
+ 'postgres',current_setting('server_version'),
+ 'delivery_enabled',false)
+AS c83_summary FROM c83_test.results;
+
+-- Explicit required-case manifest: a missing historical negative test is a
+-- failure even if every remaining, newly added test happened to pass.
+DO $required$
+BEGIN
+  IF (SELECT count(*) FROM c83_test.results
+      WHERE scenario = ANY(ARRAY[
+       'catalog_private_tables_rls',
+       'catalog_auth_users_no_browser_select',
+       'catalog_moderation_private',
+       'catalog_public_projection_columns',
+       'anon_private_journey',
+       'anon_private_completions',
+       'anon_saved_lights',
+       'anon_reminder_preferences',
+       'anon_newsletter_consent',
+       'anon_invitation_attribution',
+       'anon_moderation_and_report_details',
+       'anon_auth_addresses',
+       'anon_base_offerings',
+       'anon_profile_opt_in',
+       'anon_anonymous_offering_projection',
+       'anon_rising_anonymity',
+       'anon_weekly_anonymity',
+       'anon_public_profile_no_private_fields',
+       'anon_admin_functions_denied',
+       'owner_private_journey_and_completion',
+       'owner_saved_lights',
+       'owner_preferences_and_consent',
+       'owner_invitation_and_profile',
+       'owner_base_offerings_only',
+       'owner_invitee_attribution_denied',
+       'cross_member_journey_completion',
+       'cross_member_saved_lights',
+       'cross_member_preferences',
+       'cross_member_invitation_and_profile',
+       'cross_member_base_offering_private',
+       'authenticated_anonymous_author_uuid_denied',
+       'authenticated_private_moderation_note_denied',
+       'member_moderation_and_auth_denied',
+       'member_admin_rpc_denied',
+       'admin_moderation_rpc_authorized',
+       'admin_context_excludes_private_journey',
+       'admin_member_private_journey_denied',
+       'admin_private_journey_update_denied',
+       'admin_private_journey_delete_denied'
+      ]::text[])) <> 39
+  THEN RAISE EXCEPTION 'C101 mandatory historical C83 assertions missing'
+    USING ERRCODE='55000';
+  END IF;
+END $required$;
+
+DO $fail_closed$
+BEGIN
+  IF (SELECT count(*) FROM c83_test.results) < 60
+     OR EXISTS (SELECT 1 FROM c83_test.results WHERE NOT passed) THEN
+    RAISE EXCEPTION 'C83 member privacy invariants FAIL; examine per-scenario results';
+  END IF;
+END $fail_closed$;

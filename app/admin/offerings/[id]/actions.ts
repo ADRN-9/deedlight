@@ -124,7 +124,8 @@ export async function editAndApproveOffering(formData: FormData) {
       ...editedOfferingPayload(value),
       status: "approved",
       published_at: new Date().toISOString(),
-      moderation_note: null
+      moderation_note: null,
+      owner_feedback: null
     },
     "edited_and_approved"
   );
@@ -137,7 +138,7 @@ export async function approveOffering(formData: FormData) {
   await updateOfferingOrRedirect(
     supabase,
     id,
-    { status: "approved", published_at: new Date().toISOString(), moderation_note: null },
+    { status: "approved", published_at: new Date().toISOString(), moderation_note: null, owner_feedback: null },
     "approved"
   );
 }
@@ -147,7 +148,7 @@ export async function rejectOffering(formData: FormData) {
   const note = readNote(formData);
   const { supabase } = await requireAdmin(`/admin/offerings/${id}`);
 
-  await updateOfferingOrRedirect(supabase, id, { status: "rejected", moderation_note: note }, "rejected");
+  await updateOfferingOrRedirect(supabase, id, { status: "rejected", moderation_note: note, owner_feedback: note }, "rejected");
 }
 
 export async function requestOfferingEdit(formData: FormData) {
@@ -160,7 +161,8 @@ export async function requestOfferingEdit(formData: FormData) {
     id,
     {
       status: "needs_edit",
-      moderation_note: note || "Please revise this Offering so it better protects dignity and inspires goodness."
+      moderation_note: note || "Please revise this Offering so it better protects dignity and inspires goodness.",
+      owner_feedback: note || "Please revise this Offering so it better protects dignity and inspires goodness."
     },
     "needs_edit"
   );
@@ -174,7 +176,7 @@ export async function hideOffering(formData: FormData) {
   await updateOfferingOrRedirect(
     supabase,
     id,
-    { status: "hidden", moderation_note: note || "Hidden by admin review." },
+    { status: "hidden", moderation_note: note || "Hidden by admin review.", owner_feedback: note || "Hidden by admin review." },
     "hidden"
   );
 }

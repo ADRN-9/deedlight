@@ -76,6 +76,47 @@ const adminOfferingColumns = `
   owner_removed_at
 `;
 
+// Owner data never selects internal moderator notes or report counters.
+// The separately authored owner_feedback is intentionally member-visible.
+const ownerOfferingColumns = `
+  id,
+  user_id,
+  theme_id,
+  offering_type,
+  title,
+  body,
+  takeaway,
+  media_url,
+  media_type,
+  is_anonymous,
+  allow_reflections,
+  location_label,
+  status,
+  bless_count,
+  inspired_count,
+  carried_forward_count,
+  reflection_count,
+  bless_score,
+  published_at,
+  created_at,
+  updated_at,
+  owner_removed_at,
+  owner_feedback
+`;
+
+type OwnerOfferingRow = Omit<AdminOffering, "moderation_note"> & {
+  owner_feedback: string | null;
+};
+
+function memberOffering(row: OwnerOfferingRow): AdminOffering {
+  const { owner_feedback, ...fields } = row;
+  const memberFeedbackStates = ["needs_edit", "rejected", "hidden"];
+  return {
+    ...fields,
+    moderation_note: memberFeedbackStates.includes(row.status) ? owner_feedback : null,
+  };
+}
+
 const reportColumns = `
   id,
   offering_id,
@@ -191,14 +232,10 @@ export async function getAdminOfferings(status = "pending", limit = 50): Promise
   const supabase = await createClient({ allowMissingEnv: true });
   if (!supabase) return [];
 
-  const query = supabase
-    .from("offerings")
-    .select(adminOfferingColumns)
-    .order("open_report_count", { ascending: false })
-    .order("created_at", { ascending: false })
-    .limit(limit);
-
-  const { data, error } = status === "all" ? await query : await query.eq("status", status);
+  const { data, error } = await supabase.rpc("admin_list_offerings", {
+    p_status: status,
+    p_limit: limit,
+  });
 
   if (error || !data) return [];
   return addAuthorNames(data as AdminOffering[]);
@@ -209,9 +246,11 @@ export async function getAdminOffering(id: string): Promise<AdminOffering | null
   if (!supabase) return null;
 
   const { data, error } = await supabase
-    .from("offerings")
-    .select(adminOfferingColumns)
-    .eq("id", id)
+    .rpc("admin_list_offerings", {
+      p_status: "all",
+      p_limit: 1,
+      p_ids: [id],
+    })
     .maybeSingle();
 
   if (error || !data) return null;
@@ -231,13 +270,13 @@ export async function getMyOffering(id: string): Promise<AdminOffering | null> {
 
   const { data, error } = await supabase
     .from("offerings")
-    .select(adminOfferingColumns)
+    .select(ownerOfferingColumns)
     .eq("id", id)
     .eq("user_id", user.id)
     .maybeSingle();
 
   if (error || !data) return null;
-  const withAuthors = await addAuthorNames([data as AdminOffering]);
+  const withAuthors = await addAuthorNames([memberOffering(data as OwnerOfferingRow)]);
   return withAuthors[0] ?? null;
 }
 
@@ -279,13 +318,13 @@ export async function getMyOfferings(limit = 24): Promise<AdminOffering[]> {
 
   const { data, error } = await supabase
     .from("offerings")
-    .select(adminOfferingColumns)
+    .select(ownerOfferingColumns)
     .eq("user_id", user.id)
     .order("created_at", { ascending: false })
     .limit(limit);
 
   if (error || !data) return [];
-  return addAuthorNames(data as AdminOffering[]);
+  return addAuthorNames((data as OwnerOfferingRow[]).map(memberOffering));
 }
 
 export async function getReportsForOffering(offeringId: string): Promise<ReportItem[]> {
@@ -321,10 +360,11 @@ export async function getAdminReports(status = "open", limit = 80): Promise<Repo
 
   if (offeringIds.length === 0) return reports;
 
-  const { data: offerings } = await supabase
-    .from("offerings")
-    .select(adminOfferingColumns)
-    .in("id", offeringIds);
+  const { data: offerings } = await supabase.rpc("admin_list_offerings", {
+    p_status: "all",
+    p_limit: offeringIds.length,
+    p_ids: offeringIds,
+  });
 
   const offeringsWithAuthors = await addAuthorNames((offerings || []) as AdminOffering[]);
   const offeringById = new Map(offeringsWithAuthors.map((offering) => [offering.id, offering]));
