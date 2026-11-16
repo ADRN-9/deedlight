@@ -228,10 +228,12 @@ SELECT c83_test.record('authenticated_anonymous_author_uuid_denied',
  WHERE id='83030000-0000-0000-0000-000000000001'
    AND is_anonymous=true
    AND user_id='83000000-0000-0000-0000-000000000001'$q$,0));
+-- A column-level SQLSTATE 42501 is a stronger denial than an empty result;
+-- the independent C83 no-leak invariant is unchanged, not loosened.
 SELECT c83_test.record('authenticated_private_moderation_note_denied',
  c83_test.check_count($q$SELECT count(*) FROM public.offerings
  WHERE id='83030000-0000-0000-0000-000000000001'
- AND moderation_note='c83-synthetic-internal-moderation-note'$q$,0));
+ AND moderation_note='c83-synthetic-internal-moderation-note'$q$,0,true));
 SELECT c83_test.record('member_moderation_and_auth_denied',
  c83_test.check_count('SELECT count(*) FROM public.member_moderation_events',0,true)
  AND c83_test.check_count('SELECT count(*) FROM auth.users',0,true));
