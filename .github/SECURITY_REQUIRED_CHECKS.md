@@ -36,3 +36,63 @@ Every prerequisite must produce its own unique release-evidence-* artifact and e
 C101 and C103 branch-specific evidence workflows retain historical push triggers but have no main-targeted pull_request trigger in the C105 candidate; no historical branches are rewritten. Original 64 privacy assertions, 19 action tests and the C101 migration are untouched. Historical PR11 findings (including failures, unknown and blocked cases) remain unresolved; post033 compatibility PASS does not relabel them. Nine moderate dependencies remain pending risk disposition. Historical duplicate 202607260007 and inaccessible Production Supabase schema/history remain unresolved.
 
 Workflow checkout uses ephemeral read-only GitHub credentials and synthetic PostgreSQL 16 and provider records, no pull_request_target, no Production secrets, no external send, no Cron, no Cloudflare deployment. Real Supabase/Auth/Storage HTTP, Production rollout, backup/restore, rollback, monitoring and kill switch remain unproven. Branch protections not enabled by this change. Production NO-GO; DELIVERY_ENABLED remains false.
+
+
+## C107: Workflow-run provenance and evidence ownership
+
+The eleven prerequisite jobs write a deterministic receipt.json in addition to the
+preexisting SHA/tree, PASS and test-specific artifacts. Required receipt keys:
+version=1, repository, workflow, job, run_id, run_attempt, source_sha,
+source_tree, artifact_name. The artifact name is
+release-evidence-<job>-run-<GITHUB_RUN_ID>-attempt-<GITHUB_RUN_ATTEMPT>.
+All names are stable job IDs and attempt-scoped; artifacts are never overwritten.
+
+The aggregator uses GitHub's trusted GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT
+contexts and a read-only GitHub Actions token scoped to the metadata step. It
+queries the attempts/{attempt} run object, the attempts/{attempt}/jobs endpoint,
+and the complete run's artifacts registry. The metadata endpoint response is
+not a producer-written attestation. It must confirm the exact SHA, attempt,
+all eleven successful job records, expected test steps and upload steps,
+artifact names/IDs/digests, run identity and creation timestamps compatible
+with the individual producing job window. The downloaded evidence directories,
+receipts and inspected content must agree with these platform records.
+
+The gate requires precisely eleven matching release-evidence artifacts in the
+run-level registry. Retained attempt-1 artifacts cause an attempt-2 rerun to
+fail closed: a same-run rerun cannot rely on old results and cannot silently
+replace previous evidence. Use a fresh workflow run rather than deleting old
+evidence without separate authorization. Rerunning a failed job within the
+same run is deliberately not an approved shortcut. This sacrifices easy
+workflow reattempts to avoid false acceptance from retained artifacts.
+
+The API does **not** identify the producer job of an artifact cryptographically.
+The current check establishes a matching expected artifact name, current
+attempt-specific job status, platform artifact workflow_run, creation window,
+producer canonical receipt and content, but cannot prove a malicious job with
+the same run's privileges did not upload an artifact on another job's behalf.
+The CI runner and mutable PR-controlled source are not a secure attestation
+root. Required main protection, CODEOWNERS approvals for workflows/security
+scripts, and registered trusted GitHub Actions checks remain independent
+administrator gates.
+
+The aggregator verifies exact required race files and PASS-marked JSON for
+all Daily/Weekly claim, suppression and provider/consent races; validated
+signed webhook test counts, synthetic real-provider-calls=0 and C77 provider
+key fencing; and computes hashes for every inspected required file. The
+provider fixture name is c77-post033.log. All prior 64 SQL/19 application
+tests and the earlier ten tamper tests remain mandatory, with additional
+provenance, identity, artifact-mixing, malformed metadata and missing-content
+adversarial probes, including a passing current-attempt positive control.
+
+Action pins verified against upstream GitHub tag refs on the C107 assignment:
+- checkout v7 => 3d3c42e5aac5ba805825da76410c181273ba90b1
+- setup-node v7 => 949feb2413d6458794dcd2491c4babbbce0c15c1
+- upload-artifact v4 => ea165f8d65b6e75b540449e92b4886f43607fa02
+- download-artifact v4 => d3f86a106a0bac45b974a628896c90dbdf5c8093
+
+These pins cover PR Validation only; historical branch-specific and
+manual/Production workflows are not silently changed in this cycle.
+The gate job alone receives actions:read and contents:read permissions. All
+other jobs retain contents:read. Never use pull_request_target on untrusted
+application code. No Production deployment, provider sends, or migration
+history changes are authorized by these CI controls.

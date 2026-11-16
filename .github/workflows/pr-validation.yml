@@ -24,7 +24,7 @@ jobs:
       DELIVERY_ENABLED: "false"
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
@@ -44,7 +44,7 @@ jobs:
           test -z "${DELIVERY_FROM_EMAIL:-}"
 
       - name: Setup Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24
           cache: npm
@@ -103,9 +103,9 @@ jobs:
           printf 'PASS\n' > release-evidence/validate/result.txt
       - name: Retain validate check receipt
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: release-evidence-validate
+          name: release-evidence-validate-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           retention-days: 21
           if-no-files-found: error
           path: release-evidence/validate/
@@ -130,7 +130,7 @@ jobs:
       PGPASSWORD: postgres
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
@@ -172,9 +172,9 @@ jobs:
           printf 'PASS\n' > release-evidence/sprint12_2_database_behavior/result.txt
       - name: Retain sprint12_2_database_behavior check receipt
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: release-evidence-sprint12_2_database_behavior
+          name: release-evidence-sprint12_2_database_behavior-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           retention-days: 21
           if-no-files-found: error
           path: release-evidence/sprint12_2_database_behavior/
@@ -199,7 +199,7 @@ jobs:
       PGPASSWORD: postgres
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
@@ -241,9 +241,9 @@ jobs:
           printf 'PASS\n' > release-evidence/delivery_reliability_database_behavior/result.txt
       - name: Retain delivery_reliability_database_behavior check receipt
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: release-evidence-delivery_reliability_database_behavior
+          name: release-evidence-delivery_reliability_database_behavior-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           retention-days: 21
           if-no-files-found: error
           path: release-evidence/delivery_reliability_database_behavior/
@@ -268,7 +268,7 @@ jobs:
       PGPASSWORD: postgres
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
@@ -313,9 +313,9 @@ jobs:
           printf 'PASS\n' > release-evidence/gentle_delivery_transport_database_behavior/result.txt
       - name: Retain gentle_delivery_transport_database_behavior check receipt
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: release-evidence-gentle_delivery_transport_database_behavior
+          name: release-evidence-gentle_delivery_transport_database_behavior-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           retention-days: 21
           if-no-files-found: error
           path: release-evidence/gentle_delivery_transport_database_behavior/
@@ -340,7 +340,7 @@ jobs:
       PGPASSWORD: postgres
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
@@ -382,9 +382,9 @@ jobs:
           printf 'PASS\n' > release-evidence/auth_pgcrypto_database_behavior/result.txt
       - name: Retain auth_pgcrypto_database_behavior check receipt
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: release-evidence-auth_pgcrypto_database_behavior
+          name: release-evidence-auth_pgcrypto_database_behavior-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           retention-days: 21
           if-no-files-found: error
           path: release-evidence/auth_pgcrypto_database_behavior/
@@ -409,7 +409,7 @@ jobs:
       PGPASSWORD: postgres
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
@@ -444,9 +444,9 @@ jobs:
           printf 'PASS\n' > release-evidence/delivery_migration_order_database_behavior/result.txt
       - name: Retain delivery_migration_order_database_behavior check receipt
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: release-evidence-delivery_migration_order_database_behavior
+          name: release-evidence-delivery_migration_order_database_behavior-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           retention-days: 21
           if-no-files-found: error
           path: release-evidence/delivery_migration_order_database_behavior/
@@ -476,7 +476,7 @@ jobs:
       PGOPTIONS: "-c search_path=public,extensions,pg_catalog"
       DELIVERY_ENABLED: "false"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -539,9 +539,9 @@ jobs:
           printf 'PASS\n' > release-evidence/release_privacy_pg16/result.txt
       - name: Preserve sanitized evidence on failure and success
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: release-evidence-release_privacy_pg16
+          name: release-evidence-release_privacy_pg16-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           if-no-files-found: error
           retention-days: 21
           path: release-evidence/release_privacy_pg16/
@@ -553,7 +553,7 @@ jobs:
       DELIVERY_ENABLED: "false"
       ADMIN_EMAILS: ""
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -572,7 +572,7 @@ jobs:
           mkdir -p release-evidence/release_action_privacy
           git rev-parse HEAD > release-evidence/release_action_privacy/commit.txt
           git rev-parse HEAD^{tree} > release-evidence/release_action_privacy/tree.txt
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24
           cache: npm
@@ -587,9 +587,9 @@ jobs:
           printf 'PASS\n' > release-evidence/release_action_privacy/result.txt
       - name: Retain sanitized application-action evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: release-evidence-release_action_privacy
+          name: release-evidence-release_action_privacy-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           retention-days: 21
           if-no-files-found: error
           path: release-evidence/release_action_privacy/
@@ -616,7 +616,7 @@ jobs:
       PGUSER: postgres
       PGPASSWORD: postgres
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
       - name: Install disposable PostgreSQL 16 client
@@ -651,10 +651,37 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -d deedlight_c79_post033 -f scripts/test-c77-post033.sql > release-evidence/release_provider_pg16/c77-post033.log 2>&1
           echo "Synthetic 019–033 provider migration and post-033 tests PASS" | tee release-evidence/release_provider_pg16/provider-result.txt
           printf 'PASS\n' > release-evidence/release_provider_pg16/result.txt
-      - uses: actions/upload-artifact@v4
+      - name: Record canonical per-job run and attempt provenance
+        if: success()
+        run: node scripts/write-release-evidence-receipt.mjs
+      - name: Record canonical per-job run and attempt provenance
+        if: success()
+        run: node scripts/write-release-evidence-receipt.mjs
+      - name: Record canonical per-job run and attempt provenance
+        if: success()
+        run: node scripts/write-release-evidence-receipt.mjs
+      - name: Record canonical per-job run and attempt provenance
+        if: success()
+        run: node scripts/write-release-evidence-receipt.mjs
+      - name: Record canonical per-job run and attempt provenance
+        if: success()
+        run: node scripts/write-release-evidence-receipt.mjs
+      - name: Record canonical per-job run and attempt provenance
+        if: success()
+        run: node scripts/write-release-evidence-receipt.mjs
+      - name: Record canonical per-job run and attempt provenance
+        if: success()
+        run: node scripts/write-release-evidence-receipt.mjs
+      - name: Record canonical per-job run and attempt provenance
+        if: success()
+        run: node scripts/write-release-evidence-receipt.mjs
+      - name: Record canonical per-job run and attempt provenance
+        if: success()
+        run: node scripts/write-release-evidence-receipt.mjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: release-evidence-release_provider_pg16
+          name: release-evidence-release_provider_pg16-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: release-evidence/release_provider_pg16/
           retention-days: 14
           if-no-files-found: error
@@ -681,7 +708,7 @@ jobs:
       PGUSER: postgres
       PGPASSWORD: postgres
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
       - name: Install disposable PostgreSQL 16 client
@@ -712,10 +739,13 @@ jobs:
           bash scripts/test-c77-security-races.sh
           cp -R c76-kind-logs c77-race-logs release-evidence/release_consent_races/
           printf 'PASS\n' > release-evidence/release_consent_races/result.txt
-      - uses: actions/upload-artifact@v4
+      - name: Record canonical per-job run and attempt provenance
+        if: success()
+        run: node scripts/write-release-evidence-receipt.mjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: release-evidence-release_consent_races
+          name: release-evidence-release_consent_races-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: release-evidence/release_consent_races/
           retention-days: 14
           if-no-files-found: error
@@ -745,10 +775,10 @@ jobs:
       NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-not-a-secret
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24
           cache: npm
@@ -785,10 +815,13 @@ jobs:
           done
           node scripts/test-c76-route-http.mjs > "$out/route-http.log" 2>&1
           printf 'PASS\n' > "$out/result.txt"
-      - uses: actions/upload-artifact@v4
+      - name: Record canonical per-job run and attempt provenance
+        if: success()
+        run: node scripts/write-release-evidence-receipt.mjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: release-evidence-release_webhook_http
+          name: release-evidence-release_webhook_http-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: release-evidence/release_webhook_http/
           retention-days: 21
           if-no-files-found: error
@@ -807,17 +840,23 @@ jobs:
       - release_provider_pg16
       - release_consent_races
       - release_webhook_http
+    permissions:
+      contents: read
+      actions: read
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
       NEEDS_JSON: ${{ toJSON(needs) }}
       EXPECTED_SHA: ${{ github.sha }}
+      EXPECTED_RUN_ID: ${{ github.run_id }}
+      EXPECTED_RUN_ATTEMPT: ${{ github.run_attempt }}
+      EXPECTED_REPOSITORY: ${{ github.repository }}
       DELIVERY_ENABLED: "false"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24
       - name: Verify checked-out source and capture Git tree
@@ -827,9 +866,21 @@ jobs:
           test "$DELIVERY_ENABLED" = "false"
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
           echo "EXPECTED_TREE=$(git rev-parse HEAD^{tree})" >> "$GITHUB_ENV"
-      - uses: actions/download-artifact@v4
+      - name: Fetch trusted current-attempt jobs and complete run artifact registry
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "ADRN-9/deedlight"
+          test "$DELIVERY_ENABLED" = "false"
+          mkdir -p release-platform
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" > release-platform/attempt.json
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" > release-platform/jobs.json
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?per_page=100" > release-platform/artifacts.json
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          pattern: release-evidence-*
+          pattern: release-evidence-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: release-downloaded/
       - name: Fail closed on missing, failed, skipped or cancelled jobs and invalid artifacts
         shell: bash
@@ -837,10 +888,10 @@ jobs:
           set -euo pipefail
           node scripts/verify-release-security-gate.mjs
           node --test scripts/test-release-security-gate.mjs
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: release-security-gate-manifest
+          name: release-security-gate-manifest-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: release-security-gate-manifest.json
           retention-days: 21
           if-no-files-found: error
