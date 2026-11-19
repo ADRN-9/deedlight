@@ -24,7 +24,7 @@ Delivery is disabled unless `DELIVERY_ENABLED=true` exactly. When enabled, all o
 - `RESEND_API_KEY`
 - `DELIVERY_FROM_EMAIL`
 - `NEXT_PUBLIC_SITE_URL`
-- optional `DELIVERY_BATCH_SIZE` from 1 to 100, default 25
+- optional `DELIVERY_BATCH_SIZE` from 1 to 100, default 5; the scheduler caps each sequential claim batch at 5
 
 The delivery runtime never imports or falls back to the public Supabase browser configuration. A missing service-role URL/key fails closed.
 
@@ -57,7 +57,9 @@ The second authorization is deliberate: recipient lookup must happen only after 
 ## Retry and idempotency rules
 
 - Provider request timeout: 15 seconds by default, never more than 30 seconds.
-- Claim lease: five minutes from reliability migration 020.
+- Claim lease: five minutes from reliability migration 020, measured from the database claim transaction time (the SQL function's default `now()`).
+- Cron's scheduled timestamp is retained for logical Daily/Weekly enqueue windows and is never passed as the claim timestamp.
+- The scheduler claims at most 5 jobs per invocation and processes them sequentially. With the fixed 15-second provider timeout, provider wait time is bounded to 75 seconds per batch, leaving 225 seconds of the lease for recipient resolution, database RPCs, and scheduler overhead. This is a conservative budget, not a substitute for observing actual runtime duration; expired claims still fail closed.
 - Stable idempotency key: `deedlight/<kind>/<job-id>`.
 - Temporary provider failures are retried after five minutes through the database retry transition.
 - Permanent provider failures terminate the job.
@@ -134,6 +136,10 @@ The fastest safe rollback is operational rather than destructive:
 6. Fix forward on a feature branch and repeat the canary sequence before reactivation.
 
 Disabling delivery must not require deleting provider credentials, reverting migrations, weakening RLS, or changing member preference data. Database migrations 020 and 021 are additive and may remain in place while transport is disabled.
+
+The kill switch is evaluated once when each scheduled invocation starts. Setting `DELIVERY_ENABLED=false` prevents future invocations from enqueueing, claiming, or calling the provider after the new binding has propagated. It does not cancel an invocation that has already started or an external request already authorized. Removing Cron triggers prevents future scheduled invocations but does not terminate active Worker executions. The operator must allow active invocations to drain and verify that no further provider calls occur before declaring the system stopped.
+
+If immediate in-flight cancellation is required, add a narrowly scoped server-side delivery-control row checked atomically by `begin_delivery_transport`, with service-role-only mutation and explicit tests. Even that gate cannot recall an HTTP request after authorization has completed; it only prevents later jobs from crossing the final authorization boundary.
 
 ## Completion rule
 

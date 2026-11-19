@@ -2,7 +2,7 @@
 
 ## Scope
 
-Migration 025 and the server-only `POST /api/webhooks/resend` route add authenticated handling for Resend `email.bounced`, `email.complained`, and `email.suppressed` events. This closes a previously missing provider-event path; it does not activate delivery, configure a Production webhook, or send messages.
+Migration 025 and the server-only `POST /api/webhooks/resend` route add authenticated handling for Resend `email.bounced`, `email.complained`, and `email.suppressed` events. This closes the provider suppression path; it does not activate delivery, configure a Production webhook, or send messages.
 
 ## Provider configuration (human-only)
 
@@ -36,6 +36,16 @@ Do not put the signing secret in `NEXT_PUBLIC_*`, source control, client configu
 - Suppression is address-scoped, not account-scoped. If the member later changes their Auth email address, the old address suppression does not block the new address.
 - Suppressed recipients are excluded before daily/weekly batch limits and are checked again in the final transport authorization RPC.
 - The webhook RPC and final transport authorization take the same per-address PostgreSQL advisory lock. If the suppression event commits first, transport is denied. If transport authorization acquires the lock first, a subsequent provider event cannot recall an already-authorized in-flight HTTP request; this is the same unavoidable external-side-effect boundary documented for consent revocation.
+
+## Provider lifecycle coverage not yet implemented
+
+The current parser intentionally ignores other valid Resend event types, including email.sent, email.delivered, email.delivery_delayed, and email.failed. As a result, Deedlight does not currently retain provider-side delivery confirmation, delayed-delivery history, or asynchronous send-failure events. A successful send RPC is only provider acceptance; it is not proof that the recipient's mail server accepted the message.
+
+Resend documents delivery and delayed-delivery events, and its current event model also includes failed sends. See the official event references in the engineering handoff.
+
+A follow-up should add a new additive migration (without rewriting migration 025) for an allowlisted lifecycle-event record and a narrow service-role-only RPC. Preserve provider event-ID idempotency, application=deedlight scoping, raw-payload minimization, and recipient privacy. Treat email.delivery_delayed as informational, not a reason to resend: Resend retries deferred delivery itself. Define and test the policy for email.failed separately from bounce/complaint suppression before enabling it. Add delivery-status correlation to the provider email ID without exposing recipient addresses or message content to browser roles.
+
+No lifecycle-event schema or event subscriptions are added by this remediation. Production subscription and event evidence remain human/provider-side dependencies.
 
 ## Privacy and database boundary
 

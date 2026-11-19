@@ -9,6 +9,14 @@ import {
 
 export const DAILY_DELIVERY_CRON = "*/5 * * * *";
 export const WEEKLY_DELIVERY_CRON = "0 16 * * 1";
+export const MAX_DELIVERY_CLAIM_BATCH_SIZE = 5;
+
+export function deliveryClaimBatchSize(configured: number): number {
+  if (!Number.isInteger(configured) || configured < 1) {
+    throw new Error("Delivery claim batch size must be a positive integer.");
+  }
+  return Math.min(configured, MAX_DELIVERY_CLAIM_BATCH_SIZE);
+}
 
 export function deliveryScheduleKind(cron: string): "daily" | "weekly" | null {
   if (cron === DAILY_DELIVERY_CRON) return "daily";
@@ -69,6 +77,13 @@ export async function runScheduledDelivery(
 
   const config = parseDeliveryRuntimeConfig(env);
   if (!config.enabled) {
+    console.info("Delivery scheduler disabled", {
+      cron: input.cron,
+      scheduledAt: Number.isFinite(input.scheduledTime)
+        ? new Date(input.scheduledTime).toISOString()
+        : null,
+      reason: "delivery_disabled",
+    });
     return summary;
   }
   summary.enabled = true;
@@ -104,7 +119,7 @@ export async function runScheduledDelivery(
     );
   }
 
-  const jobs = await runtime.claim(scheduledAt, config.batchSize);
+  const jobs = await runtime.claim(deliveryClaimBatchSize(config.batchSize));
   summary.claimed = jobs.length;
 
   for (const job of jobs) {

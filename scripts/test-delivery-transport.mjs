@@ -10,6 +10,7 @@ import { createResendTransport } from "../lib/delivery/resend-transport.ts";
 import { processClaimedDelivery } from "../lib/delivery/run-delivery.ts";
 import {
   DAILY_DELIVERY_CRON,
+  deliveryClaimBatchSize,
   deliveryScheduleKind,
   enqueueWeeklyWithMonitoring,
   runScheduledDelivery,
@@ -103,6 +104,73 @@ test("disabled scheduler performs no work and unknown schedules are ignored", as
   assert.equal(ignored.enabled, true);
   assert.equal(ignored.ignored, true);
   assert.equal(ignored.claimed, 0);
+});
+
+test("disabled scheduler logs a safe no-work record without reading delivery secrets", async () => {
+  const disabledEnv = new Proxy({ DELIVERY_ENABLED: "false" }, {
+    get(target, property) {
+      if (property !== "DELIVERY_ENABLED") {
+        throw new Error("Disabled configuration must not read secrets.");
+      }
+      return target[property];
+    },
+  });
+  const logs = [];
+  const originalInfo = console.info;
+  console.info = (...args) => logs.push(args);
+  try {
+    const result = await runScheduledDelivery(disabledEnv, {
+      cron: DAILY_DELIVERY_CRON,
+      scheduledTime: fixedNow.getTime(),
+    });
+    assert.equal(result.enabled, false);
+    assert.equal(result.enqueued, 0);
+    assert.equal(result.claimed, 0);
+    assert.equal(result.sent, 0);
+    assert.deepEqual(logs, [[
+      "Delivery scheduler disabled",
+      {
+        cron: DAILY_DELIVERY_CRON,
+        scheduledAt: fixedNow.toISOString(),
+        reason: "delivery_disabled",
+      },
+    ]]);
+  } finally {
+    console.info = originalInfo;
+  }
+});
+
+test("delayed invocation keeps logical enqueue time but claims using database time", async () => {
+  const scheduledAt = new Date(fixedNow.getTime() - 6 * 60 * 1000);
+  const calls = [];
+  const runtime = new SupabaseDeliveryRuntime({
+    async rpc(name, params) {
+      calls.push({ name, params });
+      return { data: name === "enqueue_due_daily_reminders" ? 3 : [], error: null };
+    },
+  });
+
+  assert.equal(await runtime.enqueueDaily(scheduledAt, 100), 3);
+  assert.deepEqual(await runtime.claim(deliveryClaimBatchSize(25)), []);
+  assert.deepEqual(calls, [
+    {
+      name: "enqueue_due_daily_reminders",
+      params: { p_now: scheduledAt.toISOString(), p_limit: 100 },
+    },
+    {
+      name: "claim_delivery_jobs",
+      params: { p_limit: 5 },
+    },
+  ]);
+});
+
+test("sequential claim batches stay within the five-job lease budget", () => {
+  assert.equal(deliveryClaimBatchSize(1), 1);
+  assert.equal(deliveryClaimBatchSize(5), 5);
+  assert.equal(deliveryClaimBatchSize(25), 5);
+  assert.equal(deliveryClaimBatchSize(100), 5);
+  assert.throws(() => deliveryClaimBatchSize(0), /positive integer/);
+  assert.throws(() => deliveryClaimBatchSize(1.5), /positive integer/);
 });
 
 test("Resend transport uses stable idempotency and generic daily content", async () => {

@@ -112,9 +112,8 @@ export class SupabaseDeliveryRuntime implements DeliveryGateway, DeliveryRecipie
     return data;
   }
 
-  async claim(now: Date, limit: number): Promise<ClaimedDeliveryJob[]> {
+  async claim(limit: number): Promise<ClaimedDeliveryJob[]> {
     const { data, error } = await this.client.rpc("claim_delivery_jobs", {
-      p_now: now.toISOString(),
       p_limit: limit,
     });
     if (error || !Array.isArray(data)) fail("claim jobs");
