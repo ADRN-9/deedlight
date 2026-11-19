@@ -58,7 +58,7 @@ begin
   end if;
 
   if public.record_delivery_provider_event(
-    'msg_suppressed_20004', 'email.suppressed', 'resend-suppressed-20004',
+    'msg_suppressed_20004', 'email.suppressed', 'resend-lifecycle-suppressed-20004',
     'webhook-20004@example.test', null
   ) is not true then
     raise exception 'Provider suppression event was not recorded.';
@@ -276,12 +276,12 @@ begin
   ) is not true then raise exception 'Late lifecycle bounce was not recorded.'; end if;
 
   if public.record_delivery_provider_lifecycle_event(
-    'evt_provider_suppressed', 'email.suppressed', 'resend-suppressed-20004',
+    'evt_provider_suppressed', 'email.suppressed', 'resend-lifecycle-suppressed-20004',
     'lifecycle-suppressed@example.test', '2027-03-01T10:12:00Z', null, null
   ) is not true then raise exception 'email.suppressed was not recorded.'; end if;
 
   if public.record_delivery_provider_lifecycle_event(
-    'evt_transient_bounce', 'email.bounced', 'resend-transient-20005',
+    'evt_transient_bounce', 'email.bounced', 'resend-lifecycle-transient-20005',
     'lifecycle-transient@example.test', '2027-03-01T10:13:00Z', 'Transient', null
   ) is not true then raise exception 'Transient lifecycle bounce was not recorded.'; end if;
 
@@ -344,7 +344,7 @@ begin
   end if;
   if not exists (
     select 1 from public.delivery_provider_lifecycle
-    where provider_email_id = 'resend-suppressed-20004'
+    where provider_email_id = 'resend-lifecycle-suppressed-20004'
       and status = 'email.suppressed'
   ) or not exists (
     select 1 from public.delivery_provider_suppressions
@@ -355,7 +355,7 @@ begin
   end if;
   if not exists (
     select 1 from public.delivery_provider_lifecycle
-    where provider_email_id = 'resend-transient-20005'
+    where provider_email_id = 'resend-lifecycle-transient-20005'
       and status = 'email.bounced'
   ) then
     raise exception 'Transient bounce lifecycle evidence was not persisted.';
