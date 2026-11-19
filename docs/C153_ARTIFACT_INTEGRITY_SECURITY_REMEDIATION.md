@@ -195,6 +195,43 @@ A reviewer should independently inspect:
 
 All resource-limit tests are bounded; the archive-size test allocates one 64 MiB + 1 byte buffer to exercise the parser's explicit archive ceiling. No C153/C161 protections or production behavior are relaxed.
 
+### C163 exact implementation-head CI
+
+The C163 implementation commit is `c4b410e51df60e637eb80734c1d3ba9d576951d6`, tree `87758a764276e3fe1aaf66a2405a266b225f90ed`. A follow-up test-fixture correction commit is `e1d48a4188e6edd6b66ce3d590032a15cbe397ac`, tree `534c374684eacc5fb5170b19efd5cf8da24a0949`, parent `c4b410e51df60e637eb80734c1d3ba9d576951d6`. The follow-up corrects only the aggregate-expansion over-limit fixture: its first four 16 MiB members now contain matching real compressed data and the fifth contains one byte. The first attempt `44492818693` failed one of 87 tests because the original fixture's claimed sizes did not match its compressed content; this was a test-fixture defect, not a parser acceptance regression.
+
+[Final C163 implementation validation — PR Validation run 44493450771](https://github.com/ADRN-9/deedlight/actions/runs/44493450771) validates exact commit `e1d48a4188e6edd6b66ce3d590032a15cbe397ac`, tree `534c374684eacc5fb5170b19efd5cf8da24a0949`, attempt 1:
+
+- Workflow conclusion: success; **12/12 jobs succeeded**.
+- Release security gate: `RELEASE_SECURITY_GATE_PASS`; 11/11 producer jobs/artifacts accepted for the current attempt; 64/64 SQL and 19/19 application assertions, plus provider/webhook/race contracts verified.
+- Artifact-integrity and release-gate Node tests: **87 passed, 0 failed**.
+- The matching DOS timestamp positive control, exact `ZIP_DOS_TIMESTAMP_MISMATCH` negative case, entry-count, individual expansion, aggregate expansion, metadata envelope and archive-size boundary tests all passed.
+- TypeScript, Next.js production build, Cloudflare packaging and high/critical dependency audit: PASS.
+- The final workflow run is exact to the corrected implementation/test commit. The subsequent final documentation commit is documentation-only.
+
+### Independent verification of current-attempt producer artifacts
+
+All **11 producer ZIPs plus the release manifest** were downloaded from run `44493450771`, attempt 1. Independently recomputed ZIP byte lengths and SHA-256 digests match the GitHub artifact registry for all 12 archives. Each ZIP passed an independent ZIP integrity test. Each of the 11 producer archives contains a receipt identifying repository `ADRN-9/deedlight`, workflow `PR Validation`, its exact producer job, run `44493450771`, attempt 1, source SHA `e1d48a4188e6edd6b66ce3d590032a15cbe397ac`, tree `534c374684eacc5fb5170b19efd5cf8da24a0949`, and `result.txt=PASS`.
+
+| Producer | Artifact ID | Bytes | SHA-256 |
+|---|---:|---:|---|
+| release_provider_pg16 | 14514635098 | 6077 | `ad30e1f91d13f40d68e6ca7d1903f28ca68d962caf588b29119930bea19cf2f7` |
+| release_privacy_pg16 | 14514321637 | 5880 | `7cf69c4c647d258cee81596d56fe288aed2ad156e2ab2d863de884df74d73fa7` |
+| release_consent_races | 14514195974 | 5185 | `25d63db6b664655f71064f8861650f636b4c7866eaf0b5a8a3f3a32c03d8803c` |
+| release_action_privacy | 14514096775 | 1886 | `cf91c82d49d43a06f52922b67d0a3c3c681b2af50c3064b5889fba3864c11bb5` |
+| delivery_migration_order_database_behavior | 14514051963 | 816 | `eebbb1d95b43be32f62a6815fbcf910b52455b34f85d90c4c877f4063f7777f7` |
+| sprint12_2_database_behavior | 14514051951 | 808 | `8f403e2401e9aa935e99853e8822ab5da5b17ff7921f6bd2d1dc60f0a00af583` |
+| gentle_delivery_transport_database_behavior | 14513648108 | 818 | `e44587947a06ae34f6de49c5ed4bc11da51ca19f7de59e449f0b5f205e069d9a` |
+| validate | 14513613534 | 2046 | `fb9a241cb5ce7b8c9706bb52babb8420a52d68f54362f5757fa116d343ec6a60` |
+| release_webhook_http | 14513578223 | 5746 | `7faa9987fbb7b39063a69f0cfa15e65fba61e7bf69df1e73aaff2661f4d2e732` |
+| auth_pgcrypto_database_behavior | 14513563250 | 811 | `398b634079e4a490c6e92531c72afe17290d41dea754f5f9a7931f2daf2cd534` |
+| delivery_reliability_database_behavior | 14513114395 | 815 | `d6fda2e5800924e211446ec431a06d0f32dea42940959cae25c496da67f669b8` |
+| **release-security-gate manifest** | **14514396877** | **4160** | `c43ba4d05ec85a28be084c7eb7f141f5d1e06ceb908f559b38596b5d3857f3e5` |
+
+The manifest independently identifies the same repository, source SHA/tree, run and attempt; reports 12 trusted platform jobs; sets `artifact_integrity=SHA256_AND_ZIP_CONTENTS_VERIFIED`; and enumerates 11 verified producer artifacts. Its `inspected_sha256` map contains 84 evidence-file digests. The manifest ZIP itself also passed the independent byte-size, SHA-256 and ZIP integrity checks above.
+
+This byte-level verification is independent of the CI release-gate process. The CI gate's result and the separate downloaded-artifact verification are recorded as distinct evidence.
+
+
 ## C161 historical exact-head CI evidence (code/test commit)
 
 GitHub Actions [PR Validation run 44486362831](https://github.com/ADRN-9/deedlight/actions/runs/44486362831) validated the C161 code/test commit `793ed5adaacbc9d5f16b89fe2b60590b2608840a` (tree `ae2682bc03229db14adfc33ba896f611d4671c5b`), attempt 1:
