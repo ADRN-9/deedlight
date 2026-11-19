@@ -52,6 +52,7 @@ const requiredFiles = {
 
 const mandatorySteps = {
   validate: [
+    "C144 migration 034 compatibility and duplicate-prefix guard",
     "TypeScript check",
     "Next.js production build with non-production configuration",
     "Cloudflare packaging build with non-production configuration",
