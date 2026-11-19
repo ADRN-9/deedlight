@@ -44,6 +44,12 @@ function makeZip(entries, options = {}) {
   let localOffset = 0;
   let centralLength = 0;
 
+  const u64 = (value) => {
+    const bytes = Buffer.alloc(8);
+    bytes.writeBigUInt64LE(BigInt(value), 0);
+    return bytes;
+  };
+
   for (const value of entries) {
     const entry = typeof value === "string" ? { name: value } : value;
     const nameBytes = entry.nameBytes ?? Buffer.from(entry.name, "utf8");
@@ -58,17 +64,26 @@ function makeZip(entries, options = {}) {
     const flags = entry.flags ?? 0x0808;
     const localFlags = entry.localFlags ?? flags;
     const descriptor = (flags & 8) !== 0;
-    const versionNeeded = entry.versionNeeded ?? (method === 8 ? 20 : 10);
-    const localExtra = entry.extraLocal ?? Buffer.alloc(0);
-    const centralExtra = entry.extraCentral ?? Buffer.alloc(0);
+    const zip64 = entry.zip64 === true;
+    const versionNeeded = entry.versionNeeded ?? (zip64 ? 45 : (method === 8 ? 20 : 10));
+    const localZip64Extra = zip64
+      ? extraField(0x0001, Buffer.concat([u64(plain.length), u64(compressed.length)]))
+      : Buffer.alloc(0);
+    const centralZip64Extra = zip64
+      ? extraField(0x0001, Buffer.concat([
+        u64(plain.length), u64(compressed.length), u64(localOffset),
+      ]))
+      : Buffer.alloc(0);
+    const localExtra = Buffer.concat([localZip64Extra, entry.extraLocal ?? Buffer.alloc(0)]);
+    const centralExtra = Buffer.concat([centralZip64Extra, entry.extraCentral ?? Buffer.alloc(0)]);
     const local = Buffer.alloc(30);
     local.writeUInt32LE(0x04034b50, 0);
     local.writeUInt16LE(versionNeeded, 4);
     local.writeUInt16LE(localFlags, 6);
     local.writeUInt16LE(method, 8);
     local.writeUInt32LE(descriptor ? 0 : (entry.localCrc ?? actualCrc), 14);
-    local.writeUInt32LE(descriptor ? 0 : (entry.localCompressedSize ?? compressed.length), 18);
-    local.writeUInt32LE(descriptor ? 0 : (entry.localUncompressedSize ?? plain.length), 22);
+    local.writeUInt32LE(zip64 ? 0xffffffff : (descriptor ? 0 : (entry.localCompressedSize ?? compressed.length)), 18);
+    local.writeUInt32LE(zip64 ? 0xffffffff : (descriptor ? 0 : (entry.localUncompressedSize ?? plain.length)), 22);
     local.writeUInt16LE(nameBytes.length, 26);
     local.writeUInt16LE(localExtra.length, 28);
 
@@ -81,10 +96,15 @@ function makeZip(entries, options = {}) {
         signature.writeUInt32LE(0x08074b50, 0);
         descriptorParts.push(signature);
       }
-      const descriptorBytes = Buffer.alloc(12);
+      const descriptorBytes = Buffer.alloc(zip64 ? 20 : 12);
       descriptorBytes.writeUInt32LE(entry.descriptorCrc ?? actualCrc, 0);
-      descriptorBytes.writeUInt32LE(compressed.length, 4);
-      descriptorBytes.writeUInt32LE(plain.length, 8);
+      if (zip64) {
+        descriptorBytes.writeBigUInt64LE(BigInt(compressed.length), 4);
+        descriptorBytes.writeBigUInt64LE(BigInt(plain.length), 12);
+      } else {
+        descriptorBytes.writeUInt32LE(compressed.length, 4);
+        descriptorBytes.writeUInt32LE(plain.length, 8);
+      }
       descriptorParts.push(descriptorBytes);
       localRecord.push(...descriptorParts);
     }
@@ -100,17 +120,17 @@ function makeZip(entries, options = {}) {
 
     const central = Buffer.alloc(46);
     central.writeUInt32LE(0x02014b50, 0);
-    central.writeUInt16LE((3 << 8) | 20, 4);
+    central.writeUInt16LE((3 << 8) | (zip64 ? 45 : 20), 4);
     central.writeUInt16LE(versionNeeded, 6);
     central.writeUInt16LE(flags, 8);
     central.writeUInt16LE(method, 10);
     central.writeUInt32LE(centralCrc, 16);
-    central.writeUInt32LE(entry.centralCompressedSize ?? compressed.length, 20);
-    central.writeUInt32LE(entry.centralUncompressedSize ?? plain.length, 24);
+    central.writeUInt32LE(zip64 ? 0xffffffff : (entry.centralCompressedSize ?? compressed.length), 20);
+    central.writeUInt32LE(zip64 ? 0xffffffff : (entry.centralUncompressedSize ?? plain.length), 24);
     central.writeUInt16LE(nameBytes.length, 28);
     central.writeUInt16LE(centralExtra.length, 30);
     central.writeUInt32LE(((entry.mode ?? 0o100644) << 16) >>> 0, 38);
-    central.writeUInt32LE(offsets.at(-1).localOffset, 42);
+    central.writeUInt32LE(zip64 ? 0xffffffff : offsets.at(-1).localOffset, 42);
     centralParts.push(central, nameBytes, centralExtra);
     centralLength += central.length + nameBytes.length + centralExtra.length;
   }
@@ -120,6 +140,40 @@ function makeZip(entries, options = {}) {
   const centralGap = options.centralGap ?? Buffer.alloc(0);
   const end = Buffer.alloc(22);
   end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(0, 4);
+  end.writeUInt16LE(0, 6);
+  if (options.zip64Eocd) {
+    const zip64EocdOffset = centralOffset + central.length;
+    const zip64Eocd = Buffer.alloc(56);
+    zip64Eocd.writeUInt32LE(0x06064b50, 0);
+    zip64Eocd.writeBigUInt64LE(44n, 4);
+    zip64Eocd.writeUInt16LE((3 << 8) | 45, 12);
+    zip64Eocd.writeUInt16LE(45, 14);
+    zip64Eocd.writeUInt32LE(0, 16);
+    zip64Eocd.writeUInt32LE(0, 20);
+    zip64Eocd.writeBigUInt64LE(BigInt(entries.length), 24);
+    zip64Eocd.writeBigUInt64LE(BigInt(entries.length), 32);
+    zip64Eocd.writeBigUInt64LE(BigInt(central.length), 40);
+    zip64Eocd.writeBigUInt64LE(BigInt(centralOffset), 48);
+
+    const locator = Buffer.alloc(20);
+    locator.writeUInt32LE(0x07064b50, 0);
+    locator.writeUInt32LE(0, 4);
+    locator.writeBigUInt64LE(BigInt(zip64EocdOffset), 8);
+    locator.writeUInt32LE(1, 16);
+
+    end.writeUInt16LE(0xffff, 8);
+    end.writeUInt16LE(0xffff, 10);
+    end.writeUInt32LE(0xffffffff, 12);
+    end.writeUInt32LE(0xffffffff, 16);
+    return {
+      bytes: Buffer.concat([...localParts, central, zip64Eocd, locator, end]),
+      offsets,
+      centralOffset,
+      zip64EocdOffset,
+    };
+  }
+
   end.writeUInt16LE(entries.length, 8);
   end.writeUInt16LE(entries.length, 10);
   end.writeUInt32LE(central.length + centralGap.length, 12);
@@ -128,9 +182,9 @@ function makeZip(entries, options = {}) {
     bytes: Buffer.concat([...localParts, central, centralGap, end]),
     offsets,
     centralOffset,
+    zip64EocdOffset: null,
   };
 }
-
 function fixture(entries = expectedMembers.map((name) => ({ name })), options = {}) {
   const zip = makeZip(entries, options);
   const bytes = zip.bytes;
@@ -163,6 +217,7 @@ function fixture(entries = expectedMembers.map((name) => ({ name })), options = 
     expected,
     offsets: zip.offsets,
     centralOffset: zip.centralOffset,
+    zip64EocdOffset: zip.zip64EocdOffset,
     expectedMembers: entries.map((entry) => typeof entry === "string" ? entry : entry.name),
   };
 }
@@ -210,6 +265,17 @@ test("positive controls accept Stored records and signed/unsigned Deflate descri
   const result = verify(fixture(entries));
   assert.equal(result.files.get("commit.txt").toString(), "commit.txt\n");
   assert.equal(result.files.size, expectedMembers.length);
+});
+
+test("positive controls accept Stored data descriptors with signed and unsigned forms", () => {
+  for (const descriptorSignature of [true, false]) {
+    const entries = expectedMembers.map((name, index) => index === 0
+      ? { name, method: 0, flags: 0x0808, descriptorSignature }
+      : { name, method: 8, flags: 0x0808 });
+    const result = verify(fixture(entries));
+    assert.equal(result.files.get("commit.txt").toString(), "commit.txt\n");
+    assert.equal(result.files.size, expectedMembers.length);
+  }
 });
 
 test("positive controls decode CP437 names without EFS and UTF-8 names with EFS", () => {
@@ -269,17 +335,70 @@ const semanticCases = [
     }),
   },
   {
-    name: "ZIP64 size sentinels are rejected",
-    code: "ZIP64_NOT_SUPPORTED",
-    mutate: (value) => value.bytes.writeUInt32LE(0xffffffff,
-      value.centralOffset + value.offsets[0].centralOffset + 20),
+    name: "valid ZIP64 member sizes, local/central extras and 64-bit descriptor are rejected",
+    code: "ZIP64_EXTRA_NOT_SUPPORTED",
+    entries: () => [{
+      name: "commit.txt",
+      flags: 0x0808,
+      zip64: true,
+      descriptorSignature: true,
+    }],
+    assertStructure: (value) => {
+      const local = value.offsets[0].localOffset;
+      const localNameLength = value.bytes.readUInt16LE(local + 26);
+      const localExtraLength = value.bytes.readUInt16LE(local + 28);
+      const localExtra = local + 30 + localNameLength;
+      assert.equal(value.bytes.readUInt16LE(localExtra), 0x0001);
+      assert.equal(value.bytes.readUInt16LE(localExtra + 2), 16);
+      assert.equal(value.bytes.readUInt32LE(local + 18), 0xffffffff);
+      assert.equal(value.bytes.readUInt32LE(local + 22), 0xffffffff);
+      assert.equal(value.bytes.readBigUInt64LE(localExtra + 4), BigInt(Buffer.byteLength("commit.txt\n")));
+      const central = value.centralOffset;
+      const centralNameLength = value.bytes.readUInt16LE(central + 28);
+      const centralExtra = central + 46 + centralNameLength;
+      assert.equal(value.bytes.readUInt32LE(central + 20), 0xffffffff);
+      assert.equal(value.bytes.readUInt32LE(central + 24), 0xffffffff);
+      assert.equal(value.bytes.readUInt32LE(central + 42), 0xffffffff);
+      assert.equal(value.bytes.readUInt16LE(centralExtra), 0x0001);
+      assert.equal(value.bytes.readUInt16LE(centralExtra + 2), 24);
+      assert.equal(value.bytes.readBigUInt64LE(centralExtra + 4), BigInt(Buffer.byteLength("commit.txt\n")));
+      const compressedSize = Number(value.bytes.readBigUInt64LE(centralExtra + 12));
+      assert.equal(value.bytes.readBigUInt64LE(centralExtra + 20), BigInt(local));
+      assert.equal(value.bytes.readBigUInt64LE(localExtra + 12), BigInt(compressedSize));
+      const dataStart = local + 30 + localNameLength + localExtraLength;
+      const dataEnd = dataStart + compressedSize;
+      assert.equal(value.bytes.readUInt32LE(dataEnd), 0x08074b50);
+      assert.equal(value.bytes.readBigUInt64LE(dataEnd + 8), BigInt(compressedSize));
+      assert.equal(value.bytes.readBigUInt64LE(dataEnd + 16), BigInt(Buffer.byteLength("commit.txt\n")));
+      assert.ok(value.bytes.subarray(local + 30, local + 30 + localNameLength)
+        .equals(value.bytes.subarray(central + 46, central + 46 + centralNameLength)));
+    },
   },
   {
-    name: "ZIP64 extra fields are rejected",
-    code: "ZIP64_EXTRA_NOT_SUPPORTED",
-    entries: () => replaceFirst(expectedMembers, {
-      extraCentral: extraField(0x0001, Buffer.alloc(0)),
-    }),
+    name: "valid ZIP64 EOCD and locator structures are rejected",
+    code: "ZIP64_NOT_SUPPORTED",
+    entries: () => [{ name: "commit.txt", flags: 0x0800 }],
+    options: { zip64Eocd: true },
+    assertStructure: (value) => {
+      const eocd = value.bytes.length - 22;
+      const locator = eocd - 20;
+      const zip64Eocd = Number(value.bytes.readBigUInt64LE(locator + 8));
+      assert.equal(value.bytes.readUInt32LE(eocd), 0x06054b50);
+      assert.equal(value.bytes.readUInt16LE(eocd + 8), 0xffff);
+      assert.equal(value.bytes.readUInt16LE(eocd + 10), 0xffff);
+      assert.equal(value.bytes.readUInt32LE(eocd + 12), 0xffffffff);
+      assert.equal(value.bytes.readUInt32LE(eocd + 16), 0xffffffff);
+      assert.equal(value.bytes.readUInt32LE(locator), 0x07064b50);
+      assert.equal(value.bytes.readUInt32LE(locator + 4), 0);
+      assert.equal(value.bytes.readUInt32LE(locator + 16), 1);
+      assert.equal(value.bytes.readUInt32LE(zip64Eocd), 0x06064b50);
+      assert.equal(value.bytes.readBigUInt64LE(zip64Eocd + 4), 44n);
+      assert.equal(value.bytes.readBigUInt64LE(zip64Eocd + 24), 1n);
+      assert.equal(value.bytes.readBigUInt64LE(zip64Eocd + 32), 1n);
+      assert.equal(value.bytes.readBigUInt64LE(zip64Eocd + 40), BigInt(zip64Eocd - value.centralOffset));
+      assert.equal(value.bytes.readBigUInt64LE(zip64Eocd + 48), BigInt(value.centralOffset));
+      assert.equal(value.zip64EocdOffset, zip64Eocd);
+    },
   },
   {
     name: "Deflate streams cannot leave unconsumed trailing bytes",
@@ -311,11 +430,62 @@ const semanticCases = [
     code: "ZIP_DATA_DESCRIPTOR_MISMATCH",
     entries: () => replaceFirst(expectedMembers, { descriptorCrc: 0 }),
   },
+  {
+    name: "EFS UTF-8 BOM-prefixed member names are preserved and rejected",
+    code: "ZIP_FILENAME_BOM_NOT_ALLOWED",
+    entries: () => [{
+      name: "commit.txt",
+      nameBytes: Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from("commit.txt")]),
+      flags: 0x0800,
+    }],
+    assertStructure: (value) => {
+      const local = value.offsets[0].localOffset;
+      const central = value.centralOffset;
+      const localNameLength = value.bytes.readUInt16LE(local + 26);
+      const centralNameLength = value.bytes.readUInt16LE(central + 28);
+      assert.deepEqual(value.bytes.subarray(local + 30, local + 30 + localNameLength),
+        Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from("commit.txt")]));
+      assert.ok(value.bytes.subarray(local + 30, local + 30 + localNameLength)
+        .equals(value.bytes.subarray(central + 46, central + 46 + centralNameLength)));
+    },
+  },
+  {
+    name: "local CRC mismatch is rejected independently",
+    code: "ZIP_LOCAL_CENTRAL_MISMATCH",
+    entries: () => replaceFirst(expectedMembers, { localCrc: 0x12345678 }),
+  },
+  {
+    name: "local compressed-size mismatch is rejected independently",
+    code: "ZIP_LOCAL_CENTRAL_MISMATCH",
+    entries: () => replaceFirst(expectedMembers, { localCompressedSize: 0x1234 }),
+  },
+  {
+    name: "local uncompressed-size mismatch is rejected independently",
+    code: "ZIP_LOCAL_CENTRAL_MISMATCH",
+    entries: () => replaceFirst(expectedMembers, { localUncompressedSize: 0x1234 }),
+  },
+  {
+    name: "local and central modification timestamps must agree when both are present",
+    code: "ZIP_EXTRA_FIELD_TIMESTAMP_MISMATCH",
+    entries: () => {
+      const localTime = Buffer.alloc(5);
+      localTime[0] = 1;
+      localTime.writeUInt32LE(1700000000, 1);
+      const centralTime = Buffer.alloc(5);
+      centralTime[0] = 1;
+      centralTime.writeUInt32LE(1700000001, 1);
+      return replaceFirst(expectedMembers, {
+        extraLocal: extraField(0x5455, localTime),
+        extraCentral: extraField(0x5455, centralTime),
+      });
+    },
+  },
 ];
 
 for (const item of semanticCases) {
   test("C153 semantic negative: " + item.name, () => {
     const value = fixture(item.entries ? item.entries() : undefined, item.options);
+    if (item.assertStructure) item.assertStructure(value);
     if (item.mutate) item.mutate(value);
     reseal(value);
     expectCode(() => verify(value), item.code);

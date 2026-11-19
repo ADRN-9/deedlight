@@ -30,7 +30,7 @@ const CP437_HIGH =
   "ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»" +
   "░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀" +
   "αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■ ";
-const utf8 = new TextDecoder("utf-8", { fatal: true });
+const utf8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
 export class ArtifactIntegrityError extends Error {
   constructor(code, message) {
@@ -67,6 +67,8 @@ function exactSet(actual, expected, label) {
 function safeMemberName(name) {
   reject(typeof name === "string" && name.length > 0 && !name.includes("\0"),
     "ZIP_FILENAME_NOT_CANONICAL", "Empty or NUL ZIP member name");
+  reject(!name.includes("\uFEFF"), "ZIP_FILENAME_BOM_NOT_ALLOWED",
+    "UTF-8 byte-order mark is not permitted in ZIP member names");
   reject(!name.startsWith("/") && !name.startsWith("\\") && !/^[a-zA-Z]:/.test(name),
     "ZIP_FILENAME_NOT_CANONICAL", "Absolute ZIP member path rejected");
   reject(!name.includes("\\"), "ZIP_FILENAME_NOT_CANONICAL", "Backslash ZIP path rejected");
@@ -104,6 +106,7 @@ function parseExtraFields(bytes, start, length, location) {
   let offset = start;
   const end = start + length;
   const seen = new Set();
+  let modificationTime;
   reject(end <= bytes.length, "ZIP_EXTRA_FIELD_MALFORMED", "Truncated ZIP extra fields");
   while (offset < end) {
     reject(offset + 4 <= end, "ZIP_EXTRA_FIELD_MALFORMED", "Malformed ZIP extra field header");
@@ -124,9 +127,11 @@ function parseExtraFields(bytes, start, length, location) {
     const timestampCount = Number(flags & 1) + Number(flags & 2) + Number(flags & 4);
     reject(size === 1 + timestampCount * 4, "ZIP_EXTRA_FIELD_MALFORMED",
       "Extended timestamp field length does not match its flags");
+    if ((flags & 1) !== 0) modificationTime = bytes.readUInt32LE(offset + 1);
     offset += size;
   }
   reject(offset === end, "ZIP_EXTRA_FIELD_MALFORMED", "Malformed ZIP extra field length");
+  return { modificationTime };
 }
 
 function findEndOfCentralDirectory(bytes) {
@@ -159,10 +164,11 @@ function parseZip(bytes, expectedMembers) {
     "ZIP archive comments are not accepted");
   reject(disk === 0 && centralDisk === 0 && entriesOnDisk === entryCount,
     "ZIP_MULTIDISK_NOT_SUPPORTED", "Multi-disk ZIP is not accepted");
+  reject(entriesOnDisk !== 0xffff && entryCount !== 0xffff
+    && centralSize !== 0xffffffff && centralOffset !== 0xffffffff,
+  "ZIP64_NOT_SUPPORTED", "ZIP64 archive metadata is not accepted");
   reject(entryCount > 0 && entryCount <= MAX_ENTRIES,
     "ZIP_RESOURCE_LIMIT", "ZIP entry count outside safe bounds");
-  reject(entryCount !== 0xffff && centralSize !== 0xffffffff && centralOffset !== 0xffffffff,
-    "ZIP64_NOT_SUPPORTED", "ZIP64 archive metadata is not accepted");
   reject(centralOffset + centralSize === eocd && centralOffset > 0,
     "ZIP_CENTRAL_DIRECTORY_LAYOUT", "ZIP central directory bounds mismatch");
 
@@ -198,11 +204,6 @@ function parseZip(bytes, expectedMembers) {
     reject(startDisk === 0, "ZIP_MULTIDISK_NOT_SUPPORTED", "Split ZIP member is not accepted");
     reject(method === 0 || method === 8, "ZIP_METHOD_UNSUPPORTED", "Unsupported ZIP compression method");
     validateFlags(flags, method);
-    reject(versionNeeded >= (method === 8 ? 20 : 10) && versionNeeded <= 20,
-      "ZIP_VERSION_UNSUPPORTED", "Unsupported ZIP version-needed value");
-    reject(compressedSize !== 0xffffffff && uncompressedSize !== 0xffffffff
-      && localOffset !== 0xffffffff,
-    "ZIP64_NOT_SUPPORTED", "ZIP64 member metadata is not accepted");
     reject(nameLength > 0 && nameLength <= MAX_NAME_BYTES && extraLength <= MAX_EXTRA_BYTES,
       "ZIP_RESOURCE_LIMIT", "ZIP member metadata outside safe bounds");
     totalMetadata += nameLength + extraLength;
@@ -216,7 +217,12 @@ function parseZip(bytes, expectedMembers) {
     const nameBytes = bytes.subarray(cursor + 46, cursor + 46 + nameLength);
     const name = safeMemberName(decodeZipName(nameBytes, flags));
     reject(!files.has(name), "ZIP_DUPLICATE_MEMBER", "Duplicate ZIP member: " + name);
-    parseExtraFields(bytes, cursor + 46 + nameLength, extraLength, "central");
+    const centralTimestamp = parseExtraFields(bytes, cursor + 46 + nameLength, extraLength, "central");
+    reject(compressedSize !== 0xffffffff && uncompressedSize !== 0xffffffff
+      && localOffset !== 0xffffffff,
+    "ZIP64_NOT_SUPPORTED", "ZIP64 member metadata is not accepted");
+    reject(versionNeeded >= (method === 8 ? 20 : 10) && versionNeeded <= 20,
+      "ZIP_VERSION_UNSUPPORTED", "Unsupported ZIP version-needed value");
 
     const operatingSystem = madeBy >>> 8;
     const unixMode = (externalAttributes >>> 16) & 0xffff;
@@ -259,7 +265,13 @@ function parseZip(bytes, expectedMembers) {
     totalMetadata += localNameLength + localExtraLength;
     reject(totalMetadata <= MAX_TOTAL_METADATA_BYTES,
       "ZIP_RESOURCE_LIMIT", "ZIP aggregate metadata exceeds safe bounds");
-    parseExtraFields(bytes, localNameEnd, localExtraLength, "local");
+    const localTimestamp = parseExtraFields(bytes, localNameEnd, localExtraLength, "local");
+    if (centralTimestamp.modificationTime !== undefined
+      && localTimestamp.modificationTime !== undefined) {
+      reject(centralTimestamp.modificationTime === localTimestamp.modificationTime,
+        "ZIP_EXTRA_FIELD_TIMESTAMP_MISMATCH",
+        "Local and central Extended Timestamp modification times differ");
+    }
 
     const hasDescriptor = (flags & 0x0008) !== 0;
     if (!hasDescriptor) {
