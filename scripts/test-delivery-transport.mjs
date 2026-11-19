@@ -121,6 +121,7 @@ test("Resend transport uses stable idempotency and generic daily content", async
   assert.equal(calls[0].init.headers["Idempotency-Key"], `deedlight/${job.kind}/${job.jobId}`);
   const payload = JSON.parse(calls[0].init.body);
   assert.deepEqual(payload.to, ["member@example.com"]);
+  assert.deepEqual(payload.tags, [{ name: "application", value: "deedlight" }]);
   assert.match(payload.text, /settings\/reminders/);
   assert.doesNotMatch(payload.text, new RegExp(job.userId));
 });
