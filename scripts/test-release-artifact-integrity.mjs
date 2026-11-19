@@ -203,10 +203,10 @@ test("valid Deflate archive and current-run metadata pass", () => {
   assert.equal(result.files.get("commit.txt").toString(), "commit.txt\n");
 });
 
-test("positive controls accept Stored records and signed Deflate descriptors", () => {
+test("positive controls accept Stored records and signed/unsigned Deflate descriptors", () => {
   const entries = expectedMembers.map((name, index) => index === 0
     ? { name, method: 0, flags: 0x0800 }
-    : { name, method: 8, flags: 0x0808 });
+    : { name, method: 8, flags: 0x0808, descriptorSignature: index !== 2 });
   const result = verify(fixture(entries));
   assert.equal(result.files.get("commit.txt").toString(), "commit.txt\n");
   assert.equal(result.files.size, expectedMembers.length);
@@ -421,6 +421,32 @@ test("downloader follows approved redirects without forwarding bearer credential
     assert.equal(calls[0].authorization, "Bearer test-token");
     assert.equal(calls[1].authorization, null);
     assert.ok(calls.every((call) => call.redirect === "manual"));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("downloader cancels a rejected response body before failing", async () => {
+  let cancelled = false;
+  globalThis.fetch = async () => new Response(new ReadableStream({
+    start(controller) {
+      controller.enqueue(new Uint8Array([1]));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  }), {
+    status: 200,
+    headers: { "content-type": "text/html" },
+  });
+  try {
+    await assert.rejects(downloadArtifactArchive({
+      repository,
+      artifactId: 77,
+      token: "test-token",
+    }), (error) => error instanceof ArtifactIntegrityError
+      && error.code === "ARTIFACT_DOWNLOAD_CONTENT_TYPE");
+    assert.equal(cancelled, true);
   } finally {
     globalThis.fetch = originalFetch;
   }

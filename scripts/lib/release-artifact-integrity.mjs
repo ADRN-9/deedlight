@@ -100,7 +100,7 @@ function validateFlags(flags, method) {
     "Unsupported general-purpose ZIP flags for compression method " + method);
 }
 
-function parseExtraFields(bytes, start, length) {
+function parseExtraFields(bytes, start, length, location) {
   let offset = start;
   const end = start + length;
   const seen = new Set();
@@ -118,8 +118,9 @@ function parseExtraFields(bytes, start, length) {
     seen.add(id);
     reject(size >= 1, "ZIP_EXTRA_FIELD_MALFORMED", "Extended timestamp field is empty");
     const flags = bytes[offset];
-    reject((flags & ~0x07) === 0, "ZIP_EXTRA_FIELD_MALFORMED",
-      "Extended timestamp field has unsupported flags");
+    const allowedTimestampFlags = location === "central" ? 0x01 : 0x07;
+    reject((flags & ~allowedTimestampFlags) === 0, "ZIP_EXTRA_FIELD_MALFORMED",
+      "Extended timestamp field has unsupported flags for " + location + " header");
     const timestampCount = Number(flags & 1) + Number(flags & 2) + Number(flags & 4);
     reject(size === 1 + timestampCount * 4, "ZIP_EXTRA_FIELD_MALFORMED",
       "Extended timestamp field length does not match its flags");
@@ -215,7 +216,7 @@ function parseZip(bytes, expectedMembers) {
     const nameBytes = bytes.subarray(cursor + 46, cursor + 46 + nameLength);
     const name = safeMemberName(decodeZipName(nameBytes, flags));
     reject(!files.has(name), "ZIP_DUPLICATE_MEMBER", "Duplicate ZIP member: " + name);
-    parseExtraFields(bytes, cursor + 46 + nameLength, extraLength);
+    parseExtraFields(bytes, cursor + 46 + nameLength, extraLength, "central");
 
     const operatingSystem = madeBy >>> 8;
     const unixMode = (externalAttributes >>> 16) & 0xffff;
@@ -258,7 +259,7 @@ function parseZip(bytes, expectedMembers) {
     totalMetadata += localNameLength + localExtraLength;
     reject(totalMetadata <= MAX_TOTAL_METADATA_BYTES,
       "ZIP_RESOURCE_LIMIT", "ZIP aggregate metadata exceeds safe bounds");
-    parseExtraFields(bytes, localNameEnd, localExtraLength);
+    parseExtraFields(bytes, localNameEnd, localExtraLength, "local");
 
     const hasDescriptor = (flags & 0x0008) !== 0;
     if (!hasDescriptor) {
@@ -469,20 +470,30 @@ export async function downloadArtifactArchive({
       currentUrl = validateRedirectUrl(location, currentUrl);
       continue;
     }
-    reject(response.status === 200, "ARTIFACT_DOWNLOAD_HTTP_ERROR",
-      "GitHub artifact download failed with HTTP " + response.status);
-    if (response.url) {
-      reject(new URL(response.url).href === currentUrl.href,
-        "ARTIFACT_REDIRECT_AUTOFOLLOW_REJECTED", "Artifact transport followed an uncontrolled redirect");
+    if (response.status !== 200) {
+      await cancelResponse(response);
+      throw new ArtifactIntegrityError("ARTIFACT_DOWNLOAD_HTTP_ERROR",
+        "GitHub artifact download failed with HTTP " + response.status);
+    }
+    if (response.url && new URL(response.url).href !== currentUrl.href) {
+      await cancelResponse(response);
+      throw new ArtifactIntegrityError("ARTIFACT_REDIRECT_AUTOFOLLOW_REJECTED",
+        "Artifact transport followed an uncontrolled redirect");
     }
     const contentType = response.headers.get("content-type") ?? "";
-    reject(!/text\/html/i.test(contentType), "ARTIFACT_DOWNLOAD_CONTENT_TYPE",
-      "GitHub returned an HTML artifact response");
+    if (/text\/html/i.test(contentType)) {
+      await cancelResponse(response);
+      throw new ArtifactIntegrityError("ARTIFACT_DOWNLOAD_CONTENT_TYPE",
+        "GitHub returned an HTML artifact response");
+    }
     const lengthHeader = response.headers.get("content-length");
     if (lengthHeader !== null) {
       const length = Number(lengthHeader);
-      reject(Number.isSafeInteger(length) && length > 0 && length <= maxBytes,
-        "ARTIFACT_DOWNLOAD_LENGTH_INVALID", "Artifact download content length outside safe bounds");
+      if (!Number.isSafeInteger(length) || length <= 0 || length > maxBytes) {
+        await cancelResponse(response);
+        throw new ArtifactIntegrityError("ARTIFACT_DOWNLOAD_LENGTH_INVALID",
+          "Artifact download content length outside safe bounds");
+      }
     }
     reject(response.body, "ARTIFACT_DOWNLOAD_BODY_MISSING", "GitHub artifact response body missing");
     const reader = response.body.getReader();
@@ -512,8 +523,12 @@ export async function downloadArtifactArchive({
         }
       }
       if (error instanceof ArtifactIntegrityError) throw error;
+      if (signal.aborted) {
+        throw new ArtifactIntegrityError("ARTIFACT_DOWNLOAD_ABORTED",
+          "Artifact download was cancelled or timed out");
+      }
       throw new ArtifactIntegrityError("ARTIFACT_DOWNLOAD_STREAM_FAILED",
-        "Artifact download stream failed, was cancelled or timed out");
+        "Artifact download stream failed");
     } finally {
       reader.releaseLock();
     }

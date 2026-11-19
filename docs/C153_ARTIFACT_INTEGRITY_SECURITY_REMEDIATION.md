@@ -74,7 +74,7 @@ The test suite also requires:
 
 - ZIP64 sentinels and ZIP64 extra field ID \`0x0001\` are rejected.
 - Only Extended Timestamp ID \`0x5455\` is supported.
-- Timestamp flag bits and exact payload length are checked.
+- Timestamp flag bits and exact payload length are checked; central-directory timestamps may contain only the modification-time field, while local headers may also include access and creation times.
 - Unknown, duplicate or malformed extra fields fail closed.
 - Entry count, member name/extra sizes, aggregate metadata, per-member decompressed size, total decompressed size and archive size are bounded.
 
