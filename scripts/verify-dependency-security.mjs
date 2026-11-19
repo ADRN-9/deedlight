@@ -5,8 +5,8 @@ const lock = JSON.parse(readFileSync("package-lock.json", "utf8"));
 const packages = lock.packages ?? {};
 
 function versionParts(value, name) {
-  const match = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(value ?? "");
-  if (!match) throw new Error(`Invalid ${name} version in lockfile: ${value}`);
+  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(value ?? "");
+  if (!match) throw new Error(`Invalid stable ${name} version in lockfile: ${value}`);
   return match.slice(1).map(Number);
 }
 
