@@ -581,7 +581,7 @@ const semanticCases = [
 ];
 
 for (const item of semanticCases) {
-  test("C155 semantic negative: " + item.name, () => {
+  test("C161 semantic negative: " + item.name, () => {
     const variants = item.variants ?? [item];
     for (const variant of variants) {
       const value = fixture(variant.entries ? variant.entries()
