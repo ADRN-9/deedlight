@@ -5969,7 +5969,7 @@ returns boolean
 language plpgsql
 security definer
 set search_path = public, auth, pg_temp
-as $
+as $legacy$
 begin
   if p_event_type not in ('email.bounced', 'email.complained', 'email.suppressed') then
     raise exception 'Unsupported legacy provider event type.' using errcode = '22023';
@@ -5985,7 +5985,7 @@ begin
     null
   );
 end;
-$;
+$legacy$;
 
 revoke all privileges
 on function public.record_delivery_provider_event(text, text, text, text, text)
