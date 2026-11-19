@@ -66,7 +66,7 @@ function makeZip(entries, options = {}) {
     const descriptor = (flags & 8) !== 0;
     const zip64 = entry.zip64 === true;
     const versionNeeded = entry.versionNeeded ?? (zip64 ? 45 : (method === 8 ? 20 : 10));
-    const localZip64Extra = zip64
+    const localZip64Extra = zip64 && !descriptor
       ? extraField(0x0001, Buffer.concat([u64(plain.length), u64(compressed.length)]))
       : Buffer.alloc(0);
     const centralZip64Extra = zip64
@@ -82,8 +82,8 @@ function makeZip(entries, options = {}) {
     local.writeUInt16LE(localFlags, 6);
     local.writeUInt16LE(method, 8);
     local.writeUInt32LE(descriptor ? 0 : (entry.localCrc ?? actualCrc), 14);
-    local.writeUInt32LE(zip64 ? 0xffffffff : (descriptor ? 0 : (entry.localCompressedSize ?? compressed.length)), 18);
-    local.writeUInt32LE(zip64 ? 0xffffffff : (descriptor ? 0 : (entry.localUncompressedSize ?? plain.length)), 22);
+    local.writeUInt32LE(zip64 && !descriptor ? 0xffffffff : (descriptor ? 0 : (entry.localCompressedSize ?? compressed.length)), 18);
+    local.writeUInt32LE(zip64 && !descriptor ? 0xffffffff : (descriptor ? 0 : (entry.localUncompressedSize ?? plain.length)), 22);
     local.writeUInt16LE(nameBytes.length, 26);
     local.writeUInt16LE(localExtra.length, 28);
 
@@ -335,24 +335,34 @@ const semanticCases = [
     }),
   },
   {
-    name: "valid ZIP64 member sizes, local/central extras and 64-bit descriptor are rejected",
+    name: "valid ZIP64 member local/central extras and descriptor variants are rejected",
     code: "ZIP64_EXTRA_NOT_SUPPORTED",
-    entries: () => [{
-      name: "commit.txt",
-      flags: 0x0808,
-      zip64: true,
-      descriptorSignature: true,
-    }],
-    assertStructure: (value) => {
+    variants: [
+      {
+        entries: () => [{ name: "commit.txt", flags: 0x0800, zip64: true }],
+        descriptor: false,
+      },
+      {
+        entries: () => [{ name: "commit.txt", flags: 0x0808, zip64: true, descriptorSignature: true }],
+        descriptor: true,
+      },
+    ],
+    assertStructure: (value, variant) => {
       const local = value.offsets[0].localOffset;
       const localNameLength = value.bytes.readUInt16LE(local + 26);
       const localExtraLength = value.bytes.readUInt16LE(local + 28);
       const localExtra = local + 30 + localNameLength;
-      assert.equal(value.bytes.readUInt16LE(localExtra), 0x0001);
-      assert.equal(value.bytes.readUInt16LE(localExtra + 2), 16);
-      assert.equal(value.bytes.readUInt32LE(local + 18), 0xffffffff);
-      assert.equal(value.bytes.readUInt32LE(local + 22), 0xffffffff);
-      assert.equal(value.bytes.readBigUInt64LE(localExtra + 4), BigInt(Buffer.byteLength("commit.txt\n")));
+      if (variant.descriptor) {
+        assert.equal(value.bytes.readUInt32LE(local + 18), 0);
+        assert.equal(value.bytes.readUInt32LE(local + 22), 0);
+        assert.equal(localExtraLength, 0);
+      } else {
+        assert.equal(value.bytes.readUInt32LE(local + 18), 0xffffffff);
+        assert.equal(value.bytes.readUInt32LE(local + 22), 0xffffffff);
+        assert.equal(value.bytes.readUInt16LE(localExtra), 0x0001);
+        assert.equal(value.bytes.readUInt16LE(localExtra + 2), 16);
+        assert.equal(value.bytes.readBigUInt64LE(localExtra + 4), BigInt(Buffer.byteLength("commit.txt\n")));
+      }
       const central = value.centralOffset;
       const centralNameLength = value.bytes.readUInt16LE(central + 28);
       const centralExtra = central + 46 + centralNameLength;
@@ -364,12 +374,17 @@ const semanticCases = [
       assert.equal(value.bytes.readBigUInt64LE(centralExtra + 4), BigInt(Buffer.byteLength("commit.txt\n")));
       const compressedSize = Number(value.bytes.readBigUInt64LE(centralExtra + 12));
       assert.equal(value.bytes.readBigUInt64LE(centralExtra + 20), BigInt(local));
-      assert.equal(value.bytes.readBigUInt64LE(localExtra + 12), BigInt(compressedSize));
-      const dataStart = local + 30 + localNameLength + localExtraLength;
-      const dataEnd = dataStart + compressedSize;
-      assert.equal(value.bytes.readUInt32LE(dataEnd), 0x08074b50);
-      assert.equal(value.bytes.readBigUInt64LE(dataEnd + 8), BigInt(compressedSize));
-      assert.equal(value.bytes.readBigUInt64LE(dataEnd + 16), BigInt(Buffer.byteLength("commit.txt\n")));
+      if (variant.descriptor) {
+        const dataStart = local + 30 + localNameLength + localExtraLength;
+        const dataEnd = dataStart + compressedSize;
+        assert.equal(value.bytes.readUInt32LE(dataEnd), 0x08074b50);
+        assert.equal(value.bytes.readUInt32LE(dataEnd + 4), crc32(Buffer.from("commit.txt\n")));
+        assert.equal(value.bytes.readBigUInt64LE(dataEnd + 8), BigInt(compressedSize));
+        assert.equal(value.bytes.readBigUInt64LE(dataEnd + 16), BigInt(Buffer.byteLength("commit.txt\n")));
+      } else {
+        assert.equal(local + 30 + localNameLength + localExtraLength + compressedSize,
+          value.centralOffset);
+      }
       assert.ok(value.bytes.subarray(local + 30, local + 30 + localNameLength)
         .equals(value.bytes.subarray(central + 46, central + 46 + centralNameLength)));
     },
@@ -483,12 +498,16 @@ const semanticCases = [
 ];
 
 for (const item of semanticCases) {
-  test("C153 semantic negative: " + item.name, () => {
-    const value = fixture(item.entries ? item.entries() : undefined, item.options);
-    if (item.assertStructure) item.assertStructure(value);
-    if (item.mutate) item.mutate(value);
-    reseal(value);
-    expectCode(() => verify(value), item.code);
+  test("C155 semantic negative: " + item.name, () => {
+    const variants = item.variants ?? [item];
+    for (const variant of variants) {
+      const value = fixture(variant.entries ? variant.entries()
+        : (item.entries ? item.entries() : undefined), variant.options ?? item.options);
+      if (item.assertStructure) item.assertStructure(value, variant);
+      if (item.mutate) item.mutate(value);
+      reseal(value);
+      expectCode(() => verify(value), item.code);
+    }
   });
 }
 
