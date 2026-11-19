@@ -81,9 +81,9 @@ function makeZip(entries, options = {}) {
     local.writeUInt16LE(versionNeeded, 4);
     local.writeUInt16LE(localFlags, 6);
     local.writeUInt16LE(method, 8);
-    local.writeUInt32LE(descriptor ? 0 : (entry.localCrc ?? actualCrc), 14);
-    local.writeUInt32LE(zip64 && !descriptor ? 0xffffffff : (descriptor ? 0 : (entry.localCompressedSize ?? compressed.length)), 18);
-    local.writeUInt32LE(zip64 && !descriptor ? 0xffffffff : (descriptor ? 0 : (entry.localUncompressedSize ?? plain.length)), 22);
+    local.writeUInt32LE(entry.localCrc ?? (descriptor ? 0 : actualCrc), 14);
+    local.writeUInt32LE(zip64 && !descriptor ? 0xffffffff : (entry.localCompressedSize ?? (descriptor ? 0 : compressed.length)), 18);
+    local.writeUInt32LE(zip64 && !descriptor ? 0xffffffff : (entry.localUncompressedSize ?? (descriptor ? 0 : plain.length)), 22);
     local.writeUInt16LE(nameBytes.length, 26);
     local.writeUInt16LE(localExtra.length, 28);
 
@@ -272,10 +272,49 @@ test("positive controls accept Stored data descriptors with signed and unsigned 
     const entries = expectedMembers.map((name, index) => index === 0
       ? { name, method: 0, flags: 0x0808, descriptorSignature }
       : { name, method: 8, flags: 0x0808 });
-    const result = verify(fixture(entries));
+    const value = fixture(entries);
+    const result = verify(value);
     assert.equal(result.files.get("commit.txt").toString(), "commit.txt\n");
     assert.equal(result.files.size, expectedMembers.length);
+
+    for (let index = 0; index < entries.length; index++) {
+      const local = value.offsets[index].localOffset;
+      const central = value.centralOffset + value.offsets[index].centralOffset;
+      const nameLength = value.bytes.readUInt16LE(local + 26);
+      const extraLength = value.bytes.readUInt16LE(local + 28);
+      const centralCrc = value.bytes.readUInt32LE(central + 16);
+      const compressedSize = value.bytes.readUInt32LE(central + 20);
+      const uncompressedSize = value.bytes.readUInt32LE(central + 24);
+      const dataEnd = local + 30 + nameLength + extraLength + compressedSize;
+      const signed = entries[index].descriptorSignature !== false;
+      const descriptor = dataEnd + (signed ? 4 : 0);
+      if (signed) assert.equal(value.bytes.readUInt32LE(dataEnd), 0x08074b50);
+      assert.equal(value.bytes.readUInt32LE(descriptor), centralCrc);
+      assert.equal(value.bytes.readUInt32LE(descriptor + 4), compressedSize);
+      assert.equal(value.bytes.readUInt32LE(descriptor + 8), uncompressedSize);
+      assert.equal(descriptor + 12,
+        index + 1 < entries.length ? value.offsets[index + 1].localOffset : value.centralOffset);
+      if (index === 0) assert.equal(compressedSize, uncompressedSize);
+    }
   }
+});
+
+test("positive control accepts descriptor-bit local headers with matching populated CRC and sizes", () => {
+  const name = "commit.txt";
+  const plain = Buffer.from(name + "\n");
+  const size = plain.length;
+  const entries = expectedMembers.map((member, index) => index === 0
+    ? {
+      name: member,
+      method: 0,
+      flags: 0x0808,
+      localCrc: crc32(plain),
+      localCompressedSize: size,
+      localUncompressedSize: size,
+    }
+    : { name: member, method: 8, flags: 0x0808 });
+  const result = verify(fixture(entries));
+  assert.equal(result.files.get(name).toString(), "commit.txt\n");
 });
 
 test("positive controls decode CP437 names without EFS and UTF-8 names with EFS", () => {
@@ -297,6 +336,35 @@ test("positive control accepts a well-formed extended timestamp extra field", ()
   const field = extraField(0x5455, timestamp);
   const entries = expectedMembers.map((name, index) => index === 0
     ? { name, extraLocal: field, extraCentral: field }
+    : { name });
+  assert.equal(verify(fixture(entries)).files.size, expectedMembers.length);
+});
+
+test("positive controls accept local mtime, atime and ctime with a matching central mtime", () => {
+  const localTime = Buffer.alloc(13);
+  localTime[0] = 0x07;
+  localTime.writeUInt32LE(1700000000, 1);
+  localTime.writeUInt32LE(1700000001, 5);
+  localTime.writeUInt32LE(1700000002, 9);
+  const centralTime = Buffer.alloc(5);
+  centralTime[0] = 0x01;
+  centralTime.writeUInt32LE(1700000000, 1);
+  const entries = expectedMembers.map((name, index) => index === 0
+    ? { name, extraLocal: extraField(0x5455, localTime), extraCentral: extraField(0x5455, centralTime) }
+    : { name });
+  assert.equal(verify(fixture(entries)).files.size, expectedMembers.length);
+});
+
+test("positive control accepts local atime/ctime without a local mtime", () => {
+  const localTime = Buffer.alloc(9);
+  localTime[0] = 0x06;
+  localTime.writeUInt32LE(1700000001, 1);
+  localTime.writeUInt32LE(1700000002, 5);
+  const centralTime = Buffer.alloc(5);
+  centralTime[0] = 0x01;
+  centralTime.writeUInt32LE(1700000000, 1);
+  const entries = expectedMembers.map((name, index) => index === 0
+    ? { name, extraLocal: extraField(0x5455, localTime), extraCentral: extraField(0x5455, centralTime) }
     : { name });
   assert.equal(verify(fixture(entries)).files.size, expectedMembers.length);
 });
@@ -478,6 +546,21 @@ const semanticCases = [
     name: "local uncompressed-size mismatch is rejected independently",
     code: "ZIP_LOCAL_CENTRAL_MISMATCH",
     entries: () => replaceFirst(expectedMembers, { flags: 0x0800, localUncompressedSize: 0x1234 }),
+  },
+  {
+    name: "descriptor-bit local CRC placeholder mismatch is rejected independently",
+    code: "ZIP_LOCAL_CENTRAL_MISMATCH",
+    entries: () => replaceFirst(expectedMembers, { flags: 0x0808, localCrc: 0x12345678 }),
+  },
+  {
+    name: "descriptor-bit local compressed-size placeholder mismatch is rejected independently",
+    code: "ZIP_LOCAL_CENTRAL_MISMATCH",
+    entries: () => replaceFirst(expectedMembers, { flags: 0x0808, localCompressedSize: 0x1234 }),
+  },
+  {
+    name: "descriptor-bit local uncompressed-size placeholder mismatch is rejected independently",
+    code: "ZIP_LOCAL_CENTRAL_MISMATCH",
+    entries: () => replaceFirst(expectedMembers, { flags: 0x0808, localUncompressedSize: 0x1234 }),
   },
   {
     name: "local and central modification timestamps must agree when both are present",

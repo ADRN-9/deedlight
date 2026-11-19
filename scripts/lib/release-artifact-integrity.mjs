@@ -124,7 +124,8 @@ function parseExtraFields(bytes, start, length, location) {
     const allowedTimestampFlags = location === "central" ? 0x01 : 0x07;
     reject((flags & ~allowedTimestampFlags) === 0, "ZIP_EXTRA_FIELD_MALFORMED",
       "Extended timestamp field has unsupported flags for " + location + " header");
-    const timestampCount = Number(flags & 1) + Number(flags & 2) + Number(flags & 4);
+    const timestampCount = Number((flags & 1) !== 0)
+      + Number((flags & 2) !== 0) + Number((flags & 4) !== 0);
     reject(size === 1 + timestampCount * 4, "ZIP_EXTRA_FIELD_MALFORMED",
       "Extended timestamp field length does not match its flags");
     if ((flags & 1) !== 0) modificationTime = bytes.readUInt32LE(offset + 1);
