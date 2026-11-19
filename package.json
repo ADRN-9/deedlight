@@ -12,7 +12,8 @@
     "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
     "supabase:link": "bash scripts/guard-supabase-migration-target.sh && supabase link --project-ref \"$SUPABASE_PROJECT_REF\"",
     "supabase:push": "bash scripts/guard-supabase-linked-project.sh && supabase db push",
-    "supabase:reset": "supabase db reset"
+    "supabase:reset": "supabase db reset",
+    "test:delivery-webhook": "node --test scripts/test-delivery-webhook.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "latest",
