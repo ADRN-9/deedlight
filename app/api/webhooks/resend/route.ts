@@ -30,12 +30,12 @@ async function readBoundedBody(request: Request): Promise<string | null> {
       total += value.byteLength;
       if (total > MAX_BODY_BYTES) {
         await reader.cancel();
-        return null;
+        return { status: "too_large" };
       }
       chunks.push(value);
     }
   } catch {
-    return null;
+    return { status: "invalid" };
   }
 
   const bytes = new Uint8Array(total);
@@ -46,9 +46,9 @@ async function readBoundedBody(request: Request): Promise<string | null> {
   }
 
   try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return { status: "ok", value: new TextDecoder("utf-8", { fatal: true }).decode(bytes) };
   } catch {
-    return null;
+    return { status: "invalid" };
   }
 }
 
@@ -72,8 +72,10 @@ export async function POST(request: Request): Promise<Response> {
     return response(503);
   }
 
-  const payload = await readBoundedBody(request);
-  if (payload === null) return response(413);
+  const body = await readBoundedBody(request);
+  if (body.status === "too_large") return response(413);
+  if (body.status === "invalid") return response(400);
+  const payload = body.value;
 
   const headers = {
     id: request.headers.get("svix-id"),
