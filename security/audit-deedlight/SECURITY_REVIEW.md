@@ -51,3 +51,12 @@ The Cycle 16 corrections were committed on PR #11 and exercised in the Cycle 18 
 - Metadata privileges, Production project identity, migration-history row contents, RLS policy meaning, provider behavior, and Production deployment remain independent authorization/evidence gates.
 
 - Fixture J intentionally restores a second two-argument transport overload alongside the approved three-argument RPC. Both legacy overload checks AND the migration-023 pre-024-state assertion must be FAILED; this specific exception is pinned in fixture_expectations.json, not broadly whitelisted.
+
+
+## C165 dependency advisory remediation
+
+- The nine moderate audit findings reduced to two distinct advisory IDs: `GHSA-3g3m-2fjr-6pw4` (glob) and `GHSA-g3hv-75wg-m249` (minimatch). The original vulnerable installed nodes were `glob@13.0.7` and `minimatch@10.2.5`; nested `minimatch@3.1.5` copies were outside the affected range.
+- The candidate lock resolves `glob@14.0.2`, `minimatch@11.0.9`, and `typescript-eslint@8.73.0`. The direct TypeScript ESLint version is within the existing `eslint-config-next` range. The glob override is scoped only to `@opennextjs/cloudflare`.
+- Isolated candidate CI `44501157601` passed `npm ci`, `npm audit --audit-level=moderate` with zero vulnerabilities, and `npm ls glob minimatch typescript-eslint --all`.
+- The glob override is a deliberate major-version compatibility exception because OpenNext 1.20.17 still declares `glob: ^13.0.6`. OpenNext's actual call sites use `glob()`/`globSync()` and options retained in 14.0.2. The PR's exact-head Cloudflare packaging build remains the required compatibility test; remove the override once upstream accepts a patched compatible dependency.
+- No audit suppression, threshold weakening, forced downgrade or Production action is authorized.
