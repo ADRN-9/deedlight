@@ -32,7 +32,7 @@ create table public.delivery_provider_events (
   bounce_type text
     check (bounce_type is null or bounce_type in ('Permanent', 'Transient', 'Unknown')),
   received_at timestamptz not null default clock_timestamp(),
-  constraint delivery_provider_events_bounce_type_check
+  constraint delivery_provider_events_bounce_event_type_check
     check (
       (event_type = 'email.bounced' and bounce_type is not null)
       or (event_type <> 'email.bounced' and bounce_type is null)

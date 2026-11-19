@@ -84,7 +84,11 @@ assert(tests.includes("unknown bounce classification"));
 assert(databaseTests.includes("Duplicate provider event ID was processed twice"));
 assert(databaseTests.includes("Transient bounce incorrectly suppressed"));
 assert(databaseTests.includes("Suppressed daily recipient reached transport"));
-assert(databaseTests.includes("Suppressed weekly recipient reached transport"));
+// The weekly fixture uses a complaint event; keep this assertion tied to that exact final-gate case.
+assert(databaseTests.includes("Complained weekly recipient reached transport"),
+  "A complained weekly recipient must be blocked at the final transport gate");
+assert(databaseTests.includes("Complaint did not take precedence over a permanent bounce."),
+  "Complaint suppression must retain precedence over bounce classification");
 assert(pkg.scripts["test:delivery-webhook"] === "node --test scripts/test-delivery-webhook.mjs");
 assert(workflow.includes("node scripts/verify-delivery-provider-webhooks.mjs"));
 assert(workflow.includes("npm run test:delivery-webhook"));
