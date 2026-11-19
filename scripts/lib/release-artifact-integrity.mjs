@@ -209,11 +209,6 @@ function parseZip(bytes, expectedMembers) {
     totalMetadata += nameLength + extraLength;
     reject(totalMetadata <= MAX_TOTAL_METADATA_BYTES,
       "ZIP_RESOURCE_LIMIT", "ZIP aggregate metadata exceeds safe bounds");
-    reject(compressedSize <= MAX_ARCHIVE_BYTES && uncompressedSize <= MAX_ENTRY_BYTES,
-      "ZIP_RESOURCE_LIMIT", "ZIP member size outside safe bounds");
-    totalUncompressed += uncompressedSize;
-    reject(totalUncompressed <= MAX_TOTAL_UNCOMPRESSED,
-      "ZIP_RESOURCE_LIMIT", "ZIP expansion exceeds safe bounds");
     const nameBytes = bytes.subarray(cursor + 46, cursor + 46 + nameLength);
     const name = safeMemberName(decodeZipName(nameBytes, flags));
     reject(!files.has(name), "ZIP_DUPLICATE_MEMBER", "Duplicate ZIP member: " + name);
@@ -223,6 +218,11 @@ function parseZip(bytes, expectedMembers) {
     "ZIP64_NOT_SUPPORTED", "ZIP64 member metadata is not accepted");
     reject(versionNeeded >= (method === 8 ? 20 : 10) && versionNeeded <= 20,
       "ZIP_VERSION_UNSUPPORTED", "Unsupported ZIP version-needed value");
+    reject(compressedSize <= MAX_ARCHIVE_BYTES && uncompressedSize <= MAX_ENTRY_BYTES,
+      "ZIP_RESOURCE_LIMIT", "ZIP member size outside safe bounds");
+    totalUncompressed += uncompressedSize;
+    reject(totalUncompressed <= MAX_TOTAL_UNCOMPRESSED,
+      "ZIP_RESOURCE_LIMIT", "ZIP expansion exceeds safe bounds");
 
     const operatingSystem = madeBy >>> 8;
     const unixMode = (externalAttributes >>> 16) & 0xffff;
