@@ -142,7 +142,9 @@ test("parses permanent bounce and normalizes the recipient", () => {
       eventType: "email.bounced",
       providerEmailId: "resend_email_fixture_01",
       recipientEmail: "member@example.test",
+      providerCreatedAt: "2026-11-19T00:00:00.000Z",
       bounceType: "Permanent",
+      failureClass: null,
     },
   });
 });
@@ -219,11 +221,11 @@ test("accepts all seven lifecycle events and preserves provider event timestamps
 
 test("normalizes failed-event reasons without retaining provider diagnostics", () => {
   const cases = [
-    ["invalid_recipient", "invalid_recipient"],
-    ["api_key_invalid", "provider_authentication"],
-    ["domain_not_verified", "domain_verification"],
-    ["reached_daily_quota", "quota_exceeded"],
-    ["content_rejected", "content_rejected"],
+    ["invalid recipient address", "invalid_recipient"],
+    ["api key invalid", "provider_authentication"],
+    ["domain not verified", "domain_verification"],
+    ["daily quota reached", "quota_exceeded"],
+    ["content rejected by policy", "content_rejected"],
     ["unrecognized_provider_detail", "unknown"],
   ];
   for (const [reason, expected] of cases) {
@@ -251,12 +253,16 @@ test("rejects missing or malformed provider event timestamps", () => {
   }
 });
 
-test("failed lifecycle events require a reason and bounce metadata stays event-specific", () => {
+test("failed lifecycle events require a reason and event-specific metadata stays isolated", () => {
   assert.throws(() => parseResendProviderEvent(event("email.failed"), id));
-  assert.throws(() => parseResendProviderEvent(event("email.sent", {
-    failed: { reason: "reached_daily_quota" },
-  }), id));
-  assert.throws(() => parseResendProviderEvent(event("email.delivered", {
+  const sent = parseResendProviderEvent(event("email.sent", {
+    failed: { reason: "daily quota reached" },
+  }), id);
+  const delivered = parseResendProviderEvent(event("email.delivered", {
     bounce: { type: "Permanent" },
-  }), id));
+  }), id);
+  assert.equal(sent.status, "accepted");
+  assert.equal(delivered.status, "accepted");
+  if (sent.status === "accepted") assert.equal(sent.event.failureClass, null);
+  if (delivered.status === "accepted") assert.equal(delivered.event.bounceType, null);
 });
