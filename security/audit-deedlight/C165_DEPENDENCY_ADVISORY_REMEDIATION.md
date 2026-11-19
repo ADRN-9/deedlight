@@ -40,7 +40,16 @@ Candidate workflow: [44501157601](https://github.com/ADRN-9/deedlight/actions/ru
 - `npm ls glob minimatch typescript-eslint --all`: PASS; confirms `glob@14.0.2` (overridden), `minimatch@11.0.9`, `typescript-eslint@8.73.0`, and unaffected `minimatch@3.1.5` copies.
 - Candidate lockfile commit: `d364403d278b3e745d137f09acd00b0e1cb6f6f8`.
 
-This isolated candidate run did not execute the full application build. Exact-head PR Validation must still prove TypeScript, Next.js build, Cloudflare packaging, all database behavior jobs, and the moderate-or-higher npm audit on the PR branch.
+## Final exact-head CI evidence
+
+**Final PR head:** `64e9f6c4b16e48efdff51f009d8d4bad346f94cb`  
+**Final tree:** `80b8de6d4fc1a7f5a26fa0dd73b00114f29aea5c`
+
+- [PR Validation 44502215606](https://github.com/ADRN-9/deedlight/actions/runs/44502215606) — exact final head; **5/5 jobs PASS**. `npm ci`, dependency-resolution guard, `npm audit --audit-level=moderate` (zero vulnerabilities), TypeScript, Next.js production build, Cloudflare packaging, application security assertions and all four database behavior jobs passed.
+- [Disposable PostgreSQL 16 audit 44502215655](https://github.com/ADRN-9/deedlight/actions/runs/44502215655) — exact same head; **1/1 job PASS**, PostgreSQL 16.16, **12/12 fixtures PASS**, **22/22 Python assurance tests PASS**, and **25/25 manifest entries SHA-256 verified**. Sanitized artifact: `deedlight-catalog-audit-pg16`, ID `14517408783`, 41,701 bytes.
+- The isolated candidate workflow [44501157601](https://github.com/ADRN-9/deedlight/actions/runs/44501157601) independently passed `npm ci`, moderate-level audit and dependency-tree inspection before the lockfile was applied to PR #11.
+
+The exact-head builds demonstrate that the scoped glob 14 override is compatible with the current application and OpenNext Cloudflare build. The semver exception remains a maintenance risk until OpenNext publishes a compatible patched range; it is not an unresolved npm advisory.
 
 ## Automated regression guard
 

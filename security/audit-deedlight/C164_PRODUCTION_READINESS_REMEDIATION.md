@@ -60,3 +60,15 @@ Provider dashboard access, Cloudflare deployment/canary approval, Cron staging, 
 ## CI evidence
 
 Exact-head CI was pending when this remediation note was authored. Final PR Validation and the dedicated disposable PostgreSQL 16 workflow run IDs, exact head/tree SHA and outcomes are recorded in PR #11 after completion. A passing synthetic CI run is not Production readiness.
+
+
+## C165 follow-up — final dependency resolution
+
+C165 committed the scoped `glob@14.0.2` override for `@opennextjs/cloudflare`, direct `typescript-eslint@8.73.0`, and lockfile resolutions `minimatch@11.0.9`. The PR now enforces `npm audit --audit-level=moderate` and a lockfile-wide dependency-resolution guard. This supersedes the C164 starting-head moderate-advisory note above.
+
+Final exact head: `64e9f6c4b16e48efdff51f009d8d4bad346f94cb`; tree: `80b8de6d4fc1a7f5a26fa0dd73b00114f29aea5c`.
+
+- [PR Validation 44502215606](https://github.com/ADRN-9/deedlight/actions/runs/44502215606): 5/5 jobs PASS, zero npm audit findings, dependency guard PASS, TypeScript PASS, Next.js build PASS, Cloudflare packaging PASS, all four database behavior jobs PASS.
+- [Disposable PostgreSQL 16 audit 44502215655](https://github.com/ADRN-9/deedlight/actions/runs/44502215655): 12/12 fixtures, 22/22 Python assurance tests and 25/25 manifest entries PASS. Sanitized artifact ID `14517408783`, 41,701 bytes.
+
+The OpenNext glob override remains a scoped major-version compatibility exception because upstream `@opennextjs/cloudflare@1.20.17` declares `glob: ^13.0.6`. The actual Next.js and Cloudflare builds pass on the resolved glob 14 package. Remove the override when OpenNext publishes a semver-compatible patched dependency. This CI evidence is not Production deployment or merge authorization.
