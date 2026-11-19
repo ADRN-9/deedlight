@@ -83,6 +83,7 @@ declare
   v_inserted integer;
 begin
   if p_event_id is null or char_length(p_event_id) not between 1 and 255
+    or p_event_type is null
     or p_event_type not in ('email.bounced', 'email.complained', 'email.suppressed')
     or p_provider_email_id is null
     or char_length(p_provider_email_id) not between 1 and 255
@@ -142,8 +143,12 @@ begin
         else 'provider_suppressed'
       end,
       provider_event_id = case
-        when delivery_provider_suppressions.reason in ('complaint', 'permanent_bounce')
+        when delivery_provider_suppressions.reason = 'complaint'
           then delivery_provider_suppressions.provider_event_id
+        when excluded.reason = 'complaint' then excluded.provider_event_id
+        when delivery_provider_suppressions.reason = 'permanent_bounce'
+          then delivery_provider_suppressions.provider_event_id
+        when excluded.reason = 'permanent_bounce' then excluded.provider_event_id
         else excluded.provider_event_id
       end,
       updated_at = clock_timestamp();
