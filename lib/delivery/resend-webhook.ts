@@ -129,6 +129,9 @@ export function parseResendProviderEvent(
   }
 
   const data = recordObject(envelope.data);
+  const tags = recordObject(data?.tags);
+  if (tags?.application !== "deedlight") return { status: "ignored" };
+
   if (!data
     || typeof data.email_id !== "string"
     || data.email_id.length < 1
