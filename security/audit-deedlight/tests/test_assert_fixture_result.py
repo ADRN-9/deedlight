@@ -16,6 +16,8 @@ HEAD = module.EXPECTED["source_sha"]
 
 
 def result(key, status, actual=None):
+    if actual is None and key == "migration_history:recorded_versions":
+        actual = {"queried": False}
     return {
         "source_sha": HEAD,
         "invariant": key,

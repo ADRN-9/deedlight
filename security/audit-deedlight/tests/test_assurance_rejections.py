@@ -18,6 +18,8 @@ SOURCE_SHA = module.INVENTORY["source_sha"]
 
 
 def record(invariant: str, status: str, actual: dict | None = None) -> dict:
+    if actual is None and invariant == "migration_history:recorded_versions":
+        actual = {"queried": False}
     return {
         "source_sha": SOURCE_SHA,
         "invariant": invariant,
