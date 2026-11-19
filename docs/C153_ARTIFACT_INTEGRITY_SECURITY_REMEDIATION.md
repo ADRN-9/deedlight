@@ -39,7 +39,7 @@ The parser is intentionally narrow. It accepts Stored and Deflate only, disallow
 | 4 | Filename contains a non-canonical traversal path | `ZIP_FILENAME_NOT_CANONICAL` | One otherwise regular member name changes to a traversal path |
 | 5 | Central directory contains an unsupported extra-field ID | `ZIP_EXTRA_FIELD_UNSUPPORTED` | One well-formed extra field uses an unapproved ID |
 | 6 | Local extra-field length exceeds its available payload | `ZIP_EXTRA_FIELD_MALFORMED` | One local extra-field header declares a payload longer than its containing field |
-| 7 | Member-level ZIP64 uses sentinel local/central sizes and offsets, matching 64-bit local/central extra values, and a 64-bit descriptor | `ZIP64_EXTRA_NOT_SUPPORTED` | A structurally valid ZIP64 member fixture uses version 4.5, 32-bit sentinels, corresponding 64-bit sizes/offset and a signed ZIP64 descriptor; only ZIP64 support is outside policy |
+| 7 | Member-level ZIP64 size/offset sentinels use matching 64-bit extra values; descriptor form uses zero local size placeholders and a 64-bit descriptor | `ZIP64_EXTRA_NOT_SUPPORTED` | Two structurally valid version-4.5 forms are exercised: without a descriptor, local/central sentinels have matching 64-bit extras; with bit 3 set, local size placeholders are zero, central sentinels have 64-bit extras, and a signed 64-bit descriptor carries the sizes |
 | 8 | Archive-level ZIP64 EOCD and locator are present | `ZIP64_NOT_SUPPORTED` | A valid ZIP64 EOCD record and locator carry the true entry count, central size and offset; the legacy EOCD uses the required sentinel fields |
 | 9 | Deflate stream leaves trailing compressed bytes unconsumed | `ZIP_DEFLATE_TRAILING_DATA` | One byte is appended to the compressed member and included in all size/digest metadata |
 | 10 | Deflate stream is truncated | `ZIP_DEFLATE_INVALID` | One final compressed byte is removed and all outer size/digest metadata is resealed |
@@ -60,7 +60,7 @@ The test suite also requires:
 - A valid Stored member without a descriptor.
 - Valid Deflate members with signed and unsigned data descriptors.
 - Valid Stored members with signed and unsigned data descriptors.
-- A structurally valid ZIP64 member fixture with matching local/central ZIP64 extra values and a 64-bit descriptor, rejected specifically because ZIP64 is unsupported.
+- Structurally valid ZIP64 member fixtures both with and without descriptors: non-descriptor local/central sentinels have matching 64-bit extras; descriptor form uses zero local size placeholders, central ZIP64 extras and a signed 64-bit descriptor. Both are rejected specifically because ZIP64 is unsupported.
 - A structurally valid ZIP64 EOCD/locator fixture, rejected specifically because ZIP64 is unsupported.
 - CP437 filename decoding when EFS is clear.
 - Strict UTF-8 filename decoding when EFS is set.
