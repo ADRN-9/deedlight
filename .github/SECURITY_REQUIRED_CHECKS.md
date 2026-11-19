@@ -96,3 +96,10 @@ The gate job alone receives actions:read and contents:read permissions. All
 other jobs retain contents:read. Never use pull_request_target on untrusted
 application code. No Production deployment, provider sends, or migration
 history changes are authorized by these CI controls.
+
+## C144 — Migration 034 application/schema compatibility
+
+The validate job now checks the four-way legacy/corrected application versus pre/post-034 database matrix using exact main and C103 Git objects. It verifies the corrected member-safe Offering projection, distinct owner_feedback/moderation_note contracts, authorized admin RPC, C101 preflight/postcheck and owner-only Journey policies. It also asserts the exact historical blob identities of both 202607260007 migrations and migration 034. The aggregate release gate requires the named C144 compatibility step to succeed.
+
+The guard is source-contract evidence, not a live database or Supabase CLI migration-history test. The disposable PostgreSQL 16 job still applies the exact SQL chain with psql. Duplicate version 202607260007 remains a known CLI blocker; neither historical file is renamed or edited. Production remains NO-GO until live schema/history, cutover approvals and all exact-head checks are verified.
+
