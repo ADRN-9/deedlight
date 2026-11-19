@@ -1,0 +1,84 @@
+--- /mnt/data/deedlight_cycle16_audit_review/original/01_catalog_audit.sql	2026-11-13 12:30:33.919440290 +0000
++++ /mnt/data/deedlight_cycle16_audit_review/audited/01_catalog_audit.sql	2026-11-13 12:32:28.984872855 +0000
+@@ -126,7 +126,16 @@
+          = ARRAY['id']::name[]
+   ) THEN 'VERIFIED' ELSE 'FAILED' END::text AS status,
+   'PRIMARY KEY(id) validated'::text AS expected,
+-  pg_catalog.jsonb_build_object('required_column','id') AS actual
++  pg_catalog.jsonb_build_object('required_column','id','matching_constraint_present', EXISTS (
++    SELECT 1 FROM pg_catalog.pg_constraint con
++    JOIN rel r ON con.conrelid=r.oid
++    WHERE r.schema_name='public' AND r.rel_name='delivery_ledger'
++      AND con.contype='p' AND con.convalidated
++      AND (SELECT pg_catalog.array_agg(a.attname ORDER BY k.ordinality)
++           FROM pg_catalog.unnest(con.conkey) WITH ORDINALITY AS k(attnum,ordinality)
++           JOIN pg_catalog.pg_attribute a ON a.attrelid=r.oid AND a.attnum=k.attnum)
++         = ARRAY['id']::name[]
++  )) AS actual
+ ),
+ -- Some original CHECK constraints were generated without stable names.
+ -- Their definitions require a reviewed PG-major-specific digest manifest.
+@@ -162,6 +171,31 @@
+  FROM rel r JOIN pg_catalog.pg_policy p ON p.polrelid=r.oid
+  WHERE r.schema_name='public'
+ ),
++-- Current policy inventory is observable but without an approved manifest its
++-- completeness/semantics cannot be established from catalogs alone.
++policy_inventory_results AS (
++ SELECT 'policy_inventory:'||r.schema_name||'.'||r.rel_name AS invariant,
++   CASE WHEN r.oid IS NULL THEN 'FAILED' ELSE 'UNKNOWN' END::text AS status,
++   'compare policy names, roles and expression fingerprints with reviewed source'::text AS expected,
++   pg_catalog.jsonb_build_object('relation_present',r.oid IS NOT NULL,
++      'policy_count',count(p.oid)) AS actual
++ FROM rel r LEFT JOIN pg_catalog.pg_policy p ON p.polrelid=r.oid
++ WHERE r.schema_name='public'
++ GROUP BY r.schema_name,r.rel_name,r.oid
++),
++-- Effective service-role function access also requires schema USAGE.
++rpc_schema_usage_results AS (
++ SELECT 'rpc_schema_usage:public'::text AS invariant,
++   CASE WHEN pg_catalog.to_regrole('service_role') IS NULL THEN 'BLOCKED'
++        WHEN pg_catalog.to_regnamespace('public') IS NULL THEN 'FAILED'
++        WHEN pg_catalog.has_schema_privilege(
++          pg_catalog.to_regrole('service_role')::oid,
++          pg_catalog.to_regnamespace('public')::oid,'USAGE') THEN 'VERIFIED'
++        ELSE 'FAILED' END::text AS status,
++   'service_role has effective USAGE on schema public'::text AS expected,
++   pg_catalog.jsonb_build_object('public_present',pg_catalog.to_regnamespace('public') IS NOT NULL,
++     'service_role_present',pg_catalog.to_regrole('service_role') IS NOT NULL) AS actual
++),
+ -- Function body fingerprints are taken from exact reviewed source at the PR HEAD.
+ -- MD5 is used for accidental drift detection, NOT adversarial attestation.
+ expected_function(signature, body_md5, expected_path, access_policy) AS (VALUES
+@@ -198,9 +232,10 @@
+ ),
+ function_acl_results AS (
+  SELECT 'rpc_acl:'||signature AS invariant,
+-  CASE WHEN oid IS NULL OR pg_catalog.to_regrole('service_role') IS NULL
++  CASE WHEN pg_catalog.to_regrole('service_role') IS NULL
+       OR pg_catalog.to_regrole('authenticated') IS NULL OR pg_catalog.to_regrole('anon') IS NULL
+       THEN 'BLOCKED'
++   WHEN oid IS NULL THEN 'FAILED'
+    WHEN pg_catalog.has_function_privilege(pg_catalog.to_regrole('service_role')::oid,oid,'EXECUTE')
+     AND NOT pg_catalog.has_function_privilege(pg_catalog.to_regrole('anon')::oid,oid,'EXECUTE')
+     AND NOT pg_catalog.has_function_privilege(pg_catalog.to_regrole('authenticated')::oid,oid,'EXECUTE')
+@@ -248,9 +283,10 @@
+ ),
+ ledger_acl_results AS (
+  SELECT 'table_acl:public.delivery_ledger'::text AS invariant,
+- CASE WHEN r.oid IS NULL OR pg_catalog.to_regrole('service_role') IS NULL
++ CASE WHEN pg_catalog.to_regrole('service_role') IS NULL
+     OR pg_catalog.to_regrole('authenticated') IS NULL OR pg_catalog.to_regrole('anon') IS NULL
+      THEN 'BLOCKED'
++ WHEN r.oid IS NULL THEN 'FAILED'
+  WHEN NOT pg_catalog.has_table_privilege(pg_catalog.to_regrole('anon')::oid,r.oid,'SELECT,INSERT,UPDATE,DELETE')
+   AND NOT pg_catalog.has_table_privilege(pg_catalog.to_regrole('authenticated')::oid,r.oid,'SELECT,INSERT,UPDATE,DELETE')
+   AND pg_catalog.has_table_privilege(pg_catalog.to_regrole('service_role')::oid,r.oid,'SELECT')
+@@ -305,6 +341,7 @@
+  UNION ALL SELECT * FROM constraint_results UNION ALL SELECT * FROM unique_results
+  UNION ALL SELECT * FROM primary_key_results UNION ALL SELECT * FROM constraint_definition_results
+  UNION ALL SELECT * FROM rls_results UNION ALL SELECT * FROM policy_results
++ UNION ALL SELECT * FROM policy_inventory_results UNION ALL SELECT * FROM rpc_schema_usage_results
+  UNION ALL SELECT * FROM function_results UNION ALL SELECT * FROM function_acl_results
+  UNION ALL SELECT * FROM preference_function_results UNION ALL SELECT * FROM legacy_results
+  UNION ALL SELECT * FROM extra_transport_results UNION ALL SELECT * FROM ledger_acl_results
