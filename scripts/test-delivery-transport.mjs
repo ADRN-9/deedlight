@@ -10,6 +10,7 @@ import { createResendTransport } from "../lib/delivery/resend-transport.ts";
 import { processClaimedDelivery } from "../lib/delivery/run-delivery.ts";
 import {
   DAILY_DELIVERY_CRON,
+  deliveryScheduleKind,
   enqueueWeeklyWithMonitoring,
   runScheduledDelivery,
 } from "../lib/delivery/scheduler.ts";
@@ -379,4 +380,128 @@ test("weekly scheduler error logs expose only a stable code and issue week", asy
     5000,
     () => { throw new Error("Unexpected logging on success."); },
   ), 5000);
+});
+
+
+test("Resend provider failures classify timeout, throttling, server errors and conflicts", async () => {
+  const config = { apiKey: "x", fromEmail: "x@y.com", siteOrigin: "https://example.com" };
+  for (const status of [408, 429, 500, 502, 503]) {
+    const transport = createResendTransport(config, async () => new Response("", { status }));
+    assert.deepEqual(
+      await transport.send(job, { email: "a@b.com" }),
+      { status: "temporary_failure", errorCode: `provider_http_${status}` },
+    );
+  }
+  for (const status of [400, 401, 403, 404]) {
+    const transport = createResendTransport(config, async () => new Response("", { status }));
+    assert.deepEqual(
+      await transport.send(job, { email: "a@b.com" }),
+      { status: "permanent_failure", errorCode: `provider_http_${status}` },
+    );
+  }
+  const conflict = createResendTransport(config, async () =>
+    new Response(JSON.stringify({ name: "concurrent_idempotent_requests" }), { status: 409 }));
+  assert.deepEqual(
+    await conflict.send(job, { email: "a@b.com" }),
+    { status: "temporary_failure", errorCode: "provider_idempotency_in_progress" },
+  );
+  const conflictMismatch = createResendTransport(config, async () =>
+    new Response(JSON.stringify({ name: "invalid_idempotency_key" }), { status: 409 }));
+  assert.deepEqual(
+    await conflictMismatch.send(job, { email: "a@b.com" }),
+    { status: "permanent_failure", errorCode: "provider_idempotency_conflict" },
+  );
+  const malformedConflict = createResendTransport(config, async () =>
+    new Response("not-json", { status: 409 }));
+  assert.deepEqual(
+    await malformedConflict.send(job, { email: "a@b.com" }),
+    { status: "temporary_failure", errorCode: "provider_idempotency_in_progress" },
+  );
+});
+
+test("Resend network and timeout errors are retryable without leaking provider text", async () => {
+  const config = { apiKey: "x", fromEmail: "x@y.com", siteOrigin: "https://example.com" };
+  const timeout = createResendTransport(config, async () => {
+    throw Object.assign(new Error("private provider response"), { name: "TimeoutError" });
+  });
+  assert.deepEqual(
+    await timeout.send(job, { email: "a@b.com" }),
+    { status: "temporary_failure", errorCode: "provider_timeout" },
+  );
+  const network = createResendTransport(config, async () => {
+    throw new Error("secret response body");
+  });
+  assert.deepEqual(
+    await network.send(job, { email: "a@b.com" }),
+    { status: "temporary_failure", errorCode: "provider_network_error" },
+  );
+});
+
+test("ambiguous successful provider responses remain retryable", async () => {
+  const config = { apiKey: "x", fromEmail: "x@y.com", siteOrigin: "https://example.com" };
+  for (const response of [
+    new Response("not-json", { status: 200 }),
+    new Response(JSON.stringify({}), { status: 200 }),
+    new Response(JSON.stringify({ id: "x".repeat(256) }), { status: 200 }),
+  ]) {
+    const transport = createResendTransport(config, async () => response);
+    assert.deepEqual(
+      await transport.send(job, { email: "a@b.com" }),
+      { status: "temporary_failure", errorCode: "provider_ambiguous_response" },
+    );
+  }
+});
+
+test("provider idempotency key remains stable across retry attempts", async () => {
+  const keys = [];
+  const transport = createResendTransport(
+    { apiKey: "x", fromEmail: "x@y.com", siteOrigin: "https://example.com" },
+    async (_url, init) => {
+      keys.push(init.headers["Idempotency-Key"]);
+      return new Response(JSON.stringify({ id: "same-provider-id" }), { status: 200 });
+    },
+  );
+  await transport.send(job, { email: "a@b.com" });
+  await transport.send(job, { email: "a@b.com" });
+  assert.deepEqual(keys, [
+    `deedlight/${job.kind}/${job.jobId}`,
+    `deedlight/${job.kind}/${job.jobId}`,
+  ]);
+});
+
+test("provider safety horizon refuses retries at the boundary but allows retries before it", async () => {
+  const { gateway: boundaryGateway, events: boundaryEvents } = fakeGateway({
+    firstTransportAt: new Date(fixedNow.getTime() - (23 * 60 * 60 * 1000 - 5 * 60 * 1000)),
+  });
+  let boundarySends = 0;
+  const boundary = await processClaimedDelivery({
+    job,
+    gateway: boundaryGateway,
+    recipientResolver: { async resolve() { return { email: "a@b.com" }; } },
+    transport: { async send() { boundarySends += 1; return { status: "temporary_failure", errorCode: "provider_timeout" }; } },
+    clock: fixedClock,
+  });
+  assert.equal(boundary, "failed");
+  assert.equal(boundarySends, 1);
+  assert(boundaryEvents.includes("failed:provider_idempotency_window_expired"));
+
+  const { gateway: safeGateway, events: safeEvents } = fakeGateway({
+    firstTransportAt: new Date(fixedNow.getTime() - (23 * 60 * 60 * 1000 - 5 * 60 * 1000 - 1)),
+  });
+  const safe = await processClaimedDelivery({
+    job,
+    gateway: safeGateway,
+    recipientResolver: { async resolve() { return { email: "a@b.com" }; } },
+    transport: { async send() { return { status: "temporary_failure", errorCode: "provider_timeout" }; } },
+    clock: fixedClock,
+  });
+  assert.equal(safe, "retried");
+  assert(safeEvents.some((event) => event.startsWith("retry:provider_timeout")));
+});
+
+test("daily and Weekly Goodness schedules have separate exact routing", () => {
+  assert.equal(deliveryScheduleKind("*/5 * * * *"), "daily");
+  assert.equal(deliveryScheduleKind("0 16 * * 1"), "weekly");
+  assert.equal(deliveryScheduleKind("0 16 * * *"), null);
+  assert.equal(deliveryScheduleKind("*/5 * * * * "), null);
 });
