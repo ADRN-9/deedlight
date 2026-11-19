@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync, lstatSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync, lstatSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
+import {
+  downloadArtifactArchive,
+  verifyArtifactArchive,
+  verifyExtractedArtifactDirectory,
+  extractVerifiedArtifactFiles,
+} from "./lib/release-artifact-integrity.mjs";
 
 const requiredJobs = [
   "validate",
@@ -51,6 +57,40 @@ const requiredFiles = {
   ],
 };
 
+const baseArchiveMembers = ["commit.txt", "receipt.json", "result.txt", "tree.txt"];
+const archiveMembers = {
+  validate: [...baseArchiveMembers, "npm-audit.json", "dependency-audit-summary.txt"],
+  sprint12_2_database_behavior: [...baseArchiveMembers],
+  delivery_reliability_database_behavior: [...baseArchiveMembers],
+  gentle_delivery_transport_database_behavior: [...baseArchiveMembers],
+  auth_pgcrypto_database_behavior: [...baseArchiveMembers],
+  delivery_migration_order_database_behavior: [...baseArchiveMembers],
+  release_privacy_pg16: [...baseArchiveMembers, "bootstrap.log", "inventory.txt",
+    "migration-summary.txt", "migrations.log", "postgres-version.txt", "privacy.log"],
+  release_action_privacy: [...baseArchiveMembers, "app-privacy.log", "inventory.txt"],
+  release_provider_pg16: [...baseArchiveMembers, "post033-019-030.log", "post033-031.log",
+    "c77-post033.log", "post033-032.log", "post033-033.log", "provider-019-030.log",
+    "provider-031.log", "provider-032.log", "provider-033.log",
+    "provider-classification.log", "provider-result.txt", "version.txt"],
+  release_consent_races: [...baseArchiveMembers,
+    "c76-kind-logs/concurrency-result.txt", "c76-kind-logs/daily-transaction.log",
+    "c76-kind-logs/kind-and-lease-regressions.log", "c76-kind-logs/synthetic-setup.log",
+    "c76-kind-logs/weekly-transaction.log", "c77-race-logs/assertions.log",
+    "c77-race-logs/bounce-writer.log", "c77-race-logs/complaint-final.log",
+    "c77-race-logs/complaint-writer.log", "c77-race-logs/conflict-final.log",
+    "c77-race-logs/conflict-writer.log", "c77-race-logs/consent-final.log",
+    "c77-race-logs/consent-setup.log", "c77-race-logs/daily-claim-writer.log",
+    "c77-race-logs/daily-revocation.log", "c77-race-logs/removal-writer.log",
+    "c77-race-logs/result.txt", "c77-race-logs/setup.log",
+    "c77-race-logs/weekly-claim-writer.log", "c77-race-logs/weekly-revocation.log"],
+  release_webhook_http: [...baseArchiveMembers,
+    "202611130031_c74_legacy_lifecycle_guard.sql.log",
+    "202611130032_c75_monotone_recipient_conflict_hold.sql.log",
+    "202611130033_c76_provider_classification_and_suppression.sql.log",
+    "http-019-030.log", "provider-contract.log", "route-http.log",
+    "signed-webhooks.log", "source-contract.log"],
+};
+
 const mandatorySteps = {
   validate: [
     "C144 migration 034 compatibility and duplicate-prefix guard",
@@ -82,6 +122,7 @@ const mandatorySteps = {
 const env = process.env;
 const root = resolve(env.EVIDENCE_ROOT ?? "release-downloaded");
 const platformRoot = resolve(env.PLATFORM_METADATA_DIR ?? "release-platform");
+const archiveRoot = resolve(env.ARCHIVE_ROOT ?? "release-archives");
 const sha = env.EXPECTED_SHA;
 const tree = env.EXPECTED_TREE;
 const runId = env.EXPECTED_RUN_ID;
@@ -143,7 +184,10 @@ const platformArtifacts = readJson(join(platformRoot, "artifacts.json"));
 assert.equal(platformAttempt.id, Number(runId), "Platform run ID mismatch");
 assert.equal(platformAttempt.run_attempt, attempt, "Platform attempt mismatch");
 assert.equal(platformAttempt.head_sha, sha, "Platform head commit mismatch");
+assert.equal(platformAttempt.name, "PR Validation", "Unexpected workflow identity");
+assert.equal(platformAttempt.path, ".github/workflows/pr-validation.yml", "Unexpected workflow path");
 assert.equal(platformAttempt.repository?.full_name, repo);
+assert.equal(platformAttempt.head_repository?.full_name, repo, "Workflow head repository mismatch");
 const runStart = validTime(platformAttempt.run_started_at, "platform attempt start");
 assert.equal(platformJobs.total_count, 12, "Unexpected attempt job count");
 assert.equal(platformJobs.jobs?.length, 12, "Incomplete attempt job API response");
@@ -212,7 +256,10 @@ for (const item of platformArtifacts.artifacts) {
   assert.ok(item.size_in_bytes > 0);
   assert.match(item.digest ?? "", /^sha256:[a-f0-9]{64}$/);
   assert.equal(item.workflow_run?.id, Number(runId));
+  assert.equal(item.workflow_run?.repository_id, platformAttempt.repository?.id);
+  assert.equal(item.workflow_run?.head_repository_id, platformAttempt.repository?.id);
   assert.equal(item.workflow_run?.head_sha, sha);
+  assert.equal(item.workflow_run?.head_branch, platformAttempt.head_branch);
   const name = requiredJobs.find((job) =>
     item.name === "release-evidence-" + job + "-run-" + runId + "-attempt-" + attemptRaw);
   assert.ok(name, "Unrecognized platform artifact name");
@@ -227,14 +274,54 @@ for (const item of platformArtifacts.artifacts) {
   platformByName.set(item.name, item);
 }
 
-exactStringSet(readdirSync(root), expectedNames, "Downloaded artifact directory names");
+mkdirSync(root, { recursive: true });
+assert.ok(lstatSync(root).isDirectory() && !lstatSync(root).isSymbolicLink(),
+  "Unsafe extracted evidence root");
+mkdirSync(archiveRoot, { recursive: true });
+assert.ok(lstatSync(archiveRoot).isDirectory() && !lstatSync(archiveRoot).isSymbolicLink(),
+  "Unsafe raw artifact archive directory");
 const hashes = {};
 const recorded = [];
+const archiveIds = new Set();
 for (const job of requiredJobs) {
   const artifactName = "release-evidence-" + job + "-run-" + runId + "-attempt-" + attemptRaw;
   const dir = join(root, artifactName);
-  assert.ok(lstatSync(dir).isDirectory() && !lstatSync(dir).isSymbolicLink(),
-    "Unsafe evidence directory");
+  const platformArtifact = platformByName.get(artifactName);
+  assert.ok(platformArtifact, "Missing authoritative artifact metadata for " + job);
+  const archivePath = join(archiveRoot, String(platformArtifact.id) + ".zip");
+  let archiveBytes;
+  if (existsSync(archivePath)) {
+    archiveBytes = readBytes(archivePath);
+  } else {
+    archiveBytes = await downloadArtifactArchive({
+      repository: repo,
+      artifactId: platformArtifact.id,
+      token: env.GH_TOKEN ?? env.GITHUB_TOKEN,
+    });
+    writeFileSync(archivePath, archiveBytes, { flag: "wx", mode: 0o600 });
+  }
+  const verifiedArchive = verifyArtifactArchive({
+    bytes: archiveBytes,
+    artifact: platformArtifact,
+    expected: {
+      artifactId: platformArtifact.id,
+      artifactName,
+      repository: repo,
+      repositoryId: platformAttempt.repository.id,
+      runId: Number(runId),
+      headSha: sha,
+      headBranch: platformAttempt.head_branch,
+    },
+    expectedMembers: archiveMembers[job],
+  });
+  if (existsSync(dir)) {
+    assert.ok(lstatSync(dir).isDirectory() && !lstatSync(dir).isSymbolicLink(),
+      "Unsafe evidence directory");
+    verifyExtractedArtifactDirectory(dir, verifiedArchive.files);
+  } else {
+    extractVerifiedArtifactFiles(dir, verifiedArchive.files);
+  }
+  archiveIds.add(String(platformArtifact.id) + ".zip");
   const expectedReceipt = {
     version: 1,
     repository: repo,
@@ -258,12 +345,19 @@ for (const job of requiredJobs) {
     hashes[job + "/" + file] = createHash("sha256").update(bytes).digest("hex");
   }
   recorded.push({
-    job, artifact_id: platformByName.get(artifactName).id,
-    artifact_name: artifactName,
-    artifact_digest: platformByName.get(artifactName).digest,
+    job,
+    artifact_id: verifiedArchive.artifact_id,
+    artifact_name: verifiedArchive.artifact_name,
+    artifact_digest: verifiedArchive.artifact_digest,
+    artifact_sha256: verifiedArchive.artifact_sha256,
+    artifact_size_bytes: verifiedArchive.artifact_size_bytes,
+    archive_members: verifiedArchive.archive_members,
+    archive_verified: true,
     job_id: jobByName.get(job).id, run_id: runId, run_attempt: attempt,
   });
 }
+exactStringSet(readdirSync(root), expectedNames, "Verified extracted artifact directory names");
+exactStringSet(readdirSync(archiveRoot), [...archiveIds], "Downloaded raw artifact archive identities");
 
 const pathFor = (job, file) => join(root,
   "release-evidence-" + job + "-run-" + runId + "-attempt-" + attemptRaw, file);
@@ -358,6 +452,7 @@ writeFileSync("release-security-gate-manifest.json", JSON.stringify({
   source_sha: sha, source_tree: tree, repository: repo,
   run_id: runId, run_attempt: attempt,
   trusted_platform_job_count: platformJobs.total_count,
+  artifact_integrity: "SHA256_AND_ZIP_CONTENTS_VERIFIED",
   verified: recorded, inspected_sha256: hashes,
 }, null, 2) + "\n");
 console.log("RELEASE_SECURITY_GATE_PASS 11/11 current-attempt GitHub jobs and artifacts; " +

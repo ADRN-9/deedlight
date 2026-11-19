@@ -888,16 +888,14 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" > release-platform/attempt.json
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" > release-platform/jobs.json
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?per_page=100" > release-platform/artifacts.json
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          pattern: release-evidence-*-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
-          path: release-downloaded/
       - name: Fail closed on missing, failed, skipped or cancelled jobs and invalid artifacts
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           node scripts/verify-release-security-gate.mjs
-          node --test scripts/test-release-security-gate.mjs
+          node --test scripts/test-release-artifact-integrity.mjs scripts/test-release-security-gate.mjs
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

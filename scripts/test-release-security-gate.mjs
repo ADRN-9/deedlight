@@ -10,6 +10,7 @@ import test from "node:test";
 
 const rootEvidence = resolve("release-downloaded");
 const rootPlatform = resolve("release-platform");
+const rootArchives = resolve("release-archives");
 const baselineNeeds = JSON.parse(process.env.NEEDS_JSON ?? "{}");
 const runId = process.env.EXPECTED_RUN_ID;
 const runAttempt = process.env.EXPECTED_RUN_ATTEMPT;
@@ -31,8 +32,10 @@ function expectGate(description, mutate = () => {}, mustPass = false) {
   try {
     const evidence = join(work, "evidence");
     const platform = join(work, "platform");
+    const archives = join(work, "archives");
     cpSync(rootEvidence, evidence, { recursive: true });
     cpSync(rootPlatform, platform, { recursive: true });
+    cpSync(rootArchives, archives, { recursive: true });
     const needs = structuredClone(baselineNeeds);
     const context = {
       evidence, platform, needs,
@@ -40,10 +43,18 @@ function expectGate(description, mutate = () => {}, mustPass = false) {
         ...process.env,
         EVIDENCE_ROOT: evidence,
         PLATFORM_METADATA_DIR: platform,
+        ARCHIVE_ROOT: archives,
+        GH_TOKEN: "",
         NEEDS_JSON: JSON.stringify(needs),
       },
       receipt(job) { return join(evidence, prefix(job), "receipt.json"); },
       artifact(job, file) { return join(evidence, prefix(job), file); },
+      artifactZip(job) {
+        const metadata = readJson(join(platform, "artifacts.json"));
+        const item = metadata.artifacts.find((x) => x.name === prefix(job));
+        assert.ok(item, "Missing artifact metadata for test job " + job);
+        return join(archives, String(item.id) + ".zip");
+      },
       artifactMetadata() { return join(platform, "artifacts.json"); },
       jobsMetadata() { return join(platform, "jobs.json"); },
       attemptMetadata() { return join(platform, "attempt.json"); },
@@ -241,6 +252,81 @@ test("wrong trusted artifact run identity fails", () => {
   expectGate("platform artifact workflow run mismatch", (ctx) => {
     editPlatform(ctx, "artifacts.json", x => {
       x.artifacts.find(a => a.name === providerName).workflow_run.id = Number(runId) + 1;
+    });
+  });
+});
+
+test("wrong canonical workflow name fails", () => {
+  expectGate("wrong workflow name", (ctx) => {
+    editPlatform(ctx, "attempt.json", x => { x.name = "Other Workflow"; });
+  });
+});
+test("wrong canonical workflow path fails", () => {
+  expectGate("wrong workflow path", (ctx) => {
+    editPlatform(ctx, "attempt.json", x => { x.path = ".github/workflows/other.yml"; });
+  });
+});
+test("wrong workflow head repository fails", () => {
+  expectGate("wrong workflow head repository", (ctx) => {
+    editPlatform(ctx, "attempt.json", x => { x.head_repository.full_name = "fork/deedlight"; });
+  });
+});
+
+test("artifact SHA-256 metadata mismatch fails", () => {
+  expectGate("artifact digest mismatch", (ctx) => {
+    editPlatform(ctx, "artifacts.json", x => {
+      x.artifacts.find(a => a.name === providerName).digest = "sha256:" + "0".repeat(64);
+    });
+  });
+});
+test("artifact byte tampering fails before release PASS", () => {
+  expectGate("tampered raw ZIP bytes", (ctx) => {
+    const path = ctx.artifactZip("release_provider_pg16");
+    const bytes = readFileSync(path);
+    bytes[bytes.length - 1] ^= 1;
+    writeFileSync(path, bytes);
+  });
+});
+test("artifact ID without its corresponding downloaded archive fails", () => {
+  expectGate("wrong artifact ID", (ctx) => {
+    editPlatform(ctx, "artifacts.json", x => {
+      x.artifacts.find(a => a.name === providerName).id += 900000;
+    });
+  });
+});
+test("duplicate GitHub artifact IDs fail", () => {
+  expectGate("duplicate artifact IDs", (ctx) => {
+    editPlatform(ctx, "artifacts.json", x => {
+      x.artifacts.find(a => a.name === providerName).id =
+        x.artifacts.find(a => a.name === privacyName).id;
+    });
+  });
+});
+test("artifact from another repository fails", () => {
+  expectGate("wrong artifact repository ID", (ctx) => {
+    editPlatform(ctx, "artifacts.json", x => {
+      x.artifacts.find(a => a.name === providerName).workflow_run.repository_id += 1;
+    });
+  });
+});
+test("artifact from a fork fails", () => {
+  expectGate("wrong artifact head repository ID", (ctx) => {
+    editPlatform(ctx, "artifacts.json", x => {
+      x.artifacts.find(a => a.name === providerName).workflow_run.head_repository_id += 1;
+    });
+  });
+});
+test("artifact from a different source commit fails", () => {
+  expectGate("wrong artifact source SHA", (ctx) => {
+    editPlatform(ctx, "artifacts.json", x => {
+      x.artifacts.find(a => a.name === providerName).workflow_run.head_sha = "0".repeat(40);
+    });
+  });
+});
+test("artifact from a different source branch fails", () => {
+  expectGate("wrong artifact source branch", (ctx) => {
+    editPlatform(ctx, "artifacts.json", x => {
+      x.artifacts.find(a => a.name === providerName).workflow_run.head_branch += "-other";
     });
   });
 });
