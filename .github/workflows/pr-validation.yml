@@ -377,3 +377,6 @@ jobs:
             --dbname deedlight_webhook_test \
             --file scripts/test-delivery-provider-webhooks.sql
 
+      - name: Provider webhook concurrency behavior
+        run: bash scripts/test-delivery-provider-webhook-concurrency.sh
+

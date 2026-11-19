@@ -122,12 +122,14 @@ export async function POST(request: Request): Promise<Response> {
     },
   });
 
-  const { error } = await client.rpc("record_delivery_provider_event", {
+  const { error } = await client.rpc("record_delivery_provider_lifecycle_event", {
     p_event_id: result.event.eventId,
     p_event_type: result.event.eventType,
     p_provider_email_id: result.event.providerEmailId,
     p_recipient_email: result.event.recipientEmail,
+    p_provider_created_at: result.event.providerCreatedAt,
     p_bounce_type: result.event.bounceType,
+    p_failure_class: result.event.failureClass,
   });
 
   if (error) return response(503);

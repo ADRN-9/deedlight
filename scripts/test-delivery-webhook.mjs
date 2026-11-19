@@ -172,7 +172,7 @@ test("complaints and provider suppressions are recognized", () => {
 });
 
 test("unknown event types and other application tags are ignored", () => {
-  assert.deepEqual(parseResendProviderEvent(event("email.delivered"), id), { status: "ignored" });
+  assert.deepEqual(parseResendProviderEvent(event("email.opened"), id), { status: "ignored" });
   const otherApp = event("email.complained", {
     tags: { application: "another-app" },
   });
@@ -195,4 +195,68 @@ test("unknown bounce classification is preserved for fail-closed suppression", (
   const parsed = parseResendProviderEvent(event("email.bounced"), id);
   assert.equal(parsed.status, "accepted");
   if (parsed.status === "accepted") assert.equal(parsed.event.bounceType, "Unknown");
+});
+
+test("accepts all seven lifecycle events and preserves provider event timestamps", () => {
+  const cases = [
+    ["email.sent", {}],
+    ["email.delivered", {}],
+    ["email.delivery_delayed", {}],
+    ["email.bounced", { bounce: { type: "Permanent" } }],
+    ["email.complained", {}],
+    ["email.suppressed", {}],
+    ["email.failed", { failed: { reason: "reached_daily_quota" } }],
+  ];
+  for (const [type, data] of cases) {
+    const parsed = parseResendProviderEvent(event(type, data), id);
+    assert.equal(parsed.status, "accepted", type);
+    if (parsed.status === "accepted") {
+      assert.equal(parsed.event.eventType, type);
+      assert.equal(parsed.event.providerCreatedAt, "2026-11-19T00:00:00.000Z");
+    }
+  }
+});
+
+test("normalizes failed-event reasons without retaining provider diagnostics", () => {
+  const cases = [
+    ["invalid_recipient", "invalid_recipient"],
+    ["api_key_invalid", "provider_authentication"],
+    ["domain_not_verified", "domain_verification"],
+    ["reached_daily_quota", "quota_exceeded"],
+    ["content_rejected", "content_rejected"],
+    ["unrecognized_provider_detail", "unknown"],
+  ];
+  for (const [reason, expected] of cases) {
+    const parsed = parseResendProviderEvent(event("email.failed", {
+      failed: { reason },
+    }), id);
+    assert.equal(parsed.status, "accepted");
+    if (parsed.status === "accepted") {
+      assert.equal(parsed.event.failureClass, expected);
+      assert.equal(JSON.stringify(parsed).includes(reason), false);
+    }
+  }
+});
+
+test("rejects missing or malformed provider event timestamps", () => {
+  for (const createdAt of [
+    undefined,
+    "not-a-timestamp",
+    "2026-11-19",
+    "2026-02-30T00:00:00Z",
+  ]) {
+    const payload = event("email.sent");
+    payload.created_at = createdAt;
+    assert.throws(() => parseResendProviderEvent(payload, id));
+  }
+});
+
+test("failed lifecycle events require a reason and bounce metadata stays event-specific", () => {
+  assert.throws(() => parseResendProviderEvent(event("email.failed"), id));
+  assert.throws(() => parseResendProviderEvent(event("email.sent", {
+    failed: { reason: "reached_daily_quota" },
+  }), id));
+  assert.throws(() => parseResendProviderEvent(event("email.delivered", {
+    bounce: { type: "Permanent" },
+  }), id));
 });

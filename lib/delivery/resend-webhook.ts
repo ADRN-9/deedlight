@@ -6,12 +6,31 @@ export type ResendWebhookHeaders = {
 
 export type ResendBounceType = "Permanent" | "Transient" | "Unknown";
 
+export type ResendLifecycleEventType =
+  | "email.sent"
+  | "email.delivered"
+  | "email.delivery_delayed"
+  | "email.bounced"
+  | "email.complained"
+  | "email.suppressed"
+  | "email.failed";
+
+export type ResendFailureClass =
+  | "invalid_recipient"
+  | "provider_authentication"
+  | "domain_verification"
+  | "quota_exceeded"
+  | "content_rejected"
+  | "unknown";
+
 export type ResendProviderEvent = {
   eventId: string;
-  eventType: "email.bounced" | "email.complained" | "email.suppressed";
+  eventType: ResendLifecycleEventType;
   providerEmailId: string;
   recipientEmail: string;
+  providerCreatedAt: string;
   bounceType: ResendBounceType | null;
+  failureClass: ResendFailureClass | null;
 };
 
 export type ResendWebhookParseResult =
@@ -84,7 +103,7 @@ export async function verifyResendWebhookSignature(input: {
       false,
       ["verify"],
     );
-    const signedPayload = new TextEncoder().encode(`${id}.${timestamp}.${payload}`);
+    const signedPayload = new TextEncoder().encode(id + "." + timestamp + "." + payload);
 
     for (const candidate of candidates) {
       if (await crypto.subtle.verify("HMAC", key, candidate, signedPayload)) return true;
@@ -111,6 +130,66 @@ function normalizedEmail(value: unknown): string | null {
   return email;
 }
 
+function normalizedProviderTimestamp(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:Z|[+-](\d{2}):(\d{2}))$/i);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  const offsetHour = Number(match[7] ?? 0);
+  const offsetMinute = Number(match[8] ?? 0);
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const monthDays = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+  if (month < 1 || month > 12
+    || day < 1 || day > monthDays[month - 1]
+    || hour > 23 || minute > 59 || second > 59
+    || offsetHour > 23 || offsetMinute > 59) {
+    return null;
+  }
+
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return null;
+  return new Date(timestamp).toISOString();
+}
+
+export function normalizeFailureClass(value: unknown): ResendFailureClass {
+  if (typeof value !== "string" || value.length > 256) return "unknown";
+  const reason = value.trim().toLowerCase();
+
+  if (/(invalid[_\s-]*(recipient|email)|recipient[_\s-]*invalid|email[_\s-]*invalid)/.test(reason)) {
+    return "invalid_recipient";
+  }
+  if (/(api[_\s-]*key|auth|credential|unauthori[sz]ed|forbidden)/.test(reason)) {
+    return "provider_authentication";
+  }
+  if (/(domain.*(verify|verification|verified)|not[_\s-]*verified)/.test(reason)) {
+    return "domain_verification";
+  }
+  if (/(quota|rate[_\s-]*limit|daily[_\s-]*limit)/.test(reason)) {
+    return "quota_exceeded";
+  }
+  if (/(content|policy|spam|blocked)/.test(reason)) {
+    return "content_rejected";
+  }
+  return "unknown";
+}
+
+const LIFECYCLE_EVENT_TYPES = new Set<ResendLifecycleEventType>([
+  "email.sent",
+  "email.delivered",
+  "email.delivery_delayed",
+  "email.bounced",
+  "email.complained",
+  "email.suppressed",
+  "email.failed",
+]);
+
 export function parseResendProviderEvent(
   value: unknown,
   eventId: string,
@@ -120,11 +199,7 @@ export function parseResendProviderEvent(
     throw new Error("Invalid Resend webhook payload.");
   }
 
-  if (
-    envelope.type !== "email.bounced"
-    && envelope.type !== "email.complained"
-    && envelope.type !== "email.suppressed"
-  ) {
+  if (!LIFECYCLE_EVENT_TYPES.has(envelope.type as ResendLifecycleEventType)) {
     return { status: "ignored" };
   }
 
@@ -144,6 +219,9 @@ export function parseResendProviderEvent(
   const recipientEmail = normalizedEmail(data.to[0]);
   if (!recipientEmail) throw new Error("Invalid Resend recipient.");
 
+  const providerCreatedAt = normalizedProviderTimestamp(envelope.created_at);
+  if (!providerCreatedAt) throw new Error("Invalid Resend provider timestamp.");
+
   let bounceType: ResendBounceType | null = null;
   if (envelope.type === "email.bounced") {
     const bounce = recordObject(data.bounce);
@@ -151,14 +229,25 @@ export function parseResendProviderEvent(
     bounceType = rawType === "Permanent" || rawType === "Transient" ? rawType : "Unknown";
   }
 
+  let failureClass: ResendFailureClass | null = null;
+  if (envelope.type === "email.failed") {
+    const failed = recordObject(data.failed);
+    if (typeof failed?.reason !== "string" || failed.reason.trim().length === 0) {
+      throw new Error("Invalid Resend failure event.");
+    }
+    failureClass = normalizeFailureClass(failed.reason);
+  }
+
   return {
     status: "accepted",
     event: {
       eventId,
-      eventType: envelope.type,
+      eventType: envelope.type as ResendLifecycleEventType,
       providerEmailId: data.email_id,
       recipientEmail,
+      providerCreatedAt,
       bounceType,
+      failureClass,
     },
   };
 }

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 
 const read = (path) => readFileSync(path, "utf8");
 const migration = read("supabase/migrations/202611190025_delivery_provider_webhooks.sql");
+const lifecycleMigration = read("supabase/migrations/202611190026_delivery_provider_lifecycle.sql");
 const aggregate = read("supabase/run_in_sql_editor_all.sql");
 const route = read("app/api/webhooks/resend/route.ts");
 const parser = read("lib/delivery/resend-webhook.ts");
@@ -12,38 +13,56 @@ const tests = read("scripts/test-delivery-webhook.mjs");
 const routeTests = read("scripts/test-delivery-webhook-route.mjs");
 const transportTests = read("scripts/test-delivery-transport.mjs");
 const databaseTests = read("scripts/test-delivery-provider-webhooks.sql");
+const concurrencyTests = read("scripts/test-delivery-provider-webhook-concurrency.sh");
 const workflow = read(".github/workflows/pr-validation.yml");
 const pkg = JSON.parse(read("package.json"));
 
-assert(aggregate.includes(migration.trim()), "Migration 025 must be mirrored in the SQL Editor aggregate");
+assert(aggregate.includes(migration.trim()), "Migration 025 must remain mirrored in the SQL Editor aggregate");
+assert(aggregate.includes(lifecycleMigration.trim()), "Migration 026 must be mirrored verbatim in the SQL Editor aggregate");
+
 for (const name of [
   "delivery_provider_events",
   "delivery_provider_suppressions",
   "record_delivery_provider_event",
-]) assert(migration.includes(name), `Missing provider webhook object: ${name}`);
+]) assert(migration.includes(name), "Migration 025 provider suppression objects must remain intact");
 
-assert(/alter table public\.delivery_provider_events enable row level security/i.test(migration));
-assert(/alter table public\.delivery_provider_suppressions enable row level security/i.test(migration));
-assert(/revoke all privileges on table public\.delivery_provider_events\s+from public, anon, authenticated, service_role/i.test(migration));
-assert(/revoke all privileges on table public\.delivery_provider_suppressions\s+from public, anon, authenticated, service_role/i.test(migration));
-assert(/revoke all privileges\s+on function public\.record_delivery_provider_event\(text, text, text, text, text\)\s+from public, anon, authenticated/i.test(migration));
-assert(/grant execute\s+on function public\.record_delivery_provider_event\(text, text, text, text, text\)\s+to service_role/i.test(migration));
-assert(migration.includes("on conflict (event_id) do nothing"), "Provider event IDs must deduplicate replays");
-assert(migration.includes("email.bounced") && migration.includes("email.complained") && migration.includes("email.suppressed"));
-assert(migration.includes("p_bounce_type <> 'Transient'"), "Unknown/permanent bounce events must fail closed");
-assert(migration.includes("when excluded.reason = 'complaint' then 'complaint'"), "Complaints must outrank bounce reasons");
+const eventTypes = [
+  "email.sent",
+  "email.delivered",
+  "email.delivery_delayed",
+  "email.bounced",
+  "email.complained",
+  "email.suppressed",
+  "email.failed",
+];
+for (const type of eventTypes) {
+  assert(lifecycleMigration.includes(type), "Missing lifecycle event type: " + type);
+  assert(parser.includes('"' + type + '"'), "Parser missing lifecycle event type: " + type);
+}
+assert(/add column provider_created_at timestamptz/i.test(lifecycleMigration));
+assert(/add column failure_class text/i.test(lifecycleMigration));
+assert(/create table public\.delivery_provider_lifecycle/i.test(lifecycleMigration));
+assert(/received_at timestamptz not null/i.test(lifecycleMigration));
+assert(/revoke all privileges on table public\.delivery_provider_lifecycle\s+from public, anon, authenticated, service_role/i.test(lifecycleMigration));
+assert(/alter table public\.delivery_provider_lifecycle enable row level security/i.test(lifecycleMigration));
+assert(/grant execute\s+on function public\.record_delivery_provider_lifecycle_event[\s\S]*?to service_role/i.test(lifecycleMigration));
+assert(/revoke all privileges\s+on function public\.record_delivery_provider_lifecycle_event[\s\S]*?from public, anon, authenticated/i.test(lifecycleMigration));
+assert(lifecycleMigration.includes("pg_advisory_xact_lock(20261119, hashtext(v_email))"));
+assert(lifecycleMigration.includes("pg_advisory_xact_lock(20261126, hashtext(p_provider_email_id))"));
+assert(lifecycleMigration.includes("on conflict (event_id) do nothing"));
+assert(lifecycleMigration.includes("create or replace function public.record_delivery_provider_event"));
+assert(lifecycleMigration.includes("clock_timestamp()"));
+assert(lifecycleMigration.includes("when excluded.reason = 'complaint' then 'complaint'"));
+assert(lifecycleMigration.includes("greatest("));
+assert(lifecycleMigration.includes("excluded.status_rank > delivery_provider_lifecycle.status_rank"));
+assert(lifecycleMigration.includes("(excluded.provider_created_at, excluded.event_id)"));
+assert(!/raw_payload|diagnostic_code|diagnostic_message|failure_reason|provider_error/i.test(lifecycleMigration));
 
-const record = migration.split("create or replace function public.record_delivery_provider_event")[1]
+const lifecycleFunction = lifecycleMigration
+  .split("create or replace function public.record_delivery_provider_lifecycle_event")[1]
   .split("\n$$;")[0];
-const transportGate = migration.split("create or replace function public.begin_delivery_transport")[1]
-  .split("\n$$;")[0];
-assert(record.includes("pg_advisory_xact_lock(20261119, hashtext(v_email))"));
-assert(transportGate.includes("pg_advisory_xact_lock(20261119, hashtext(v_email))"),
-  "Provider suppression and final transport must share the address lock");
-assert(transportGate.includes("delivery_provider_suppressions"));
-assert(migration.includes("delivery_provider_suppressions s"), "Both enqueue paths must exclude suppressed addresses");
-assert(/revoke all privileges\s+on function public\.begin_delivery_transport\(uuid, uuid, text\)\s+from public, anon, authenticated/i.test(migration));
-assert(/grant execute\s+on function public\.begin_delivery_transport\(uuid, uuid, text\)\s+to service_role/i.test(migration));
+assert(!/delivery_ledger|enqueue_|retry_delivery_job|claim_delivery_jobs|begin_delivery_transport|resend\.com|send_email/i.test(lifecycleFunction),
+  "Lifecycle intake must never mutate queue/claim/retry state or send mail");
 
 for (const value of [
   "svix-id",
@@ -52,15 +71,17 @@ for (const value of [
   "request.body.getReader()",
   "MAX_BODY_BYTES",
   "verifyResendWebhookSignature",
-  "record_delivery_provider_event",
+  "record_delivery_provider_lifecycle_event",
   "RESEND_WEBHOOK_SECRET",
   "SUPABASE_SERVICE_ROLE_KEY",
-]) assert(route.includes(value), `Webhook route missing security boundary: ${value}`);
-assert(!route.includes("DELIVERY_ENABLED"), "Inbound suppression processing must remain available while outbound delivery is disabled");
+]) assert(route.includes(value), "Webhook route missing security boundary: " + value);
+assert(!route.includes("DELIVERY_ENABLED"), "Inbound lifecycle intake must remain available while outbound delivery is disabled");
 assert(!route.includes("console.log") && !route.includes("console.error"), "Webhook route must not log recipient or provider payload data");
 assert(!route.includes("NEXT_PUBLIC_RESEND_WEBHOOK_SECRET"));
-assert(route.includes('if (!/^[0-9]+$/.test(contentLength))'),
-  "Content-Length validation must accept decimal digits without regex escaping");
+assert(route.includes('if (!/^[0-9]+$/.test(contentLength))'));
+assert(route.includes("p_provider_created_at"));
+assert(route.includes("p_failure_class"));
+
 for (const value of [
   "accepts numeric Content-Length and a valid Svix signature",
   "accepts a valid Svix signature without Content-Length",
@@ -70,44 +91,51 @@ for (const value of [
   "rejects invalid signatures without invoking the database",
   "acknowledges replay attempts while preserving event-id idempotency",
   "returns 503 when provider-event persistence fails",
-]) assert(routeTests.includes(value), `Missing HTTP route regression test: ${value}`);
-
+  "persists all seven lifecycle event types through one database RPC and never sends email",
+]) assert(routeTests.includes(value), "Missing HTTP route regression test: " + value);
 
 for (const value of [
   "crypto.subtle.verify",
   "whsec_",
   "SIGNATURE_TOLERANCE_SECONDS = 300",
-  "${id}.${timestamp}.${payload}",
-  "application !== \"deedlight\"",
+  "email.sent",
+  "email.delivered",
+  "email.delivery_delayed",
   "email.bounced",
   "email.complained",
   "email.suppressed",
-  "Transient",
-  "Unknown",
-]) assert(parser.includes(value), `Webhook parser missing security behavior: ${value}`);
+  "email.failed",
+  "providerCreatedAt",
+  "normalizeFailureClass",
+  "quota_exceeded",
+]) assert(parser.includes(value), "Webhook parser missing behavior: " + value);
 
 assert(transport.includes('tags: [{ name: "application", value: "deedlight" }]'));
 assert(scheduler.includes("deliveryScheduleKind"));
 assert(transportTests.includes("provider_http_408") || transportTests.includes("[408, 429, 500, 502, 503]"));
 assert(transportTests.includes("provider_idempotency_conflict"));
 assert(transportTests.includes("provider_idempotency_window_expired"));
-assert(tests.includes("rejects stale and future timestamps"));
-assert(tests.includes("modified payloads"));
-assert(tests.includes("complaints and provider suppressions"));
-assert(tests.includes("unknown bounce classification"));
-assert(databaseTests.includes("Duplicate provider event ID was processed twice"));
+assert(tests.includes("accepts all seven lifecycle events"));
+assert(tests.includes("normalizes failed-event reasons without retaining provider diagnostics"));
+assert(tests.includes("rejects missing or malformed provider event timestamps"));
+assert(databaseTests.includes("Duplicate provider event ID was processed twice."));
 assert(databaseTests.includes("Transient bounce incorrectly suppressed"));
 assert(databaseTests.includes("Suppressed daily recipient reached transport"));
-// The weekly fixture uses a complaint event; keep this assertion tied to that exact final-gate case.
-assert(databaseTests.includes("Complained weekly recipient reached transport"),
-  "A complained weekly recipient must be blocked at the final transport gate");
-assert(databaseTests.includes("Complaint did not take precedence over a permanent bounce."),
-  "Complaint suppression must retain precedence over bounce classification");
+assert(databaseTests.includes("Complained weekly recipient reached transport"));
+assert(databaseTests.includes("Complaint did not take precedence over a permanent bounce."));
+assert(databaseTests.includes("Out-of-order event regressed delivered lifecycle evidence."));
+assert(databaseTests.includes("Lifecycle webhook mutated delivery queue, claim or retry state."));
+assert(databaseTests.includes("Provider lifecycle projection is directly readable."));
+assert(concurrencyTests.includes("Concurrent duplicate event idempotency"));
+assert(concurrencyTests.includes("Concurrent out-of-order lifecycle monotonicity"));
+assert(concurrencyTests.includes("Shared suppression-first transport authorization"));
+assert(concurrencyTests.includes("Shared transport-first suppression ordering"));
 assert(pkg.scripts["test:delivery-webhook"] === "node --test scripts/test-delivery-webhook.mjs scripts/test-delivery-webhook-route.mjs");
 assert(workflow.includes("node scripts/verify-delivery-provider-webhooks.mjs"));
 assert(workflow.includes("npm run test:delivery-webhook"));
 assert(workflow.includes("delivery_provider_webhook_database_behavior"));
 assert(workflow.includes("scripts/test-delivery-provider-webhooks.sql"));
-assert(workflow.includes('test -z "${RESEND_WEBHOOK_SECRET:-}"'));
+assert(workflow.includes("scripts/test-delivery-provider-webhook-concurrency.sh"));
+assert(workflow.includes('test -z "' + "$" + '{RESEND_WEBHOOK_SECRET:-}"'));
 
-console.log("Resend webhook authenticity, replay, suppression and privacy assertions: PASS");
+console.log("Resend webhook authenticity, seven-event lifecycle, ordering, suppression and privacy assertions: PASS");

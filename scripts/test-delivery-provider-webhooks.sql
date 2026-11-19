@@ -1,6 +1,7 @@
 \set ON_ERROR_STOP on
 \ir test-delivery-consent-gates.sql
 \ir ../supabase/migrations/202611190025_delivery_provider_webhooks.sql
+\ir ../supabase/migrations/202611190026_delivery_provider_lifecycle.sql
 
 -- Synthetic local-only users; no provider sends or Production data.
 update public.daily_reminder_preferences set daily_enabled = false;
@@ -225,6 +226,199 @@ begin
 end;
 $$;
 
+
+-- Snapshot the entire queue ledger: provider lifecycle intake must never mutate it.
+create temporary table delivery_ledger_lifecycle_snapshot as
+select id, to_jsonb(dl) as row_data
+from public.delivery_ledger dl;
+
+set role service_role;
+do $lifecycle$
+begin
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_order_sent', 'email.sent', 'resend-order-20001',
+    'lifecycle-order@example.test', '2027-03-01T10:00:00Z', null, null
+  ) is not true then raise exception 'email.sent was not recorded.'; end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_order_delayed', 'email.delivery_delayed', 'resend-order-20001',
+    'lifecycle-order@example.test', '2027-03-01T10:05:00Z', null, null
+  ) is not true then raise exception 'email.delivery_delayed was not recorded.'; end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_order_delivered', 'email.delivered', 'resend-order-20001',
+    'lifecycle-order@example.test', '2027-03-01T10:10:00Z', null, null
+  ) is not true then raise exception 'email.delivered was not recorded.'; end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_order_delayed_old', 'email.delivery_delayed', 'resend-order-20001',
+    'lifecycle-order@example.test', '2027-03-01T10:04:00Z', null, null
+  ) is not true then raise exception 'Out-of-order delayed event was not retained.'; end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_failed_quota', 'email.failed', 'resend-failed-20002',
+    'lifecycle-failed@example.test', '2027-03-01T10:11:00Z', null, 'quota_exceeded'
+  ) is not true then raise exception 'email.failed was not recorded.'; end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_precedence_bounce', 'email.bounced', 'resend-precedence-20003',
+    'lifecycle-precedence@example.test', '2027-03-01T10:00:00Z', 'Permanent', null
+  ) is not true then raise exception 'Lifecycle permanent bounce was not recorded.'; end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_precedence_complaint', 'email.complained', 'resend-precedence-20003',
+    'lifecycle-precedence@example.test', '2027-03-01T10:01:00Z', null, null
+  ) is not true then raise exception 'Lifecycle complaint was not recorded.'; end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_precedence_bounce_late', 'email.bounced', 'resend-precedence-20003',
+    'lifecycle-precedence@example.test', '2027-03-01T10:02:00Z', 'Permanent', null
+  ) is not true then raise exception 'Late lifecycle bounce was not recorded.'; end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_provider_suppressed', 'email.suppressed', 'resend-suppressed-20004',
+    'lifecycle-suppressed@example.test', '2027-03-01T10:12:00Z', null, null
+  ) is not true then raise exception 'email.suppressed was not recorded.'; end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_transient_bounce', 'email.bounced', 'resend-transient-20005',
+    'lifecycle-transient@example.test', '2027-03-01T10:13:00Z', 'Transient', null
+  ) is not true then raise exception 'Transient lifecycle bounce was not recorded.'; end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_order_delayed_old', 'email.complained', 'resend-order-20001',
+    'lifecycle-order@example.test', '2027-03-01T10:14:00Z', null, null
+  ) is not false then raise exception 'Lifecycle replay was not idempotent.'; end if;
+
+  begin
+    perform public.record_delivery_provider_lifecycle_event(
+      'evt_provider_id_wrong_recipient', 'email.sent', 'resend-order-20001',
+      'different-recipient@example.test', '2027-03-01T10:15:00Z', null, null
+    );
+    raise exception 'Provider email ID was accepted for a different recipient.';
+  exception when sqlstate '22023' then
+    null;
+  end;
+end;
+$lifecycle$;
+reset role;
+
+do $lifecycle$
+begin
+  if (select status from public.delivery_provider_lifecycle
+      where provider_email_id = 'resend-order-20001') <> 'email.delivered' then
+    raise exception 'Out-of-order event regressed delivered lifecycle evidence.';
+  end if;
+  if not exists (
+    select 1 from public.delivery_provider_lifecycle l
+    join public.delivery_provider_events e using (event_id)
+    where l.provider_email_id = 'resend-order-20001'
+      and l.status = 'email.delivered'
+      and l.event_id = 'evt_order_delivered'
+      and l.provider_created_at = '2027-03-01T10:10:00Z'::timestamptz
+      and l.received_at = e.received_at
+      and e.provider_created_at = '2027-03-01T10:10:00Z'::timestamptz
+      and e.received_at <= clock_timestamp()
+  ) then
+    raise exception 'Provider and database receipt timestamps were not preserved.';
+  end if;
+  if (select count(*) from public.delivery_provider_events
+      where provider_email_id = 'resend-order-20001') <> 4 then
+    raise exception 'Lifecycle history did not retain all unique out-of-order events.';
+  end if;
+  if not exists (
+    select 1 from public.delivery_provider_lifecycle
+    where provider_email_id = 'resend-failed-20002'
+      and status = 'email.failed'
+      and failure_class = 'quota_exceeded'
+  ) then
+    raise exception 'Normalized email.failed classification was not persisted.';
+  end if;
+  if (select status from public.delivery_provider_lifecycle
+      where provider_email_id = 'resend-precedence-20003') <> 'email.complained' then
+    raise exception 'Complaint lifecycle evidence was regressed by a later bounce.';
+  end if;
+  if (select reason from public.delivery_provider_suppressions
+      where recipient_email = 'lifecycle-precedence@example.test') <> 'complaint' then
+    raise exception 'Complaint did not retain precedence over later permanent bounce.';
+  end if;
+  if not exists (
+    select 1 from public.delivery_provider_lifecycle
+    where provider_email_id = 'resend-suppressed-20004'
+      and status = 'email.suppressed'
+  ) or not exists (
+    select 1 from public.delivery_provider_suppressions
+    where recipient_email = 'lifecycle-suppressed@example.test'
+      and reason = 'provider_suppressed'
+  ) then
+    raise exception 'Provider suppression lifecycle was not persisted.';
+  end if;
+  if not exists (
+    select 1 from public.delivery_provider_lifecycle
+    where provider_email_id = 'resend-transient-20005'
+      and status = 'email.bounced'
+  ) then
+    raise exception 'Transient bounce lifecycle evidence was not persisted.';
+  end if;
+  if exists (select 1 from public.delivery_provider_suppressions
+      where recipient_email in (
+        'lifecycle-transient@example.test',
+        'lifecycle-failed@example.test',
+        'lifecycle-order@example.test'
+      )) then
+    raise exception 'Informational, transient or failed lifecycle events incorrectly suppressed recipients.';
+  end if;
+  if exists (select 1 from public.delivery_provider_suppressions
+      where recipient_email = 'different-recipient@example.test') then
+    raise exception 'Provider email ID mismatch created an unintended suppression.';
+  end if;
+  if exists (
+    select id, row_data from delivery_ledger_lifecycle_snapshot
+    except
+    select id, to_jsonb(dl) from public.delivery_ledger dl
+  ) or exists (
+    select id, to_jsonb(dl) from public.delivery_ledger dl
+    except
+    select id, row_data from delivery_ledger_lifecycle_snapshot
+  ) then
+    raise exception 'Lifecycle webhook mutated delivery queue, claim or retry state.';
+  end if;
+  if has_table_privilege('anon','public.delivery_provider_lifecycle','SELECT')
+    or has_table_privilege('authenticated','public.delivery_provider_lifecycle','SELECT')
+    or has_table_privilege('service_role','public.delivery_provider_lifecycle','SELECT') then
+    raise exception 'Provider lifecycle projection is directly readable.';
+  end if;
+  if not (select relrowsecurity from pg_class where oid='public.delivery_provider_lifecycle'::regclass) then
+    raise exception 'Provider lifecycle projection must retain RLS.';
+  end if;
+  if has_function_privilege('anon',
+       'public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text)','EXECUTE')
+    or has_function_privilege('authenticated',
+       'public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text)','EXECUTE')
+    or not has_function_privilege('service_role',
+       'public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text)','EXECUTE') then
+    raise exception 'Provider lifecycle RPC grants regressed.';
+  end if;
+  if exists (
+    select 1 from pg_attribute
+    where attrelid = 'public.delivery_provider_lifecycle'::regclass
+      and attnum > 0 and not attisdropped
+      and attname = 'recipient_email'
+  ) or exists (
+    select 1 from pg_attribute
+    where attrelid in (
+        'public.delivery_provider_lifecycle'::regclass,
+        'public.delivery_provider_events'::regclass
+      )
+      and attnum > 0 and not attisdropped
+      and attname in ('raw_payload', 'diagnostic_code', 'diagnostic_message',
+                      'failure_reason', 'provider_error')
+  ) then
+    raise exception 'Provider lifecycle storage contains private recipient or raw diagnostic fields.';
+  end if;
+end;
+$lifecycle$;
+
 select jsonb_build_object(
   'provider_event_dedupe','pass',
   'permanent_bounce_suppression','pass',
@@ -233,5 +427,12 @@ select jsonb_build_object(
   'unknown_bounce_fail_closed','pass',
   'daily_weekly_enqueue_exclusion','pass',
   'final_transport_gate','pass',
-  'private_table_and_rpc_grants','pass'
+  'private_table_and_rpc_grants','pass',
+  'seven_event_lifecycle_persistence','pass',
+  'provider_and_receipt_timestamps','pass',
+  'out_of_order_evidence_monotonicity','pass',
+  'normalized_failure_classification','pass',
+  'complaint_precedence','pass',
+  'no_queue_or_retry_mutation','pass',
+  'lifecycle_projection_privacy','pass'
 ) as delivery_provider_webhook_behavior;

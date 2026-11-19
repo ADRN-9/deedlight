@@ -26,6 +26,18 @@ function eventPayload() {
   });
 }
 
+function lifecyclePayload(type) {
+  const payload = JSON.parse(eventPayload());
+  payload.type = type;
+  if (type === "email.failed") {
+    delete payload.data.bounce;
+    payload.data.failed = { reason: "reached_daily_quota" };
+  } else if (type !== "email.bounced") {
+    delete payload.data.bounce;
+  }
+  return JSON.stringify(payload);
+}
+
 function signedHeaders(payload, eventId = "msg_route_fixture_01") {
   const timestamp = String(Math.floor(Date.now() / 1000));
   const signature = createHmac("sha256", secretBytes)
@@ -101,7 +113,7 @@ test("accepts numeric Content-Length and a valid Svix signature", async () => {
 
   assert.equal(response.status, 204);
   assert.equal(calls.length, 1);
-  assert.match(calls[0].url, /\/rest\/v1\/rpc\/record_delivery_provider_event$/);
+  assert.match(calls[0].url, /\/rest\/v1\/rpc\/record_delivery_provider_lifecycle_event$/);
   assert.equal(calls[0].method, "POST");
   assert.equal(JSON.parse(calls[0].body).p_event_id, "msg_route_fixture_01");
 });
@@ -171,4 +183,35 @@ test("returns 503 when provider-event persistence fails", async () => {
   assert.equal(response.status, 503);
   assert.equal(calls.length, 1);
   assert.equal(await response.text(), "");
+});
+
+test("persists all seven lifecycle event types through one database RPC and never sends email", async () => {
+  const types = [
+    "email.sent",
+    "email.delivered",
+    "email.delivery_delayed",
+    "email.bounced",
+    "email.complained",
+    "email.suppressed",
+    "email.failed",
+  ];
+
+  for (const type of types) {
+    const { response, calls } = await invoke(lifecyclePayload(type), {
+      eventId: "msg_route_" + type.replaceAll(".", "_"),
+    });
+    assert.equal(response.status, 204, type);
+    assert.equal(calls.length, 1, type);
+    assert.ok(calls[0].url.endsWith("/rest/v1/rpc/record_delivery_provider_lifecycle_event"));
+    assert.equal(calls[0].url.includes("/emails"), false);
+
+    const body = JSON.parse(calls[0].body);
+    assert.equal(body.p_event_type, type);
+    assert.equal(body.p_provider_created_at, "2026-11-19T00:00:00.000Z");
+    if (type === "email.failed") {
+      assert.equal(body.p_failure_class, "quota_exceeded");
+      assert.equal(body.p_failure_reason, undefined);
+      assert.equal(calls[0].body.includes("reached_daily_quota"), false);
+    }
+  }
 });
