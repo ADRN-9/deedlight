@@ -189,7 +189,9 @@ GitHub Actions [PR Validation run 44486362831](https://github.com/ADRN-9/deedlig
 - New timestamp controls cover local mtime/atime/ctime, one-sided mtime, and mtime mismatch rejection.
 - TypeScript, Next.js build, Cloudflare packaging, dependency audit, database behavior, privacy, provider/webhook and consent-race jobs: PASS.
 
-This run is the exact code/test commit validation. A subsequent documentation and test-label-only commit receives its own final exact-head run; the final PR handoff records that run and independently recomputed artifact digests separately from the workflow's own verifier.
+The final documentation/test-label candidate was `c24519d83514c863b566c5db96884fbbdec54b8b`, tree `8136d2430e6f83c06279da17cce3edfd981c4549`. Its exact-head [PR Validation run 44487394819](https://github.com/ADRN-9/deedlight/actions/runs/44487394819) completed successfully: 12/12 jobs, 80/80 Node tests, TypeScript, Next.js build, Cloudflare packaging and dependency audit PASS. The final release gate reported 11/11 current-attempt producer artifacts, 64/64 SQL and 19/19 application assertions, plus provider/webhook/race contracts verified.
+
+The final run's 11 producer artifacts and release manifest were separately downloaded. All 12 ZIPs passed archive integrity checks; recomputed byte lengths and SHA-256 digests matched GitHub metadata. Each producer receipt independently identified this repository, run 44487394819, attempt 1, source commit `c24519d83514c863b566c5db96884fbbdec54b8b` and tree `8136d2430e6f83c06279da17cce3edfd981c4549`; all producer result files were `PASS`. The manifest is artifact `14510679561`, 4,153 bytes, SHA-256 `8c2b2689e348389ce9db1131382c23f6c6611a6404664b376f87a95f2e121b88`. The complete per-artifact ID/size/digest table is retained in PR #12. This independent byte-level verification is separate from the in-CI release gate.
 
 ## PR #10 / #11 separation and integration status (reconfirmed 2026-11-19)
 
