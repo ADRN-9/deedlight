@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import {
   parseResendProviderEvent,
   verifyResendWebhookSignature,
-} from "@/lib/delivery/resend-webhook";
+} from "../../../../lib/delivery/resend-webhook.ts";
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -19,7 +19,7 @@ function response(status: number) {
 async function readBoundedBody(request: Request): Promise<BodyReadResult> {
   const contentLength = request.headers.get("content-length");
   if (contentLength !== null) {
-    if (!/^\\d+$/.test(contentLength)) return { status: "invalid" };
+    if (!/^[0-9]+$/.test(contentLength)) return { status: "invalid" };
     if (Number(contentLength) > MAX_BODY_BYTES) return { status: "too_large" };
   }
 

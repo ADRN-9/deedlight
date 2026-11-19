@@ -9,6 +9,7 @@ const parser = read("lib/delivery/resend-webhook.ts");
 const transport = read("lib/delivery/resend-transport.ts");
 const scheduler = read("lib/delivery/scheduler.ts");
 const tests = read("scripts/test-delivery-webhook.mjs");
+const routeTests = read("scripts/test-delivery-webhook-route.mjs");
 const transportTests = read("scripts/test-delivery-transport.mjs");
 const databaseTests = read("scripts/test-delivery-provider-webhooks.sql");
 const workflow = read(".github/workflows/pr-validation.yml");
@@ -58,6 +59,19 @@ for (const value of [
 assert(!route.includes("DELIVERY_ENABLED"), "Inbound suppression processing must remain available while outbound delivery is disabled");
 assert(!route.includes("console.log") && !route.includes("console.error"), "Webhook route must not log recipient or provider payload data");
 assert(!route.includes("NEXT_PUBLIC_RESEND_WEBHOOK_SECRET"));
+assert(route.includes('if (!/^[0-9]+$/.test(contentLength))'),
+  "Content-Length validation must accept decimal digits without regex escaping");
+for (const value of [
+  "accepts numeric Content-Length and a valid Svix signature",
+  "accepts a valid Svix signature without Content-Length",
+  "rejects malformed Content-Length before signature verification",
+  "rejects oversized declared Content-Length before reading the body",
+  "rejects oversized streamed request bodies without Content-Length",
+  "rejects invalid signatures without invoking the database",
+  "acknowledges replay attempts while preserving event-id idempotency",
+  "returns 503 when provider-event persistence fails",
+]) assert(routeTests.includes(value), `Missing HTTP route regression test: ${value}`);
+
 
 for (const value of [
   "crypto.subtle.verify",
@@ -89,7 +103,7 @@ assert(databaseTests.includes("Complained weekly recipient reached transport"),
   "A complained weekly recipient must be blocked at the final transport gate");
 assert(databaseTests.includes("Complaint did not take precedence over a permanent bounce."),
   "Complaint suppression must retain precedence over bounce classification");
-assert(pkg.scripts["test:delivery-webhook"] === "node --test scripts/test-delivery-webhook.mjs");
+assert(pkg.scripts["test:delivery-webhook"] === "node --test scripts/test-delivery-webhook.mjs scripts/test-delivery-webhook-route.mjs");
 assert(workflow.includes("node scripts/verify-delivery-provider-webhooks.mjs"));
 assert(workflow.includes("npm run test:delivery-webhook"));
 assert(workflow.includes("delivery_provider_webhook_database_behavior"));

@@ -13,7 +13,7 @@
     "supabase:link": "bash scripts/guard-supabase-migration-target.sh && supabase link --project-ref \"$SUPABASE_PROJECT_REF\"",
     "supabase:push": "bash scripts/guard-supabase-linked-project.sh && supabase db push",
     "supabase:reset": "supabase db reset",
-    "test:delivery-webhook": "node --test scripts/test-delivery-webhook.mjs"
+    "test:delivery-webhook": "node --test scripts/test-delivery-webhook.mjs scripts/test-delivery-webhook-route.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "latest",
