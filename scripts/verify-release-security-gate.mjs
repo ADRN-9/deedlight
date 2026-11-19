@@ -18,6 +18,7 @@ const requiredJobs = [
 ];
 
 const requiredFiles = {
+  validate: ["npm-audit.json", "dependency-audit-summary.txt"],
   release_privacy_pg16: [
     "postgres-version.txt", "bootstrap.log", "migrations.log",
     "migration-summary.txt", "privacy.log", "inventory.txt",
@@ -266,6 +267,15 @@ for (const job of requiredJobs) {
 
 const pathFor = (job, file) => join(root,
   "release-evidence-" + job + "-run-" + runId + "-attempt-" + attemptRaw, file);
+const dependencyAudit = readJson(pathFor("validate", "npm-audit.json"));
+const dependencyCounts = dependencyAudit.metadata?.vulnerabilities;
+assert.ok(dependencyCounts && Number.isSafeInteger(dependencyCounts.high)
+  && Number.isSafeInteger(dependencyCounts.critical),
+  "Dependency audit report is missing machine-readable vulnerability counts");
+assert.equal(dependencyCounts.high, 0, "High dependency advisories remain");
+assert.equal(dependencyCounts.critical, 0, "Critical dependency advisories remain");
+assert.match(readText(pathFor("validate", "dependency-audit-summary.txt")),
+  /DEPENDENCY_AUDIT_PASS high=0 critical=0/);
 assert.match(readText(pathFor("release_privacy_pg16", "postgres-version.txt")), /^16\./);
 assert.match(readText(pathFor("release_privacy_pg16", "inventory.txt")),
   /RELEASE_PRIVACY_INVENTORY_PASS 64\/64/);
@@ -303,6 +313,7 @@ assert.match(readText(pathFor("release_consent_races", "c76-kind-logs/concurrenc
   /C76 real two-session Daily\/Weekly claim race.*PASS/);
 hasPassJson(pathFor("release_consent_races", "c76-kind-logs/kind-and-lease-regressions.log"), [
   "stale_claim_token_rejected", "expired_lease_kind_isolation",
+  "reclaimed_lease_positive_path",
   "revoked_daily_consent_denied", "revoked_weekly_consent_denied",
   "browser_claim_privilege_denied", "concurrent_daily_weekly_claims",
   "idempotent_delivery_key_preserved",
