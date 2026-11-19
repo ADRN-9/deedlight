@@ -28,9 +28,11 @@ begin
 end;
 $$;
 
+BEGIN;
+
 -- Use a curated week not consumed by the reliability terminal fixtures.
 insert into public.weekly_goodness_features (week_start)
-values ('2026-10-26')
+values (date_trunc('week', timezone('UTC', now()))::date)
 on conflict (week_start) do nothing;
 
 set role service_role;
@@ -44,7 +46,7 @@ declare
   v_started_2 timestamptz;
 begin
   v_inserted := public.enqueue_current_weekly_goodness_if_curated(
-    '2026-10-26 16:00:00+00'::timestamptz,
+    now(),
     5000
   );
 
@@ -53,7 +55,7 @@ begin
   end if;
 
   v_inserted_again := public.enqueue_current_weekly_goodness_if_curated(
-    '2026-10-26 16:00:00+00'::timestamptz,
+    now(),
     5000
   );
 
@@ -63,8 +65,8 @@ begin
 
   select job_id, claim_token
   into v_id, v_token
-  from public.claim_delivery_jobs('2026-10-26 16:01:00+00'::timestamptz, 100)
-  where delivery_key = 'weekly:2026-10-26'
+  from public.claim_delivery_jobs(now(), 100)
+  where delivery_key = 'weekly:' || date_trunc('week', timezone('UTC', now()))::date::text
   limit 1;
 
   if v_id is null or v_token is null then
@@ -101,3 +103,5 @@ select jsonb_build_object(
   'transport_started_jobs', count(*) filter (where transport_started_at is not null)
 ) as gentle_delivery_transport_behavior
 from public.delivery_ledger;
+
+ROLLBACK;
