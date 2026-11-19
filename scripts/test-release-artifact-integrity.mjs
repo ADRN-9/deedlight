@@ -688,16 +688,13 @@ test("aggregate decompressed size accepts 64 MiB and rejects one byte over", () 
   const accepted = verify(fixture(acceptedEntries));
   assert.equal([...accepted.files.values()].reduce((sum, value) => sum + value.length, 0),
     64 * 1024 * 1024);
+  accepted.files.clear();
 
-  const rejectedEntries = Array.from({ length: 5 }, (_, index) => {
-    const claimedSize = index < 4 ? maxEntryBytes : 1;
-    return {
-      name: "member-" + index + ".txt",
-      flags: 0x0800,
-      localUncompressedSize: claimedSize,
-      centralUncompressedSize: claimedSize,
-    };
-  });
+  const rejectedEntries = Array.from({ length: 5 }, (_, index) => ({
+    name: "member-" + index + ".txt",
+    data: index < 4 ? data : Buffer.from("x"),
+    flags: 0x0800,
+  }));
   expectCode(() => verify(fixture(rejectedEntries)), "ZIP_RESOURCE_LIMIT");
 });
 
