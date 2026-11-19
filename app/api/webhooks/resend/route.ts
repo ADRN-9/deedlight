@@ -7,18 +7,22 @@ import {
 
 const MAX_BODY_BYTES = 64 * 1024;
 
+type BodyReadResult =
+  | { status: "ok"; value: string }
+  | { status: "invalid" | "too_large" };
+
 function response(status: number) {
   return new Response(null, { status });
 }
 
-async function readBoundedBody(request: Request): Promise<string | null> {
+async function readBoundedBody(request: Request): Promise<BodyReadResult> {
   const contentLength = request.headers.get("content-length");
   if (contentLength !== null) {
-    if (!/^\d+$/.test(contentLength)) return null;
-    if (Number(contentLength) > MAX_BODY_BYTES) return null;
+    if (!/^\\d+$/.test(contentLength)) return { status: "invalid" };
+    if (Number(contentLength) > MAX_BODY_BYTES) return { status: "too_large" };
   }
 
-  if (!request.body) return "";
+  if (!request.body) return { status: "ok", value: "" };
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
@@ -29,7 +33,11 @@ async function readBoundedBody(request: Request): Promise<string | null> {
       if (done) break;
       total += value.byteLength;
       if (total > MAX_BODY_BYTES) {
-        await reader.cancel();
+        try {
+          await reader.cancel();
+        } catch {
+          // The body is already rejected.
+        }
         return { status: "too_large" };
       }
       chunks.push(value);
@@ -46,7 +54,10 @@ async function readBoundedBody(request: Request): Promise<string | null> {
   }
 
   try {
-    return { status: "ok", value: new TextDecoder("utf-8", { fatal: true }).decode(bytes) };
+    return {
+      status: "ok",
+      value: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+    };
   } catch {
     return { status: "invalid" };
   }
@@ -72,10 +83,10 @@ export async function POST(request: Request): Promise<Response> {
     return response(503);
   }
 
-  const body = await readBoundedBody(request);
-  if (body.status === "too_large") return response(413);
-  if (body.status === "invalid") return response(400);
-  const payload = body.value;
+  const bodyRead = await readBoundedBody(request);
+  if (bodyRead.status === "too_large") return response(413);
+  if (bodyRead.status === "invalid") return response(400);
+  const payload = bodyRead.value;
 
   const headers = {
     id: request.headers.get("svix-id"),
@@ -86,16 +97,16 @@ export async function POST(request: Request): Promise<Response> {
     return response(401);
   }
 
-  let body: unknown;
+  let eventBody: unknown;
   try {
-    body = JSON.parse(payload);
+    eventBody = JSON.parse(payload);
   } catch {
     return response(400);
   }
 
   let result;
   try {
-    result = parseResendProviderEvent(body, headers.id ?? "");
+    result = parseResendProviderEvent(eventBody, headers.id ?? "");
   } catch {
     return response(400);
   }
