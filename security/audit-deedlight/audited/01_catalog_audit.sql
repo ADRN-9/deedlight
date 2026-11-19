@@ -329,6 +329,54 @@ prereq_023 AS (
  pg_catalog.jsonb_build_object('legacy_transport_present',pg_catalog.to_regprocedure('public.begin_delivery_transport(uuid,uuid)') IS NOT NULL,
    'recipient_bound_transport_present',pg_catalog.to_regprocedure('public.begin_delivery_transport(uuid,uuid,text)') IS NOT NULL) AS actual
 ),
+history_relation AS (
+ SELECT c.oid, c.relkind
+ FROM (
+   SELECT pg_catalog.to_regnamespace('supabase_migrations') AS namespace_oid
+ ) s
+ LEFT JOIN pg_catalog.pg_class c
+   ON c.relnamespace=s.namespace_oid
+  AND c.relname='schema_migrations'
+),
+history_shape_results AS (
+ SELECT 'migration_history:catalog_shape'::text AS invariant,
+  CASE
+   WHEN h.oid IS NULL THEN 'UNKNOWN'
+   WHEN h.relkind NOT IN ('r','p') THEN 'FAILED'
+   WHEN a.attnum IS NULL THEN 'FAILED'
+   WHEN pg_catalog.format_type(a.atttypid,a.atttypmod) <> 'text' THEN 'FAILED'
+   WHEN NOT a.attnotnull THEN 'FAILED'
+   WHEN NOT EXISTS (
+     SELECT 1 FROM pg_catalog.pg_constraint con
+     WHERE con.conrelid=h.oid
+       AND con.contype='p'
+       AND con.convalidated
+       AND con.conkey = ARRAY[a.attnum]::smallint[]
+   ) THEN 'FAILED'
+   ELSE 'VERIFIED'
+  END::text AS status,
+  'catalog only: ordinary/partitioned table, version text NOT NULL, single-column primary key; no rows queried'::text AS expected,
+  pg_catalog.jsonb_build_object(
+   'relation_present',h.oid IS NOT NULL,
+   'relation_kind',h.relkind,
+   'version_column_present',a.attnum IS NOT NULL,
+   'version_type',CASE WHEN a.attnum IS NOT NULL THEN pg_catalog.format_type(a.atttypid,a.atttypmod) ELSE NULL END,
+   'version_not_null',a.attnotnull,
+   'version_single_column_primary_key',EXISTS (
+     SELECT 1 FROM pg_catalog.pg_constraint con
+     WHERE con.conrelid=h.oid
+       AND con.contype='p'
+       AND con.convalidated
+       AND con.conkey = ARRAY[a.attnum]::smallint[]
+   )
+  ) AS actual
+ FROM history_relation h
+ LEFT JOIN pg_catalog.pg_attribute a
+   ON a.attrelid=h.oid
+  AND a.attname='version'
+  AND a.attnum>0
+  AND NOT a.attisdropped
+),
 history_results AS (
  SELECT 'migration_history:catalog_object'::text AS invariant,
   CASE WHEN pg_catalog.to_regclass('supabase_migrations.schema_migrations') IS NULL
@@ -359,7 +407,7 @@ report AS (
  UNION ALL SELECT * FROM function_results UNION ALL SELECT * FROM function_acl_results
  UNION ALL SELECT * FROM preference_function_results UNION ALL SELECT * FROM preference_source_results UNION ALL SELECT * FROM legacy_results
  UNION ALL SELECT * FROM extra_transport_results UNION ALL SELECT * FROM ledger_acl_results
- UNION ALL SELECT * FROM prereq_023 UNION ALL SELECT * FROM history_results
+ UNION ALL SELECT * FROM prereq_023 UNION ALL SELECT * FROM history_shape_results UNION ALL SELECT * FROM history_results
 )
 SELECT pg_catalog.jsonb_build_object(
  'source_sha',params.source_sha,

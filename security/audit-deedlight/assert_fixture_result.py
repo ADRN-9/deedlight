@@ -146,6 +146,9 @@ def assert_case(
 
     for invariant, row in audit.items():
         validate_record(row)
+        if invariant == "migration_history:recorded_versions":
+            if row["status"] != "UNKNOWN" or row["actual"].get("queried") is not False:
+                raise AssertionError("migration-history version rows must remain unqueried and UNKNOWN")
         if row["invariant"] != invariant:
             raise AssertionError(f"record key mismatch for {invariant}")
         approved_status = statuses.get(invariant)

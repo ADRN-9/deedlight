@@ -135,6 +135,13 @@ class AssuranceToolCLITests(unittest.TestCase):
         self.write_audit()
         self.assert_rejected()
 
+    def test_recorded_migration_versions_cannot_be_promoted_or_read(self):
+        row = next(r for r in self.records if r["invariant"] == "migration_history:recorded_versions")
+        row["status"] = "VERIFIED"
+        row["actual"] = {"queried": True, "versions": ["202609230019"]}
+        self.write_audit()
+        self.assert_rejected()
+
     def test_unrelated_denial_stderr_cannot_satisfy_restricted_fixture(self):
         fake = Path(self.temp.name) / "denial.stderr"
         fake.write_text("FATAL: could not connect to server\n", encoding="utf-8")

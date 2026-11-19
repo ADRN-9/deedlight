@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="${DEEDLIGHT_SOURCE_REPO:-}"
 SHA="c983e2ed8b93c935139c935343261570ecea6978"
 CASE="${1:-}"
-if [[ ! "$CASE" =~ ^(A|B|C|D|E|F|G|H|I|J)$ ]]; then
+if [[ ! "$CASE" =~ ^(A|B|C|D|E|F|G|H|I|J|K|L)$ ]]; then
   echo 'Specify one fixture case A-J' >&2; exit 2
 fi
 if [[ "${DEEDLIGHT_DISPOSABLE_ACK:-}" != 'I_ACCEPT_DISPOSABLE_DATABASE_DELETION' ]]; then
@@ -121,6 +121,26 @@ create function public.begin_delivery_transport(uuid,uuid)
 returns timestamptz language sql as $$ select null::timestamptz $$;
 SQL
     ;;
+  K)
+    psql_db >"$OUT/mutation.log" <<'SQL'
+create schema if not exists supabase_migrations;
+create table supabase_migrations.schema_migrations (version bigint primary key);
+insert into supabase_migrations.schema_migrations(version) values (202609230019);
+SQL
+    ;;
+  L)
+    psql_db >"$OUT/mutation.log" <<'SQL'
+create schema if not exists supabase_migrations;
+create table supabase_migrations.schema_migrations (
+  version text not null,
+  name text,
+  primary key (version, name)
+);
+insert into supabase_migrations.schema_migrations(version, name)
+values ('202609230019', 'synthetic');
+SQL
+    ;;
+
 esac
 if [[ "$CASE" == H ]]; then
   if psql_db -c 'set role anon' --file "$ROOT/audited/00_preflight.sql" >"$OUT/preflight.txt" 2>"$OUT/preflight.stderr"; then

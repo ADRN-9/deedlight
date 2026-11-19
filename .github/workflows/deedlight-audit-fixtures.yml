@@ -85,11 +85,11 @@ jobs:
           python3 -m json.tool security/audit-deedlight/invariant_inventory.json >/dev/null
           bash -n security/audit-deedlight/run_disposable_fixture.sh
 
-      - name: Execute ten isolated PostgreSQL fixtures and strict evidence checks
+      - name: Execute twelve isolated PostgreSQL fixtures and strict evidence checks
         shell: bash
         run: |
           set -euo pipefail
-          for case in A B C D E F G H I J; do
+          for case in A B C D E F G H I J K L; do
             bash security/audit-deedlight/run_disposable_fixture.sh "$case"
           done
 

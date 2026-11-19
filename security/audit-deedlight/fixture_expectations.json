@@ -3,7 +3,8 @@
   "common": {
     "production_identity:independent_project_reference": "BLOCKED",
     "schema_history:019_to_024_application_provenance": "UNKNOWN",
-    "migration_history:recorded_versions": "UNKNOWN"
+    "migration_history:recorded_versions": "UNKNOWN",
+    "migration_history:catalog_shape": "UNKNOWN"
   },
   "cases": {
     "A": {
@@ -104,11 +105,25 @@
       "assert": {}
     },
     "I": {
-      "description": "Disagreeing migration history (catalog only)",
+      "description": "Valid synthetic Supabase migration-history table; one sample row remains intentionally unqueried",
       "assert": {
         "migration_history:catalog_object": "VERIFIED",
         "migration_history:recorded_versions": "UNKNOWN",
-        "schema_history:019_to_024_application_provenance": "UNKNOWN"
+        "schema_history:019_to_024_application_provenance": "UNKNOWN",
+        "migration_history:catalog_shape": "VERIFIED"
+      },
+      "actual": {
+        "migration_history:catalog_shape": {
+          "relation_present": true,
+          "relation_kind": "r",
+          "version_column_present": true,
+          "version_type": "text",
+          "version_not_null": true,
+          "version_single_column_primary_key": true
+        },
+        "migration_history:recorded_versions": {
+          "queried": false
+        }
       }
     },
     "J": {
@@ -120,11 +135,54 @@
       "approved_negative_exceptions": {
         "migration_023:pre_024_exact_function_contract": "FAILED"
       }
+    },
+    "K": {
+      "description": "Malformed migration-history version column type",
+      "assert": {
+        "migration_history:catalog_object": "VERIFIED",
+        "migration_history:catalog_shape": "FAILED",
+        "migration_history:recorded_versions": "UNKNOWN"
+      },
+      "actual": {
+        "migration_history:catalog_shape": {
+          "relation_present": true,
+          "relation_kind": "r",
+          "version_column_present": true,
+          "version_type": "bigint",
+          "version_not_null": true,
+          "version_single_column_primary_key": true
+        },
+        "migration_history:recorded_versions": {
+          "queried": false
+        }
+      }
+    },
+    "L": {
+      "description": "Malformed migration-history composite primary key",
+      "assert": {
+        "migration_history:catalog_object": "VERIFIED",
+        "migration_history:catalog_shape": "FAILED",
+        "migration_history:recorded_versions": "UNKNOWN"
+      },
+      "actual": {
+        "migration_history:catalog_shape": {
+          "relation_present": true,
+          "relation_kind": "r",
+          "version_column_present": true,
+          "version_type": "text",
+          "version_not_null": true,
+          "version_single_column_primary_key": false
+        },
+        "migration_history:recorded_versions": {
+          "queried": false
+        }
+      }
     }
   },
   "notes": [
-    "Only the named absent/intermediate migration functions and legacy overloads are approved FAILED exceptions for B/C; no blanket exception is permitted.",
+    "Cases I, K and L validate only migration-history catalog shape. The synthetic version row is deliberately never read; recorded_versions remains UNKNOWN in every case.",
     "Common UNKNOWN/BLOCKED states are explicit in invariant_inventory.json; unexpected errors or statuses are fatal.",
+    "Only the named absent/intermediate migration functions and legacy overloads are approved FAILED exceptions for B/C; no blanket exception is permitted.",
     "The complete-schema fixture A must contain every approved deterministic invariant and no unexpected FAILED/BLOCKED security outcomes."
   ]
 }

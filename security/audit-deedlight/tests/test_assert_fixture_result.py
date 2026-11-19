@@ -27,7 +27,7 @@ def result(key, status, actual=None):
 
 class FixtureEvidenceTests(unittest.TestCase):
     def test_all_synthetic_case_expectations_are_explicit(self):
-        self.assertEqual(set(module.EXPECTED["cases"]), set("ABCDEFGHIJ"))
+        self.assertEqual(set(module.EXPECTED["cases"]), set("ABCDEFGHIJKL"))
         self.assertGreaterEqual(len(module.INVENTORY["required_invariants"]), 80)
         for case in module.EXPECTED["cases"].values():
             self.assertIn("description", case)
@@ -43,6 +43,14 @@ class FixtureEvidenceTests(unittest.TestCase):
             audit = {key: result(key, value, checks.get("actual", {}).get(key))
                      for key, value in statuses.items()}
             module.assert_case(case, pre, audit)
+
+    def test_migration_history_shape_and_row_unknown_states_are_explicit(self):
+        self.assertEqual(module._expected_statuses("A")["migration_history:catalog_shape"], "UNKNOWN")
+        self.assertEqual(module._expected_statuses("I")["migration_history:catalog_shape"], "VERIFIED")
+        self.assertEqual(module._expected_statuses("K")["migration_history:catalog_shape"], "FAILED")
+        self.assertEqual(module._expected_statuses("L")["migration_history:catalog_shape"], "FAILED")
+        for case in module.EXPECTED["cases"]:
+            self.assertEqual(module._expected_statuses(case)["migration_history:recorded_versions"], "UNKNOWN")
 
     def test_consumer_rejects_scenario_mismatch(self):
         pre = {"metadata_access_preflight": result("metadata_access_preflight", "VERIFIED", {"read_only": "on"})}

@@ -52,6 +52,11 @@ for required in (
 ):
     assert required in body, required
 
+assert "'migration_history:catalog_shape'::text" in body
+assert "'migration_history:recorded_versions'::text, 'UNKNOWN'::text" in body
+assert "'queried',false" in body
+assert not re.search(r"\b(?:FROM|JOIN)\s+supabase_migrations\.schema_migrations\b", executable, re.I)
+
 schema = json.loads((ROOT / "audit_record.schema.json").read_text())
 assert schema["properties"]["source_sha"]["const"] == HEAD
 assert schema["properties"]["status"]["enum"] == [

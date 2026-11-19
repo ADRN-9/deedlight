@@ -1,4 +1,4 @@
-# DeedLight Cycle 20 — audit safety and assurance boundary (Developer self-assessment; independent review pending)
+# DeedLight Cycle 20 / C164 — audit safety and assurance boundary (Developer self-assessment; independent review pending)
 
 Scope: audited SQL in `audited/00_preflight.sql` and `audited/01_catalog_audit.sql` only. Candidate delivery source SHA: `c983e2ed8b93c935139c935343261570ecea6978`. **Static review is not PostgreSQL execution.**
 
@@ -33,9 +33,16 @@ Scope: audited SQL in `audited/00_preflight.sql` and `audited/01_catalog_audit.s
 
 The Cycle 16 corrections were committed on PR #11 and exercised in the Cycle 18 PostgreSQL 16 workflow (run `43430078142`). They are **not** Production-verified, and the original six-file artifact remains byte-for-byte unchanged in `original/`.
 
+## C164 migration-history metadata assurance
+
+- The catalog audit now emits `migration_history:catalog_shape`: it checks only that `supabase_migrations.schema_migrations` is an ordinary/partitioned table with a `version text NOT NULL` column and a single-column primary key on that column.
+- PostgreSQL 16 fixtures I/K/L cover valid metadata, wrong version type and wrong primary-key shape. The checker requires the expected VERIFIED/FAILED classification.
+- `migration_history:recorded_versions` remains `UNKNOWN` in every fixture. The SQL does not SELECT history rows, and the assertion consumer rejects any attempt to mark them VERIFIED or set `queried=true`.
+- The catalog SQL remains `REPEATABLE READ, READ ONLY` and ends in `ROLLBACK`. Mutating setup is restricted to fresh synthetic PostgreSQL 16 databases in the guarded CI workflow. This metadata-shape test does not establish Production history contents, migration execution order or project identity.
+
 ## Cycle 20 evidence hardening
 
-- The original assertion consumer inspected only selected expected statuses. Cycle 20 pins 82 deterministic emitted invariants in `invariant_inventory.json`; missing records, duplicates, unrelated failures, schema violations, truncated SQL transactions and unapproved dynamic names now fail closed.
+- The original assertion consumer inspected only selected expected statuses. Cycle 20 pins 83 deterministic emitted invariants in `invariant_inventory.json`; missing records, duplicates, unrelated failures, schema violations, truncated SQL transactions and unapproved dynamic names now fail closed.
 - Every required result has a pinned expected status. `FAILED` or `BLOCKED` is allowed only where explicitly documented for a negative fixture. The full-schema fixture A allows only the inherently non-verified `production_identity=BLOCKED`, approved historical/provenance `UNKNOWN` records, and separately reviewed `UNKNOWN` policy/CHECK fingerprints.
 - The approved dynamic `policy:public.*` rows must remain `UNKNOWN`; a dynamic security failure is never silently ignored. Policy inventory remains `UNKNOWN`: a healthy synthetically enabled RLS flag cannot establish policy semantics or completeness.
 - `function_source:public.set_daily_reminder_preference(...)` is explicitly `UNKNOWN`, while its preexisting `function:...` result validates metadata and role permissions only. Neither result by itself verifies behavioral correspondence. A future scoped reviewer may pin a canonical digest/behavior test without changing this safety boundary.

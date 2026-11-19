@@ -53,6 +53,7 @@
     "legacy_rpc:unexpected_transport_overloads",
     "migration_023:pre_024_exact_function_contract",
     "migration_history:catalog_object",
+    "migration_history:catalog_shape",
     "migration_history:recorded_versions",
     "policy_inventory:public.daily_reminder_preferences",
     "policy_inventory:public.delivery_ledger",
@@ -102,7 +103,8 @@
     "policy_inventory:public.profiles": "UNKNOWN",
     "policy_inventory:public.weekly_goodness_features": "UNKNOWN",
     "production_identity:independent_project_reference": "BLOCKED",
-    "schema_history:019_to_024_application_provenance": "UNKNOWN"
+    "schema_history:019_to_024_application_provenance": "UNKNOWN",
+    "migration_history:catalog_shape": "UNKNOWN"
   },
   "approved_dynamic_families": [
     {
@@ -114,8 +116,9 @@
     }
   ],
   "design_notes": [
-    "Explicit inventory covers all fixed results of audited SQL, including seven named ledger CHECK constraint definition fingerprints.",
     "An approved UNKNOWN for constraint bodies, policy semantics, preference function body, migration history and Production identity is not a security approval.",
+    "Explicit inventory covers all fixed results of audited SQL, including seven named ledger CHECK constraint definition fingerprints.",
+    "Migration-history catalog shape checks relation kind and the version text NOT NULL single-column primary key; recorded version rows remain UNKNOWN and are never queried.",
     "Negative fixtures allow only explicitly documented deviations from the healthy schema. Unexpected FAILED or BLOCKED records are never ignored."
   ]
 }

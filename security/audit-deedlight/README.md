@@ -10,12 +10,12 @@ The audit SQL is `audited/00_preflight.sql` and `audited/01_catalog_audit.sql`. 
 - Checks inspect current schema, RLS enablement, constraint and policy inventory, `SECURITY DEFINER`, stored-function MD5 bodies, effective privileges, final three-argument transport RPC and absence of the legacy two-argument RPC.
 - MD5 detects accidental source drift; it is **not** a malicious-change authenticity guarantee. Policy expressions and historical migration execution are **UNKNOWN** without separately approved evidence.
 - A correctly installed 024 replaces some intermediate 023 functions and removes the old transport overload. Therefore `migration_023:pre_024_exact_function_contract=UNKNOWN` is expected after 024; final contracts are tested independently.
-- Catalog metadata cannot prove Supabase project identity. Target `xaipiovflxomcbfwtwmu` requires independent operator attestation and explicit catalog-only authorization before *any* Production inspection. `migration_history:recorded_versions=UNKNOWN` because history rows are deliberately not queried.
+- Catalog metadata cannot prove Supabase project identity. Target `xaipiovflxomcbfwtwmu` requires independent operator attestation and explicit catalog-only authorization before *any* Production inspection. `migration_history:recorded_versions=UNKNOWN` because history rows are deliberately not queried. The additional `migration_history:catalog_shape` result verifies only the `schema_migrations` relation kind and its `version text NOT NULL` single-column primary key. Cases I/K/L test valid and malformed shapes while keeping row contents UNKNOWN.
 - Browser role EXECUTE grants, unsafe search paths, missing RLS and drift must produce `FAILED`; inaccessible metadata is `BLOCKED`. Never turn an unexpected PostgreSQL error into an expected negative test.
 
 ## Reproduce disposable fixtures — PostgreSQL 16 only
 
-Use the separate GitHub Actions workflow in `.github/workflows/deedlight-audit-fixtures.yml`. It starts a fresh `postgres:16` service, refuses Production configuration, checks out the exact reviewed DeedLight commit, runs offline checks and ten synthetic PostgreSQL scenarios.
+Use the separate GitHub Actions workflow in `.github/workflows/deedlight-audit-fixtures.yml`. It starts a fresh `postgres:16` service, refuses Production configuration, checks out the exact reviewed DeedLight commit, runs offline checks and twelve synthetic PostgreSQL scenarios.
 
 **Runner safety restriction (Cycle 20):** mutating fixtures run only in the dedicated GitHub Actions job, with the exact DeedLight repository and audit branch identity, an explicit disposable acknowledgment, a single local Docker `postgres:16` service container publishing port 5432, and no unexpected libpq connection overrides. An SSH tunnel, a bare localhost port, or a manual Postgres instance is **not sufficient**. For independent reproduction, use the workflow in an approved audit branch; do not bypass its guards.
 
@@ -24,10 +24,10 @@ python3 security/audit-deedlight/original/check_package_static.py
 python3 security/audit-deedlight/audited/check_package_static.py
 python3 -m unittest discover -s security/audit-deedlight/tests -v
 # Within the dedicated approved CI job only:
-# for case in A B C D E F G H I J; do bash security/audit-deedlight/run_disposable_fixture.sh "$case"; done
+# for case in A B C D E F G H I J K L; do bash security/audit-deedlight/run_disposable_fixture.sh "$case"; done
 ```
 
-The checker validates every evidence record against `audited/audit_record.schema.json`, requires all 82 pinned deterministic invariants in `invariant_inventory.json`, rejects duplicate or malformed/truncated output, and permits only documented UNKNOWN policy-row additions. Every intentionally FAILED security exception in fixtures B/C/J is explicitly enumerated in `fixture_expectations.json`. The full-schema fixture A cannot pass with an unexpectedly missing, FAILED or BLOCKED record.
+The checker validates every evidence record against `audited/audit_record.schema.json`, requires all 83 pinned deterministic invariants in `invariant_inventory.json`, rejects duplicate or malformed/truncated output, and permits only documented UNKNOWN policy-row additions. Every intentionally FAILED security exception in fixtures B/C/J/K/L is explicitly enumerated in `fixture_expectations.json`. The full-schema fixture A cannot pass with an unexpectedly missing, FAILED or BLOCKED record.
 
 **Preference setter assurance:** `function:public.set_daily_reminder_preference(...)` verifies metadata and effective authorization only; `function_source:public.set_daily_reminder_preference(...)` is explicitly `UNKNOWN`. SECURITY DEFINER and search_path alone do not verify source/behavioral correspondence.
 
