@@ -15,6 +15,7 @@ import { join } from "node:path";
 import test from "node:test";
 import {
   ArtifactIntegrityError,
+  MAX_ARCHIVE_BYTES,
   crc32,
   downloadArtifactArchive,
   extractVerifiedArtifactFiles,
@@ -81,6 +82,7 @@ function makeZip(entries, options = {}) {
     local.writeUInt16LE(versionNeeded, 4);
     local.writeUInt16LE(localFlags, 6);
     local.writeUInt16LE(method, 8);
+    local.writeUInt32LE(entry.localDosTimestamp ?? entry.dosTimestamp ?? 0, 10);
     local.writeUInt32LE(entry.localCrc ?? (descriptor ? 0 : actualCrc), 14);
     local.writeUInt32LE(zip64 && !descriptor ? 0xffffffff : (entry.localCompressedSize ?? (descriptor ? 0 : compressed.length)), 18);
     local.writeUInt32LE(zip64 && !descriptor ? 0xffffffff : (entry.localUncompressedSize ?? (descriptor ? 0 : plain.length)), 22);
@@ -124,6 +126,7 @@ function makeZip(entries, options = {}) {
     central.writeUInt16LE(versionNeeded, 6);
     central.writeUInt16LE(flags, 8);
     central.writeUInt16LE(method, 10);
+    central.writeUInt32LE(entry.centralDosTimestamp ?? entry.dosTimestamp ?? 0, 12);
     central.writeUInt32LE(centralCrc, 16);
     central.writeUInt32LE(zip64 ? 0xffffffff : (entry.centralCompressedSize ?? compressed.length), 20);
     central.writeUInt32LE(zip64 ? 0xffffffff : (entry.centralUncompressedSize ?? plain.length), 24);
@@ -248,6 +251,23 @@ function replaceFirst(entries, replacement) {
   next[0] = { ...next[0], ...replacement };
   return next;
 }
+
+function boundedMemberName(index, length = 1024) {
+  const prefix = "f" + String(index).padStart(3, "0") + "/";
+  return prefix + "a".repeat(length - prefix.length);
+}
+
+test("positive control requires matching four-byte DOS modification timestamps", () => {
+  const dosTimestamp = 0x58221883;
+  const value = fixture(expectedMembers.map((name) => ({ name, dosTimestamp })));
+  for (const offset of value.offsets) {
+    const local = offset.localOffset;
+    const central = value.centralOffset + offset.centralOffset;
+    assert.equal(value.bytes.readUInt32LE(local + 10), dosTimestamp);
+    assert.equal(value.bytes.readUInt32LE(central + 12), dosTimestamp);
+  }
+  assert.equal(verify(value).files.size, expectedMembers.length);
+});
 
 test("valid Deflate archive and current-run metadata pass", () => {
   const value = fixture();
@@ -563,6 +583,20 @@ const semanticCases = [
     entries: () => replaceFirst(expectedMembers, { flags: 0x0808, localUncompressedSize: 0x1234 }),
   },
   {
+    name: "local DOS modification timestamp must match central timestamp exactly",
+    code: "ZIP_DOS_TIMESTAMP_MISMATCH",
+    entries: () => replaceFirst(expectedMembers, {
+      dosTimestamp: 0x58221883,
+      localDosTimestamp: 0x58221884,
+    }),
+    assertStructure: (value) => {
+      const local = value.offsets[0].localOffset;
+      const central = value.centralOffset + value.offsets[0].centralOffset;
+      assert.equal(value.bytes.readUInt32LE(central + 12), 0x58221883);
+      assert.equal(value.bytes.readUInt32LE(local + 10), 0x58221884);
+    },
+  },
+  {
     name: "local and central modification timestamps must agree when both are present",
     code: "ZIP_EXTRA_FIELD_TIMESTAMP_MISMATCH",
     entries: () => {
@@ -593,6 +627,86 @@ for (const item of semanticCases) {
     }
   });
 }
+
+test("entry-count and aggregate metadata upper boundaries remain within policy", () => {
+  const localTime = Buffer.alloc(13);
+  localTime[0] = 0x07;
+  localTime.writeUInt32LE(1700000000, 1);
+  localTime.writeUInt32LE(1700000001, 5);
+  localTime.writeUInt32LE(1700000002, 9);
+  const centralTime = Buffer.alloc(5);
+  centralTime[0] = 0x01;
+  centralTime.writeUInt32LE(1700000000, 1);
+  const localExtra = extraField(0x5455, localTime);
+  const centralExtra = extraField(0x5455, centralTime);
+  const entries = Array.from({ length: 256 }, (_, index) => ({
+    name: boundedMemberName(index),
+    flags: 0x0800,
+    extraLocal: localExtra,
+    extraCentral: centralExtra,
+  }));
+  const maximumMetadata = 256 * (1024 + localExtra.length + 1024 + centralExtra.length);
+  assert.equal(maximumMetadata, 530944);
+  assert.ok(maximumMetadata < 1024 * 1024);
+  assert.equal(verify(fixture(entries)).files.size, 256);
+});
+
+test("entry count one above the configured limit is rejected", () => {
+  const entries = Array.from({ length: 257 }, (_, index) => ({
+    name: "member-" + String(index).padStart(3, "0") + ".txt",
+    flags: 0x0800,
+  }));
+  expectCode(() => verify(fixture(entries)), "ZIP_RESOURCE_LIMIT");
+});
+
+test("individual decompressed size accepts the exact limit and rejects one byte over", () => {
+  const maxEntryBytes = 16 * 1024 * 1024;
+  const accepted = fixture([{
+    name: "commit.txt",
+    data: Buffer.alloc(maxEntryBytes, 0x61),
+    flags: 0x0800,
+  }]);
+  assert.equal(verify(accepted).files.get("commit.txt").length, maxEntryBytes);
+
+  const rejected = fixture([{
+    name: "commit.txt",
+    flags: 0x0800,
+    localUncompressedSize: maxEntryBytes + 1,
+    centralUncompressedSize: maxEntryBytes + 1,
+  }]);
+  expectCode(() => verify(rejected), "ZIP_RESOURCE_LIMIT");
+});
+
+test("aggregate decompressed size accepts 64 MiB and rejects one byte over", () => {
+  const maxEntryBytes = 16 * 1024 * 1024;
+  const data = Buffer.alloc(maxEntryBytes, 0x62);
+  const acceptedEntries = Array.from({ length: 4 }, (_, index) => ({
+    name: "member-" + index + ".txt",
+    data,
+    flags: 0x0800,
+  }));
+  const accepted = verify(fixture(acceptedEntries));
+  assert.equal([...accepted.files.values()].reduce((sum, value) => sum + value.length, 0),
+    64 * 1024 * 1024);
+
+  const rejectedEntries = Array.from({ length: 5 }, (_, index) => {
+    const claimedSize = index < 4 ? maxEntryBytes : 1;
+    return {
+      name: "member-" + index + ".txt",
+      flags: 0x0800,
+      localUncompressedSize: claimedSize,
+      centralUncompressedSize: claimedSize,
+    };
+  });
+  expectCode(() => verify(fixture(rejectedEntries)), "ZIP_RESOURCE_LIMIT");
+});
+
+test("archive size one byte above the configured maximum is rejected", () => {
+  const value = fixture();
+  value.bytes = Buffer.alloc(MAX_ARCHIVE_BYTES + 1);
+  reseal(value);
+  expectCode(() => verify(value), "ZIP_RESOURCE_LIMIT");
+});
 
 test("artifact metadata identity, digest and byte-size mismatches fail closed", () => {
   const value = fixture();

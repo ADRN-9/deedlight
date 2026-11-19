@@ -188,6 +188,7 @@ function parseZip(bytes, expectedMembers) {
     const versionNeeded = bytes.readUInt16LE(cursor + 6);
     const flags = bytes.readUInt16LE(cursor + 8);
     const method = bytes.readUInt16LE(cursor + 10);
+    const centralDosTimestamp = bytes.readUInt32LE(cursor + 12);
     const expectedCrc = bytes.readUInt32LE(cursor + 16);
     const compressedSize = bytes.readUInt32LE(cursor + 20);
     const uncompressedSize = bytes.readUInt32LE(cursor + 24);
@@ -243,6 +244,7 @@ function parseZip(bytes, expectedMembers) {
     const localVersionNeeded = bytes.readUInt16LE(localOffset + 4);
     const localFlags = bytes.readUInt16LE(localOffset + 6);
     const localMethod = bytes.readUInt16LE(localOffset + 8);
+    const localDosTimestamp = bytes.readUInt32LE(localOffset + 10);
     const localCrc = bytes.readUInt32LE(localOffset + 14);
     const localCompressedSize = bytes.readUInt32LE(localOffset + 18);
     const localUncompressedSize = bytes.readUInt32LE(localOffset + 22);
@@ -255,6 +257,8 @@ function parseZip(bytes, expectedMembers) {
 
     reject(localVersionNeeded === versionNeeded && localMethod === method,
       "ZIP_LOCAL_CENTRAL_MISMATCH", "ZIP local and central version/method differ");
+    reject(localDosTimestamp === centralDosTimestamp, "ZIP_DOS_TIMESTAMP_MISMATCH",
+      "ZIP local and central DOS modification timestamps differ");
     reject(localFlags === flags, "ZIP_FLAGS_LOCAL_CENTRAL_MISMATCH",
       "ZIP local and central flags differ");
     validateFlags(localFlags, localMethod);

@@ -1,4 +1,4 @@
-# DeedLight C161 — C154 artifact-integrity remediation follow-up
+# DeedLight C163 — L-01 DOS timestamp consistency remediation
 
 ## Status and provenance
 
@@ -29,7 +29,7 @@ Each semantic negative fixture must:
 
 The parser is intentionally narrow. It accepts Stored and Deflate only, disallows archive and member comments, disallows multi-disk and ZIP64 archives, permits only the validated Extended Timestamp extra field (`0x5455`), and requires the exact expected member set.
 
-## Twenty-one semantic negative cases
+## Twenty-two semantic negative cases
 
 | # | Isolated defect | Required stable rejection code | Fixture isolation |
 |---:|---|---|---|
@@ -54,6 +54,7 @@ The parser is intentionally narrow. It accepts Stored and Deflate only, disallow
 | 19 | Descriptor-bit local CRC placeholder is nonzero and differs from central CRC | `ZIP_LOCAL_CENTRAL_MISMATCH` | Bit 3 is set; descriptor and central CRC remain correct; only the populated local CRC placeholder differs |
 | 20 | Descriptor-bit local compressed-size placeholder differs from central compressed size | `ZIP_LOCAL_CENTRAL_MISMATCH` | Bit 3 is set; descriptor and central sizes remain correct; only the populated local compressed-size placeholder differs |
 | 21 | Descriptor-bit local uncompressed-size placeholder differs from central uncompressed size | `ZIP_LOCAL_CENTRAL_MISMATCH` | Bit 3 is set; descriptor and central sizes remain correct; only the populated local uncompressed-size placeholder differs |
+| 22 | Local and central four-byte DOS modification timestamps differ | `ZIP_DOS_TIMESTAMP_MISMATCH` | Only the local header's packed DOS time/date value changes; outer archive digest and byte-size metadata are resealed |
 
 The test fixture builder recalculates archive SHA-256 and byte-size metadata after each semantic mutation. These tests therefore do not pass merely because the archive digest or outer size is wrong.
 
@@ -68,6 +69,7 @@ The test suite also requires:
 - A structurally valid ZIP64 EOCD/locator fixture, rejected specifically because ZIP64 is unsupported.
 - CP437 filename decoding when EFS is clear.
 - Strict UTF-8 filename decoding when EFS is set.
+- Matching four-byte DOS modification timestamps in local and central headers.
 - A valid Extended Timestamp extra field in local and central records, including local mtime/atime/ctime and the allowed one-sided-mtime case.
 - Valid nested extraction of an expected member set.
 
@@ -95,7 +97,7 @@ The test suite also requires:
 - Central-directory bounds must terminate exactly at EOCD.
 - EOCD and per-member comments are rejected.
 - Archive prefixes, local-record gaps, overlaps, duplicate local offsets and trailing unreferenced local bytes are rejected.
-- Local and central filenames, flags, method, version, CRC and sizes are checked. CRC, compressed-size and uncompressed-size mismatches are tested independently with descriptor bit 3 both clear and set. When bit 3 is set, local CRC/size placeholders must be zero or match the central directory.
+- Local and central filenames, flags, method, version, DOS modification timestamp, CRC and sizes are checked. The four-byte DOS value (packed time followed by packed date) is read as an unsigned little-endian 32-bit value from local-header offset 10 and central-directory offset 12; values must match bit-for-bit or reject with `ZIP_DOS_TIMESTAMP_MISMATCH`. This mandatory DOS check is independent of the optional Extended Timestamp policy. CRC, compressed-size and uncompressed-size mismatches are tested independently with descriptor bit 3 both clear and set. When bit 3 is set, local CRC/size placeholders must be zero or match the central directory.
 - Data descriptors are validated in signed and unsigned form.
 - Stored compressed and uncompressed sizes must match.
 - Deflate uses zlib's `info` result and requires `engine.bytesWritten` to equal the complete compressed member length. This rejects a valid Deflate stream followed by ignored bytes.
@@ -147,8 +149,8 @@ node --test scripts/test-release-artifact-integrity.mjs scripts/test-release-sec
 C153 adds parser semantic tests, downloader redirect/cancellation/deadline tests and extraction publication/cleanup tests to the existing artifact-integrity test file. The existing release-security-gate tests remain in place.
 
 Required evidence:
-1. All 21 semantic negative tests pass with their exact rejection codes.
-2. Stored, Deflate, descriptor, CP437, UTF-8 and timestamp positive controls pass.
+1. All 22 semantic negative tests pass with their exact rejection codes.
+2. Stored, Deflate, descriptor, CP437, UTF-8, DOS timestamp and Extended Timestamp positive controls pass.
 3. Existing artifact metadata and digest tests pass.
 4. Downloader redirect allowlist, bearer isolation, timeout, cancellation and byte-limit tests pass.
 5. Extraction safety, mode, cleanup and no-overwrite tests pass.
@@ -167,7 +169,7 @@ A reviewer should independently inspect:
 - Stored signed/unsigned descriptor CRC, sizes and parsing-boundary checks.
 - Descriptor-bit local-header CRC/size placeholder semantics, including nonzero mismatch rejection.
 - Extended Timestamp mtime/atime/ctime field-count and one-sided timestamp policy.
-- Local CRC and size mismatch isolation, and timestamp consistency semantics.
+- Local CRC and size mismatch isolation, DOS timestamp bit-for-bit consistency, and Extended Timestamp consistency semantics.
 - CP437/EFS decoding and path canonicalization.
 - Extended Timestamp field validation and unsupported extra-field rejection.
 - EOCD/central/local record arithmetic, descriptors, overlaps and gap rejection.
@@ -177,7 +179,23 @@ A reviewer should independently inspect:
 - Extraction cleanup, O_EXCL/O_NOFOLLOW behavior, atomic rename and documented same-UID race limitation.
 - Whether the exact member allowlists and all release-gate consumers remain compatible with actual GitHub-generated artifact ZIPs.
 
-## C161 exact-head CI evidence (code/test commit)
+## C163 — independent Reviewer finding L-01
+
+**Finding:** ZIP local headers and central-directory records were not required to carry identical four-byte DOS modification timestamps.
+
+**Correction:** For every member, the parser reads the local packed DOS time/date value as a 32-bit little-endian integer at local-header offset 10 and the corresponding central value at central-record offset 12. It requires exact bit-for-bit equality and rejects a mismatch with the stable typed code `ZIP_DOS_TIMESTAMP_MISMATCH`. No timezone conversion, rounding or normalization is performed. This check is mandatory even when an Extended Timestamp extra field is present.
+
+**Extended Timestamp policy unchanged:** The optional `0x5455` extra-field policy remains as documented above: local mtime/atime/ctime are validated by flag and payload length; central mtime is permitted; when both headers include mtime the values must agree; a one-sided mtime is accepted. DOS consistency is an additional independent check, not a replacement for the extra-field policy.
+
+**Tests added:**
+- Positive fixture: matching nonzero DOS timestamp in local and central records.
+- Negative fixture: an otherwise valid archive with only the local four-byte DOS timestamp changed; the test reseals the artifact SHA-256 and byte-size metadata and asserts exactly `ZIP_DOS_TIMESTAMP_MISMATCH`.
+- Resource boundaries: 256 entries accepted / 257 rejected; 16 MiB individual expansion accepted / one byte over rejected; 64 MiB aggregate expansion accepted / one byte over rejected; archive size one byte above 64 MiB rejected.
+- Aggregate metadata: a maximum-count fixture with 1,024-byte names and the largest supported local/central Extended Timestamp extras is accepted. Under current tighter bounds, aggregate metadata cannot reach the 1 MiB aggregate cap: 256 × (1,024 + 17 + 1,024 + 9) = 530,944 bytes. The test records this bound rather than allocating a contrived unreachable metadata payload.
+
+All resource-limit tests are bounded; the archive-size test allocates one 64 MiB + 1 byte buffer to exercise the parser's explicit archive ceiling. No C153/C161 protections or production behavior are relaxed.
+
+## C161 historical exact-head CI evidence (code/test commit)
 
 GitHub Actions [PR Validation run 44486362831](https://github.com/ADRN-9/deedlight/actions/runs/44486362831) validated the C161 code/test commit `793ed5adaacbc9d5f16b89fe2b60590b2608840a` (tree `ae2682bc03229db14adfc33ba896f611d4671c5b`), attempt 1:
 
