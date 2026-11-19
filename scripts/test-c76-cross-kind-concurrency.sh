@@ -106,7 +106,9 @@ BEGIN
   IF started IS NOT NULL THEN RAISE EXCEPTION 'Stale-token sent' USING ERRCODE='ZX001'; END IF;
  EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
  END;
- UPDATE public.delivery_ledger SET claim_expires_at=clock_timestamp()-interval '1 second'
+ -- Use the same transaction-stable clock as claim_delivery_jobs(p_now).
+-- clock_timestamp() here can be newer than now(), making this fixture nondeterministic.
+UPDATE public.delivery_ledger SET claim_expires_at=now()-interval '1 second'
  WHERE id=j AND state='claimed';
  PERFORM count(*) FROM public.claim_delivery_jobs('weekly_newsletter',now(),1000);
  IF (SELECT claim_token FROM public.delivery_ledger WHERE id=j) IS DISTINCT FROM old_token
@@ -119,6 +121,12 @@ BEGIN
  IF new_token IS NULL OR new_token=old_token
    OR (SELECT delivery_key FROM public.delivery_ledger WHERE id=j) IS DISTINCT FROM old_key
  THEN RAISE EXCEPTION 'Daily worker failed safe lease token rotation / logical idempotency'; END IF;
+ IF NOT EXISTS(SELECT 1 FROM public.delivery_ledger
+   WHERE id=j AND state='claimed' AND attempt_count=2
+     AND claim_token=new_token AND claim_expires_at>clock_timestamp())
+ THEN RAISE EXCEPTION 'Reclaimed lease is not a live second-attempt claim'; END IF;
+ IF public.authorize_delivery_job(j,new_token) IS DISTINCT FROM true
+ THEN RAISE EXCEPTION 'Fresh token failed positive authorization after lease reclaim'; END IF;
  BEGIN
   started:=public.begin_delivery_transport_identity_bound(j,old_token,
    'c76-daily-worker@example.test');
@@ -159,6 +167,7 @@ END $revoked$;
 RESET ROLE;
 SELECT jsonb_build_object('concurrent_daily_weekly_claims','pass',
   'expired_lease_kind_isolation','pass',
+  'reclaimed_lease_positive_path','pass',
   'stale_claim_token_rejected','pass',
   'idempotent_delivery_key_preserved','pass',
   'revoked_daily_consent_denied','pass',
