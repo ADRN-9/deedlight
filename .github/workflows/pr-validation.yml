@@ -26,6 +26,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Fail closed on production configuration
@@ -78,6 +79,9 @@ jobs:
 
       - name: Gentle delivery transport behavior
         run: node --test scripts/test-delivery-transport.mjs
+
+      - name: C144 migration 034 compatibility and duplicate-prefix guard
+        run: node scripts/test-c144-migration-034-compatibility.mjs
 
       - name: TypeScript check
         run: npx tsc --noEmit
