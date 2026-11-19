@@ -93,7 +93,13 @@ jobs:
         run: npx opennextjs-cloudflare build
 
       - name: Fail closed on high or critical dependency advisories
-        run: npm audit --audit-level=high
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-evidence/validate
+          npm audit --json --audit-level=high > release-evidence/validate/npm-audit.json
+          node scripts/verify-dependency-audit.mjs release-evidence/validate/npm-audit.json \
+            | tee release-evidence/validate/dependency-audit-summary.txt
 
       - name: Attest exact source for validate
         if: success()
