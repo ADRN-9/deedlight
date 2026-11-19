@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync } from "node:fs";
 
 const MAIN = "ce82b3fdf1a73510de70e3729a487d4ae00e66e3";
 const C103 = "136e467927269196a97d028feb6f00987f30b257";
@@ -64,8 +64,8 @@ assert.match(actions, /status: "rejected", \.\.\.notes/);
 assert.match(actions, /status: "needs_edit", \.\.\.notes/);
 assert.match(actions, /status: "hidden", \.\.\.notes/);
 const types = at(C103, "lib/types.ts");
-const memberType = types.match(/export type MemberOffering =([\s\S]*?);/)?.[1];
-const adminType = types.match(/export type AdminOffering =([\s\S]*?);/)?.[1];
+const memberType = types.match(/export type MemberOffering =([\s\S]*?)\n};/)?.[1];
+const adminType = types.match(/export type AdminOffering =([\s\S]*?)\n};/)?.[1];
 assert.ok(memberType && adminType);
 assert.match(memberType, /\bowner_feedback\b/);
 assert.doesNotMatch(memberType, /\bmoderation_note\b|\bopen_report_count\b/);
