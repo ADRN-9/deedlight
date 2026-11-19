@@ -13,7 +13,8 @@
     "supabase:link": "supabase link --project-ref YOUR_PROJECT_REF",
     "supabase:push": "supabase db push",
     "supabase:reset": "supabase db reset",
-    "verify:dependency-security": "node scripts/verify-dependency-security.mjs"
+    "verify:dependency-security": "node scripts/verify-dependency-security.mjs",
+    "test:dependency-security": "node --test scripts/test-dependency-security.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "latest",
