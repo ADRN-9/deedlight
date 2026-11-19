@@ -93,7 +93,8 @@ assert(linkedGuard.includes("supabase/.temp/project-ref"));
 assert(pkg.scripts["supabase:push"].startsWith("bash scripts/guard-supabase-linked-project.sh && "));
 assert(pkg.scripts["supabase:link"].startsWith("bash scripts/guard-supabase-migration-target.sh && "));
 assert(workflow.includes("bash scripts/guard-supabase-linked-project.sh"));
-assert(validation.includes("npm audit --audit-level=high"));
+assert(/npm audit --(?:json )?--audit-level=high/.test(validation),
+  "CI must retain a machine-readable high-severity dependency audit");
 assert(!validation.includes("audit --omit=dev"));
 assert(tests.includes("weekly_capacity_5001_fail_closed"));
 const race = read("scripts/test-delivery-consent-concurrency.sh");
