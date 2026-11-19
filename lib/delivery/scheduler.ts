@@ -10,6 +10,12 @@ import {
 export const DAILY_DELIVERY_CRON = "*/5 * * * *";
 export const WEEKLY_DELIVERY_CRON = "0 16 * * 1";
 
+export function deliveryScheduleKind(cron: string): "daily" | "weekly" | null {
+  if (cron === DAILY_DELIVERY_CRON) return "daily";
+  if (cron === WEEKLY_DELIVERY_CRON) return "weekly";
+  return null;
+}
+
 export type DeliverySchedulerSummary = {
   enabled: boolean;
   cron: string;
@@ -67,7 +73,8 @@ export async function runScheduledDelivery(
   }
   summary.enabled = true;
 
-  if (input.cron !== DAILY_DELIVERY_CRON && input.cron !== WEEKLY_DELIVERY_CRON) {
+  const scheduleKind = deliveryScheduleKind(input.cron);
+  if (!scheduleKind) {
     summary.ignored = true;
     return summary;
   }
@@ -84,7 +91,7 @@ export async function runScheduledDelivery(
     siteOrigin: config.siteOrigin,
   });
 
-  if (input.cron === DAILY_DELIVERY_CRON) {
+  if (scheduleKind === "daily") {
     summary.enqueued = await runtime.enqueueDaily(
       scheduledAt,
       Math.min(config.batchSize * 20, 2000),
