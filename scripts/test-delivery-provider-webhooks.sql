@@ -58,7 +58,7 @@ begin
   end if;
 
   if public.record_delivery_provider_event(
-    'msg_suppressed_20004', 'email.suppressed', 'resend-lifecycle-suppressed-20004',
+    'msg_suppressed_20004', 'email.suppressed', 'resend-suppressed-20004',
     'webhook-20004@example.test', null
   ) is not true then
     raise exception 'Provider suppression event was not recorded.';
