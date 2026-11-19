@@ -452,17 +452,17 @@ const semanticCases = [
   {
     name: "local CRC mismatch is rejected independently",
     code: "ZIP_LOCAL_CENTRAL_MISMATCH",
-    entries: () => replaceFirst(expectedMembers, { localCrc: 0x12345678 }),
+    entries: () => replaceFirst(expectedMembers, { flags: 0x0800, localCrc: 0x12345678 }),
   },
   {
     name: "local compressed-size mismatch is rejected independently",
     code: "ZIP_LOCAL_CENTRAL_MISMATCH",
-    entries: () => replaceFirst(expectedMembers, { localCompressedSize: 0x1234 }),
+    entries: () => replaceFirst(expectedMembers, { flags: 0x0800, localCompressedSize: 0x1234 }),
   },
   {
     name: "local uncompressed-size mismatch is rejected independently",
     code: "ZIP_LOCAL_CENTRAL_MISMATCH",
-    entries: () => replaceFirst(expectedMembers, { localUncompressedSize: 0x1234 }),
+    entries: () => replaceFirst(expectedMembers, { flags: 0x0800, localUncompressedSize: 0x1234 }),
   },
   {
     name: "local and central modification timestamps must agree when both are present",
