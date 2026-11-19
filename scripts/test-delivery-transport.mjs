@@ -384,7 +384,7 @@ test("weekly scheduler error logs expose only a stable code and issue week", asy
 });
 
 
-test("Resend provider failures classify timeout, throttling, server errors and conflicts", async () => {
+test("Resend provider failures classify timeout, throttling, auth rejection, server errors and conflicts", async () => {
   const config = { apiKey: "x", fromEmail: "x@y.com", siteOrigin: "https://example.com" };
   for (const status of [408, 429, 500, 502, 503]) {
     const transport = createResendTransport(config, async () => new Response("", { status }));
@@ -393,11 +393,18 @@ test("Resend provider failures classify timeout, throttling, server errors and c
       { status: "temporary_failure", errorCode: `provider_http_${status}` },
     );
   }
-  for (const status of [400, 401, 403, 404]) {
+  for (const status of [400, 404]) {
     const transport = createResendTransport(config, async () => new Response("", { status }));
     assert.deepEqual(
       await transport.send(job, { email: "a@b.com" }),
       { status: "permanent_failure", errorCode: `provider_http_${status}` },
+    );
+  }
+  for (const status of [401, 403]) {
+    const transport = createResendTransport(config, async () => new Response("", { status }));
+    assert.deepEqual(
+      await transport.send(job, { email: "a@b.com" }),
+      { status: "permanent_failure", errorCode: "provider_auth_rejected" },
     );
   }
   const conflict = createResendTransport(config, async () =>
