@@ -1,0 +1,44 @@
+name: DeedLight dependency lock candidate
+
+on:
+  push:
+    branches:
+      - security/deedlight-deps-c165-candidate
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.12.0"
+          cache: npm
+      - name: Resolve the candidate lockfile
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - name: Capture dependency resolution and audit
+        shell: bash
+        run: |
+          npm audit --json > npm-audit.json || audit_status=$?
+          npm ls glob minimatch typescript-eslint --all > npm-dependency-tree.txt 2>&1 || true
+          {
+            node --version
+            npm --version
+            node -p "require('./package-lock.json').lockfileVersion"
+          } > npm-toolchain.txt
+          printf '%s\n' "${audit_status:-0}" > npm-audit-exit.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: deedlight-c165-dependency-lock-candidate
+          path: |
+            package-lock.json
+            npm-audit.json
+            npm-dependency-tree.txt
+            npm-toolchain.txt
+            npm-audit-exit.txt
+          if-no-files-found: error
+          retention-days: 3
