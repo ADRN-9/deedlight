@@ -23,7 +23,7 @@ const MAX_PROVIDER_ID_LENGTH = 255;
 const MAX_EMAIL_LENGTH = 320;
 const SIGNATURE_TOLERANCE_SECONDS = 300;
 
-function decodeBase64(value: string): Uint8Array | null {
+function decodeBase64(value: string): Uint8Array<ArrayBuffer> | null {
   if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value) || value.length % 4 !== 0) return null;
 
   try {
@@ -72,7 +72,7 @@ export async function verifyResendWebhookSignature(input: {
     .split(/\s+/)
     .filter((part) => part.startsWith("v1,"))
     .map((part) => decodeBase64(part.slice(3)))
-    .filter((part): part is Uint8Array => part !== null);
+    .filter((part): part is Uint8Array<ArrayBuffer> => part !== null);
 
   if (!candidates.length) return false;
 

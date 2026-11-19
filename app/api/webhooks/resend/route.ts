@@ -9,7 +9,8 @@ const MAX_BODY_BYTES = 64 * 1024;
 
 type BodyReadResult =
   | { status: "ok"; value: string }
-  | { status: "invalid" | "too_large" };
+  | { status: "invalid" }
+  | { status: "too_large" };
 
 function response(status: number) {
   return new Response(null, { status });
