@@ -74,6 +74,9 @@ jobs:
       - name: Dependency resolution security assertions
         run: npm run verify:dependency-security
 
+      - name: Dependency verifier prerelease regression tests
+        run: npm run test:dependency-security
+
       - name: Fail closed on moderate or higher dependency advisories
         run: npm audit --audit-level=moderate
 
