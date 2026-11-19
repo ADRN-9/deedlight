@@ -66,9 +66,9 @@ Exact-head CI was pending when this remediation note was authored. Final PR Vali
 
 C165 committed the scoped `glob@14.0.2` override for `@opennextjs/cloudflare`, direct `typescript-eslint@8.73.0`, and lockfile resolutions `minimatch@11.0.9`. The PR now enforces `npm audit --audit-level=moderate` and a lockfile-wide dependency-resolution guard. This supersedes the C164 starting-head moderate-advisory note above.
 
-Final exact head: `64e9f6c4b16e48efdff51f009d8d4bad346f94cb`; tree: `80b8de6d4fc1a7f5a26fa0dd73b00114f29aea5c`.
+Final exact head: `63e2eefca7578074bee7e5744a91845aff4c501e`; tree: `484e37ea0ee9cd76a8e241c0c7eac272f4a39400`.
 
-- [PR Validation 44502215606](https://github.com/ADRN-9/deedlight/actions/runs/44502215606): 5/5 jobs PASS, zero npm audit findings, dependency guard PASS, TypeScript PASS, Next.js build PASS, Cloudflare packaging PASS, all four database behavior jobs PASS.
-- [Disposable PostgreSQL 16 audit 44502215655](https://github.com/ADRN-9/deedlight/actions/runs/44502215655): 12/12 fixtures, 22/22 Python assurance tests and 25/25 manifest entries PASS. Sanitized artifact ID `14517408783`, 41,701 bytes.
+- [PR Validation 44503112404](https://github.com/ADRN-9/deedlight/actions/runs/44503112404): 5/5 jobs PASS, zero npm audit findings, dependency guard PASS, TypeScript PASS, Next.js build PASS, Cloudflare packaging PASS, all four database behavior jobs PASS.
+- [Disposable PostgreSQL 16 audit 44503099485](https://github.com/ADRN-9/deedlight/actions/runs/44503099485): 12/12 fixtures, 22/22 Python assurance tests and 25/25 manifest entries PASS. Sanitized artifact ID `14518825627`, 41,703 bytes.
 
 The OpenNext glob override remains a scoped major-version compatibility exception because upstream `@opennextjs/cloudflare@1.20.17` declares `glob: ^13.0.6`. The actual Next.js and Cloudflare builds pass on the resolved glob 14 package. Remove the override when OpenNext publishes a semver-compatible patched dependency. This CI evidence is not Production deployment or merge authorization.
