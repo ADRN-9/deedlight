@@ -5,6 +5,7 @@ const read = (path) => readFileSync(path, "utf8");
 const migration = read("supabase/migrations/202611190025_delivery_provider_webhooks.sql");
 const lifecycleMigration = read("supabase/migrations/202611190026_delivery_provider_lifecycle.sql");
 const integrityMigration = read("supabase/migrations/202611200027_delivery_provider_integrity.sql");
+const legacyGuardMigration = read("supabase/migrations/202611210029_delivery_legacy_replay_guard.sql");
 const aggregate = read("supabase/run_in_sql_editor_all.sql");
 const route = read("app/api/webhooks/resend/route.ts");
 const parser = read("lib/delivery/resend-webhook.ts");
@@ -21,6 +22,22 @@ const pkg = JSON.parse(read("package.json"));
 assert(aggregate.includes(migration.trim()), "Migration 025 must remain mirrored in the SQL Editor aggregate");
 assert(aggregate.includes(lifecycleMigration.trim()), "Migration 026 must be mirrored verbatim in the SQL Editor aggregate");
 assert(aggregate.includes(integrityMigration.trim()), "Migration 027 must be mirrored verbatim in the SQL Editor aggregate");
+assert(aggregate.includes(legacyGuardMigration.trim()), "Migration 029 must be mirrored verbatim in the SQL Editor aggregate");
+assert(/alter function public\.record_delivery_provider_lifecycle_event\([\s\S]*?rename to _record_delivery_provider_lifecycle_event_fingerprinted_impl/i.test(legacyGuardMigration));
+assert(/create or replace function public\.record_delivery_provider_lifecycle_event\([\s\S]*?p_payload_fingerprint text[\s\S]*?if p_payload_fingerprint is null[\s\S]*?for update[\s\S]*?if not found[\s\S]*?errcode = '42501'[\s\S]*?_record_delivery_provider_lifecycle_event_fingerprinted_impl/i.test(legacyGuardMigration),
+  "New events must require a fingerprint while fingerprint-less calls can only reach existing event IDs.");
+assert(/revoke all privileges[\s\S]*?_record_delivery_provider_lifecycle_event_fingerprinted_impl[\s\S]*?from public, anon, authenticated, service_role/i.test(legacyGuardMigration),
+  "The renamed lifecycle implementation must not be directly executable by service_role or browser roles.");
+for (const signature of [
+  "record_delivery_provider_lifecycle_event(text, text, text, text, timestamptz, text, text, text)",
+  "record_delivery_provider_lifecycle_event(text, text, text, text, timestamptz, text, text)",
+  "record_delivery_provider_event(text, text, text, text, text)",
+]) {
+  assert(legacyGuardMigration.includes("revoke all privileges") && legacyGuardMigration.includes(signature),
+    "Migration 029 must explicitly revoke browser execution for legacy overload: " + signature);
+  assert(legacyGuardMigration.includes("grant execute") && legacyGuardMigration.includes(signature),
+    "Migration 029 must retain service_role execution for legacy overload: " + signature);
+}
 
 for (const name of [
   "delivery_provider_events",
@@ -166,6 +183,14 @@ assert(databaseTests.includes("Pre-026 historical event replay was not a compati
 assert(databaseTests.includes("Pre-027 historical event replay was not a compatible no-op."));
 assert(databaseTests.includes("Historical NULL fingerprint was not compatible through the eight-argument RPC."));
 assert(databaseTests.includes("Historical NULL fingerprint was not compatible through the seven-argument RPC."));
+assert(databaseTests.includes("Historical NULL fingerprint was not compatible through the five-argument RPC."));
+assert(databaseTests.includes("Eight-argument legacy RPC unexpectedly inserted a new event."));
+assert(databaseTests.includes("Seven-argument legacy RPC unexpectedly inserted a new event."));
+assert(databaseTests.includes("Five-argument legacy RPC unexpectedly inserted a new event."));
+assert(databaseTests.includes("Canonical RPC unexpectedly inserted a new event without a fingerprint."));
+assert(databaseTests.includes("Legacy fingerprint conflicts mutated or removed existing event records."));
+assert(databaseTests.includes("Five-argument legacy fingerprint conflict mutated existing suppression state."));
+assert(databaseTests.includes("a.grantee = 0 and a.privilege_type = 'EXECUTE'"));
 assert(databaseTests.includes("Eight-argument legacy RPC bypassed a stored provider payload fingerprint."));
 assert(databaseTests.includes("Seven-argument legacy RPC bypassed a stored provider payload fingerprint."));
 assert(databaseTests.includes("Five-argument legacy provider-event RPC bypassed a stored provider payload fingerprint."));

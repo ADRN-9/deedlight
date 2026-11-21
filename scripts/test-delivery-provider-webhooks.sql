@@ -29,6 +29,7 @@ select public.record_delivery_provider_lifecycle_event(
 reset role;
 
 \ir ../supabase/migrations/202611200027_delivery_provider_integrity.sql
+\ir ../supabase/migrations/202611210029_delivery_legacy_replay_guard.sql
 
 -- Replays with a new digest must remain compatible with historical NULL metadata.
 set role service_role;
@@ -66,6 +67,73 @@ $historical_replay$;
 reset role;
 
 
+
+-- Fingerprint-less RPCs must never create new provider-event IDs.
+-- The canonical 9-argument RPC also rejects NULL fingerprints for new IDs.
+set role service_role;
+do $legacy_new_event_rejection$
+begin
+  begin
+    perform public.record_delivery_provider_lifecycle_event(
+      'evt_legacy_new_eight', 'email.sent', 'resend-legacy-new-eight',
+      'legacy-new-eight@example.test', '2027-03-01T12:00:00Z',
+      null, null, null
+    );
+    raise exception 'Eight-argument legacy RPC unexpectedly inserted a new event.' using errcode = 'P0001';
+  exception when sqlstate '42501' then
+    null;
+  end;
+
+  begin
+    perform public.record_delivery_provider_lifecycle_event(
+      'evt_legacy_new_seven', 'email.sent', 'resend-legacy-new-seven',
+      'legacy-new-seven@example.test', '2027-03-01T12:01:00Z', null, null
+    );
+    raise exception 'Seven-argument legacy RPC unexpectedly inserted a new event.' using errcode = 'P0001';
+  exception when sqlstate '42501' then
+    null;
+  end;
+
+  begin
+    perform public.record_delivery_provider_event(
+      'evt_legacy_new_five', 'email.bounced', 'resend-legacy-new-five',
+      'legacy-new-five@example.test', 'Permanent'
+    );
+    raise exception 'Five-argument legacy RPC unexpectedly inserted a new event.' using errcode = 'P0001';
+  exception when sqlstate '42501' then
+    null;
+  end;
+
+  begin
+    perform public.record_delivery_provider_lifecycle_event(
+      'evt_canonical_null_fingerprint', 'email.sent', 'resend-canonical-null-fingerprint',
+      'canonical-null-fingerprint@example.test', '2027-03-01T12:02:00Z',
+      null, null, null, null
+    );
+    raise exception 'Canonical RPC unexpectedly inserted a new event without a fingerprint.' using errcode = 'P0001';
+  exception when sqlstate '42501' then
+    null;
+  end;
+end;
+$legacy_new_event_rejection$;
+reset role;
+
+do $legacy_new_event_assertions$
+begin
+  if exists (
+    select 1 from public.delivery_provider_events
+    where event_id in (
+      'evt_legacy_new_eight',
+      'evt_legacy_new_seven',
+      'evt_legacy_new_five',
+      'evt_canonical_null_fingerprint'
+    )
+  ) then
+    raise exception 'A fingerprint-less RPC created a new provider event.';
+  end if;
+end;
+$legacy_new_event_assertions$;
+
 -- Legacy RPCs may replay genuinely historical rows whose stored fingerprint
 -- is NULL, but must not bypass fingerprint checks on newer fingerprinted rows.
 set role service_role;
@@ -85,11 +153,31 @@ begin
   ) is not false then
     raise exception 'Historical NULL fingerprint was not compatible through the seven-argument RPC.';
   end if;
+  if public.record_delivery_provider_event(
+    'evt_historical_025_suppressed', 'email.suppressed',
+    'resend-historical-025-suppressed', 'historical-025-suppressed@example.test', null
+  ) is not false then
+    raise exception 'Historical NULL fingerprint was not compatible through the five-argument RPC.';
+  end if;
 
   if public.record_delivery_provider_lifecycle_event(
     'evt_legacy_eight_fingerprint', 'email.sent', 'resend-legacy-eight-fingerprint',
     'legacy-eight@example.test', '2027-03-01T11:00:00Z', null, null, null, repeat('8', 64)
   ) is not true then raise exception 'Eight-argument legacy fingerprint fixture was not inserted.'; end if;
+
+  create temporary table provider_legacy_fingerprint_event_snapshot as
+    select e.event_id, to_jsonb(e) as row_data
+    from public.delivery_provider_events e
+    where e.event_id in (
+      'evt_legacy_eight_fingerprint',
+      'evt_legacy_seven_fingerprint',
+      'evt_legacy_five_fingerprint'
+    );
+  create temporary table provider_legacy_fingerprint_suppression_snapshot as
+    select s.recipient_email, to_jsonb(s) as row_data
+    from public.delivery_provider_suppressions s
+    where s.recipient_email = 'legacy-five@example.test';
+
   if public.record_delivery_provider_lifecycle_event(
     'evt_legacy_eight_fingerprint', 'email.sent', 'resend-legacy-eight-fingerprint',
     'legacy-eight@example.test', '2027-03-01T11:00:00Z', null, null, null
@@ -151,6 +239,23 @@ begin
   if exists (select 1 from public.delivery_provider_integrity_anomalies
       where event_id in ('evt_historical_025_suppressed', 'evt_historical_026_complaint')) then
     raise exception 'Historical NULL-fingerprint compatibility was incorrectly flagged as a conflict.';
+  end if;
+  if (select count(*) from provider_legacy_fingerprint_event_snapshot) <> 3
+    or exists (
+      select 1
+      from provider_legacy_fingerprint_event_snapshot s
+      left join public.delivery_provider_events e on e.event_id = s.event_id
+      where e.event_id is null or s.row_data is distinct from to_jsonb(e)
+    ) then
+    raise exception 'Legacy fingerprint conflicts mutated or removed existing event records.';
+  end if;
+  if (select count(*) from provider_legacy_fingerprint_suppression_snapshot) <> 1
+    or (select row_data from provider_legacy_fingerprint_suppression_snapshot)
+      is distinct from (
+        select to_jsonb(s) from public.delivery_provider_suppressions s
+        where s.recipient_email = 'legacy-five@example.test'
+      ) then
+    raise exception 'Five-argument legacy fingerprint conflict mutated existing suppression state.';
   end if;
 end;
 $legacy_fingerprint_assertions$;
@@ -514,8 +619,29 @@ begin
     or has_function_privilege('authenticated',
        'public.record_delivery_provider_event(text,text,text,text,text)','EXECUTE')
     or not has_function_privilege('service_role',
-       'public.record_delivery_provider_event(text,text,text,text,text)','EXECUTE') then
-    raise exception 'Provider event RPC grants regressed.';
+       'public.record_delivery_provider_event(text,text,text,text,text)','EXECUTE')
+    or has_function_privilege('anon',
+       'public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text)','EXECUTE')
+    or has_function_privilege('authenticated',
+       'public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text)','EXECUTE')
+    or not has_function_privilege('service_role',
+       'public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text)','EXECUTE')
+    or has_function_privilege('anon',
+       'public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)','EXECUTE')
+    or has_function_privilege('authenticated',
+       'public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)','EXECUTE')
+    or not has_function_privilege('service_role',
+       'public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)','EXECUTE')
+    or has_function_privilege('service_role',
+       'public._record_delivery_provider_lifecycle_event_fingerprinted_impl(text,text,text,text,timestamptz,text,text,text,text)','EXECUTE')
+    or exists (
+      select 1
+      from pg_proc p
+      cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+      where p.oid = to_regprocedure('public.record_delivery_provider_event(text,text,text,text,text)')
+        and a.grantee = 0 and a.privilege_type = 'EXECUTE'
+    ) then
+    raise exception 'Provider event RPC direct ACLs or canonical implementation isolation regressed.';
   end if;
   if not (select relrowsecurity from pg_class where oid='public.delivery_provider_events'::regclass)
     or not (select relrowsecurity from pg_class where oid='public.delivery_provider_suppressions'::regclass)
