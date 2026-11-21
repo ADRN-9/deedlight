@@ -82,7 +82,7 @@ The guard inspects only the decoded top-level `experimental.stack` property. Thi
 
 Configuration discovery matches Supabase CLI 3.2.0 precedence: `config.json` first, then `config.jsonc`, then `config.toml`. Only the first existing file is parsed. A malformed selected file is an error; the guard never falls back to a lower-priority file.
 
-Regression coverage includes nested inline tables, escaped quoted keys, malformed TOML, dynamic JSON/JSONC values, and competing config files that prove the CLI precedence. It also mutates the allowlist and linked identity after dry-run and verifies that neither change can reach the hosted mutation invocation.
+Regression coverage includes nested multiline inline tables, escaped quoted keys, malformed TOML, dynamic JSON/JSONC values, and competing config files that prove the CLI precedence. It also mutates the allowlist and linked identity after dry-run and verifies that neither change can reach the hosted mutation invocation.
 
 ## Separate legacy Production migration workflow blocker
 

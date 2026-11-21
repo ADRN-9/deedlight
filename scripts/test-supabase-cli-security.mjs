@@ -644,13 +644,13 @@ test("literal experimental.stack=false remains a valid legacy configuration", ()
   }
 });
 
-test("nested TOML inline tables enable stack mode", () => {
+test("nested multiline TOML inline tables enable stack mode", () => {
   withRoot((root) => {
     writeConfig(root);
     fs.mkdirSync(path.join(root, "supabase"), { recursive: true });
     fs.writeFileSync(
       path.join(root, "supabase", "config.toml"),
-      "experimental = { stack = true }\n",
+      "experimental = {\n  settings = { enabled = true },\n  stack = true,\n}\n",
     );
     assert.throws(
       () => assertLegacyProjectStateMode(root, env()),
