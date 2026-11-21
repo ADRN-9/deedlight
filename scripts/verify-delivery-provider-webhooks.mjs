@@ -30,15 +30,16 @@ assert(!/select e\.\* into v_existing[\s\S]*?for update/i.test(legacyGuardMigrat
   "The fingerprint guard must preserve advisory-lock-before-row-lock ordering.");
 assert(/revoke all privileges[\s\S]*?_record_delivery_provider_lifecycle_event_fingerprinted_impl[\s\S]*?from public, anon, authenticated, service_role/i.test(legacyGuardMigration),
   "The renamed lifecycle implementation must not be directly executable by service_role or browser roles.");
-const normalizedLegacyGuard = legacyGuardMigration.replace(/\\s+/g, " ");
+const compactLegacyGuard = legacyGuardMigration.replace(/\\s+/g, "");
 for (const signature of [
   "record_delivery_provider_lifecycle_event(text, text, text, text, timestamptz, text, text, text)",
   "record_delivery_provider_lifecycle_event(text, text, text, text, timestamptz, text, text)",
   "record_delivery_provider_event(text, text, text, text, text)",
 ]) {
-  assert(normalizedLegacyGuard.includes("revoke all privileges on function public." + signature),
+  const compactSignature = signature.replace(/\\s+/g, "");
+  assert(compactLegacyGuard.includes("revokeallprivilegesonfunctionpublic." + compactSignature),
     "Migration 029 must explicitly revoke browser execution for legacy overload: " + signature);
-  assert(normalizedLegacyGuard.includes("grant execute on function public." + signature),
+  assert(compactLegacyGuard.includes("grantexecuteonfunctionpublic." + compactSignature),
     "Migration 029 must retain service_role execution for legacy overload: " + signature);
 }
 
