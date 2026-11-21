@@ -24,10 +24,8 @@ assert(aggregate.includes(lifecycleMigration.trim()), "Migration 026 must be mir
 assert(aggregate.includes(integrityMigration.trim()), "Migration 027 must be mirrored verbatim in the SQL Editor aggregate");
 assert(aggregate.includes(legacyGuardMigration.trim()), "Migration 029 must be mirrored verbatim in the SQL Editor aggregate");
 assert(/alter function public\.record_delivery_provider_lifecycle_event\([\s\S]*?rename to _record_delivery_provider_lifecycle_event_fingerprinted_impl/i.test(legacyGuardMigration));
-assert(/create or replace function public\.record_delivery_provider_lifecycle_event\([\s\S]*?p_payload_fingerprint text[\s\S]*?if p_payload_fingerprint is null[\s\S]*?select e\.\* into v_existing[\s\S]*?if not found[\s\S]*?errcode = '42501'[\s\S]*?_record_delivery_provider_lifecycle_event_fingerprinted_impl/i.test(legacyGuardMigration),
-  "New events must require a fingerprint while fingerprint-less calls can only reach existing event IDs.");
-assert(!/select e\.\* into v_existing[\s\S]*?for update/i.test(legacyGuardMigration),
-  "The fingerprint guard must preserve advisory-lock-before-row-lock ordering.");
+assert(/create or replace function public\.record_delivery_provider_lifecycle_event\([\s\S]*?p_payload_fingerprint text[\s\S]*?if p_payload_fingerprint is null[\s\S]*?pg_advisory_xact_lock\(20261119, hashtext\(v_email\)\)[\s\S]*?pg_advisory_xact_lock\(20261126, hashtext\(p_provider_email_id\)\)[\s\S]*?select e\.\* into v_existing[\s\S]*?for update[\s\S]*?if not found[\s\S]*?errcode = '42501'[\s\S]*?_record_delivery_provider_lifecycle_event_fingerprinted_impl/i.test(legacyGuardMigration),
+  "New events must require a fingerprint and legacy replays must preserve canonical advisory-lock ordering.");
 assert(/revoke all privileges[\s\S]*?_record_delivery_provider_lifecycle_event_fingerprinted_impl[\s\S]*?from public, anon, authenticated, service_role/i.test(legacyGuardMigration),
   "The renamed lifecycle implementation must not be directly executable by service_role or browser roles.");
 const compactLegacyGuard = legacyGuardMigration.replace(/\\s+/g, "");

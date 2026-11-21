@@ -6872,19 +6872,30 @@ set search_path = public, auth, pg_temp
 as $canonical$
 declare
   v_existing public.delivery_provider_events%rowtype;
+  v_email text;
 begin
   if p_payload_fingerprint is null then
-    if p_event_id is null or char_length(p_event_id) not between 1 and 255 then
-      raise exception 'A valid event ID is required for historical replay.'
+    if p_event_id is null or char_length(p_event_id) not between 1 and 255
+      or p_provider_email_id is null or char_length(p_provider_email_id) not between 1 and 255
+      or p_recipient_email is null or char_length(p_recipient_email) > 320 then
+      raise exception 'A valid event ID, provider email ID and recipient are required for historical replay.'
         using errcode = '22023';
     end if;
 
-    -- Do not lock the event row here: the implementation acquires the
-    -- address/provider advisory locks before its authoritative row lock.
-    -- This existence check rejects new IDs without reversing that lock order.
+    v_email := lower(btrim(p_recipient_email));
+    if char_length(v_email) not between 3 and 320 then
+      raise exception 'Invalid delivery provider recipient.' using errcode = '22023';
+    end if;
+
+    -- Match the canonical implementation's lock order before inspecting the
+    -- event row. This serializes NULL-digest replays against concurrent inserts.
+    perform pg_catalog.pg_advisory_xact_lock(20261119, hashtext(v_email));
+    perform pg_catalog.pg_advisory_xact_lock(20261126, hashtext(p_provider_email_id));
+
     select e.* into v_existing
     from public.delivery_provider_events e
-    where e.event_id = p_event_id;
+    where e.event_id = p_event_id
+    for update;
 
     if not found then
       raise exception 'Fingerprint-less provider events cannot be inserted; use the fingerprinted canonical RPC.'
