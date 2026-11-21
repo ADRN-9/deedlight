@@ -52,5 +52,5 @@ Rollback is operational and fail-closed: disable new outbound work, remove futur
 
 - Pre-C208 exact-head PR #10 validation: [44875441190](https://github.com/ADRN-9/deedlight/actions/runs/44875441190), 7/7 PASS at \`95fb79152243f9581647eae961f3c35cf5d1043b\`.
 - Pre-C208 exact-head push validation: [44875436665](https://github.com/ADRN-9/deedlight/actions/runs/44875436665), 7/7 PASS at the same SHA.
-- C208 specifically adds provider-documented bounce/suppression payload regressions. Its exact-head CI must be recorded separately after GitHub Actions completes.
+- C208 provider-payload compatibility source/test head: `06ca8cf1e21215645bd70dd93f178cd954196929` (tree `fe5e4f98a084d56ee2594fed231b3e8f0d5388f3`). Exact-head [push run 44903890652](https://github.com/ADRN-9/deedlight/actions/runs/44903890652) and [PR run 44903895136](https://github.com/ADRN-9/deedlight/actions/runs/44903895136) both completed **7/7 PASS** at that SHA. All database behavior jobs, provider webhook/concurrency tests, transport revocation races, TypeScript, Next build, Cloudflare packaging, and dependency audit passed.
 - No live Production provider, ledger, Cron, consent-revocation, or kill-switch evidence is claimed.
