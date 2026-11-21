@@ -74,6 +74,22 @@ The implementation follows the pinned CLI's state-mode and link-file behavior:
 - https://github.com/supabase/cli/blob/v3.2.0/apps/cli/src/shared/config/project-link.ts
 - https://github.com/supabase/cli/blob/v3.2.0/packages/config/src/paths.ts
 
+### Structured TOML parsing and configuration precedence
+
+The stack-mode guard no longer scans TOML text. It parses the selected document with `smol-toml@1.9.1`, using the same `parse(source)` API and TOML value semantics used by Supabase CLI 3.2.0's `@supabase/config` package. The later compatible parser patch is intentional: CLI 3.2.0's source lock resolves `smol-toml@1.8.0`, while the wrapper pins 1.9.1 to include the upstream parser's denial-of-service fix. The parser is configured with `unsafeKeyBehaviour: "throw"`.
+
+The guard inspects only the decoded top-level `experimental.stack` property. This correctly handles standard tables, inline tables (including nested values), and escaped quoted keys. The value must be a literal TOML boolean; strings, dynamic `env(...)` values, malformed TOML, duplicate keys, and malformed `experimental` values fail closed. The same literal-boolean requirement applies to JSON and JSONC. No unstructured TOML text matching remains.
+
+Configuration discovery matches Supabase CLI 3.2.0 precedence: `config.json` first, then `config.jsonc`, then `config.toml`. Only the first existing file is parsed. A malformed selected file is an error; the guard never falls back to a lower-priority file.
+
+Regression coverage includes nested inline tables, escaped quoted keys, malformed TOML, dynamic JSON/JSONC values, and competing config files that prove the CLI precedence. It also mutates the allowlist and linked identity after dry-run and verifies that neither change can reach the hosted mutation invocation.
+
+## Separate legacy Production migration workflow blocker
+
+The current `main` snapshot still contains `.github/workflows/supabase-migrations.yml`. It is manually dispatchable, installs Supabase CLI `latest`, then runs `supabase link --project-ref "$SUPABASE_PROJECT_REF"` and `supabase db push` using repository secrets for the access token, database password, and project ref. The workflow file does not declare a protected GitHub `environment:` or a required approval gate. The secret values are not visible to this inspection, so their target cannot be independently established; treat this as a Production-capable operational hazard until the owner verifies otherwise.
+
+PR #13 previously proposed removing the legacy workflow, but it remains separate and unmerged. PR #15 is still open and unmerged; its branch-only wrappers do not protect `main` or neutralize this workflow. Do not dispatch it. The workflow removal/disablement, Production Environment protections, branch restrictions, credential scoping, and migration-history reconciliation must be addressed as a separate approved operational change. This C202 parser fix does not modify `main`, alter the workflow, or perform any migration.
+
 ## npm scripts are not a Production authorization boundary
 
 These wrappers are defense in depth for normal developer workflows, not an authorization boundary against a user who can execute arbitrary commands. A user can invoke the Supabase CLI directly, edit local files, or change their shell environment. Do not put Production credentials in a developer shell, `.env` file, repository secret, or local Supabase configuration.

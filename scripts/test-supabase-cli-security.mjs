@@ -644,6 +644,156 @@ test("literal experimental.stack=false remains a valid legacy configuration", ()
   }
 });
 
+test("nested TOML inline tables enable stack mode", () => {
+  withRoot((root) => {
+    writeConfig(root);
+    fs.mkdirSync(path.join(root, "supabase"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "supabase", "config.toml"),
+      "experimental = { stack = true }\n",
+    );
+    assert.throws(
+      () => assertLegacyProjectStateMode(root, env()),
+      /stack mode is enabled/u,
+    );
+  });
+});
+
+test("escaped quoted TOML keys are decoded before stack-mode inspection", () => {
+  withRoot((root) => {
+    writeConfig(root);
+    fs.mkdirSync(path.join(root, "supabase"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "supabase", "config.toml"),
+      '[experimental]\n"sta\\u0063k" = true\n',
+    );
+    assert.throws(
+      () => assertLegacyProjectStateMode(root, env()),
+      /stack mode is enabled/u,
+    );
+  });
+});
+
+test("competing Supabase config files follow CLI JSON then JSONC then TOML precedence", () => {
+  withRoot((root) => {
+    writeConfig(root);
+    const directory = path.join(root, "supabase");
+    fs.mkdirSync(directory, { recursive: true });
+    const json = path.join(directory, "config.json");
+    const jsonc = path.join(directory, "config.jsonc");
+    const toml = path.join(directory, "config.toml");
+
+    fs.writeFileSync(json, '{"experimental":{"stack":false}}');
+    fs.writeFileSync(jsonc, '{"experimental":{"stack":true}}');
+    fs.writeFileSync(toml, "this is deliberately malformed TOML = [\n");
+    assert.equal(assertLegacyProjectStateMode(root, env()), "legacy");
+
+    fs.unlinkSync(json);
+    fs.writeFileSync(jsonc, '{"experimental":{"stack":false}}');
+    fs.writeFileSync(toml, "experimental = { stack = true }\n");
+    assert.equal(assertLegacyProjectStateMode(root, env()), "legacy");
+
+    fs.unlinkSync(jsonc);
+    assert.throws(
+      () => assertLegacyProjectStateMode(root, env()),
+      /stack mode is enabled/u,
+    );
+  });
+});
+
+test("malformed selected TOML configuration fails closed", () => {
+  withRoot((root) => {
+    writeConfig(root);
+    fs.mkdirSync(path.join(root, "supabase"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "supabase", "config.toml"),
+      "[experimental\nstack = true\n",
+    );
+    assert.throws(
+      () => assertLegacyProjectStateMode(root, env()),
+      /configuration is unreadable/u,
+    );
+  });
+});
+
+test("dynamic experimental.stack JSON and JSONC values fail closed", () => {
+  for (const name of ["config.json", "config.jsonc"]) {
+    withRoot((root) => {
+      writeConfig(root);
+      fs.mkdirSync(path.join(root, "supabase"), { recursive: true });
+      fs.writeFileSync(
+        path.join(root, "supabase", name),
+        '{"experimental":{"stack":"env(SUPABASE_EXPERIMENTAL_STACK)"}}',
+      );
+      assert.throws(
+        () => assertLegacyProjectStateMode(root, env()),
+        /literal boolean/u,
+      );
+    });
+  }
+});
+
+test("authorization policy changes after dry-run block hosted mutation", () => {
+  withRoot((root) => {
+    writeConfig(root);
+    writeLink(root, APPROVED);
+    const policyPath = path.join(root, "config", "supabase-projects.json");
+    const { runCli: fakeRunCli } = fakeCli(root);
+    let mutationCalls = 0;
+
+    assert.throws(
+      () => executeSupabaseMode({
+        mode: "push-non-production",
+        cwd: root,
+        env: env(),
+        runCli: (args, options) => {
+          if (args[0] === "db" && args.includes("--dry-run")) {
+            fs.writeFileSync(policyPath, JSON.stringify({
+              schemaVersion: 1,
+              productionProjectRef: PRODUCTION,
+              approvedNonProductionProjectRefs: [OTHER],
+            }));
+          } else if (args[0] === "db" && args[1] === "push") {
+            mutationCalls += 1;
+          }
+          return fakeRunCli(args, options);
+        },
+        io: quietIo,
+      }),
+      /not in the approved/u,
+    );
+    assert.equal(mutationCalls, 0);
+  });
+});
+
+test("linked identity changes after dry-run block hosted mutation", () => {
+  withRoot((root) => {
+    writeConfig(root);
+    writeLink(root, APPROVED);
+    const { runCli: fakeRunCli } = fakeCli(root);
+    let mutationCalls = 0;
+
+    assert.throws(
+      () => executeSupabaseMode({
+        mode: "push-non-production",
+        cwd: root,
+        env: env(),
+        runCli: (args, options) => {
+          if (args[0] === "db" && args.includes("--dry-run")) {
+            writeLink(root, OTHER);
+          } else if (args[0] === "db" && args[1] === "push") {
+            mutationCalls += 1;
+          }
+          return fakeRunCli(args, options);
+        },
+        io: quietIo,
+      }),
+      /does not match/u,
+    );
+    assert.equal(mutationCalls, 0);
+  });
+});
+
 test("dynamic experimental.stack environment references fail closed", () => {
   withRoot((root) => {
     writeConfig(root);

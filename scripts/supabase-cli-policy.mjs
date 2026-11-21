@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { parse as parseToml } from "smol-toml";
 
 export const PROJECT_REF_PATTERN = /^[a-z]{20}$/;
 
@@ -345,112 +346,29 @@ function readExperimentalStackJson(source) {
   return experimental.stack;
 }
 
-function findUnescapedTomlTriple(line, quote, start) {
-  for (let index = start; index <= line.length - quote.length; index += 1) {
-    if (!line.startsWith(quote, index)) continue;
-    if (quote === "'''") return index;
-    let backslashes = 0;
-    for (let cursor = index - 1; cursor >= 0 && line[cursor] === "\\"; cursor -= 1) {
-      backslashes += 1;
-    }
-    if (backslashes % 2 === 0) return index;
-  }
-  return -1;
-}
-
-function stripTomlComment(line, state) {
-  let quote;
-  let escaped = false;
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index];
-    if (state.multiline !== undefined) {
-      const close = findUnescapedTomlTriple(line, state.multiline, index);
-      if (close === -1) return "";
-      state.multiline = undefined;
-      return "";
-    }
-    if (quote !== undefined) {
-      if (escaped) {
-        escaped = false;
-      } else if (quote === '"' && char === "\\") {
-        escaped = true;
-      } else if (char === quote) {
-        quote = undefined;
-      }
-    } else if ((char === '"' && line.startsWith('"""', index)) ||
-               (char === "'" && line.startsWith("'''", index))) {
-      const triple = char.repeat(3);
-      if (findUnescapedTomlTriple(line, triple, index + 3) === -1) {
-        state.multiline = triple;
-      }
-      return line.slice(0, index);
-    } else if (char === '"' || char === "'") {
-      quote = char;
-    } else if (char === "#") {
-      return line.slice(0, index);
-    }
-  }
-  return line;
-}
-
-function parseTomlStackBoolean(value) {
-  const normalized = value.trim();
-  if (normalized === "true") return true;
-  if (normalized === "false") return false;
-  throw new Error("Supabase experimental.stack must be a literal TOML boolean; dynamic stack selection is unsupported.");
-}
-
 function readExperimentalStackToml(source) {
-  let section = "";
-  let found = false;
-  let enabled = false;
-  const tomlState = { multiline: undefined };
-
-  for (const rawLine of source.split(/\r?\n/u)) {
-    const line = stripTomlComment(rawLine, tomlState).trim();
-    if (line === "") continue;
-
-    const table = line.match(/^\[\s*([^\]]+)\s*\]$/u);
-    if (table) {
-      section = table[1].trim().replace(/^["']|["']$/gu, "");
-      continue;
-    }
-
-    const assignment = line.match(/^((?:"[^"]+"|'[^']+'|[A-Za-z0-9_-]+)(?:\s*\.\s*(?:"[^"]+"|'[^']+'|[A-Za-z0-9_-]+))*)\s*=\s*(.*?)\s*$/u);
-    if (!assignment) continue;
-
-    const keyPath = assignment[1]
-      .split(/\s*\.\s*/u)
-      .map((part) => part.replace(/^["']|["']$/gu, ""));
-    const value = assignment[2];
-    const isStackKey =
-      (section === "" && keyPath.length === 2 && keyPath[0] === "experimental" && keyPath[1] === "stack") ||
-      (section === "experimental" && keyPath.length === 1 && keyPath[0] === "stack");
-
-    if (isStackKey) {
-      if (found) throw new Error("Supabase experimental.stack is defined more than once.");
-      found = true;
-      enabled = parseTomlStackBoolean(value);
-      continue;
-    }
-
-    if (section === "" && keyPath.length === 1 && keyPath[0] === "experimental") {
-      if (value.startsWith("{")) {
-        const inlineStack = value.match(/(?:^|[{,]\s*)(?:"stack"|'stack'|stack)\s*=\s*([^,}]+)(?=\s*[,}])/u);
-        if (inlineStack) {
-          if (found) throw new Error("Supabase experimental.stack is defined more than once.");
-          found = true;
-          enabled = parseTomlStackBoolean(inlineStack[1]);
-        } else if (!value.endsWith("}")) {
-          throw new Error("Supabase inline experimental configuration is incomplete.");
-        }
-      } else {
-        throw new Error("Supabase experimental configuration uses an unsupported value.");
-      }
-    }
+  let document;
+  try {
+    document = parseToml(source, { unsafeKeyBehaviour: "throw" });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "invalid TOML";
+    throw new Error("Supabase project configuration is unreadable: " + detail);
   }
 
-  return enabled;
+  if (!document || typeof document !== "object" || Array.isArray(document)) {
+    throw new Error("Supabase project configuration must be an object.");
+  }
+
+  const experimental = document.experimental;
+  if (experimental === undefined) return false;
+  if (!experimental || typeof experimental !== "object" || Array.isArray(experimental)) {
+    throw new Error("Supabase experimental configuration is malformed.");
+  }
+  if (!Object.hasOwn(experimental, "stack")) return false;
+  if (typeof experimental.stack !== "boolean") {
+    throw new Error("Supabase experimental.stack must be a literal TOML boolean; dynamic stack selection is unsupported.");
+  }
+  return experimental.stack;
 }
 
 /**
