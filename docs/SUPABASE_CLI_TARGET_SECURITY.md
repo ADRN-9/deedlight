@@ -54,6 +54,26 @@ The CLI's captured `--version` and `--dry-run` calls use piped stdout/stderr so 
 
 Local `supabase:push` and `supabase:reset` retain the caller's normal environment; the `SUPABASE_YES` restriction applies only to hosted migration mode. Local operations do not target hosted projects.
 
+
+## Hosted wrapper state-mode boundary
+
+Supabase CLI 3.2.0 supports an experimental stack project-state mode. The CLI selects it with `SUPABASE_EXPERIMENTAL_STACK=1` or `[experimental] stack = true`; `SUPABASE_EXPERIMENTAL_STACK=0` overrides the config back to legacy mode, while an unset or empty variable falls back to the config. In stack mode, the CLI reads the hosted link from `supabase/.link.json`, whose `project.ref` is the parent project and whose `active_branch.ref` is the actual linked target. Legacy mode reads `supabase/.temp/project-ref`.
+
+The Deedlight hosted wrappers deliberately support only legacy identity. They fail closed before invoking Supabase CLI when:
+- `SUPABASE_EXPERIMENTAL_STACK` is present in the environment, including `1`, `0`, empty, or invalid values;
+- `SUPABASE_WORKDIR` is present and could redirect the CLI to a different checkout;
+- `supabase/.link.json` exists, even if a matching legacy `.temp/project-ref` also exists;
+- the selected `supabase/config.json`, `config.jsonc`, or `config.toml` enables `experimental.stack`, or uses a dynamic environment reference for it.
+
+Literal `experimental.stack = false` remains supported. The stack-mode check is repeated after the dry-run target check and immediately before the mutating hosted push, so a newly written stack link or changed project config cannot be masked by a stale legacy link. Stack-mode linked identity is intentionally not interpreted or trusted by this wrapper; use the Supabase CLI's stack-aware workflow separately. The Production deny reference and empty Non-Production allowlist are unchanged.
+
+The implementation follows the pinned CLI's state-mode and link-file behavior:
+- https://github.com/supabase/cli/blob/v3.2.0/apps/cli/src/shared/config/project-state-mode.ts
+- https://github.com/supabase/cli/blob/v3.2.0/apps/cli/src/shared/config/experimental-feature.ts
+- https://github.com/supabase/cli/blob/v3.2.0/apps/cli/src/shared/config/link-snapshot.ts
+- https://github.com/supabase/cli/blob/v3.2.0/apps/cli/src/shared/config/project-link.ts
+- https://github.com/supabase/cli/blob/v3.2.0/packages/config/src/paths.ts
+
 ## npm scripts are not a Production authorization boundary
 
 These wrappers are defense in depth for normal developer workflows, not an authorization boundary against a user who can execute arbitrary commands. A user can invoke the Supabase CLI directly, edit local files, or change their shell environment. Do not put Production credentials in a developer shell, `.env` file, repository secret, or local Supabase configuration.

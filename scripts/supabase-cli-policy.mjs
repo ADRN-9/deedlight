@@ -219,6 +219,295 @@ export function assertLinkedProject(root, target, { required = true, fileSystem 
   return linked;
 }
 
+
+function stripJsonComments(source) {
+  let output = "";
+  let inString = false;
+  let escaped = false;
+  let lineComment = false;
+  let blockComment = false;
+
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    const next = source[index + 1];
+
+    if (lineComment) {
+      if (char === "\n" || char === "\r") {
+        lineComment = false;
+        output += char;
+      } else {
+        output += " ";
+      }
+      continue;
+    }
+
+    if (blockComment) {
+      if (char === "*" && next === "/") {
+        blockComment = false;
+        output += "  ";
+        index += 1;
+      } else {
+        output += char === "\n" || char === "\r" ? char : " ";
+      }
+      continue;
+    }
+
+    if (inString) {
+      output += char;
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      output += char;
+    } else if (char === "/" && next === "/") {
+      lineComment = true;
+      output += "  ";
+      index += 1;
+    } else if (char === "/" && next === "*") {
+      blockComment = true;
+      output += "  ";
+      index += 1;
+    } else {
+      output += char;
+    }
+  }
+
+  if (blockComment) {
+    throw new Error("Supabase JSONC configuration contains an unterminated comment.");
+  }
+  return output;
+}
+
+function stripJsonTrailingCommas(source) {
+  let output = "";
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    if (inString) {
+      output += char;
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      output += char;
+      continue;
+    }
+
+    if (char === ",") {
+      let next = index + 1;
+      while (next < source.length && /\s/u.test(source[next])) next += 1;
+      if (source[next] === "}" || source[next] === "]") continue;
+    }
+    output += char;
+  }
+  return output;
+}
+
+function readExperimentalStackJson(source) {
+  let document;
+  try {
+    const clean = stripJsonTrailingCommas(stripJsonComments(source));
+    document = JSON.parse(clean);
+  } catch (error) {
+    throw new Error("Supabase project configuration is unreadable: " + error.message);
+  }
+
+  if (!document || typeof document !== "object" || Array.isArray(document)) {
+    throw new Error("Supabase project configuration must be an object.");
+  }
+  const experimental = document.experimental;
+  if (experimental === undefined) return false;
+  if (!experimental || typeof experimental !== "object" || Array.isArray(experimental)) {
+    throw new Error("Supabase experimental configuration is malformed.");
+  }
+  if (experimental.stack === undefined) return false;
+  if (typeof experimental.stack !== "boolean") {
+    throw new Error("Supabase experimental.stack must be a literal boolean; dynamic stack selection is unsupported.");
+  }
+  return experimental.stack;
+}
+
+function findUnescapedTomlTriple(line, quote, start) {
+  for (let index = start; index <= line.length - quote.length; index += 1) {
+    if (!line.startsWith(quote, index)) continue;
+    if (quote === "'''") return index;
+    let backslashes = 0;
+    for (let cursor = index - 1; cursor >= 0 && line[cursor] === "\\"; cursor -= 1) {
+      backslashes += 1;
+    }
+    if (backslashes % 2 === 0) return index;
+  }
+  return -1;
+}
+
+function stripTomlComment(line, state) {
+  let quote;
+  let escaped = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    if (state.multiline !== undefined) {
+      const close = findUnescapedTomlTriple(line, state.multiline, index);
+      if (close === -1) return "";
+      state.multiline = undefined;
+      return "";
+    }
+    if (quote !== undefined) {
+      if (escaped) {
+        escaped = false;
+      } else if (quote === '"' && char === "\\") {
+        escaped = true;
+      } else if (char === quote) {
+        quote = undefined;
+      }
+    } else if ((char === '"' && line.startsWith('"""', index)) ||
+               (char === "'" && line.startsWith("'''", index))) {
+      const triple = char.repeat(3);
+      if (findUnescapedTomlTriple(line, triple, index + 3) === -1) {
+        state.multiline = triple;
+      }
+      return line.slice(0, index);
+    } else if (char === '"' || char === "'") {
+      quote = char;
+    } else if (char === "#") {
+      return line.slice(0, index);
+    }
+  }
+  return line;
+}
+
+function parseTomlStackBoolean(value) {
+  const normalized = value.trim();
+  if (normalized === "true") return true;
+  if (normalized === "false") return false;
+  throw new Error("Supabase experimental.stack must be a literal TOML boolean; dynamic stack selection is unsupported.");
+}
+
+function readExperimentalStackToml(source) {
+  let section = "";
+  let found = false;
+  let enabled = false;
+  const tomlState = { multiline: undefined };
+
+  for (const rawLine of source.split(/\r?\n/u)) {
+    const line = stripTomlComment(rawLine, tomlState).trim();
+    if (line === "") continue;
+
+    const table = line.match(/^\[\s*([^\]]+)\s*\]$/u);
+    if (table) {
+      section = table[1].trim().replace(/^["']|["']$/gu, "");
+      continue;
+    }
+
+    const assignment = line.match(/^((?:"[^"]+"|'[^']+'|[A-Za-z0-9_-]+)(?:\s*\.\s*(?:"[^"]+"|'[^']+'|[A-Za-z0-9_-]+))*)\s*=\s*(.*?)\s*$/u);
+    if (!assignment) continue;
+
+    const keyPath = assignment[1]
+      .split(/\s*\.\s*/u)
+      .map((part) => part.replace(/^["']|["']$/gu, ""));
+    const value = assignment[2];
+    const isStackKey =
+      (section === "" && keyPath.length === 2 && keyPath[0] === "experimental" && keyPath[1] === "stack") ||
+      (section === "experimental" && keyPath.length === 1 && keyPath[0] === "stack");
+
+    if (isStackKey) {
+      if (found) throw new Error("Supabase experimental.stack is defined more than once.");
+      found = true;
+      enabled = parseTomlStackBoolean(value);
+      continue;
+    }
+
+    if (section === "" && keyPath.length === 1 && keyPath[0] === "experimental") {
+      if (value.startsWith("{")) {
+        const inlineStack = value.match(/(?:^|[{,]\s*)(?:"stack"|'stack'|stack)\s*=\s*([^,}]+)(?=\s*[,}])/u);
+        if (inlineStack) {
+          if (found) throw new Error("Supabase experimental.stack is defined more than once.");
+          found = true;
+          enabled = parseTomlStackBoolean(inlineStack[1]);
+        } else if (!value.endsWith("}")) {
+          throw new Error("Supabase inline experimental configuration is incomplete.");
+        }
+      } else {
+        throw new Error("Supabase experimental configuration uses an unsupported value.");
+      }
+    }
+  }
+
+  return enabled;
+}
+
+/**
+ * The wrapper supports only Supabase CLI's legacy project-state identity.
+ * CLI 3.2.0 switches to supabase/.link.json when experimental stack mode is selected.
+ */
+export function assertLegacyProjectStateMode(root, env, fileSystem = fs) {
+  if (Object.hasOwn(env, "SUPABASE_EXPERIMENTAL_STACK")) {
+    throw new Error("SUPABASE_EXPERIMENTAL_STACK must be unset; hosted wrappers support legacy project identity only.");
+  }
+  if (Object.hasOwn(env, "SUPABASE_WORKDIR")) {
+    throw new Error("SUPABASE_WORKDIR must be unset; hosted wrappers bind identity to the current repository.");
+  }
+
+  const stackLink = path.join(root, "supabase", ".link.json");
+  try {
+    fileSystem.lstatSync(stackLink);
+    throw new Error("Experimental stack-mode link identity (supabase/.link.json) is unsupported by hosted wrappers.");
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      if (error instanceof Error && error.message.includes("stack-mode link identity")) throw error;
+      if (error?.code === "ENOTDIR") {
+        throw new Error("Unable to inspect Supabase stack-mode link identity.");
+      }
+      if (error?.code !== undefined) {
+        throw new Error("Unable to inspect Supabase stack-mode link identity.");
+      }
+      throw error;
+    }
+  }
+
+  const supabaseDir = path.join(root, "supabase");
+  const configPaths = [
+    path.join(supabaseDir, "config.json"),
+    path.join(supabaseDir, "config.jsonc"),
+    path.join(supabaseDir, "config.toml"),
+  ];
+  const configFile = configPaths.find((file) => fileSystem.existsSync(file));
+  if (configFile === undefined) return "legacy";
+
+  let source;
+  try {
+    source = fileSystem.readFileSync(configFile, "utf8");
+  } catch {
+    throw new Error("Unable to read Supabase project configuration for hosted identity verification.");
+  }
+
+  const stackEnabled = configFile.endsWith(".toml")
+    ? readExperimentalStackToml(source)
+    : readExperimentalStackJson(source);
+
+  if (stackEnabled) {
+    throw new Error("Supabase experimental stack mode is enabled; hosted wrappers require legacy supabase/.temp/project-ref identity.");
+  }
+  return "legacy";
+}
+
 export function assertNoForwardedArgs(args, mode) {
   if (!Array.isArray(args) || args.length > 0) {
     throw new Error(`supabase:${mode} accepts no forwarded arguments; target overrides are forbidden.`);

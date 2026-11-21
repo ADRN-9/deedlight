@@ -3,6 +3,7 @@ import process from "node:process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
+  assertLegacyProjectStateMode,
   assertLinkedProject,
   assertNoForwardedArgs,
   assertResolvedTarget,
@@ -82,8 +83,10 @@ function requirePinnedCli(runCli, version, options) {
 
 export function createHostedCliEnvironment(env, target) {
   const result = { ...env, SUPABASE_PROJECT_ID: target };
-  // The wrapper never forwards shell-level confirmation bypasses to hosted commands.
+  // The wrapper never forwards shell-level confirmation or project-state overrides.
   delete result.SUPABASE_YES;
+  delete result.SUPABASE_EXPERIMENTAL_STACK;
+  delete result.SUPABASE_WORKDIR;
   return result;
 }
 
@@ -130,6 +133,7 @@ export function executeSupabaseMode({
     // Reject presence, not truthiness: even SUPABASE_YES=false is an unexpected caller override.
     assertNoHostedYesOverride(env);
   }
+  assertLegacyProjectStateMode(cwd, env);
 
   const version = loadCliVersion(cwd);
   const policy = loadProjectPolicy(cwd);
@@ -170,6 +174,7 @@ export function executeSupabaseMode({
   if (currentTarget !== target) {
     throw new Error("Approved Supabase target changed during migration preflight.");
   }
+  assertLegacyProjectStateMode(cwd, env);
   assertLinkedProject(cwd, target);
 
   // The captured dry-run verifies the exact target. Inherit stdio for the real push so the CLI

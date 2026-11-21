@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  assertLegacyProjectStateMode,
   assertLinkedProject,
   assertResolvedTarget,
   loadProjectPolicy,
@@ -44,6 +45,16 @@ function writeLink(root, ref) {
   const file = path.join(root, "supabase", ".temp", "project-ref");
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, `${ref}\n`);
+}
+
+function writeStackLink(root, projectRef, activeBranchRef) {
+  const file = path.join(root, "supabase", ".link.json");
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({
+    project: { ref: projectRef },
+    active_branch: { ref: activeBranchRef },
+    fetchedAt: "2026-11-21T00:00:00.000Z",
+  }));
 }
 
 function env(overrides = {}) {
@@ -472,11 +483,15 @@ const PYTHON_PTY_RUNNER = "import errno, os, pty, select, signal, sys, time\n\np
 test("hosted child environment sanitization removes inherited SUPABASE_YES", () => {
   const sanitized = createHostedCliEnvironment({
     SUPABASE_YES: "true",
+    SUPABASE_EXPERIMENTAL_STACK: "1",
+    SUPABASE_WORKDIR: "/tmp/other-project",
     SUPABASE_ACCESS_TOKEN: "retained-token",
     NODE_ENV: "test",
   }, APPROVED);
 
   assert.equal(Object.hasOwn(sanitized, "SUPABASE_YES"), false);
+  assert.equal(Object.hasOwn(sanitized, "SUPABASE_EXPERIMENTAL_STACK"), false);
+  assert.equal(Object.hasOwn(sanitized, "SUPABASE_WORKDIR"), false);
   assert.equal(sanitized.SUPABASE_PROJECT_ID, APPROVED);
   assert.equal(sanitized.SUPABASE_ACCESS_TOKEN, "retained-token");
   assert.equal(sanitized.NODE_ENV, "test");
@@ -545,6 +560,183 @@ test("non-TTY hosted migration fails closed before the mutation shim executes", 
     assert.notEqual(result.status, 0, result.stdout);
     assert.ok(result.stderr.includes("Refusing hosted migration without an interactive TTY"), result.stderr);
     assert.equal(fs.existsSync(marker), false);
+  });
+});
+
+
+test("legacy linked identity remains supported when stack mode is absent", () => {
+  withRoot((root) => {
+    writeConfig(root);
+    writeLink(root, APPROVED);
+    assert.equal(assertLegacyProjectStateMode(root, env()), "legacy");
+    assert.equal(assertLinkedProject(root, APPROVED), APPROVED);
+  });
+});
+
+test("stack-mode .link.json identity is rejected even when its active branch matches", () => {
+  withRoot((root) => {
+    writeConfig(root);
+    writeLink(root, APPROVED);
+    writeStackLink(root, OTHER, APPROVED);
+    assert.throws(
+      () => assertLegacyProjectStateMode(root, env()),
+      /stack-mode link identity/u,
+    );
+  });
+});
+
+test("stack configuration without .link.json rejects stale legacy project references", () => {
+  withRoot((root) => {
+    writeConfig(root);
+    writeLink(root, APPROVED);
+    fs.mkdirSync(path.join(root, "supabase"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "supabase", "config.toml"),
+      "[experimental]\nstack = true\n",
+    );
+    const calls = [];
+    assert.throws(
+      () => executeSupabaseMode({
+        mode: "push-non-production",
+        cwd: root,
+        env: env(),
+        runCli: (args) => {
+          calls.push(args);
+          return { status: 0, stdout: VERSION + "\n", stderr: "" };
+        },
+        io: quietIo,
+      }),
+      /stack mode is enabled/u,
+    );
+    assert.deepEqual(calls, []);
+  });
+});
+
+test("stack mode is detected in JSON and commented JSONC project configuration", () => {
+  for (const [name, content] of [
+    ["config.json", '{"experimental":{"stack":true}}'],
+    ["config.jsonc", '{\n  // opt in\n  "experimental": { "stack": true, },\n}\n'],
+  ]) {
+    withRoot((root) => {
+      writeConfig(root);
+      fs.mkdirSync(path.join(root, "supabase"), { recursive: true });
+      fs.writeFileSync(path.join(root, "supabase", name), content);
+      assert.throws(
+        () => assertLegacyProjectStateMode(root, env()),
+        /stack mode is enabled/u,
+      );
+    });
+  }
+});
+
+test("literal experimental.stack=false remains a valid legacy configuration", () => {
+  for (const [name, content] of [
+    ["config.toml", "[experimental]\nstack = false\n"],
+    ["config.json", '{"experimental":{"stack":false}}'],
+    ["config.jsonc", '{ "experimental": { "stack": false, }, }'],
+  ]) {
+    withRoot((root) => {
+      writeConfig(root);
+      fs.mkdirSync(path.join(root, "supabase"), { recursive: true });
+      fs.writeFileSync(path.join(root, "supabase", name), content);
+      assert.equal(assertLegacyProjectStateMode(root, env()), "legacy");
+    });
+  }
+});
+
+test("dynamic experimental.stack environment references fail closed", () => {
+  withRoot((root) => {
+    writeConfig(root);
+    fs.mkdirSync(path.join(root, "supabase"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "supabase", "config.toml"),
+      "[experimental]\nstack = 'env(SUPABASE_EXPERIMENTAL_STACK)'\n",
+    );
+    assert.throws(
+      () => assertLegacyProjectStateMode(root, env()),
+      /literal TOML boolean/u,
+    );
+  });
+});
+
+test("SUPABASE_EXPERIMENTAL_STACK cannot switch identity modes through the environment", () => {
+  withRoot((root) => {
+    writeConfig(root);
+    fs.mkdirSync(path.join(root, "supabase"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "supabase", "config.toml"),
+      "[experimental]\nstack = true\n",
+    );
+    for (const value of ["1", "0", "", "invalid"]) {
+      assert.throws(
+        () => assertLegacyProjectStateMode(root, env({ SUPABASE_EXPERIMENTAL_STACK: value })),
+        /SUPABASE_EXPERIMENTAL_STACK must be unset/u,
+      );
+    }
+  });
+});
+
+test("SUPABASE_WORKDIR cannot redirect hosted project identity", () => {
+  withRoot((root) => {
+    writeConfig(root);
+    writeLink(root, APPROVED);
+    assert.throws(
+      () => assertLegacyProjectStateMode(root, env({ SUPABASE_WORKDIR: "/tmp/other-project" })),
+      /SUPABASE_WORKDIR must be unset/u,
+    );
+  });
+});
+
+
+test("TOML multiline strings cannot hide a later stack-mode declaration", () => {
+  withRoot((root) => {
+    writeConfig(root);
+    fs.mkdirSync(path.join(root, "supabase"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "supabase", "config.toml"),
+      'description = """\n[experimental]\nstack = false\n"""\n[experimental]\nstack = true\n',
+    );
+    assert.throws(
+      () => assertLegacyProjectStateMode(root, env()),
+      /stack mode is enabled/u,
+    );
+  });
+});
+
+test("stack mode with no stack or legacy link identity is rejected", () => {
+  withRoot((root) => {
+    writeConfig(root);
+    fs.mkdirSync(path.join(root, "supabase"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "supabase", "config.toml"),
+      "[experimental]\nstack = true\n",
+    );
+    assert.throws(
+      () => assertLegacyProjectStateMode(root, env()),
+      /stack mode is enabled/u,
+    );
+  });
+});
+
+test("hosted link rejects environment-based identity-mode switching before CLI execution", () => {
+  withRoot((root) => {
+    writeConfig(root);
+    writeLink(root, APPROVED);
+    const calls = [];
+    assert.throws(
+      () => executeSupabaseMode({
+        mode: "link",
+        cwd: root,
+        env: env({ SUPABASE_EXPERIMENTAL_STACK: "1" }),
+        runCli: (args) => {
+          calls.push(args);
+          return { status: 0, stdout: VERSION + "\n", stderr: "" };
+        },
+        io: quietIo,
+      }),
+      /SUPABASE_EXPERIMENTAL_STACK must be unset/u,
+    );
+    assert.deepEqual(calls, []);
   });
 });
 
