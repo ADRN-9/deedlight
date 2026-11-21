@@ -129,7 +129,7 @@ begin
     or not exists (select 1 from public.delivery_provider_integrity_anomalies
       where event_id = 'evt_legacy_eight_fingerprint' and anomaly_type = 'duplicate_event_id_conflict')
     or (select status from public.delivery_provider_lifecycle
-      where provider_email_id = 'resend-legacy-eight-fingerprint') <> 'integrity_anomaly' then
+      where provider_email_id = 'resend-legacy-eight-fingerprint') is distinct from 'integrity_anomaly' then
     raise exception 'Eight-argument legacy replay changed or failed to flag fingerprinted event history.';
   end if;
   if not exists (select 1 from public.delivery_provider_events
@@ -137,7 +137,7 @@ begin
     or not exists (select 1 from public.delivery_provider_integrity_anomalies
       where event_id = 'evt_legacy_seven_fingerprint' and anomaly_type = 'duplicate_event_id_conflict')
     or (select status from public.delivery_provider_lifecycle
-      where provider_email_id = 'resend-legacy-seven-fingerprint') <> 'integrity_anomaly' then
+      where provider_email_id = 'resend-legacy-seven-fingerprint') is distinct from 'integrity_anomaly' then
     raise exception 'Seven-argument legacy replay changed or failed to flag fingerprinted event history.';
   end if;
   if not exists (select 1 from public.delivery_provider_events
@@ -145,7 +145,7 @@ begin
     or not exists (select 1 from public.delivery_provider_integrity_anomalies
       where event_id = 'evt_legacy_five_fingerprint' and anomaly_type = 'duplicate_event_id_conflict')
     or (select status from public.delivery_provider_lifecycle
-      where provider_email_id = 'resend-legacy-five-fingerprint') <> 'integrity_anomaly' then
+      where provider_email_id = 'resend-legacy-five-fingerprint') is distinct from 'integrity_anomaly' then
     raise exception 'Five-argument legacy replay changed or failed to flag fingerprinted event history.';
   end if;
   if exists (select 1 from public.delivery_provider_integrity_anomalies

@@ -6244,8 +6244,8 @@ begin
       and (v_existing.provider_created_at is null
         or v_existing.provider_created_at = p_provider_created_at)
       and v_existing.failure_class is not distinct from p_failure_class
-      -- Older events and legacy RPC callers have no fingerprint or suppression reason.
-      -- Compare new metadata only when both sides actually carry it; never invent a digest.
+      -- Historical suppression metadata and legacy callers may lack a reason.
+      -- Fingerprints are stricter below: stored digests require exact non-NULL replay input.
       and (
         v_existing.suppression_reason is null
         or p_suppression_reason is null
