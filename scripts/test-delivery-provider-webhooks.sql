@@ -96,7 +96,21 @@ begin
   end if;
 
   if public.record_delivery_provider_event(
-    'msg_bounce_permanent_20001', 'email.complained', 'different-provider-id',
+    'msg_bounce_conflict_20006', 'email.bounced', 'resend-bounce-conflict-20006',
+    'conflict-duplicate@example.test', 'Permanent'
+  ) is not true then
+    raise exception 'Conflicting duplicate fixture bounce was not recorded.';
+  end if;
+
+  if public.record_delivery_provider_event(
+    'msg_bounce_conflict_20006', 'email.bounced', 'resend-bounce-conflict-20006',
+    'conflict-duplicate@example.test', 'Permanent'
+  ) is not false then
+    raise exception 'Conflicting duplicate fixture exact replay was not a no-op.';
+  end if;
+
+  if public.record_delivery_provider_event(
+    'msg_bounce_conflict_20006', 'email.complained', 'different-provider-id',
     'attacker@example.test', null
   ) is not null then
     raise exception 'Conflicting duplicate event ID was not recorded as an integrity anomaly.';
@@ -117,18 +131,18 @@ reset role;
 do $$
 begin
   if (select event_type from public.delivery_provider_events
-      where event_id = 'msg_bounce_permanent_20001') <> 'email.bounced'
+      where event_id = 'msg_bounce_conflict_20006') <> 'email.bounced'
     or (select provider_email_id from public.delivery_provider_events
-      where event_id = 'msg_bounce_permanent_20001') <> 'resend-bounce-20001'
+      where event_id = 'msg_bounce_conflict_20006') <> 'resend-bounce-conflict-20006'
     or (select recipient_email from public.delivery_provider_events
-      where event_id = 'msg_bounce_permanent_20001') <> 'webhook-20001@example.test'
+      where event_id = 'msg_bounce_conflict_20006') <> 'conflict-duplicate@example.test'
     or (select reason from public.delivery_provider_suppressions
-      where recipient_email = 'webhook-20001@example.test') <> 'permanent_bounce'
+      where recipient_email = 'conflict-duplicate@example.test') <> 'permanent_bounce'
     or (select status from public.delivery_provider_lifecycle
-      where provider_email_id = 'resend-bounce-20001') <> 'integrity_anomaly'
+      where provider_email_id = 'resend-bounce-conflict-20006') <> 'integrity_anomaly'
     or not exists (
       select 1 from public.delivery_provider_integrity_anomalies
-      where event_id = 'msg_bounce_permanent_20001'
+      where event_id = 'msg_bounce_conflict_20006'
         and anomaly_type = 'duplicate_event_id_conflict'
     ) then
     raise exception 'Conflicting duplicate changed original event or suppression state.';
