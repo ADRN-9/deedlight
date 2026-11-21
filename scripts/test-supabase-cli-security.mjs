@@ -190,6 +190,7 @@ test("generic supabase:reset is local-only and rejects remote and --yes argument
     const { calls, runCli } = fakeCli(root);
     executeSupabaseMode({ mode: "reset-local", cwd: root, env: { SUPABASE_YES: "true" }, runCli, io: quietIo });
     assert.deepEqual(calls.map((call) => call.args), [["--version"], ["db", "reset"]]);
+    assert.equal(calls[1].env.SUPABASE_YES, "true");
 
     for (const args of [
       ["--remote"],
