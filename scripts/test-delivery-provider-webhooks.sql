@@ -228,23 +228,6 @@ begin
     raise exception 'Conflicting duplicate fixture exact replay was not a no-op.';
   end if;
 
-  create temporary table provider_conflict_event_snapshot as
-    select to_jsonb(e) as row_data
-    from public.delivery_provider_events e
-    where e.event_id = 'msg_bounce_conflict_20006';
-
-  create temporary table provider_conflict_suppression_snapshot as
-    select to_jsonb(s) as row_data
-    from public.delivery_provider_suppressions s
-    where s.recipient_email = 'conflict-duplicate@example.test';
-
-  if public.record_delivery_provider_event(
-    'msg_bounce_conflict_20006', 'email.complained', 'different-provider-id',
-    'attacker@example.test', null
-  ) is not null then
-    raise exception 'Conflicting duplicate event ID was not recorded as an integrity anomaly.';
-  end if;
-
 
 
   if public.record_delivery_provider_event(
@@ -254,10 +237,34 @@ begin
     raise exception 'Complaint upgrade event was not recorded.';
   end if;
 end;
-$$;
+$;
 reset role;
 
-do $$
+-- Snapshot private rows as the privileged test connection, not service_role.
+create temporary table provider_conflict_event_snapshot as
+  select to_jsonb(e) as row_data
+  from public.delivery_provider_events e
+  where e.event_id = 'msg_bounce_conflict_20006';
+
+create temporary table provider_conflict_suppression_snapshot as
+  select to_jsonb(s) as row_data
+  from public.delivery_provider_suppressions s
+  where s.recipient_email = 'conflict-duplicate@example.test';
+
+set role service_role;
+do $
+begin
+  if public.record_delivery_provider_event(
+    'msg_bounce_conflict_20006', 'email.complained', 'different-provider-id',
+    'attacker@example.test', null
+  ) is not null then
+    raise exception 'Conflicting duplicate event ID was not recorded as an integrity anomaly.';
+  end if;
+end;
+$;
+reset role;
+
+do $
 begin
   if (select event_type from public.delivery_provider_events
       where event_id = 'msg_bounce_conflict_20006') <> 'email.bounced'
