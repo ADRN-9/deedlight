@@ -356,37 +356,42 @@ values ('2027-03-01') on conflict (week_start) do nothing;
 set role service_role;
 do $$
 begin
-  if public.record_delivery_provider_event(
+  if public.record_delivery_provider_lifecycle_event(
     'msg_bounce_permanent_20001', 'email.bounced', 'resend-bounce-20001',
-    'WEBHOOK-20001@EXAMPLE.TEST', 'Permanent'
+    'WEBHOOK-20001@EXAMPLE.TEST', '2027-03-01T10:00:00Z', 'Permanent',
+    null, null, repeat('1', 64)
   ) is not true then
     raise exception 'Permanent bounce event was not recorded.';
   end if;
 
-  if public.record_delivery_provider_event(
+  if public.record_delivery_provider_lifecycle_event(
     'msg_bounce_permanent_20001', 'email.bounced', 'resend-bounce-20001',
-    'webhook-20001@example.test', 'Permanent'
+    'webhook-20001@example.test', '2027-03-01T10:00:00Z', 'Permanent',
+    null, null, repeat('1', 64)
   ) is not false then
     raise exception 'Exact duplicate provider event was not a successful no-op.';
   end if;
 
-  if public.record_delivery_provider_event(
+  if public.record_delivery_provider_lifecycle_event(
     'msg_bounce_transient_20002', 'email.bounced', 'resend-bounce-20002',
-    'webhook-20002@example.test', 'Transient'
+    'webhook-20002@example.test', '2027-03-01T10:01:00Z', 'Transient',
+    null, null, repeat('2', 64)
   ) is not true then
     raise exception 'Transient bounce event was not recorded.';
   end if;
 
-  if public.record_delivery_provider_event(
+  if public.record_delivery_provider_lifecycle_event(
     'msg_complaint_20003', 'email.complained', 'resend-complaint-20003',
-    'webhook-20003@example.test', null
+    'webhook-20003@example.test', '2027-03-01T10:02:00Z',
+    null, null, null, repeat('3', 64)
   ) is not true then
     raise exception 'Complaint event was not recorded.';
   end if;
 
-  if public.record_delivery_provider_event(
+  if public.record_delivery_provider_lifecycle_event(
     'msg_suppressed_20004', 'email.suppressed', 'resend-suppressed-20004',
-    'webhook-20004@example.test', null
+    'webhook-20004@example.test', '2027-03-01T10:03:00Z',
+    null, null, 'provider_suppressed', repeat('4', 64)
   ) is not true then
     raise exception 'Provider suppression event was not recorded.';
   end if;
@@ -394,7 +399,7 @@ begin
   if public.record_delivery_provider_lifecycle_event(
     'evt_suppressed_previous_bounce', 'email.suppressed',
     'resend-suppressed-previous-bounce', 'lifecycle-previous-bounce@example.test',
-    '2027-03-01T10:20:00Z', null, null, 'previous_bounce'
+    '2027-03-01T10:20:00Z', null, null, 'previous_bounce', repeat('5', 64)
   ) is not true then
     raise exception 'previous_bounce suppression reason was not recorded.';
   end if;
@@ -402,37 +407,41 @@ begin
   if public.record_delivery_provider_lifecycle_event(
     'evt_suppressed_previous_complaint', 'email.suppressed',
     'resend-suppressed-previous-complaint', 'lifecycle-previous-complaint@example.test',
-    '2027-03-01T10:21:00Z', null, null, 'previous_complaint'
+    '2027-03-01T10:21:00Z', null, null, 'previous_complaint', repeat('6', 64)
   ) is not true then
     raise exception 'previous_complaint suppression reason was not recorded.';
   end if;
 
-  if public.record_delivery_provider_event(
+  if public.record_delivery_provider_lifecycle_event(
     'msg_bounce_unknown_20005', 'email.bounced', 'resend-bounce-20005',
-    'webhook-20005@example.test', 'Unknown'
+    'webhook-20005@example.test', '2027-03-01T10:04:00Z', 'Unknown',
+    null, null, repeat('7', 64)
   ) is not true then
     raise exception 'Unknown bounce event was not recorded.';
   end if;
 
-  if public.record_delivery_provider_event(
+  if public.record_delivery_provider_lifecycle_event(
     'msg_bounce_conflict_20006', 'email.bounced', 'resend-bounce-conflict-20006',
-    'conflict-duplicate@example.test', 'Permanent'
+    'conflict-duplicate@example.test', '2027-03-01T10:05:00Z', 'Permanent',
+    null, null, repeat('8', 64)
   ) is not true then
     raise exception 'Conflicting duplicate fixture bounce was not recorded.';
   end if;
 
-  if public.record_delivery_provider_event(
+  if public.record_delivery_provider_lifecycle_event(
     'msg_bounce_conflict_20006', 'email.bounced', 'resend-bounce-conflict-20006',
-    'conflict-duplicate@example.test', 'Permanent'
+    'conflict-duplicate@example.test', '2027-03-01T10:05:00Z', 'Permanent',
+    null, null, repeat('8', 64)
   ) is not false then
     raise exception 'Conflicting duplicate fixture exact replay was not a no-op.';
   end if;
 
 
 
-  if public.record_delivery_provider_event(
+  if public.record_delivery_provider_lifecycle_event(
     'msg_complaint_upgrade_20001', 'email.complained', 'resend-complaint-20001',
-    'webhook-20001@example.test', null
+    'webhook-20001@example.test', '2027-03-01T10:06:00Z',
+    null, null, null, repeat('9', 64)
   ) is not true then
     raise exception 'Complaint upgrade event was not recorded.';
   end if;
@@ -667,52 +676,62 @@ do $lifecycle$
 begin
   if public.record_delivery_provider_lifecycle_event(
     'evt_order_sent', 'email.sent', 'resend-order-20001',
-    'lifecycle-order@example.test', '2027-03-01T10:00:00Z', null, null
+    'lifecycle-order@example.test', '2027-03-01T10:00:00Z',
+    null, null, null, repeat('a', 64)
   ) is not true then raise exception 'email.sent was not recorded.'; end if;
 
   if public.record_delivery_provider_lifecycle_event(
     'evt_order_delayed', 'email.delivery_delayed', 'resend-order-20001',
-    'lifecycle-order@example.test', '2027-03-01T10:05:00Z', null, null
+    'lifecycle-order@example.test', '2027-03-01T10:05:00Z',
+    null, null, null, repeat('b', 64)
   ) is not true then raise exception 'email.delivery_delayed was not recorded.'; end if;
 
   if public.record_delivery_provider_lifecycle_event(
     'evt_order_delivered', 'email.delivered', 'resend-order-20001',
-    'lifecycle-order@example.test', '2027-03-01T10:10:00Z', null, null
+    'lifecycle-order@example.test', '2027-03-01T10:10:00Z',
+    null, null, null, repeat('c', 64)
   ) is not true then raise exception 'email.delivered was not recorded.'; end if;
 
   if public.record_delivery_provider_lifecycle_event(
     'evt_order_delayed_old', 'email.delivery_delayed', 'resend-order-20001',
-    'lifecycle-order@example.test', '2027-03-01T10:04:00Z', null, null
+    'lifecycle-order@example.test', '2027-03-01T10:04:00Z',
+    null, null, null, repeat('d', 64)
   ) is not true then raise exception 'Out-of-order delayed event was not retained.'; end if;
 
   if public.record_delivery_provider_lifecycle_event(
     'evt_failed_quota', 'email.failed', 'resend-failed-20002',
-    'lifecycle-failed@example.test', '2027-03-01T10:11:00Z', null, 'quota_exceeded'
+    'lifecycle-failed@example.test', '2027-03-01T10:11:00Z',
+    null, 'quota_exceeded', null, repeat('e', 64)
   ) is not true then raise exception 'email.failed was not recorded.'; end if;
 
   if public.record_delivery_provider_lifecycle_event(
     'evt_precedence_bounce', 'email.bounced', 'resend-precedence-20003',
-    'lifecycle-precedence@example.test', '2027-03-01T10:00:00Z', 'Permanent', null
+    'lifecycle-precedence@example.test', '2027-03-01T10:00:00Z',
+    'Permanent', null, null, repeat('f', 64)
   ) is not true then raise exception 'Lifecycle permanent bounce was not recorded.'; end if;
 
   if public.record_delivery_provider_lifecycle_event(
     'evt_precedence_complaint', 'email.complained', 'resend-precedence-20003',
-    'lifecycle-precedence@example.test', '2027-03-01T10:01:00Z', null, null
+    'lifecycle-precedence@example.test', '2027-03-01T10:01:00Z',
+    null, null, null, repeat('0', 64)
   ) is not null then raise exception 'Contradictory complaint after bounce was not flagged.'; end if;
 
   if public.record_delivery_provider_lifecycle_event(
     'evt_precedence_bounce_late', 'email.bounced', 'resend-precedence-20003',
-    'lifecycle-precedence@example.test', '2027-03-01T10:02:00Z', 'Permanent', null
+    'lifecycle-precedence@example.test', '2027-03-01T10:02:00Z',
+    'Permanent', null, null, repeat('a', 64)
   ) is not null then raise exception 'Contradictory late bounce was not flagged.'; end if;
 
   if public.record_delivery_provider_lifecycle_event(
     'evt_provider_suppressed', 'email.suppressed', 'resend-lifecycle-suppressed-20004',
-    'lifecycle-suppressed@example.test', '2027-03-01T10:12:00Z', null, null
+    'lifecycle-suppressed@example.test', '2027-03-01T10:12:00Z',
+    null, null, 'provider_suppressed', repeat('b', 64)
   ) is not true then raise exception 'email.suppressed was not recorded.'; end if;
 
   if public.record_delivery_provider_lifecycle_event(
     'evt_transient_bounce', 'email.bounced', 'resend-lifecycle-transient-20005',
-    'lifecycle-transient@example.test', '2027-03-01T10:13:00Z', 'Transient', null
+    'lifecycle-transient@example.test', '2027-03-01T10:13:00Z',
+    'Transient', null, null, repeat('c', 64)
   ) is not true then raise exception 'Transient lifecycle bounce was not recorded.'; end if;
 
   if public.record_delivery_provider_lifecycle_event(
@@ -737,43 +756,51 @@ begin
 
   if public.record_delivery_provider_lifecycle_event(
     'evt_terminal_delivered_first', 'email.delivered', 'resend-terminal-delivered-first',
-    'terminal-delivered-first@example.test', '2027-03-01T10:30:00Z', null, null
+    'terminal-delivered-first@example.test', '2027-03-01T10:30:00Z',
+    null, null, null, repeat('d', 64)
   ) is not true then raise exception 'Delivered-first terminal fixture failed.'; end if;
 
   if public.record_delivery_provider_lifecycle_event(
     'evt_terminal_bounce_after', 'email.bounced', 'resend-terminal-delivered-first',
-    'terminal-delivered-first@example.test', '2027-03-01T10:31:00Z', 'Permanent', null
+    'terminal-delivered-first@example.test', '2027-03-01T10:31:00Z',
+    'Permanent', null, null, repeat('e', 64)
   ) is not null then raise exception 'Delivered then bounced was not flagged.'; end if;
 
   if public.record_delivery_provider_lifecycle_event(
     'evt_terminal_bounce_first', 'email.bounced', 'resend-terminal-bounced-first',
-    'terminal-bounced-first@example.test', '2027-03-01T10:40:00Z', 'Permanent', null
+    'terminal-bounced-first@example.test', '2027-03-01T10:40:00Z',
+    'Permanent', null, null, repeat('f', 64)
   ) is not true then raise exception 'Bounced-first terminal fixture failed.'; end if;
 
   if public.record_delivery_provider_lifecycle_event(
     'evt_terminal_delivered_after', 'email.delivered', 'resend-terminal-bounced-first',
-    'terminal-bounced-first@example.test', '2027-03-01T10:41:00Z', null, null
+    'terminal-bounced-first@example.test', '2027-03-01T10:41:00Z',
+    null, null, null, repeat('0', 64)
   ) is not null then raise exception 'Bounced then delivered was not flagged.'; end if;
 
   if public.record_delivery_provider_lifecycle_event(
     'evt_precedence_complaint_first', 'email.complained', 'resend-precedence-reverse',
-    'lifecycle-precedence-reverse@example.test', '2027-03-01T10:50:00Z', null, null
+    'lifecycle-precedence-reverse@example.test', '2027-03-01T10:50:00Z',
+    null, null, null, repeat('1', 64)
   ) is not true then raise exception 'Complaint-first fixture failed.'; end if;
 
   if public.record_delivery_provider_lifecycle_event(
     'evt_precedence_bounce_after', 'email.bounced', 'resend-precedence-reverse',
-    'lifecycle-precedence-reverse@example.test', '2027-03-01T10:51:00Z', 'Permanent', null
+    'lifecycle-precedence-reverse@example.test', '2027-03-01T10:51:00Z',
+    'Permanent', null, null, repeat('2', 64)
   ) is not null then raise exception 'Complaint then bounce was not flagged.'; end if;
 
   if public.record_delivery_provider_lifecycle_event(
     'evt_order_delayed_old', 'email.delivery_delayed', 'resend-order-20001',
-    'lifecycle-order@example.test', '2027-03-01T10:04:00Z', null, null
+    'lifecycle-order@example.test', '2027-03-01T10:04:00Z',
+    null, null, null, repeat('d', 64)
   ) is not false then raise exception 'Exact lifecycle replay was not an idempotent no-op.'; end if;
 
   begin
     perform public.record_delivery_provider_lifecycle_event(
       'evt_provider_id_wrong_recipient', 'email.sent', 'resend-order-20001',
-      'different-recipient@example.test', '2027-03-01T10:15:00Z', null, null
+      'different-recipient@example.test', '2027-03-01T10:15:00Z',
+      null, null, null, repeat('3', 64)
     );
     raise exception 'Provider email ID was accepted for a different recipient.';
   exception when sqlstate '22023' then
