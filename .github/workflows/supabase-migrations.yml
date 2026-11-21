@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   migrate:
-    # Manual dispatch from a feature branch must never reach the Production environment.
+    # Defense in depth only; the Environment branch policy is the primary credential boundary.
     if: github.ref == 'refs/heads/main' && github.ref_protected
     environment:
       name: production
