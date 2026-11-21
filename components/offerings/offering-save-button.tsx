@@ -2,7 +2,7 @@
 
 import { Bookmark, Check } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 type OfferingSaveButtonProps = {
@@ -12,7 +12,16 @@ type OfferingSaveButtonProps = {
   compact?: boolean;
 };
 
-export function OfferingSaveButton({
+export function OfferingSaveButton(props: OfferingSaveButtonProps) {
+  return (
+    <OfferingSaveButtonState
+      key={`${props.offeringId}:${props.initialSaved}`}
+      {...props}
+    />
+  );
+}
+
+function OfferingSaveButtonState({
   offeringId,
   signedIn,
   initialSaved,
@@ -23,10 +32,6 @@ export function OfferingSaveButton({
   const [saved, setSaved] = useState(initialSaved);
   const [pending, setPending] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
-
-  useEffect(() => {
-    setSaved(initialSaved);
-  }, [initialSaved]);
 
   async function toggleSaved() {
     setFeedback(null);

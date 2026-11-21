@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { connection } from "next/server";
 import { Fraunces, Manrope } from "next/font/google";
 import "./globals.css";
 import { GlobalInteractionFeedback } from "@/components/ui/global-interaction-feedback";
@@ -6,6 +7,7 @@ import { AdminFloatingLink } from "@/components/layout/admin-floating-link";
 import { Footer } from "@/components/layout/footer";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { PublicHeader } from "@/components/layout/public-header";
+import { getRootNavigationContext } from "@/lib/auth/root-navigation-context";
 
 const fraunces = Fraunces({
   subsets: ["latin"],
@@ -65,21 +67,25 @@ export const metadata: Metadata = {
   }
 };
 
+
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   themeColor: "#D9A441"
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  await connection();
+  const { user, isAdmin } = await getRootNavigationContext();
+
   return (
     <html lang="en" className={`${fraunces.variable} ${manrope.variable}`}>
       <body className="min-h-screen pb-20 font-[var(--font-body)] antialiased md:pb-0">
-        <PublicHeader />
+        <PublicHeader user={user} />
         <main>{children}</main>
         <Footer />
         <MobileNav />
-        <AdminFloatingLink />
+        <AdminFloatingLink isAdmin={isAdmin} />
         <GlobalInteractionFeedback />
       </body>
     </html>
