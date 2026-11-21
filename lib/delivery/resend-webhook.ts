@@ -15,7 +15,7 @@ export type ResendLifecycleEventType =
   | "email.suppressed"
   | "email.failed";
 
-export type ResendSuppressionReason = "previous_bounce" | "previous_complaint";
+export type ResendSuppressionReason = "previous_bounce" | "previous_complaint" | "provider_suppressed";
 
 export type ResendFailureClass =
   | "invalid_recipient"
@@ -130,6 +130,11 @@ export async function fingerprintResendWebhookPayload(payload: string): Promise<
 function recordObject(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
+}
+
+function validOptionalDiagnosticCode(value: unknown): boolean {
+  return value === undefined
+    || (Array.isArray(value) && value.every((item) => typeof item === "string"));
 }
 
 function normalizedEmail(value: unknown): string | null {
@@ -250,10 +255,10 @@ export function parseResendProviderEvent(
       "MessageTooLarge",
       "ContentRejected",
       "AttachmentRejected",
+      "Suppressed",
     ];
     if (!bounce
-      || !Array.isArray(bounce.diagnosticCode)
-      || !bounce.diagnosticCode.every((item) => typeof item === "string")
+      || !validOptionalDiagnosticCode(bounce.diagnosticCode)
       || typeof bounce.message !== "string"
       || bounce.message.trim().length === 0
       || typeof bounce.subType !== "string"
@@ -270,15 +275,16 @@ export function parseResendProviderEvent(
   if (envelope.type === "email.suppressed") {
     const suppressed = recordObject(data.suppressed);
     if (!suppressed
-      || !Array.isArray(suppressed.diagnosticCode)
-      || !suppressed.diagnosticCode.every((item) => typeof item === "string")
+      || !validOptionalDiagnosticCode(suppressed.diagnosticCode)
       || typeof suppressed.message !== "string"
       || suppressed.message.trim().length === 0
       || !["Suppressed", "OnAccountSuppressionList"].includes(String(suppressed.type))
-      || (suppressed.reason !== "previous_bounce" && suppressed.reason !== "previous_complaint")) {
+      || (suppressed.reason !== undefined && suppressed.reason !== null && typeof suppressed.reason !== "string")) {
       throw new Error("Invalid Resend suppression event.");
     }
-    suppressionReason = suppressed.reason;
+    suppressionReason = suppressed.reason === "previous_bounce" || suppressed.reason === "previous_complaint"
+      ? suppressed.reason
+      : "provider_suppressed";
   }
 
   let failureClass: ResendFailureClass | null = null;

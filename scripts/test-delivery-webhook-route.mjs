@@ -134,6 +134,33 @@ test("accepts numeric Content-Length and a valid Svix signature", async () => {
   assert.equal(JSON.parse(calls[0].body).p_event_id, "msg_route_fixture_01");
 });
 
+test("accepts Resend's documented bounce shape without diagnosticCode", async () => {
+  const payload = JSON.parse(eventPayload());
+  payload.data.bounce = {
+    message: "The recipient address is on the suppression list.",
+    subType: "Suppressed",
+    type: "Permanent",
+  };
+  const { response, calls } = await invoke(JSON.stringify(payload));
+  assert.equal(response.status, 204);
+  assert.equal(calls.length, 1);
+  assert.equal(JSON.parse(calls[0].body).p_bounce_type, "Permanent");
+});
+
+test("accepts Resend's documented suppression shape without optional diagnostics or reason", async () => {
+  const payload = JSON.parse(eventPayload());
+  payload.type = "email.suppressed";
+  delete payload.data.bounce;
+  payload.data.suppressed = {
+    message: "Resend suppressed delivery because the address is on the account suppression list.",
+    type: "OnAccountSuppressionList",
+  };
+  const { response, calls } = await invoke(JSON.stringify(payload));
+  assert.equal(response.status, 204);
+  assert.equal(calls.length, 1);
+  assert.equal(JSON.parse(calls[0].body).p_suppression_reason, "provider_suppressed");
+});
+
 test("accepts a valid Svix signature without Content-Length", async () => {
   const { response, calls } = await invoke(eventPayload(), { contentLength: null });
 

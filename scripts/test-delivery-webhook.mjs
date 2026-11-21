@@ -175,6 +175,23 @@ test("parses permanent bounce and normalizes the recipient", () => {
   });
 });
 
+test("accepts Resend's documented bounce shape without diagnosticCode and with Suppressed subtype", () => {
+  const parsed = parseResendProviderEvent(
+    event("email.bounced", {
+      bounce: {
+        message: "The recipient address is on the suppression list.",
+        subType: "Suppressed",
+        type: "Permanent",
+      },
+    }),
+    id,
+  );
+  assert.equal(parsed.status, "accepted");
+  if (parsed.status === "accepted") {
+    assert.equal(parsed.event.bounceType, "Permanent");
+  }
+});
+
 test("transient bounces are distinguished from permanent bounces", () => {
   const parsed = parseResendProviderEvent(
     event("email.bounced", { bounce: { diagnosticCode: [], message: "Temporary recipient failure.", subType: "MailboxFull", type: "Transient" } }),
@@ -197,6 +214,39 @@ test("complaints and provider suppressions are recognized", () => {
     assert.equal(suppressed.event.eventType, "email.suppressed");
     assert.equal(suppressed.event.bounceType, null);
     assert.equal(suppressed.event.suppressionReason, "previous_bounce");
+  }
+});
+
+test("accepts Resend's documented suppression shape without optional diagnostics or reason", () => {
+  const parsed = parseResendProviderEvent(
+    event("email.suppressed", {
+      suppressed: {
+        message: "Resend suppressed delivery because the address is on the account suppression list.",
+        type: "OnAccountSuppressionList",
+      },
+    }),
+    id,
+  );
+  assert.equal(parsed.status, "accepted");
+  if (parsed.status === "accepted") {
+    assert.equal(parsed.event.suppressionReason, "provider_suppressed");
+  }
+});
+
+test("unknown suppression reasons fail closed into generic provider suppression", () => {
+  const parsed = parseResendProviderEvent(
+    event("email.suppressed", {
+      suppressed: {
+        message: "Resend suppressed delivery.",
+        reason: "future_provider_reason",
+        type: "Suppressed",
+      },
+    }),
+    id,
+  );
+  assert.equal(parsed.status, "accepted");
+  if (parsed.status === "accepted") {
+    assert.equal(parsed.event.suppressionReason, "provider_suppressed");
   }
 });
 

@@ -105,3 +105,38 @@ Before landing, CI must prove at least:
 A repository migration for this increment must not be applied to Production merely because the migration file exists. Production must first be inspected to prove the expected Sprint 12.2 baseline, then the exact migration must be applied through the existing guarded rollout discipline, followed by schema, privilege, RLS, RPC, and behavioral verification.
 
 Merging to `main` is also a production deployment action because Cloudflare native deployment follows `main`. Production database rollout and `main` landing therefore remain explicit later gates; this branch is non-production work only.
+
+
+## C208 — outbound transport and provider lifecycle verification
+
+The delivery implementation now has a concrete provider boundary and executable lifecycle evidence on the delivery-security branch. This addendum records the contracts that must remain true; it does not authorize Production activation.
+
+### Current-consent authorization
+
+- The worker performs an initial authorization, resolves the current Auth recipient, performs a second authorization, then invokes the service-role-only \`begin_delivery_transport(job, claimToken, expectedEmail)\` database RPC immediately before provider transport.
+- The final RPC locks the ledger claim, current consent/preference row, active profile, current confirmed Auth email, and (for Weekly) the curated issue. It checks the claim token and live lease using \`clock_timestamp()\` after lock waits and again in the final transport-start update.
+- A revoked preference, suspension, changed recipient, unconfirmed email, missing curated issue, expired lease, or stale claim fails closed. A denied RPC returns NULL or an authorization error; the worker makes zero provider calls.
+- A retry re-enters the same authorization path. Queue state and a claim token are concurrency controls, never authorization.
+
+The authorization RPC is the database linearization point. A later revocation cannot recall an already-authorized external request; every subsequent attempt must pass fresh authorization.
+
+### Retry and ambiguous provider outcomes
+
+- Claim lease: five minutes, checked against the database wall clock.
+- Retry delay: five minutes; database attempt ceiling: five attempts.
+- Provider request timeout: 15 seconds by default, hard maximum 30 seconds.
+- Stable Resend idempotency key: \`deedlight/<kind>/<logical-job-uuid>\`, reused across retries.
+- The worker stops retrying before the provider's idempotency safety horizon (23 hours) expires. Timeout, network failure, malformed success body, and in-progress idempotency conflicts are ambiguous/retryable only within that horizon. A mismatched idempotency key is permanent failure.
+- Expired claims are reclaimed only with a fresh token; stale tokens cannot authorize, retry, mark sent, or mark failed. Retry exhaustion becomes terminal failure.
+
+### Provider event intake
+
+Migrations 025–027 and the server-only signed Resend webhook record bounce, complaint, suppression, and all seven lifecycle event types. Event-ID duplicates are idempotent only when compatible; payload fingerprints detect same-ID/different-body conflicts. Provider-email IDs are locked and bound to one recipient. Conflicting terminal outcomes are retained as evidence and project to \`integrity_anomaly\`, never to successful delivery. Permanent/unknown bounces, complaints, and provider suppressions block subsequent sends; transient bounces are recorded without suppression. Complaint suppression wins over bounce suppression.
+
+C208 adds regression coverage for Resend's published payload shapes: bounce \`diagnosticCode\` is optional and \`subType: "Suppressed"\` is accepted; suppression \`diagnosticCode\` and \`reason\` are optional, with missing/unrecognized reasons mapped to the fail-closed generic \`provider_suppressed\` classification. Provider diagnostics and raw payloads remain unpersisted.
+
+### Evidence and limits
+
+Before C208, PR #10 exact-head [PR Validation run 44875441190](https://github.com/ADRN-9/deedlight/actions/runs/44875441190) and [push validation run 44875436665](https://github.com/ADRN-9/deedlight/actions/runs/44875436665) passed 7/7 jobs at \`95fb79152243f9581647eae961f3c35cf5d1043b\`. This included provider webhook parser/route tests, PostgreSQL lifecycle and concurrency behavior, consent/transport tests, TypeScript, Next build, Cloudflare packaging, and dependency audit. C208's new exact-head CI is a separate required result and is not inferred from those runs.
+
+No Production migrations, webhook configuration, provider sends, Cron activation, kill-switch changes, or credentials were performed in C208. Production provider lifecycle, current consent revocation behavior, scheduler cycles, and final smoke remain unverified in Production.

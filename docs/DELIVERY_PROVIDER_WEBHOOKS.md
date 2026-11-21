@@ -28,6 +28,16 @@ Do not put the signing secret in `NEXT_PUBLIC_*`, source control, client configu
 - Provider `created_at` is preserved as `provider_created_at`; `received_at` is assigned by PostgreSQL at receipt.
 - Invalid signatures return 401, malformed signed payloads return 400, oversized bodies return 413, and missing server configuration or database failures return 503 so the provider can retry.
 
+## Provider payload compatibility
+
+The parser follows Resend's published webhook examples rather than assuming optional diagnostic metadata is always present:
+
+- `data.bounce.diagnosticCode` is optional. The documented bounce example omits it and uses `subType: "Suppressed"`; this subtype is accepted and the permanent bounce still suppresses the address.
+- `data.suppressed.diagnosticCode` and `data.suppressed.reason` are optional. Resend's published `OnAccountSuppressionList` example includes neither. Missing or unrecognized suppression reasons map to the generic `provider_suppressed` class, which still blocks future sends.
+- Explicit `previous_bounce` and `previous_complaint` reasons retain their more specific mapping and complaint precedence.
+
+These cases are covered by parser and signed-route regression tests using the provider's documented payload shape. References: [Resend Webhook Event Visibility](https://resend.com/changelog/webhook-event-visibility) and [Resend Email Suppression Visibility](https://resend.com/changelog/email-suppression-visibility).
+
 ## Lifecycle and ordering
 
 The lifecycle projection is keyed by Resend's provider email ID, which is bound to exactly one normalized recipient address. The RPC takes a transaction-scoped advisory lock for that provider email ID before inserting the event; a concurrent event that reuses the ID for another recipient aborts and rolls back the entire transaction. It cannot create a second event, change the original lifecycle projection, or create suppression for the rejected recipient. Events are retained individually, while the projection advances monotonically by evidence rank. A delayed event may legitimately arrive after delivery and cannot regress the projection. A complaint after delivery is also valid later evidence. Incompatible terminal outcomes (including delivered/bounced, delivered/failed, and delivered/suppressed) are retained in event history, recorded in a private integrity-anomaly table, and projected as `integrity_anomaly` rather than successful delivery. Reused event IDs with conflicting payloads also mark the original lifecycle projection anomalous without replacing the original event or changing its suppression. The legacy 025 service-role RPC remains as a compatibility wrapper for its original three event types; because that signature has no provider timestamp parameter, it records database receipt time in that legacy path. The webhook route uses the 027 RPC and the actual provider event timestamp.
