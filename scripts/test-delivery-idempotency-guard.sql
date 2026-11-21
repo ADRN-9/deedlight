@@ -107,7 +107,21 @@ begin
     raise exception 'Pre-send provider idempotency horizon did not fail closed.';
   end if;
 
-  -- Revoke Weekly Goodness consent after transport start; the final gate must cancel.
+end;
+$$;
+
+-- Model the production RPC boundary: transport start, settings mutation, and
+-- final provider authorization are separate PostgreSQL statements/transactions.
+do $consent_transport_start$
+begin
+  if not exists (
+    select 1 from public.newsletter_preferences
+    where user_id='00000000-0000-0000-0000-000000000002'
+      and weekly_enabled=true and consented_at is not null
+  ) then
+    raise exception 'Consent-revocation fixture did not start with active consent.';
+  end if;
+
   if public.begin_delivery_transport(
     '00000000-0000-0000-0000-00000000c908',
     '00000000-0000-0000-0000-00000000d908',
@@ -115,26 +129,61 @@ begin
   ) is null then
     raise exception 'Consent-revocation fixture did not begin transport.';
   end if;
-  update public.newsletter_preferences
-  set weekly_enabled=false, consented_at=null
-  where user_id='00000000-0000-0000-0000-000000000002';
-  if public.authorize_delivery_idempotency_window(
+
+  if not exists (
+    select 1 from public.delivery_ledger
+    where id='00000000-0000-0000-0000-00000000c908'
+      and transport_started_at is not null
+  ) then
+    raise exception 'Consent-revocation fixture did not persist transport-start evidence.';
+  end if;
+end;
+$consent_transport_start$;
+
+update public.newsletter_preferences
+set weekly_enabled=false, consented_at=null
+where user_id='00000000-0000-0000-0000-000000000002';
+
+do $consent_revocation$
+declare
+  v_window text;
+  v_state text;
+  v_error text;
+begin
+  if not exists (
+    select 1 from public.newsletter_preferences
+    where user_id='00000000-0000-0000-0000-000000000002'
+      and weekly_enabled=false and consented_at is null
+  ) then
+    raise exception 'Consent-revocation fixture did not persist the revoked preference.';
+  end if;
+
+  v_window := public.authorize_delivery_idempotency_window(
     '00000000-0000-0000-0000-00000000c908',
     '00000000-0000-0000-0000-00000000d908'
-  ) is distinct from 'cancelled'
-    or not exists (select 1 from public.delivery_ledger
+  );
+  select state,error_code into v_state,v_error
+  from public.delivery_ledger
+  where id='00000000-0000-0000-0000-00000000c908';
+  raise notice 'C230 consent-revocation gate: result %, state %, error %',v_window,v_state,v_error;
+
+  if v_window is distinct from 'cancelled' or v_state is distinct from 'cancelled'
+    or v_error is distinct from 'authorization_revoked'
+    or not exists (
+      select 1 from public.delivery_ledger
       where id='00000000-0000-0000-0000-00000000c908'
-        and state='cancelled' and error_code='authorization_revoked'
-        and claim_token is null) then
+        and claim_token is null and claim_expires_at is null
+    ) then
     raise exception 'Final provider gate failed to recheck revoked newsletter consent.';
   end if;
 end;
-$$;
+$consent_revocation$;
 reset role;
 
 select jsonb_build_object(
   'provider_receipt_validation','pass',
   'database_authoritative_idempotency_horizon','pass',
   'negative_worker_clock_skew','pass',
-  'expired_provider_retention','pass'
+  'expired_provider_retention','pass',
+  'consent_revocation_after_transport_start','pass'
 ) as delivery_idempotency_receipt_behavior;

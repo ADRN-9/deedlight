@@ -346,13 +346,22 @@ if (!idempotencyTests.includes("worker_clock_two_hours_behind")
   || !idempotencyTests.includes("missing transport-start evidence")
   || !idempotencyTests.includes("v_window text;")
   || !idempotencyTests.includes("pg_get_function_result(to_regprocedure('public.authorize_delivery_idempotency_window(uuid,uuid)')) is distinct from 'text'")
-  || !idempotencyTests.includes("Final provider gate failed to recheck revoked newsletter consent.")) {
+  || !idempotencyTests.includes("Final provider gate failed to recheck revoked newsletter consent.")
+  || !idempotencyTests.includes("do $consent_transport_start$")
+  || !idempotencyTests.includes("do $consent_revocation$")
+  || !idempotencyTests.includes("C230 consent-revocation gate: result")) {
   throw new Error("Migration 030 PostgreSQL regression coverage is incomplete.");
 }
 if (!migrationOrderTest.includes("C226 deliberate source drift")
   || !migrationOrderTest.includes("Migration 029 source identity drift rejection")
   || !migrationOrderTest.includes("scripts/test-delivery-idempotency-guard.sql")) {
   throw new Error("Migration-order CI must prove migration 029 drift rejection and migration 030 behavior.");
+}
+const consentStartFixture = idempotencyTests.indexOf("do $consent_transport_start$");
+const consentMutation = idempotencyTests.indexOf("update public.newsletter_preferences", consentStartFixture);
+const finalConsentGate = idempotencyTests.indexOf("do $consent_revocation$", consentMutation);
+if (consentStartFixture < 0 || consentMutation <= consentStartFixture || finalConsentGate <= consentMutation) {
+  throw new Error("Consent-revocation PostgreSQL fixture must separate transport start, preference revocation, and final authorization.");
 }
 if (!transportTests.includes("database-authoritative idempotency expiry")
   || !transportTests.includes("final provider gate cancels when consent is revoked")
