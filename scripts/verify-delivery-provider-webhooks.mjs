@@ -28,13 +28,13 @@ assert(/create or replace function public\.record_delivery_provider_lifecycle_ev
   "New events must require a fingerprint and legacy replays must preserve canonical advisory-lock ordering.");
 assert(/revoke all privileges[\s\S]*?_record_delivery_provider_lifecycle_event_fingerprinted_impl[\s\S]*?from public, anon, authenticated, service_role/i.test(legacyGuardMigration),
   "The renamed lifecycle implementation must not be directly executable by service_role or browser roles.");
-const compactLegacyGuard = legacyGuardMigration.replace(/\\s+/g, "");
+const compactLegacyGuard = legacyGuardMigration.replace(/\s+/g, "");
 for (const signature of [
   "record_delivery_provider_lifecycle_event(text, text, text, text, timestamptz, text, text, text)",
   "record_delivery_provider_lifecycle_event(text, text, text, text, timestamptz, text, text)",
   "record_delivery_provider_event(text, text, text, text, text)",
 ]) {
-  const compactSignature = signature.replace(/\\s+/g, "");
+  const compactSignature = signature.replace(/\s+/g, "");
   assert(compactLegacyGuard.includes("revokeallprivilegesonfunctionpublic." + compactSignature),
     "Migration 029 must explicitly revoke browser execution for legacy overload: " + signature);
   assert(compactLegacyGuard.includes("grantexecuteonfunctionpublic." + compactSignature),
