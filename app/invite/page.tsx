@@ -47,6 +47,8 @@ export default async function InvitePage({
     );
   }
 
+  // Expiry is request-time data on this dynamic server page.
+  // eslint-disable-next-line react-hooks/purity
   const now = Date.now();
   const activeLink =
     links.find(

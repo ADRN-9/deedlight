@@ -43,7 +43,18 @@ const REACTIONS: Array<{
   },
 ];
 
-export function ReactionButtons({ offeringId, initialCounts, compact = false }: Props) {
+export function ReactionButtons(props: Props) {
+  const countsKey = [
+    props.offeringId,
+    props.initialCounts.bless_count ?? 0,
+    props.initialCounts.inspired_count ?? 0,
+    props.initialCounts.carried_forward_count ?? 0,
+  ].join(":");
+
+  return <ReactionButtonsState key={countsKey} {...props} />;
+}
+
+function ReactionButtonsState({ offeringId, initialCounts, compact = false }: Props) {
   const pathname = usePathname();
   const router = useRouter();
   const [counts, setCounts] = useState<ReactionCounts>({
@@ -58,17 +69,6 @@ export function ReactionButtons({ offeringId, initialCounts, compact = false }: 
   const [pendingType, setPendingType] = useState<ReactionType | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  useEffect(() => {
-    setCounts({
-      bless_count: initialCounts.bless_count ?? 0,
-      inspired_count: initialCounts.inspired_count ?? 0,
-      carried_forward_count: initialCounts.carried_forward_count ?? 0,
-    });
-  }, [
-    initialCounts.bless_count,
-    initialCounts.inspired_count,
-    initialCounts.carried_forward_count,
-  ]);
 
   useEffect(() => {
     let mounted = true;
