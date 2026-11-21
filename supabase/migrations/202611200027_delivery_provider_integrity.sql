@@ -252,9 +252,11 @@ begin
         or v_existing.suppression_reason = p_suppression_reason
       )
       and (
+        -- Only genuinely historical rows without a stored digest are compatible.
+        -- Fingerprinted rows require an exact, non-NULL digest on every replay.
         v_existing.payload_fingerprint is null
-        or p_payload_fingerprint is null
-        or v_existing.payload_fingerprint = p_payload_fingerprint
+        or (p_payload_fingerprint is not null
+          and v_existing.payload_fingerprint = p_payload_fingerprint)
       ) then
       return false;
     end if;

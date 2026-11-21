@@ -49,8 +49,10 @@ assert(integrityMigration.includes("duplicate_event_id_conflict"));
 assert(integrityMigration.includes("contradictory_terminal_outcome"));
 assert(integrityMigration.includes("p_payload_fingerprint"));
 assert(integrityMigration.includes("v_existing.payload_fingerprint is null"));
-assert(integrityMigration.includes("p_payload_fingerprint is null"));
+assert(integrityMigration.includes("p_payload_fingerprint is not null"));
 assert(integrityMigration.includes("v_existing.payload_fingerprint = p_payload_fingerprint"));
+assert(!/v_existing\.payload_fingerprint is null\s+or\s+p_payload_fingerprint is null/i.test(integrityMigration),
+  "A NULL incoming fingerprint must not wildcard-match a stored fingerprint.");
 assert(integrityMigration.includes("v_existing.suppression_reason is null"));
 assert(integrityMigration.includes("p_suppression_reason is null"));
 assert(integrityMigration.includes("v_existing.suppression_reason = p_suppression_reason"));
@@ -159,6 +161,11 @@ assert(tests.includes("rejects missing or malformed provider event timestamps"))
 assert(databaseTests.includes("Conflicting duplicate event ID was not recorded as an integrity anomaly."));
 assert(databaseTests.includes("Pre-026 historical event replay was not a compatible no-op."));
 assert(databaseTests.includes("Pre-027 historical event replay was not a compatible no-op."));
+assert(databaseTests.includes("Historical NULL fingerprint was not compatible through the eight-argument RPC."));
+assert(databaseTests.includes("Historical NULL fingerprint was not compatible through the seven-argument RPC."));
+assert(databaseTests.includes("Eight-argument legacy RPC bypassed a stored provider payload fingerprint."));
+assert(databaseTests.includes("Seven-argument legacy RPC bypassed a stored provider payload fingerprint."));
+assert(databaseTests.includes("Five-argument legacy provider-event RPC bypassed a stored provider payload fingerprint."));
 assert(databaseTests.includes("Conflicting duplicate mutated original event history or suppression row."));
 assert(databaseTests.includes("Exact duplicate provider event was not a successful no-op."));
 assert(databaseTests.includes("Payload fingerprint conflict was not recorded as an integrity anomaly."));

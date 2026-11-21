@@ -65,6 +65,96 @@ end;
 $historical_replay$;
 reset role;
 
+
+-- Legacy RPCs may replay genuinely historical rows whose stored fingerprint
+-- is NULL, but must not bypass fingerprint checks on newer fingerprinted rows.
+set role service_role;
+do $legacy_fingerprint_replays$
+begin
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_historical_025_suppressed', 'email.suppressed',
+    'resend-historical-025-suppressed', 'historical-025-suppressed@example.test',
+    '2027-03-01T09:00:00Z', null, null, 'previous_complaint'
+  ) is not false then
+    raise exception 'Historical NULL fingerprint was not compatible through the eight-argument RPC.';
+  end if;
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_historical_026_complaint', 'email.complained',
+    'resend-historical-026-complaint', 'historical-026-complaint@example.test',
+    '2027-03-01T09:15:00Z', null, null
+  ) is not false then
+    raise exception 'Historical NULL fingerprint was not compatible through the seven-argument RPC.';
+  end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_legacy_eight_fingerprint', 'email.sent', 'resend-legacy-eight-fingerprint',
+    'legacy-eight@example.test', '2027-03-01T11:00:00Z', null, null, null, repeat('8', 64)
+  ) is not true then raise exception 'Eight-argument legacy fingerprint fixture was not inserted.'; end if;
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_legacy_eight_fingerprint', 'email.sent', 'resend-legacy-eight-fingerprint',
+    'legacy-eight@example.test', '2027-03-01T11:00:00Z', null, null, null
+  ) is not null then
+    raise exception 'Eight-argument legacy RPC bypassed a stored provider payload fingerprint.';
+  end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_legacy_seven_fingerprint', 'email.sent', 'resend-legacy-seven-fingerprint',
+    'legacy-seven@example.test', '2027-03-01T11:01:00Z', null, null, null, repeat('7', 64)
+  ) is not true then raise exception 'Seven-argument legacy fingerprint fixture was not inserted.'; end if;
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_legacy_seven_fingerprint', 'email.sent', 'resend-legacy-seven-fingerprint',
+    'legacy-seven@example.test', '2027-03-01T11:01:00Z', null, null
+  ) is not null then
+    raise exception 'Seven-argument legacy RPC bypassed a stored provider payload fingerprint.';
+  end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_legacy_five_fingerprint', 'email.bounced', 'resend-legacy-five-fingerprint',
+    'legacy-five@example.test', '2027-03-01T11:02:00Z', 'Permanent', null, null, repeat('5', 64)
+  ) is not true then raise exception 'Five-argument legacy fingerprint fixture was not inserted.'; end if;
+  if public.record_delivery_provider_event(
+    'evt_legacy_five_fingerprint', 'email.bounced', 'resend-legacy-five-fingerprint',
+    'legacy-five@example.test', 'Permanent'
+  ) is not null then
+    raise exception 'Five-argument legacy provider-event RPC bypassed a stored provider payload fingerprint.';
+  end if;
+end;
+$legacy_fingerprint_replays$;
+reset role;
+
+do $legacy_fingerprint_assertions$
+begin
+  if not exists (select 1 from public.delivery_provider_events
+      where event_id = 'evt_legacy_eight_fingerprint' and payload_fingerprint = repeat('8', 64))
+    or not exists (select 1 from public.delivery_provider_integrity_anomalies
+      where event_id = 'evt_legacy_eight_fingerprint' and anomaly_type = 'duplicate_event_id_conflict')
+    or (select status from public.delivery_provider_lifecycle
+      where provider_email_id = 'resend-legacy-eight-fingerprint') <> 'integrity_anomaly' then
+    raise exception 'Eight-argument legacy replay changed or failed to flag fingerprinted event history.';
+  end if;
+  if not exists (select 1 from public.delivery_provider_events
+      where event_id = 'evt_legacy_seven_fingerprint' and payload_fingerprint = repeat('7', 64))
+    or not exists (select 1 from public.delivery_provider_integrity_anomalies
+      where event_id = 'evt_legacy_seven_fingerprint' and anomaly_type = 'duplicate_event_id_conflict')
+    or (select status from public.delivery_provider_lifecycle
+      where provider_email_id = 'resend-legacy-seven-fingerprint') <> 'integrity_anomaly' then
+    raise exception 'Seven-argument legacy replay changed or failed to flag fingerprinted event history.';
+  end if;
+  if not exists (select 1 from public.delivery_provider_events
+      where event_id = 'evt_legacy_five_fingerprint' and payload_fingerprint = repeat('5', 64))
+    or not exists (select 1 from public.delivery_provider_integrity_anomalies
+      where event_id = 'evt_legacy_five_fingerprint' and anomaly_type = 'duplicate_event_id_conflict')
+    or (select status from public.delivery_provider_lifecycle
+      where provider_email_id = 'resend-legacy-five-fingerprint') <> 'integrity_anomaly' then
+    raise exception 'Five-argument legacy replay changed or failed to flag fingerprinted event history.';
+  end if;
+  if exists (select 1 from public.delivery_provider_integrity_anomalies
+      where event_id in ('evt_historical_025_suppressed', 'evt_historical_026_complaint')) then
+    raise exception 'Historical NULL-fingerprint compatibility was incorrectly flagged as a conflict.';
+  end if;
+end;
+$legacy_fingerprint_assertions$;
+
 do $historical_assertions$
 begin
   if not exists (
