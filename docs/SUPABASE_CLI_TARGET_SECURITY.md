@@ -76,7 +76,7 @@ The implementation follows the pinned CLI's state-mode and link-file behavior:
 
 ### Structured TOML parsing and configuration precedence
 
-The stack-mode guard no longer scans TOML text. It parses the selected document with `smol-toml@1.9.1`, using the same `parse(source)` API and TOML value semantics used by Supabase CLI 3.2.0's `@supabase/config` package. The later compatible parser patch is intentional: CLI 3.2.0's source lock resolves `smol-toml@1.8.0`, while the wrapper pins 1.9.1 to include the upstream parser's denial-of-service fix. The parser is configured with `unsafeKeyBehaviour: "throw"`.
+The stack-mode guard no longer scans TOML text. It parses the selected document with `smol-toml@1.9.1`, using the same `parse(source)` API and TOML value semantics used by Supabase CLI 3.2.0's `@supabase/config` package. The later compatible parser patch is intentional: CLI 3.2.0's source lock resolves `smol-toml@1.8.0`, while the wrapper pins 1.9.1 as a development-only dependency to include the upstream parser's denial-of-service fix without adding it to the Deedlight runtime dependency graph. The parser is configured with `unsafeKeyBehaviour: "throw"`.
 
 The guard inspects only the decoded top-level `experimental.stack` property. This correctly handles standard tables, inline tables (including nested values), and escaped quoted keys. The value must be a literal TOML boolean; strings, dynamic `env(...)` values, malformed TOML, duplicate keys, and malformed `experimental` values fail closed. The same literal-boolean requirement applies to JSON and JSONC. No unstructured TOML text matching remains.
 
