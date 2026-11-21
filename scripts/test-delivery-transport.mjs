@@ -66,7 +66,7 @@ function fakeGateway(options = {}) {
       },
       async authorizeProviderIdempotencyWindow() {
         events.push("idempotency-window");
-        return options.idempotencyWindowAuthorized ?? true;
+        return options.idempotencyWindowResult ?? "authorized";
       },
       async markSent(_job, id) {
         events.push(`sent:${id}`);
@@ -283,7 +283,7 @@ test("temporary provider failure requeues while permanent failure terminates", a
 test("database-authoritative idempotency expiry prevents another provider request", async () => {
   const { gateway, events } = fakeGateway({
     firstTransportAt: new Date("2026-09-22T20:59:59.000Z"),
-    idempotencyWindowAuthorized: false,
+    idempotencyWindowResult: "expired",
   });
   let sent = false;
   const result = await processClaimedDelivery({
@@ -545,6 +545,18 @@ test("provider idempotency key remains stable across retry attempts", async () =
     `deedlight/${job.kind}/${job.jobId}`,
     `deedlight/${job.kind}/${job.jobId}`,
   ]);
+});
+
+test("final provider gate cancels when consent is revoked after transport start", async () => {
+  const { gateway, events } = fakeGateway({ idempotencyWindowResult: "cancelled" });
+  const result = await processClaimedDelivery({
+    job,
+    gateway,
+    recipientResolver: { async resolve() { return { email: "a@b.com" }; } },
+    transport: { async send() { throw new Error("transport must not run after consent revocation"); } },
+  });
+  assert.equal(result, "cancelled");
+  assert.deepEqual(events, ["authorize", "authorize", "begin", "idempotency-window"]);
 });
 
 test("retry and provider-window RPCs never trust a Worker timestamp", async () => {

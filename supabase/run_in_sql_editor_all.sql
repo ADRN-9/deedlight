@@ -6999,7 +6999,7 @@ commit;
 
 -- Make provider idempotency timing database-authoritative and validate Resend receipts.
 begin;
-do $$
+do $
 begin
   if to_regprocedure('public.begin_delivery_transport(uuid,uuid,text)') is null
     or to_regprocedure('public.retry_delivery_job(uuid,uuid,timestamptz,text)') is null
@@ -7009,15 +7009,18 @@ begin
     raise exception 'Migration 030 requires recipient-bound transport, persisted transport start, and migration-028 transitions.';
   end if;
 end;
-$$;
+$;
 
-create or replace function public.authorize_delivery_idempotency_window(p_job_id uuid,p_claim_token uuid)
-returns boolean language plpgsql security definer
+drop function if exists public.authorize_delivery_idempotency_window(uuid,uuid);
+create function public.authorize_delivery_idempotency_window(p_job_id uuid,p_claim_token uuid)
+returns text language plpgsql security definer
 set search_path = public, auth, pg_temp
 as $idempotency$
 declare v_job public.delivery_ledger%rowtype; v_now timestamptz;
 begin
   if p_job_id is null or p_claim_token is null then raise exception 'A job ID and claim token are required.' using errcode='22023'; end if;
+  -- Re-run the full consent/profile/claim authorization after transport start and immediately before send.
+  if public.authorize_delivery_job(p_job_id,p_claim_token) is not true then return 'cancelled'; end if;
   select * into v_job from public.delivery_ledger dl where dl.id=p_job_id for update;
   v_now := clock_timestamp();
   if not found or v_job.state <> 'claimed' or v_job.claim_token is distinct from p_claim_token
@@ -7029,9 +7032,9 @@ begin
       claim_expires_at=null,next_attempt_at=null,error_code='provider_idempotency_window_expired',updated_at=clock_timestamp()
     where id=v_job.id and state='claimed' and claim_token=p_claim_token and claim_expires_at > clock_timestamp();
     if not found then raise exception 'Delivery claim is not authorized for provider transport.' using errcode='42501'; end if;
-    return false;
+    return 'expired';
   end if;
-  return true;
+  return 'authorized';
 end;
 $idempotency$;
 revoke all privileges on function public.authorize_delivery_idempotency_window(uuid,uuid) from public,anon,authenticated;
@@ -7113,7 +7116,8 @@ begin
   end if;
   if p_provider_result_id is null or char_length(p_provider_result_id)<>36
     or p_provider_result_id<>btrim(p_provider_result_id)
-    or p_provider_result_id !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
+    or p_provider_result_id !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
+ then
     raise exception 'A valid Resend email identifier is required.' using errcode='22023';
   end if;
   update public.delivery_ledger set state='sent',sent_at=clock_timestamp(),claim_token=null,claim_expires_at=null,

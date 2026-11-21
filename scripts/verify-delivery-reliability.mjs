@@ -252,6 +252,10 @@ if (!idempotencyMigration.includes("return public.retry_delivery_job(p_job_id,p_
   throw new Error("Legacy retry overload must ignore its Worker-supplied timestamp.");
 }
 if (!idempotencyMigration.includes("authorize_delivery_idempotency_window")
+  || !idempotencyMigration.includes("public.authorize_delivery_job(p_job_id,p_claim_token)")
+  || !idempotencyMigration.includes("return 'cancelled'")
+  || !idempotencyMigration.includes("return 'expired'")
+  || !idempotencyMigration.includes("return 'authorized'")
   || !idempotencyMigration.includes("clock_timestamp()")
   || !idempotencyMigration.includes("interval '23 hours'")
   || !idempotencyMigration.includes("interval '30 seconds'")) {
@@ -290,6 +294,7 @@ if (!migrationOrderTest.includes("C226 deliberate source drift")
   throw new Error("Migration-order CI must prove migration 029 drift rejection and migration 030 behavior.");
 }
 if (!transportTests.includes("database-authoritative idempotency expiry")
+  || !transportTests.includes("final provider gate cancels when consent is revoked")
   || !transportTests.includes("retry and provider-window RPCs never trust a Worker timestamp")
   || !transportTests.includes("canonical UUIDs")) {
   throw new Error("Transport tests must cover DB-authoritative timing and Resend receipt validation.");
