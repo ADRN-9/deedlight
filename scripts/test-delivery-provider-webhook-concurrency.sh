@@ -272,7 +272,7 @@ begin;
 set role service_role;
 select public.record_delivery_provider_lifecycle_event(
   '$first_id', '$first_type', '$provider_id', '$recipient',
-  '$first_time', $first_bounce, null
+  '$first_time', $first_bounce, null, null, repeat('1', 64)
 );
 \echo TERMINAL_EVENT_LOCK_HELD
 select pg_sleep(2);
@@ -281,7 +281,7 @@ reset role;
 SQL
   terminal_pid=$!
   wait_for_marker "$terminal_pid" "$log" "TERMINAL_EVENT_LOCK_HELD"
-  psql_service_scalar "select public.record_delivery_provider_lifecycle_event('$second_id','$second_type','$provider_id','$recipient','$second_time',$second_bounce,null)" >"$result"
+  psql_service_scalar "select public.record_delivery_provider_lifecycle_event('$second_id','$second_type','$provider_id','$recipient','$second_time',$second_bounce,null,null,repeat('2',64))" >"$result"
   wait "$terminal_pid"
   terminal_result="$(cat "$result")"
   [[ "$terminal_result" == "__NULL__" ]]
@@ -307,7 +307,7 @@ begin;
 set role service_role;
 select public.record_delivery_provider_lifecycle_event(
   'evt_concurrent_delivered', 'email.delivered', 'resend-concurrent-order',
-  'concurrent-order@example.test', '2027-03-02T10:10:00Z', null, null
+  'concurrent-order@example.test', '2027-03-02T10:10:00Z', null, null, null, repeat('3', 64)
 );
 \echo DELIVERED_EVENT_LOCK_HELD
 select pg_sleep(2);
@@ -316,7 +316,7 @@ reset role;
 SQL
 delivered_pid=$!
 wait_for_marker "$delivered_pid" "$tmp/delivered-first.log" "DELIVERED_EVENT_LOCK_HELD"
-psql_service_scalar "select public.record_delivery_provider_lifecycle_event('evt_concurrent_delayed','email.delivery_delayed','resend-concurrent-order','concurrent-order@example.test','2027-03-02T10:05:00Z',null,null)" >"$tmp/delayed-result"
+psql_service_scalar "select public.record_delivery_provider_lifecycle_event('evt_concurrent_delayed','email.delivery_delayed','resend-concurrent-order','concurrent-order@example.test','2027-03-02T10:05:00Z',null,null,null,repeat('4',64))" >"$tmp/delayed-result"
 wait "$delivered_pid"
 grep -qx 't' "$tmp/delayed-result"
 status="$(psql_scalar "select status from public.delivery_provider_lifecycle where provider_email_id='resend-concurrent-order'")"
@@ -352,7 +352,7 @@ begin;
 set role service_role;
 select public.record_delivery_provider_lifecycle_event(
   'evt_suppression_race_first', 'email.complained', 'resend-suppression-race-first',
-  'suppression-race@example.test', '2027-03-02T10:20:00Z', null, null
+  'suppression-race@example.test', '2027-03-02T10:20:00Z', null, null, null, repeat('5', 64)
 );
 \echo SUPPRESSION_LOCK_HELD
 select pg_sleep(2);
@@ -425,7 +425,7 @@ reset role;
 SQL
 transport_pid=$!
 wait_for_marker "$transport_pid" "$tmp/transport-first.log" "TRANSPORT_LOCK_HELD"
-psql_service_scalar "select public.record_delivery_provider_lifecycle_event('evt_suppression_race_after_transport','email.complained','resend-suppression-race-after','transport-race@example.test','2027-03-02T10:21:00Z',null,null)" >"$tmp/suppression-after-result"
+psql_service_scalar "select public.record_delivery_provider_lifecycle_event('evt_suppression_race_after_transport','email.complained','resend-suppression-race-after','transport-race@example.test','2027-03-02T10:21:00Z',null,null,null,repeat('6',64))" >"$tmp/suppression-after-result"
 wait "$transport_pid"
 grep -qx 't' "$tmp/suppression-after-result"
 result="$(psql_scalar "select (transport_started_at is not null)::text || ':' || (select count(*)::text from public.delivery_provider_suppressions where recipient_email='transport-race@example.test') from public.delivery_ledger where user_id='00000000-0000-0000-0000-000000020007'")"
