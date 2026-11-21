@@ -72,6 +72,14 @@ jobs:
       - name: Resend provider webhook security assertions
         run: node scripts/verify-delivery-provider-webhooks.mjs
 
+      - name: ESLint changed delivery security files
+        run: >-
+          npx eslint
+          lib/delivery/resend-webhook.ts
+          scripts/test-delivery-webhook.mjs
+          scripts/verify-delivery-reliability.mjs
+          scripts/verify-delivery-provider-webhooks.mjs
+
       - name: Auth pgcrypto schema-qualification assertions
         run: node scripts/verify-auth-pgcrypto-schema-qualification.mjs
 
