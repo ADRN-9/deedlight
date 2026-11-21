@@ -936,6 +936,41 @@ begin
   if not (select relrowsecurity from pg_class where oid='public.delivery_provider_lifecycle'::regclass) then
     raise exception 'Provider lifecycle projection must retain RLS.';
   end if;
+  -- The renamed implementation is private even to service_role; only the
+  -- guarded canonical RPC may invoke it.
+  if has_function_privilege('anon',
+       'public._record_delivery_provider_lifecycle_event_fingerprinted_impl(text,text,text,text,timestamptz,text,text,text,text)','EXECUTE')
+    or has_function_privilege('authenticated',
+       'public._record_delivery_provider_lifecycle_event_fingerprinted_impl(text,text,text,text,timestamptz,text,text,text,text)','EXECUTE')
+    or has_function_privilege('service_role',
+       'public._record_delivery_provider_lifecycle_event_fingerprinted_impl(text,text,text,text,timestamptz,text,text,text,text)','EXECUTE')
+    or exists (
+      select 1
+      from pg_proc p
+      cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+      where p.oid = to_regprocedure('public._record_delivery_provider_lifecycle_event_fingerprinted_impl(text,text,text,text,timestamptz,text,text,text,text)')
+        and a.grantee = 0 and a.privilege_type = 'EXECUTE'
+    ) then
+    raise exception 'Private provider lifecycle implementation ACLs regressed.';
+  end if;
+
+  -- The public canonical RPC retains its existing service_role-only boundary.
+  if has_function_privilege('anon',
+       'public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)','EXECUTE')
+    or has_function_privilege('authenticated',
+       'public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)','EXECUTE')
+    or not has_function_privilege('service_role',
+       'public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)','EXECUTE')
+    or exists (
+      select 1
+      from pg_proc p
+      cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+      where p.oid = to_regprocedure('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)')
+        and a.grantee = 0 and a.privilege_type = 'EXECUTE'
+    ) then
+    raise exception 'Canonical provider lifecycle RPC ACLs regressed.';
+  end if;
+
   if has_function_privilege('anon',
        'public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text)','EXECUTE')
     or has_function_privilege('authenticated',

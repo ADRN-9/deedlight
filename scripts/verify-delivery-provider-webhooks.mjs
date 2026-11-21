@@ -203,6 +203,24 @@ assert(databaseTests.includes("Legacy fingerprint conflicts mutated or removed e
 assert(databaseTests.includes("Five-argument legacy fingerprint conflict mutated existing suppression state."));
 assert(databaseTests.includes("e.payload_fingerprint is distinct from expected.payload_fingerprint"));
 assert(databaseTests.includes("a.grantee = 0 and a.privilege_type = 'EXECUTE'"));
+assert(databaseTests.includes("Private provider lifecycle implementation ACLs regressed."));
+assert(databaseTests.includes("Canonical provider lifecycle RPC ACLs regressed."));
+const privateImplementationSignature = "public._record_delivery_provider_lifecycle_event_fingerprinted_impl(text,text,text,text,timestamptz,text,text,text,text)";
+const canonicalLifecycleSignature = "public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)";
+for (const role of ["anon", "authenticated", "service_role"]) {
+  assert(databaseTests.includes("has_function_privilege('" + role + "',\n       '" + privateImplementationSignature + "','EXECUTE')"),
+    "SQL regression suite must explicitly deny private implementation execution to " + role + ".");
+}
+for (const role of ["anon", "authenticated"]) {
+  assert(databaseTests.includes("has_function_privilege('" + role + "',\n       '" + canonicalLifecycleSignature + "','EXECUTE')"),
+    "SQL regression suite must preserve canonical RPC denial for " + role + ".");
+}
+assert(databaseTests.includes("not has_function_privilege('service_role',\n       '" + canonicalLifecycleSignature + "','EXECUTE')"),
+  "SQL regression suite must preserve canonical RPC service_role execution.");
+assert(/p\.oid = to_regprocedure\('public\._record_delivery_provider_lifecycle_event_fingerprinted_impl\([^)]+\)'\)\s+and a\.grantee = 0 and a\.privilege_type = 'EXECUTE'/s.test(databaseTests),
+  "SQL regression suite must deny PUBLIC direct execution of the private implementation.");
+assert(/p\.oid = to_regprocedure\('public\.record_delivery_provider_lifecycle_event\([^)]+\)'\)\s+and a\.grantee = 0 and a\.privilege_type = 'EXECUTE'/s.test(databaseTests),
+  "SQL regression suite must deny PUBLIC direct execution of the canonical RPC.");
 assert(databaseTests.includes("Eight-argument legacy RPC bypassed a stored provider payload fingerprint."));
 assert(databaseTests.includes("Seven-argument legacy RPC bypassed a stored provider payload fingerprint."));
 assert(databaseTests.includes("Five-argument legacy provider-event RPC bypassed a stored provider payload fingerprint."));
