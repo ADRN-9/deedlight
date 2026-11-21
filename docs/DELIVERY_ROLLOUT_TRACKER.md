@@ -171,3 +171,11 @@ Rollback is operational and fail-closed: disable new outbound work, remove futur
 - Explicitly recorded that security assertions are steps within `validate`, not an independent eighth job.
 - Preserved the C241/C242 migration findings, the branch-push versus PR-integration distinction, the exact #766/#767 run references, and all Production NO-GO restrictions.
 - Documentation-only correction. No migration, database, Production, credential, scheduler, deployment, Cron, or delivery setting was changed. No PR approval or merge was performed.
+## C245 — migration reconciliation inventory expansion
+
+- Independently reverified repository ADRN-9/deedlight (ID 1308367373), branch security/delivery-transport-consent-gates, source HEAD d65da43a7fe3cebd17f2481a4c8fbb90faa3c17d and tree e5d92f4e06504675d2145d5cdb976691a97eafa6 before documentation changes. PR #10 remained OPEN / DRAFT / UNMERGED.
+- Rechecked the complete recursive tree: 31 SQL migration files and 30 unique filename version prefixes. The reconciliation document now records each file's Git blob SHA and declared tables/columns, indexes, constraints, functions, triggers, views, RLS policies, grants, data effects, dependencies and rollback risks.
+- Explicitly documented the two distinct 202607260007 files and the CREATE TABLE IF NOT EXISTS order hazard: Sprint 7 first can leave daily_reflections.daily_post_id absent, which migration 012 expects. Also recorded 008→012/013 prerequisites and the limits of the existing migration-order test.
+- Production status remains UNKNOWN for all 31 files and all effect groups. Existing Production project access remains unauthorized; repository SQL, migration headers and the aggregate SQL bundle are not evidence of live Production execution.
+- No migration SQL, migration history, Production schema, credentials, deployment, scheduler, Cron, delivery setting, or Supabase configuration was changed. No history repair, push, reset, remote SQL, approval or merge occurred.
+- Next independent review focus: duplicate 007 mapping and effect-level reconciliation; prove both 007 order permutations and the 008/012/013 dependency path on a disposable PostgreSQL database before considering any later migration plan. Production remains NO-GO.

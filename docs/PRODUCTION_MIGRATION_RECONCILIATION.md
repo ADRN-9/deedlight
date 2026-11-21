@@ -310,3 +310,280 @@ C241 independently accepted the repository-level migration reconciliation invest
 - CLI db dump scope: https://supabase.com/docs/reference/cli/supabase-db-dump
 
 **Final disposition: Production migration reconciliation remains BLOCKED pending authorized read-only access. Production remains NO-GO.**
+
+## C245 — complete migration effect inventory and clean-replay analysis
+
+**Repository evidence baseline (independently rechecked before this change):** repository ADRN-9/deedlight, repository ID 1308367373; branch security/delivery-transport-consent-gates; source HEAD d65da43a7fe3cebd17f2481a4c8fbb90faa3c17d; source tree e5d92f4e06504675d2145d5cdb976691a97eafa6; PR #10 OPEN / DRAFT / UNMERGED. The recursive Git tree is complete (not truncated) and contains 31 SQL files under supabase/migrations with 30 distinct filename version prefixes. The inventory below records Git blob identities and the SQL-declared repository effects, not proof of execution in Production.
+
+### Per-file repository schema, data, dependency, and rollback inventory
+
+Every entry is a separate migration file. Tables, columns, indexes, constraints, functions, triggers, views, policies, and grants below are read from the exact checked-in SQL file. "Runtime data" means effects of functions/triggers after deployment, not migration-time execution. Rollback notes identify risks, not a proposed rollback.
+
+#### 202607210001 — 202607210001_initial_schema.sql
+- **Git blob:** a244ab0df3e766b0f36e29a222b3160f9f74c502.
+- **Tables and columns:** creates profiles (id, user_id, username, display_name, avatar_url, bio, country, role, is_verified, is_suspended, created_at, updated_at); themes (id, slug, name, description, icon_name, accent_color, created_at); daily_posts (id, date, slug, title, theme_id, reflection, daily_action, reflection_question, image_url, youtube_url, status, created_by, published_at, timestamps); offerings (identity/owner/theme/type/title/body/takeaway/media/anonymous/reflection/location/status/moderation fields, reaction/report counters, generated bless_score, publication and timestamps); reactions; reflections; reports; badges; user_badges; saved_lights; daily_deed_completions.
+- **Indexes and constraints:** offerings_status_published_idx, offerings_bless_score_idx, offerings_user_id_idx, reactions_offering_id_idx, reactions_user_id_idx, saved_lights_unique_offering, saved_lights_unique_daily_post. Inline PK/FK/unique/check constraints enforce profile role, daily post status, Offering type/title/body/media/status/nonnegative counters, unique reaction per Offering/user/type, reflection body/status, report reason/status and at-least-one target, unique user badge, exactly one saved-light source, and unique completion by user/post/status.
+- **Functions, triggers, views:** pgcrypto extension; set_updated_at, handle_new_user, handle_reaction_counts, handle_reflection_counts, handle_report_counts; timestamp triggers for profiles/daily_posts/offerings/reflections, Auth on_auth_user_created trigger, reaction insert/delete, reflection insert/update/delete, report insert/update/delete count triggers; initial offerings_public view.
+- **Data and dependencies:** no one-time row backfill; future Auth signups create profiles and future reaction/reflection/report changes maintain denormalized Offering counters. Requires Supabase Auth and pgcrypto; foundational for every later public schema migration.
+- **Rollback implications:** dropping foundational tables or extension-dependent functions destroys member content, private reflections, moderation records, saved items, and completion history. No destructive rollback is safe.
+
+#### 202607210002 — 202607210002_rls_policies.sql
+- **Git blob:** f96b482c0d1cf396baae5b91d7c96112f7e88284.
+- **Tables and columns:** no table or column creation; enables RLS on profiles, themes, daily_posts, offerings, reactions, reflections, reports, badges, user_badges, saved_lights, and daily_deed_completions.
+- **Indexes and constraints:** none.
+- **Functions, triggers, policies, grants:** creates SECURITY DEFINER is_admin(). Adds profiles_public_read / profiles_own_update / profiles_admin_all; themes_public_read / themes_admin_all; daily_posts_public_published_read / daily_posts_admin_all; Offering public-approved, own-read, pending-insert, safe-status-update, and admin-all policies; reaction own insert/delete/read and admin-all; reflection public-visible/own-insert/own-update/admin-all; report own-insert/admin-all; badge and user-badge public-read/admin-all; saved_lights_own_all; daily_deed_completions_own_all. Inserts storage buckets daily-lights, offerings-media, profile-avatars, admin-assets (private), and share-cards; creates five storage.objects read/upload/update/admin policies.
+- **Data and dependencies:** idempotent bucket inserts use ON CONFLICT DO NOTHING. Requires all 001 tables and Supabase Storage schema/objects.
+- **Rollback implications:** removing or broadening RLS/policies can expose private data or permit unauthorized writes. Deleting buckets can orphan or destroy stored media. Policy removal is not an acceptable shortcut for later schema repair.
+
+#### 202607220003 — 202607220003_sprint3_offerings_review.sql
+- **Git blob:** 74e02f2e60b82cf07a6aac5f8cf57dcdb6fe1382.
+- **Tables and columns:** no table/column changes.
+- **Indexes and constraints:** offerings_status_created_idx and offerings_user_status_created_idx.
+- **Functions, triggers, views, policies, grants:** replaces offerings_public projection and grants SELECT on that view to anon and authenticated; no function, trigger, or policy changes.
+- **Data and dependencies:** no row backfill. Depends on 001 Offering schema and the 002 RLS baseline.
+- **Rollback implications:** restoring an older public projection may re-expose fields or remove required moderation-safe projection behavior; dropping indexes can regress feed/review queries.
+
+#### 202607260004 — 202607260004_sprint4_reactions.sql
+- **Git blob:** c25dce46ecf69d082fcdbea2bb931b6acd9180fc.
+- **Tables and columns:** changes behavior on reactions and offerings; no new columns/tables.
+- **Indexes and constraints:** no new named index or constraint.
+- **Functions, triggers, views, policies, grants:** replaces is_admin and handle_reaction_counts; recreates reactions_count_insert and reactions_count_delete triggers. Replaces reaction policies with reactions_select_own_or_admin, reactions_insert_own_on_approved, reactions_delete_own, reactions_admin_all. Creates/replaces offerings_rising and refreshes offerings_public. Grants public/authenticated reads to intended projections and authenticated reaction insert/delete; service_role receives schema/table authority.
+- **Data and dependencies:** recomputes offerings reaction counters from reactions, so it is a real data update, not just DDL. Depends on 001 reactions/offerings and 002 RLS; uses the 003 Offering projection.
+- **Rollback implications:** old trigger/function behavior can double-count or drift counters; restore would require recomputing counters and independently reviewing reaction RLS before changing it.
+
+#### 202607260005 — 202607260005_sprint5_moderation.sql
+- **Git blob:** b48b4b8b3eea9fb55b68068011fa1371559228c2.
+- **Tables and columns:** changes offerings and reports behavior; no new columns/tables.
+- **Indexes and constraints:** reports_status_created_idx, reports_offering_status_idx, offerings_open_report_count_idx.
+- **Functions, triggers, views, policies, grants:** replaces is_admin and handle_report_counts; creates reports_count_insert/update/delete triggers. Replaces Offering select/insert/update policies and report select/insert/update/admin policies. Retains public/rising Offering projections and grants intended reads/writes; service_role receives table authority.
+- **Data and dependencies:** recomputes offerings.open_report_count from reports and changes the ongoing report counter trigger behavior. Depends on 001 reports/offerings and 002/004 RLS and reaction behavior.
+- **Rollback implications:** stale report counters can alter moderation/rising calculations. Reverting policies can allow unsafe Offering edits or report disclosure; any function rollback must be paired with a counter reconciliation.
+
+#### 202607260006 — 202607260006_sprint5_admin_edit_hide_hotfix.sql
+- **Git blob:** 9e163de5119c3813724341b7a9eabeba6fdc2970.
+- **Tables and columns:** alters public.offerings; no new column.
+- **Indexes and constraints:** a guarded DO block removes existing Offering status check constraints and adds offerings_status_check allowing draft, pending, approved, rejected, needs_edit, hidden.
+- **Functions, triggers, views, policies, grants:** replaces offerings_update_own_or_admin policy, replaces offerings_public as a security_invoker view, and grants authenticated Offering SELECT/INSERT/UPDATE plus service_role authority and public projection SELECT.
+- **Data and dependencies:** no migration-time row update. Depends on moderation policy/Offering baseline from 005.
+- **Rollback implications:** reintroducing a narrower historical status check can fail on rows already using newer statuses. Changing security_invoker/view grants or the update policy can weaken public/member/admin boundaries.
+
+#### 202607260007 — 202607260007_sprint6_daily_deedlight.sql
+- **Git blob:** e0c2379255003b8c7bc85a1fab781e23051f5e47.
+- **Tables and columns:** extends public.daily_posts with slug, scheduled_for, status, kicker, title, theme, summary, body, small_deed, reflection_prompt, featured_offering_id, image_url, video_title, video_hook, video_script, video_caption, youtube_url, video_status, published_at, archived_at, created_by, created_at, updated_at. Creates public.daily_reflections with user_id, daily_post_id, reflection_text, did_today_deed, mood_label, is_private, and timestamps.
+- **Indexes and constraints:** daily_posts_status_scheduled_idx, daily_posts_featured_offering_idx, daily_reflections_post_idx, daily_reflections_user_idx; daily_posts_status_check, daily_posts_video_status_check, daily_posts_slug_unique, daily_reflections_unique_user_post.
+- **Functions, triggers, policies, grants:** uses is_admin and replaces set_updated_at; creates daily post/reflection updated-at triggers. RLS policies: daily_posts_public_read_published, daily_posts_admin_all, daily_reflections_select_own_or_admin, daily_reflections_insert_own, daily_reflections_update_own, daily_reflections_delete_admin. Grants public/authenticated daily-post SELECT, authenticated daily-post/reflection CRUD, service_role full table authority.
+- **Data and dependencies:** depends on 001 daily_posts/offerings/Auth and 002 RLS. Seeds one editable/published daily post only when daily_posts is empty. Its CREATE TABLE IF NOT EXISTS for daily_posts is normally a no-op after 001; the ALTER statements supply the later editorial fields.
+- **Rollback implications:** deleting daily_posts or daily_reflections destroys editorial content and private reflections. Removing the seed row or its effects without identifying its provenance can damage a manually curated Daily Deedlight.
+
+#### 202607260007 — 202607260007_sprint7_pwa_daily_engagement.sql
+- **Git blob:** 8b051cfce05ea75b1ee7a726864e2ad760f6fe5f.
+- **Tables and columns:** creates public.daily_lights with id, scheduled_date, status, kicker, title, theme, summary, small_deed, reflection_prompt, featured_offering_id, video_title, video_hook, video_script, archived_at, created_by, and timestamps. Extends/creates public.daily_reflections with daily_light_id, user_id, reflection, intention, and timestamps.
+- **Indexes and constraints:** daily_lights_scheduled_date_unique and daily_reflections_daily_light_user_unique.
+- **Functions, triggers, policies, grants:** no function/trigger creation. RLS policies: daily lights public read published, admin insert/update/delete; daily reflections select own/admin, insert own, update own/admin. Grants anon/authenticated SELECT daily_lights, authenticated Daily Lights write, authenticated reflection SELECT/INSERT/UPDATE, service_role full authority.
+- **Data and dependencies:** depends on 001 offerings/Auth. It normalizes null daily_lights status/kicker/title and adds unique schedule constraints. It overlaps Sprint 6 on daily_reflections; its CREATE TABLE IF NOT EXISTS does not guarantee the other migration's daily_post_id column exists.
+- **Rollback implications:** dropping daily_lights or shared daily_reflections can destroy Daily content and private intentions/reflections. Never treat the duplicate version as a single interchangeable migration.
+
+#### 202607270008 — 202607270008_sprint8_short_video_studio.sql
+- **Git blob:** 5b583bd99562e14db554943d034c748ce302f5ee.
+- **Tables and columns:** alters public.daily_lights to add video_status, video_platform, video_hashtags, video_notes, video_asset_url, tiktok_url, instagram_url, short_video_public, video_posted_at.
+- **Indexes and constraints:** daily_lights_video_status_idx, daily_lights_video_public_idx (partial on public videos), daily_lights_video_posted_at_idx; daily_lights_video_status_check for not_started/planned/scripted/recorded/posted/archived; video_status and short_video_public defaults/not-null.
+- **Functions, triggers, policies, grants:** no function/trigger/policy changes; reasserts table grants for anon/authenticated/service_role.
+- **Data and dependencies:** updates null video_status to not_started. Requires the Sprint 7 daily_lights table.
+- **Rollback implications:** removing video columns loses production planning/publishing metadata and public visibility settings. The aggregate SQL bundle does not contain this migration's columns or indexes.
+
+#### 202608060009 — 202608060009_sprint9_profiles_privacy.sql
+- **Git blob:** 6594ce6daa0183944fcc548885d6514e8adb9436.
+- **Tables and columns:** adds profiles.is_public (false), show_contribution_stats (true), default_offering_anonymous (false); tightens username nullability/format.
+- **Indexes and constraints:** drops legacy username uniqueness, adds profiles_username_format_check and profiles_username_lower_key unique index on lower(username).
+- **Functions, triggers, views, policies, grants:** replaces handle_new_user; creates profiles_own_read and profiles_own_update; replaces offerings_public and creates security-barrier profiles_public; revokes broad profile privileges and grants narrowly scoped authenticated column updates plus public-view SELECT.
+- **Data and dependencies:** fills missing/blank usernames with generated member-* identifiers and lowercases/trims existing usernames. Depends on 001 profiles/Auth and pgcrypto; it changes existing member identity values.
+- **Rollback implications:** username normalization is not losslessly reversible. Reverting profile/public views or grants can expose private profile fields or break opt-in identity privacy.
+
+#### 202608100010 — 202608100010_sprint9_2_community_identity_consistency.sql
+- **Git blob:** 774708b7705d88a5a1e0da97e72a9d1b47c8884c.
+- **Tables and columns:** no table/column changes.
+- **Indexes and constraints:** none.
+- **Functions, triggers, views, policies, grants:** replaces handle_new_user; replaces security-barrier offerings_public and offerings_rising projections; revokes direct anon SELECT on public.offerings and grants SELECT on the intended public views. No new trigger or RLS policy.
+- **Data and dependencies:** no migration-time row backfill. Depends on 009 profile identity and public projection contract.
+- **Rollback implications:** restoring old views/direct base-table access can leak private Offering identity or reintroduce inconsistent anonymous/profile projections.
+
+#### 202608100011 — 202608100011_sprint9_3_moderation_aware_members.sql
+- **Git blob:** 1d1b7b844b88077351d2658af4be2b2db92eda97.
+- **Tables and columns:** creates member_moderation_events(id, member_user_id, actor_user_id, action, reason, created_at), with suspended/restored action and bounded reason checks.
+- **Indexes and constraints:** member_moderation_events_member_created_idx and member_moderation_events_actor_created_idx.
+- **Functions, triggers, policies, grants:** RLS admin-select-only event policy; service_role-only table access. Creates admin_list_members, admin_get_member_context, set_member_suspension. Replaces Offering update and reflection insert/update policies to enforce suspension-aware community mutations. Grants controlled function EXECUTE to authenticated with internal admin checks.
+- **Data and dependencies:** no migration-time backfill; set_member_suspension updates profiles.is_suspended and appends an audit event at runtime. Depends on profiles/offerings/reflections from 001 and moderation/security policy baseline 002/005.
+- **Rollback implications:** dropping moderation events destroys suspension audit history; removing suspension-aware policies or function checks restores community mutation to suspended members.
+
+#### 202608110012 — 202608110012_sprint10_1_daily_deed_completion.sql
+- **Git blob:** 0973f72e39ce07b41e053a20f1b781c394578877.
+- **Tables and columns:** adds daily_deed_completions.daily_light_id referencing daily_lights; makes daily_post_id nullable; makes daily_reflections.daily_post_id nullable.
+- **Indexes and constraints:** daily_deed_completions_has_source and daily_reflections_has_daily_source require at least one Daily Post/Daily Light source; daily_deed_completions_user_light_unique, daily_deed_completions_light_created_idx, daily_deed_completions_user_created_idx.
+- **Functions, triggers, views, policies, grants:** own-select, own-insert-published, own-delete completion policies; creates security-barrier daily_deed_completion_counts and grants SELECT to anon/authenticated/service_role; removes broad direct table privileges and grants authenticated SELECT/INSERT/DELETE.
+- **Data and dependencies:** no migration-time source backfill. Requires 001 daily_deed_completions, Sprint 6 daily_post_id, Sprint 7 daily_lights/daily_light_id and daily_reflections. The source XOR constraints must be reconciled with actual rows before application.
+- **Rollback implications:** dropping the new source columns/indexes or restoring NOT NULL can strand Daily Light completion/reflection records. Completion counts are member activity data and must not be deleted.
+
+#### 202608110013 — 202608110013_sprint10_2_saved_lights_gentle_rhythm.sql
+- **Git blob:** 5fd2f4a796a8a1dfd6237ccf36d1ab62c1dc1714.
+- **Tables and columns:** adds saved_lights.daily_light_id referencing daily_lights.
+- **Indexes and constraints:** replaces legacy saved_lights_check/exactly-one-source with saved_lights_exactly_one_source across offering_id/daily_post_id/daily_light_id; adds saved_lights_unique_daily_light and saved_lights_user_created_idx.
+- **Functions, triggers, policies, grants:** replaces broad saved_lights_own_all with saved_lights_select_own, saved_lights_insert_own_published_daily_light, saved_lights_delete_own; authenticated gets SELECT/INSERT/DELETE only, no UPDATE. No new function/trigger.
+- **Data and dependencies:** no migration-time row backfill. Depends on saved_lights from 001 and Daily Lights from Sprint 7. Saves remain private and immutable.
+- **Rollback implications:** dropping daily_light_id or reverting the XOR check can orphan/delete saved Daily Lights or permit malformed multi-source saves.
+
+#### 202608120014 — 202608120014_sprint10_3_gentle_reminder_preferences.sql
+- **Git blob:** 2af1a6a2aa5cffc6ef6d08849b6f71fab44a54d0.
+- **Tables and columns:** creates daily_reminder_preferences(user_id, daily_enabled default false, reminder_time default 08:00, timezone default UTC, created_at, updated_at); timezone has length/character validation.
+- **Indexes and constraints:** user_id primary key/FK to auth.users; timezone check.
+- **Functions, triggers, policies, grants:** daily_reminder_preferences_set_updated_at trigger using set_updated_at; own SELECT/INSERT/UPDATE policies; authenticated receives those table privileges and service_role full privileges.
+- **Data and dependencies:** no migration-time preference backfill; opt-in is false by default. Depends on auth.users and set_updated_at from 001.
+- **Rollback implications:** dropping preferences loses explicit opt-in/timezone choices; broadening grants can expose private consent settings.
+
+#### 202608130015 — 202608130015_sprint11_2_weekly_goodness.sql
+- **Git blob:** 394c774032d8206c0b7a373640859c2a331667a9.
+- **Tables and columns:** creates weekly_goodness_features(week_start, offering_id, selected_by, created_at, updated_at); Monday-only week_start check and Offering/Auth FKs.
+- **Indexes and constraints:** reactions_created_offering_type_idx; weekly_goodness_features week_start primary key and Monday check.
+- **Functions, triggers, policies, grants:** weekly_goodness_features_set_updated_at trigger; no browser-facing table policy; table privileges revoked from public/anon/authenticated and granted to service_role. Creates get_weekly_goodness(limit), get_current_weekly_goodness_feature(), set_weekly_goodness_feature(uuid) with narrow EXECUTE grants.
+- **Data and dependencies:** no migration-time curation insert. set_weekly_goodness_feature performs replacement/upsert at runtime. Depends on 001 offerings/profiles, 004 reactions, and set_updated_at.
+- **Rollback implications:** dropping weekly curation deletes editorial history; exposing the base table can allow unreviewed public curation.
+
+#### 202608130016 — 202608130016_sprint11_3_invitations_newsletter_foundation.sql
+- **Git blob:** 8d68ed19859e1a820af52a43c110a38b6a460d48.
+- **Tables and columns:** creates invitation_links(id, inviter_user_id, code, accepted_count, expires_at, revoked_at, timestamps), invitation_acceptances(id, invitation_id, invited_user_id, accepted_at), newsletter_preferences(user_id, weekly_enabled default false, consented_at, unsubscribed_at, consent_source, timestamps).
+- **Indexes and constraints:** invitation_links_inviter_created_idx, invitation_links_active_lookup_idx, invitation_acceptances_invitation_idx; unique invitation code and invited user; nonnegative accepted_count, bounded code, expiry-after-created, consent_source check.
+- **Functions, triggers, policies, grants:** invitation_links and newsletter_preferences updated-at triggers; own-link and own-newsletter SELECT policies; acceptance table service_role only. Functions validate_invitation_code, create_invitation_link, revoke_invitation_link, set_newsletter_preference, record_invitation_acceptance, handle_growth_signup. Auth triggers on_auth_user_growth_insert and on_auth_user_growth_email_confirmed. Explicit table/function privilege revocation and narrow RPC grants.
+- **Data and dependencies:** inserts newsletter_preferences with weekly_enabled=false for existing Auth users missing a row; this is a consent-safe disabled default, not consent. Signup/email-confirmation triggers and invitation RPCs write future rows. Depends on auth.users, profiles, pgcrypto, and set_updated_at.
+- **Rollback implications:** dropping tables destroys invitation attribution, acceptance records, unsubscribe/consent timestamps and source. Do not backfill opt-in or reconstruct consent from signup alone.
+
+#### 202608130017 — 202608130017_sprint12_1_offering_ownership_engagement.sql
+- **Git blob:** bc23b12fe454c1f49b096fd2c7199e3a2aea5bb4.
+- **Tables and columns:** adds offerings.owner_removed_at.
+- **Indexes and constraints:** partial offerings_owner_removed_idx on owner and owner_removed_at where removed.
+- **Functions, policies, grants:** tightens Offering insert/update policies; adds saved_lights_insert_own_published_source and approved-Offering reaction insertion policy. Creates update_own_offering, remove_own_offering, restore_own_offering with restricted EXECUTE grants.
+- **Data and dependencies:** no migration-time backfill. Runtime edit updates Offering fields; remove soft-hides and timestamps owner removal; restore returns eligible content to pending moderation. Depends on offerings/reactions/saved_lights from 001, moderation rules 005/011 and saved-light model 013.
+- **Rollback implications:** deleting owner_removed_at or bypassing soft-removal loses member control/auditability; never hard-delete Offering data to simulate a rollback.
+
+#### 202608140018 — 202608140018_sprint12_1_owner_removal_guard_hotfix.sql
+- **Git blob:** 0ea7eaf04d5c99e4c5a25893aae7694affdd44bc.
+- **Tables and columns:** no new table/column/index.
+- **Indexes and constraints:** replaces offerings_owner_removed_hidden check constraint.
+- **Functions, grants:** replaces remove_own_offering(uuid) and revokes broad EXECUTE before granting authenticated EXECUTE.
+- **Data and dependencies:** guarded preflight requires 017's owner_removed_at and remove_own_offering(uuid), and zero rows already owner-removed; replaces behavior but does not prove its own execution. Depends directly on 017. Header says it records a narrow Production repair, which remains an unverified repository assertion.
+- **Rollback implications:** do not rerun blindly; the zero-row precondition can fail on real member records. Restoring the previous function/check can weaken the hidden-state invariant.
+
+#### 202609230019 — 202609230019_sprint12_2_gentle_delivery_foundation.sql
+- **Git blob:** 1403b9324e786a2b724176875a70ffce92961d9b.
+- **Tables and columns:** creates delivery_ledger(id, user_id, kind, delivery_key, state, scheduled_for, claim_token, claimed_at, sent_at, failed_at, cancelled_at, provider_result_id, error_code, created_at, updated_at); unique (kind,user_id,delivery_key) and bounded kind/key/state/provider/error checks.
+- **Indexes and constraints:** delivery_ledger_ready_idx and delivery_ledger_user_idx.
+- **Functions, triggers, policies, grants:** delivery_ledger_set_updated_at trigger; RLS enabled with no browser access; service_role-only table privileges. Creates set_daily_reminder_preference, enqueue_due_daily_reminders, enqueue_weekly_goodness_delivery, claim_delivery_jobs, authorize_delivery_job, mark_delivery_sent, mark_delivery_failed; RPC execution is service_role-only except member preference setter.
+- **Data and dependencies:** no migration-time ledger rows; functions enqueue/claim/authorize/update rows at runtime. Removes direct authenticated insert/update on reminder preferences so consent changes go through RPC. Depends on preferences 014, weekly curation 015, newsletter preferences 016, profiles and auth.users. Does not activate Cron or provider delivery.
+- **Rollback implications:** dropping ledger destroys delivery audit/idempotency state; restoring direct preference writes weakens the narrow consent boundary.
+
+#### 202609230020 — 202609230020_delivery_reliability_hardening.sql
+- **Git blob:** 554615da3d15fc4c0d395691103d3be5676856fa.
+- **Tables and columns:** extends delivery_ledger with claim_expires_at, attempt_count default 0, last_attempt_at, next_attempt_at.
+- **Indexes and constraints:** delivery_ledger_retry_ready_idx; attempt_count 0–5 and claim lease/state consistency checks.
+- **Functions, grants:** replaces claim_delivery_jobs, authorize_delivery_job, adds retry_delivery_job, replaces mark_delivery_sent and mark_delivery_failed; service_role-only EXECUTE.
+- **Data and dependencies:** preflight refuses live claimed jobs. Migration clears claim_token and claim_expires_at for rows whose state is not claimed; it does not reset active claimed jobs. Depends on 019 ledger and RPC baseline.
+- **Rollback implications:** removing expiry/retry metadata or restoring older RPCs can resurrect stale claims, unbounded retries or duplicate sends. Never clear live claims to force the migration.
+
+#### 202609230021 — 202609230021_gentle_delivery_transport.sql
+- **Git blob:** e50a06bd3a5ed386c54e789435c64b2bb4a54ab9.
+- **Tables and columns:** adds delivery_ledger.transport_started_at.
+- **Indexes and constraints:** none.
+- **Functions, grants:** creates begin_delivery_transport(uuid,uuid) and enqueue_current_weekly_goodness_if_curated(timestamptz,integer), service_role-only.
+- **Data and dependencies:** no migration-time backfill; runtime function records transport start and permits Weekly enqueue only for curated content. Depends on 020 lease/retry behavior and 015 weekly curation.
+- **Rollback implications:** dropping transport_started_at loses evidence needed for safe idempotency horizons and retry decisions.
+
+#### 202609240022 — 202609240022_auth_pgcrypto_schema_qualification.sql
+- **Git blob:** f42afb3474f80c7d95cf5b47023b82cf5a948d4d.
+- **Tables and columns:** none.
+- **Indexes and constraints:** none.
+- **Functions, triggers, policies, grants:** replaces public.handle_new_user() to call schema-qualified extensions.gen_random_bytes; no trigger recreation or explicit grant change in this file.
+- **Data and dependencies:** future Auth profile bootstrap uses the qualified pgcrypto function; no migration-time row update. Requires pgcrypto installed in extensions and existing profile bootstrap. Header labels this a Production Auth hotfix but is not execution evidence.
+- **Rollback implications:** restoring an unqualified function may fail under a restricted search_path and break new-user profile creation.
+
+#### 202611120023 — 202611120023_delivery_consent_linearization.sql
+- **Git blob:** 75f5086feab2cbda381066cb9094390190c3332f.
+- **Tables and columns:** no table/column changes.
+- **Indexes and constraints:** none.
+- **Functions, comments, grants:** replaces enqueue_due_daily_reminders, enqueue_weekly_goodness_delivery and begin_delivery_transport; adds function comments deedlight:023:daily-exclusion-before-limit:v1, deedlight:023:weekly-exclusion-before-limit:v1 and deedlight:023:locked-consent-before-transport:v1; service_role-only EXECUTE.
+- **Data and dependencies:** no migration-time row update. Rechecks consent/profile state at the relevant queue/transport boundary and serializes the final authorization. Depends on 019–021, 014/016 consent tables, 015 weekly curation, profiles and Auth.
+- **Rollback implications:** reverting to earlier function bodies reintroduces consent/revocation races. Comments and exact source are preflight evidence for 024, not proof of Production execution.
+
+#### 202611120024 — 202611120024_delivery_identity_lease_capacity.sql
+- **Git blob:** 240271fd75081c062627cfc3d40bdc0c5feda049.
+- **Tables and columns:** no new table/column/index.
+- **Functions, constraints, grants:** preflight checks 023 comments, exact MD5 source fingerprints, SECURITY DEFINER, volatility, search_path and PL/pgSQL metadata. Replaces two-argument begin_delivery_transport with recipient-bound three-argument begin_delivery_transport(uuid,uuid,text), explicitly drops the old two-argument entry point, replaces enqueue_weekly_goodness_delivery and enqueue_current_weekly_goodness_if_curated; service_role-only EXECUTE.
+- **Data and dependencies:** no migration-time row backfill. Runtime locks/checks confirmed Auth email identity and applies Weekly capacity limits. Requires exact reviewed 023 source, 019–021 ledger/RPCs, Auth and weekly curation.
+- **Rollback implications:** restoring the two-argument transport path bypasses recipient identity binding; never bypass a failed source fingerprint or recreate the old overload without a new reviewed design.
+
+#### 202611190025 — 202611190025_delivery_provider_webhooks.sql
+- **Git blob:** e97c5c0ad645dfe43f11a88f01b030fa23dd5822.
+- **Tables and columns:** creates delivery_provider_events(event_id, event_type, provider_email_id, recipient_email, bounce_type, received_at) and delivery_provider_suppressions(recipient_email, reason, provider_event_id, created_at, updated_at).
+- **Indexes and constraints:** delivery_provider_events_email_id_idx; event ID/type/provider ID/email normalization/bounce type and bounce-event consistency checks; suppression reason enum and FK to provider event.
+- **Functions, RLS, grants:** RLS enabled; direct table privileges revoked from public, anon, authenticated and service_role. Creates record_delivery_provider_event and replaces daily/weekly enqueue and begin_delivery_transport to enforce provider suppression before send; only narrow service_role RPC execution is granted.
+- **Data and dependencies:** no migration-time provider rows; webhook RPCs write event and suppression records and future authorization checks them. Depends on 024 recipient-bound transport and 019 ledger.
+- **Rollback implications:** deleting events/suppressions or restoring transport without suppression checks can re-enable delivery to bounced/complaining recipients and destroy provider audit evidence.
+
+#### 202611190026 — 202611190026_delivery_provider_lifecycle.sql
+- **Git blob:** 6a06d780ad65babf2293a2746c68913758313af8.
+- **Tables and columns:** adds delivery_provider_events.provider_created_at and failure_class; creates delivery_provider_lifecycle(provider_email_id, status, status_rank, provider_created_at, received_at, event_id, failure_class, timestamps).
+- **Indexes and constraints:** delivery_provider_lifecycle_status_idx; expands event types to sent/delivered/delayed/bounced/complained/suppressed/failed; checks provider timestamp exceptions, failure classification and lifecycle status/rank consistency.
+- **Functions, RLS, grants:** RLS enabled on lifecycle; direct table privileges revoked including service_role. Creates record_delivery_provider_lifecycle_event and replaces record_delivery_provider_event; narrow service_role EXECUTE and function comment deedlight:026:provider-lifecycle-idempotent-monotonic:v1.
+- **Data and dependencies:** no lifecycle backfill is declared; new lifecycle rows are written by webhook RPCs. Existing historical event rows may legitimately lack provider_created_at only for bounced/complained/suppressed according to the new check. Depends on 025.
+- **Rollback implications:** dropping lifecycle removes provider event progression history; loosening status-rank monotonicity can permit stale provider events to overwrite newer outcomes.
+
+#### 202611200027 — 202611200027_delivery_provider_integrity.sql
+- **Git blob:** a1469938ea13b5cb9d7cd883772bc60e4a058026.
+- **Tables and columns:** adds delivery_provider_events.suppression_reason and payload_fingerprint; creates delivery_provider_integrity_anomalies(event_id, related_event_id, anomaly_type, detected_at).
+- **Indexes and constraints:** suppression reason check, 64-lowercase-hex payload fingerprint check, lifecycle status/rank extended with integrity_anomaly rank 80; anomaly self-reference check and unique dedupe index delivery_provider_integrity_anomalies_dedupe_idx.
+- **Functions, RLS, grants:** anomaly table RLS enabled and all direct privileges revoked; replaces 9-, 8- and 7-argument record_delivery_provider_lifecycle_event overloads plus record_delivery_provider_event. Function comments attest the reviewed 027 implementation. RPCs remain service_role-only.
+- **Data and dependencies:** no migration-time row backfill. Runtime signed-webhook handling records fingerprints, suppression reasons, duplicate/conflicting event anomalies and monotonic lifecycle outcomes. Depends on 025/026. The exact 9-argument function source is fingerprinted by 029.
+- **Rollback implications:** dropping anomaly/fingerprint evidence weakens duplicate-event detection and forensic review; restoring older lifecycle functions can erase integrity anomaly semantics.
+
+#### 202611210028 — 202611210028_delivery_claim_lock_expiry.sql
+- **Git blob:** 09d1927fba81d711bb37d214609931d2da2173a1.
+- **Tables and columns:** no table/column/index changes.
+- **Functions, grants:** replaces authorize_delivery_job, retry_delivery_job, mark_delivery_sent and mark_delivery_failed using clock_timestamp() and strict claim-token/expiry checks under row-lock contention; revokes public/anon/authenticated EXECUTE and grants service_role only.
+- **Data and dependencies:** no migration-time row update. Depends on 020 delivery ledger claim/retry functions.
+- **Rollback implications:** reverting to transaction-start timestamps can let a lease appear valid after lock wait or permit stale-token transitions.
+
+#### 202611210029 — 202611210029_delivery_legacy_replay_guard.sql
+- **Git blob:** 872fc49ec47e49b17e96ecf6ccaf5c8eb0e6322a.
+- **Tables and columns:** no table/column/index changes.
+- **Functions, grants, comments:** preflight requires 027's 9/8/7-argument lifecycle RPCs, base provider event RPC, PL/pgSQL, SECURITY DEFINER, exact search_path, migration comment, pgcrypto and SHA-256 source fingerprint 8dbfc65b93677f9928114561d372dad69f16c9c746dadf80551c662161ba3ed5. Renames the 9-argument public function to _record_delivery_provider_lifecycle_event_fingerprinted_impl, revokes all privileges including service_role on the private implementation, and installs a canonical public fingerprint-enforcing wrapper plus legacy replay-only entry points. Public RPC grants remain service_role-only.
+- **Data and dependencies:** no migration-time row update. Requires exact 027 function source and no pre-existing private implementation of unknown origin.
+- **Rollback implications:** function rename/overload/ACL state is security-critical. Restoring fingerprint-less public entry points can admit unverified new provider events; never manually recreate the old function name without exact source and privilege review.
+
+#### 202611210030 — 202611210030_delivery_idempotency_receipt_guard.sql
+- **Git blob:** 42c227cc1c36b2889e88d9bee1432e6fc6829d41.
+- **Tables and columns:** no table/column/index changes.
+- **Functions, grants, comments:** preflight requires recipient-bound begin_delivery_transport(uuid,uuid,text), retry_delivery_job(uuid,uuid,timestamptz,text), mark_delivery_sent and delivery_ledger.transport_started_at. Creates service_role-only authorize_delivery_idempotency_window(uuid,uuid); replaces retry_delivery_job overloads and mark_delivery_sent with database-authoritative retry timing, claim/consent reauthorization, provider idempotency horizon enforcement and Resend receipt validation. Comments attest migration-030 contracts.
+- **Data and dependencies:** no migration-time row update; runtime may terminally fail expired/ambiguous claimed jobs and records validated provider receipt IDs. Depends on 021 transport_started_at, 024 recipient-bound transport and 028 lock-safe transitions.
+- **Rollback implications:** reverting the horizon or receipt validation can re-enable duplicate sends or accept unverified provider outcomes. Preserve terminal delivery ledger evidence.
+
+### Duplicate-version and migration-order findings
+
+1. **Duplicate 202607260007 is a real two-file collision, not a duplicate-content pair.** Sprint 6 blob e0c2379255003b8c7bc85a1fab781e23051f5e47 extends daily_posts and creates daily_reflections with daily_post_id; Sprint 7 blob 8b051cfce05ea75b1ee7a726864e2ad760f6fe5f creates daily_lights and a different daily_reflections shape with daily_light_id. Supabase migration history is version/timestamp keyed and cannot use one 202607260007 history row to identify both SQL bodies. Do not rename, reorder to conceal, mark applied/reverted, or infer which body ran.
+2. **The two 007 files have an order-sensitive CREATE TABLE IF NOT EXISTS interaction.** If Sprint 6 creates daily_reflections first, Sprint 7 can add daily_light_id and its Daily Light uniqueness contract. If Sprint 7 creates daily_reflections first, Sprint 6's CREATE TABLE IF NOT EXISTS is skipped and its later ALTER statements do not add daily_post_id; migration 012 later expects daily_reflections.daily_post_id and can fail. This order hazard must be proven on an isolated PostgreSQL database using both permutations; no such full 007 replay is claimed here.
+3. **008 depends on Sprint 7 daily_lights.** Migration 012 depends on both Daily Post and Daily Light source columns and the relevant tables. Migration 013 depends on saved_lights plus daily_lights. These are not safely replayable by treating the aggregate SQL bundle as canonical.
+4. **The existing supabase/run_in_sql_editor_all.sql is not a full migration replay.** Prior source comparison found exact file content only for 001, 002 and 009–030; 003–008 are not byte-identically represented. It omits Sprint 6 additions/indexes, Sprint 7 daily_lights DDL and Sprint 8 video columns/indexes while later aggregate statements reference daily_lights. This is repository-source evidence only and says nothing about live Production presence/absence.
+5. **Later guarded migrations have exact prerequisites:** 018 needs 017 and zero owner-removed rows; 020 rejects live claimed jobs; 023 needs the 019–021 baseline; 024 checks exact 023 comments/source hashes/security metadata; 025 needs recipient-bound 024 transport; 026 needs 025; 027 needs 025/026; 028 replaces 020 functions; 029 pins exact 027 function source/metadata and pgcrypto; 030 needs 021/024/028 state. A successful migration filename/history row alone does not prove these schema contracts.
+6. **Existing automated migration-order coverage is narrower than a complete historical replay.** scripts/test-delivery-migration-order.sh exercises the 021→023→024 consent attestation path, 025→027→029 source-identity guard, and 030 idempotency behavior on non-Production PostgreSQL. It does not prove either ordering permutation of the duplicate 007 files or a complete replay of all 31 migrations. Add a disposable-database 007/008/012/013 order test before any claim of clean historical replay.
+7. **CREATE TABLE IF NOT EXISTS is not a schema attestation.** It can silently skip creation when a same-named table exists with a different column/constraint shape. Reconciliation must compare each effect and definition, not just object existence.
+
+### Production classification and evidence required
+
+- The repository inventory is 31 files / 30 version prefixes. **Production classification remains UNKNOWN for all 31 files and for every independently identifiable effect group.** Zero files are verified applied-and-recorded, zero represented-but-unrecorded, and zero verified unapplied; these zeros mean no classification evidence, not that nothing is installed.
+- Existing Supabase access attempts for project xaipiovflxomcbfwtwmu were denied. No Production migration-history rows, catalog definitions, function source, RLS, grants, extension placement, SQL Editor audit records or Production counts have been retrieved.
+- Required next evidence: authorized read-only project/database identity and timestamp; complete supabase_migrations.schema_migrations rows; public plus relevant auth/storage/extensions catalog inventories; columns/defaults/nullability; constraints and validation state; indexes and definitions; function definitions/identity args/SECURITY DEFINER/search_path/language/comments/source hashes; trigger definitions/enabled state; policy roles/commands/USING/WITH CHECK; table/function/schema/default privileges; extension namespace/version; relevant data counts (owner_removed_at rows and delivery claimed jobs); retained SQL Editor/audit/deployment records for 018, 022, 007/008 and aggregate bundle; immutable backup/PITR identity and tested restore evidence.
+- The two 007 files and their effects must be independently classified. A single 202607260007 history row is not proof of either body. The 018/022 file headers are repository assertions, not execution receipts.
+- Preserve the Production migration-target guard, delivery kill switch and Cron barriers. No db push, db pull, db reset, migration repair, remote SQL, manual DDL, credential access, scheduler/deployment mutation or delivery enablement is authorized by this inventory.
+
+### C245 execution status and independent-review handoff
+
+- Independently verified repository ID, branch, HEAD/tree and PR #10 before editing. Recursively inventoried all 31 migration blobs from the exact branch tree; the recursive tree was not truncated.
+- Added per-file object/data/dependency/rollback notes and explicit 007/008/012/013 clean-replay hazards. No SQL migration, Supabase configuration, workflow, credential or Production resource was changed.
+- The independent review should specifically verify the two 007 bodies and blob SHAs, the daily_reflections CREATE TABLE IF NOT EXISTS order hazard, the required 012 daily_post_id dependency, and the proposed disposable-database test matrix. Do not use Production to resolve replay ambiguity.
+- This is repository-source documentation only. Production migration reconciliation remains BLOCKED pending authorized read-only access and independent evidence review. Production remains NO-GO.
