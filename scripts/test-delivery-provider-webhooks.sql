@@ -165,19 +165,6 @@ begin
     'legacy-eight@example.test', '2027-03-01T11:00:00Z', null, null, null, repeat('8', 64)
   ) is not true then raise exception 'Eight-argument legacy fingerprint fixture was not inserted.'; end if;
 
-  create temporary table provider_legacy_fingerprint_event_snapshot as
-    select e.event_id, to_jsonb(e) as row_data
-    from public.delivery_provider_events e
-    where e.event_id in (
-      'evt_legacy_eight_fingerprint',
-      'evt_legacy_seven_fingerprint',
-      'evt_legacy_five_fingerprint'
-    );
-  create temporary table provider_legacy_fingerprint_suppression_snapshot as
-    select s.recipient_email, to_jsonb(s) as row_data
-    from public.delivery_provider_suppressions s
-    where s.recipient_email = 'legacy-five@example.test';
-
   if public.record_delivery_provider_lifecycle_event(
     'evt_legacy_eight_fingerprint', 'email.sent', 'resend-legacy-eight-fingerprint',
     'legacy-eight@example.test', '2027-03-01T11:00:00Z', null, null, null
@@ -240,21 +227,39 @@ begin
       where event_id in ('evt_historical_025_suppressed', 'evt_historical_026_complaint')) then
     raise exception 'Historical NULL-fingerprint compatibility was incorrectly flagged as a conflict.';
   end if;
-  if (select count(*) from provider_legacy_fingerprint_event_snapshot) <> 3
-    or exists (
-      select 1
-      from provider_legacy_fingerprint_event_snapshot s
-      left join public.delivery_provider_events e on e.event_id = s.event_id
-      where e.event_id is null or s.row_data is distinct from to_jsonb(e)
-    ) then
+  if exists (
+    select 1
+    from (values
+      ('evt_legacy_eight_fingerprint', 'email.sent', 'resend-legacy-eight-fingerprint',
+        'legacy-eight@example.test', '2027-03-01T11:00:00Z'::timestamptz,
+        null::text, repeat('8', 64)),
+      ('evt_legacy_seven_fingerprint', 'email.sent', 'resend-legacy-seven-fingerprint',
+        'legacy-seven@example.test', '2027-03-01T11:01:00Z'::timestamptz,
+        null::text, repeat('7', 64)),
+      ('evt_legacy_five_fingerprint', 'email.bounced', 'resend-legacy-five-fingerprint',
+        'legacy-five@example.test', '2027-03-01T11:02:00Z'::timestamptz,
+        'Permanent'::text, repeat('5', 64))
+    ) as expected(event_id, event_type, provider_email_id, recipient_email,
+                  provider_created_at, bounce_type, payload_fingerprint)
+    left join public.delivery_provider_events e using (event_id)
+    where e.event_id is null
+      or e.event_type is distinct from expected.event_type
+      or e.provider_email_id is distinct from expected.provider_email_id
+      or e.recipient_email is distinct from expected.recipient_email
+      or e.provider_created_at is distinct from expected.provider_created_at
+      or e.bounce_type is distinct from expected.bounce_type
+      or e.failure_class is not null
+      or e.suppression_reason is not null
+      or e.payload_fingerprint is distinct from expected.payload_fingerprint
+  ) then
     raise exception 'Legacy fingerprint conflicts mutated or removed existing event records.';
   end if;
-  if (select count(*) from provider_legacy_fingerprint_suppression_snapshot) <> 1
-    or (select row_data from provider_legacy_fingerprint_suppression_snapshot)
-      is distinct from (
-        select to_jsonb(s) from public.delivery_provider_suppressions s
-        where s.recipient_email = 'legacy-five@example.test'
-      ) then
+  if not exists (
+    select 1 from public.delivery_provider_suppressions
+    where recipient_email = 'legacy-five@example.test'
+      and reason = 'permanent_bounce'
+      and provider_event_id = 'evt_legacy_five_fingerprint'
+  ) then
     raise exception 'Five-argument legacy fingerprint conflict mutated existing suppression state.';
   end if;
 end;

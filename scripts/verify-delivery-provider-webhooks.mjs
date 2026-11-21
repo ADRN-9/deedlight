@@ -190,6 +190,7 @@ assert(databaseTests.includes("Five-argument legacy RPC unexpectedly inserted a 
 assert(databaseTests.includes("Canonical RPC unexpectedly inserted a new event without a fingerprint."));
 assert(databaseTests.includes("Legacy fingerprint conflicts mutated or removed existing event records."));
 assert(databaseTests.includes("Five-argument legacy fingerprint conflict mutated existing suppression state."));
+assert(databaseTests.includes("e.payload_fingerprint is distinct from expected.payload_fingerprint"));
 assert(databaseTests.includes("a.grantee = 0 and a.privilege_type = 'EXECUTE'"));
 assert(databaseTests.includes("Eight-argument legacy RPC bypassed a stored provider payload fingerprint."));
 assert(databaseTests.includes("Seven-argument legacy RPC bypassed a stored provider payload fingerprint."));
