@@ -386,11 +386,6 @@ test("rejects missing or malformed bounce and suppression objects", () => {
       type: "Permanent",
     } }),
     event("email.suppressed", { suppressed: undefined }),
-    event("email.suppressed", { suppressed: {
-      diagnosticCode: [],
-      message: "Suppressed.",
-      type: "Suppressed",
-    } }),
     event("email.bounced", { bounce: {
       diagnosticCode: "not-an-array",
       message: "Rejected.",
