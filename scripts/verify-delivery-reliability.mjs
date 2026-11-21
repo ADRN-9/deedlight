@@ -344,6 +344,7 @@ if (!idempotencyTests.includes("worker_clock_two_hours_behind")
   || !idempotencyTests.includes("24 hours 1 second")
   || !idempotencyTests.includes("provider-message-123")
   || !idempotencyTests.includes("missing transport-start evidence")
+  || !idempotencyTests.includes("v_window text;")
   || !idempotencyTests.includes("pg_get_function_result(to_regprocedure('public.authorize_delivery_idempotency_window(uuid,uuid)')) is distinct from 'text'")
   || !idempotencyTests.includes("Final provider gate failed to recheck revoked newsletter consent.")) {
   throw new Error("Migration 030 PostgreSQL regression coverage is incomplete.");

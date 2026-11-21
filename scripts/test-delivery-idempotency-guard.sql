@@ -35,7 +35,7 @@ do $$
 declare
   v_bad text;
   v_retry boolean;
-  v_window boolean;
+  v_window text;
   v_next timestamptz;
   v_state text;
   v_error text;

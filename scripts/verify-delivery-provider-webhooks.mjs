@@ -26,8 +26,8 @@ assert(aggregate.includes(lifecycleMigration.trim()), "Migration 026 must be mir
 assert(aggregate.includes(integrityMigration.trim()), "Migration 027 must be mirrored verbatim in the SQL Editor aggregate");
 const migration027Body = integrityMigration
   .split("create or replace function public.record_delivery_provider_lifecycle_event(")[1]
-  ?.split("as $")[1]
-  ?.split("$;")[0];
+  ?.split("as $$")[1]
+  ?.split("$$;")[0];
 assert(migration027Body, "Migration 027 canonical lifecycle implementation source must exist");
 const migration027Sha256 = createHash("sha256").update(migration027Body, "utf8").digest("hex");
 assert.equal(
