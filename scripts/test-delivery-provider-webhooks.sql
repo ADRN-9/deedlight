@@ -237,7 +237,7 @@ begin
     raise exception 'Complaint upgrade event was not recorded.';
   end if;
 end;
-$;
+$$;
 reset role;
 
 -- Snapshot private rows as the privileged test connection, not service_role.
@@ -252,7 +252,7 @@ create temporary table provider_conflict_suppression_snapshot as
   where s.recipient_email = 'conflict-duplicate@example.test';
 
 set role service_role;
-do $
+do $$
 begin
   if public.record_delivery_provider_event(
     'msg_bounce_conflict_20006', 'email.complained', 'different-provider-id',
@@ -261,10 +261,10 @@ begin
     raise exception 'Conflicting duplicate event ID was not recorded as an integrity anomaly.';
   end if;
 end;
-$;
+$$;
 reset role;
 
-do $
+do $$
 begin
   if (select event_type from public.delivery_provider_events
       where event_id = 'msg_bounce_conflict_20006') <> 'email.bounced'
