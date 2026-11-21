@@ -28,14 +28,18 @@ begin
 end;
 $$;
 
--- Use a curated week not consumed by the reliability terminal fixtures.
+-- Keep the fixture week and claim lease on one database transaction clock.
+begin;
+
 insert into public.weekly_goodness_features (week_start)
-values ('2026-10-26')
+values (date_trunc('week', timezone('UTC', transaction_timestamp()))::date)
 on conflict (week_start) do nothing;
 
 set role service_role;
 do $$
 declare
+  v_now timestamptz := transaction_timestamp();
+  v_week_start date := date_trunc('week', timezone('UTC', transaction_timestamp()))::date;
   v_inserted integer;
   v_inserted_again integer;
   v_id uuid;
@@ -44,7 +48,7 @@ declare
   v_started_2 timestamptz;
 begin
   v_inserted := public.enqueue_current_weekly_goodness_if_curated(
-    '2026-10-26 16:00:00+00'::timestamptz,
+    v_now,
     5000
   );
 
@@ -53,7 +57,7 @@ begin
   end if;
 
   v_inserted_again := public.enqueue_current_weekly_goodness_if_curated(
-    '2026-10-26 16:00:00+00'::timestamptz,
+    v_now,
     5000
   );
 
@@ -63,8 +67,8 @@ begin
 
   select job_id, claim_token
   into v_id, v_token
-  from public.claim_delivery_jobs('2026-10-26 16:01:00+00'::timestamptz, 100)
-  where delivery_key = 'weekly:2026-10-26'
+  from public.claim_delivery_jobs(v_now, 100)
+  where delivery_key = 'weekly:' || v_week_start::text
   limit 1;
 
   if v_id is null or v_token is null then
@@ -82,9 +86,17 @@ begin
     raise exception 'Transport start timestamp is not stable across retries.';
   end if;
 
+  -- An expired lease must fail closed for both authorization and transport.
   update public.delivery_ledger
-  set claim_expires_at = now() - interval '1 second'
+  set claim_expires_at = v_now - interval '1 second'
   where id = v_id;
+
+  begin
+    perform public.authorize_delivery_job(v_id, v_token);
+    raise exception 'Expired claim unexpectedly authorized.';
+  exception when sqlstate '42501' then
+    null;
+  end;
 
   begin
     perform public.begin_delivery_transport(v_id, v_token);
@@ -95,6 +107,7 @@ begin
 end;
 $$;
 reset role;
+commit;
 
 select jsonb_build_object(
   'gentle_delivery_transport_db', 'pass',
