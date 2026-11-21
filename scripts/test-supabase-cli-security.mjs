@@ -10,7 +10,7 @@ import {
   parseProjectPolicy,
   resolveApprovedProjectRef,
 } from "./supabase-cli-policy.mjs";
-import { executeSupabaseMode } from "./supabase-cli.mjs";
+import { executeSupabaseMode, runSupabase } from "./supabase-cli.mjs";
 
 const APPROVED = "aaaaaaaaaaaaaaaaaaaa";
 const OTHER = "bbbbbbbbbbbbbbbbbbbb";
@@ -52,7 +52,7 @@ function env(overrides = {}) {
 function fakeCli(root, resolved = APPROVED) {
   const calls = [];
   const runCli = (args, options) => {
-    calls.push({ args: [...args], env: options.env });
+    calls.push({ args: [...args], env: options.env, interactive: options.interactive ?? false });
     if (args[0] === "--version") return { status: 0, stdout: `${VERSION}\n`, stderr: "" };
     if (args[0] === "link") {
       writeLink(root, resolved);
@@ -188,7 +188,7 @@ test("generic supabase:reset is local-only and rejects remote and --yes argument
   withRoot((root) => {
     writeConfig(root);
     const { calls, runCli } = fakeCli(root);
-    executeSupabaseMode({ mode: "reset-local", cwd: root, env: {}, runCli, io: quietIo });
+    executeSupabaseMode({ mode: "reset-local", cwd: root, env: { SUPABASE_YES: "true" }, runCli, io: quietIo });
     assert.deepEqual(calls.map((call) => call.args), [["--version"], ["db", "reset"]]);
 
     for (const args of [
@@ -359,6 +359,100 @@ test("repository scripts, empty authoritative allowlist and CI pin are consisten
   assert.equal(packageJson.scripts["supabase:reset"], "node scripts/supabase-cli.mjs reset-local");
   assert.match(workflow, /supabase\/setup-cli@[0-9a-f]{40}/u);
   assert.match(workflow, new RegExp(`version:\\s+${cliConfig.version.replaceAll(".", "\\.")}`, "u"));
+});
+
+
+test("SUPABASE_YES=true fails closed before any hosted CLI invocation", () => {
+  withRoot((root) => {
+    writeConfig(root);
+    writeLink(root, APPROVED);
+    for (const value of ["true", "false", ""]) {
+      const calls = [];
+      assert.throws(
+        () => executeSupabaseMode({
+          mode: "push-non-production",
+          cwd: root,
+          env: env({ SUPABASE_YES: value }),
+          runCli: (args, options) => {
+            calls.push({ args, options });
+            return { status: 0, stdout: `${VERSION}\\n`, stderr: "" };
+          },
+          io: quietIo,
+        }),
+        /SUPABASE_YES must be unset/u,
+      );
+      assert.deepEqual(calls, []);
+    }
+  });
+});
+
+test("missing hosted target policy fails before invoking the Supabase CLI", () => {
+  withRoot((root) => {
+    fs.mkdirSync(path.join(root, "config"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "config", "supabase-cli.json"),
+      JSON.stringify({ version: VERSION }),
+    );
+    const calls = [];
+    assert.throws(
+      () => executeSupabaseMode({
+        mode: "push-non-production",
+        cwd: root,
+        env: env(),
+        runCli: (args) => {
+          calls.push(args);
+          return { status: 0, stdout: `${VERSION}\\n`, stderr: "" };
+        },
+        io: quietIo,
+      }),
+      /allowlist is missing/u,
+    );
+    assert.deepEqual(calls, []);
+  });
+});
+
+test("hosted migration inherits interactive stdio and never forwards SUPABASE_YES", () => {
+  withRoot((root) => {
+    writeConfig(root);
+    writeLink(root, APPROVED);
+    const { calls, runCli } = fakeCli(root);
+    executeSupabaseMode({
+      mode: "push-non-production",
+      cwd: root,
+      env: env(),
+      runCli,
+      io: quietIo,
+    });
+
+    assert.equal(calls[1].interactive, false);
+    assert.equal(calls[2].interactive, true);
+    assert.equal(Object.hasOwn(calls[1].env, "SUPABASE_YES"), false);
+    assert.equal(Object.hasOwn(calls[2].env, "SUPABASE_YES"), false);
+  });
+});
+
+test("interactive Supabase execution inherits all stdio while preflight captures output", () => {
+  const observed = [];
+  const spawnSyncImpl = (_command, _args, options) => {
+    observed.push(options);
+    return { status: 0, stdout: null, stderr: null };
+  };
+
+  runSupabase(["db", "push"], {
+    cwd: process.cwd(),
+    env: {},
+    interactive: false,
+    spawnSyncImpl,
+  });
+  runSupabase(["db", "push"], {
+    cwd: process.cwd(),
+    env: {},
+    interactive: true,
+    spawnSyncImpl,
+  });
+
+  assert.deepEqual(observed[0].stdio, ["inherit", "pipe", "pipe"]);
+  assert.equal(observed[1].stdio, "inherit");
 });
 
 test("a CLI version mismatch prevents database commands", () => {

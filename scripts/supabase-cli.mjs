@@ -11,12 +11,18 @@ import {
   resolveApprovedProjectRef,
 } from "./supabase-cli-policy.mjs";
 
-function runSupabase(args, { cwd, env }) {
-  const result = spawnSync("supabase", args, {
+export function runSupabase(args, {
+  cwd,
+  env,
+  interactive = false,
+  spawnSyncImpl = spawnSync,
+}) {
+  const result = spawnSyncImpl("supabase", args, {
     cwd,
     env,
     encoding: "utf8",
-    stdio: ["inherit", "pipe", "pipe"],
+    // Hosted mutation prompts require the child to inherit the caller's TTY.
+    stdio: interactive ? "inherit" : ["inherit", "pipe", "pipe"],
   });
 
   if (result.error) {
@@ -25,8 +31,8 @@ function runSupabase(args, { cwd, env }) {
 
   return {
     status: result.status ?? 1,
-    stdout: result.stdout ?? "",
-    stderr: result.stderr ?? "",
+    stdout: typeof result.stdout === "string" ? result.stdout : "",
+    stderr: typeof result.stderr === "string" ? result.stderr : "",
   };
 }
 
@@ -75,7 +81,18 @@ function requirePinnedCli(runCli, version, options) {
 }
 
 function cliEnvironment(env, target) {
-  return { ...env, SUPABASE_PROJECT_ID: target };
+  const result = { ...env, SUPABASE_PROJECT_ID: target };
+  // The wrapper never forwards shell-level confirmation bypasses to hosted commands.
+  delete result.SUPABASE_YES;
+  return result;
+}
+
+function assertNoHostedYesOverride(env) {
+  if (Object.hasOwn(env, "SUPABASE_YES") || env.SUPABASE_YES !== undefined) {
+    throw new Error(
+      "SUPABASE_YES must be unset for hosted migrations; this wrapper requires interactive confirmation.",
+    );
+  }
 }
 
 export function executeSupabaseMode({
@@ -109,6 +126,10 @@ export function executeSupabaseMode({
   }
 
   assertNoForwardedArgs(args, mode === "link" ? "link" : "push:nonprod");
+  if (mode === "push-non-production") {
+    // Reject presence, not truthiness: even SUPABASE_YES=false is an unexpected caller override.
+    assertNoHostedYesOverride(env);
+  }
 
   const version = loadCliVersion(cwd);
   const policy = loadProjectPolicy(cwd);
@@ -151,13 +172,14 @@ export function executeSupabaseMode({
   }
   assertLinkedProject(cwd, target);
 
+  // The captured dry-run verifies the exact target. Inherit stdio for the real push so the CLI
+  // can display its confirmation prompt and the operator can answer it directly.
   const result = runCli(["db", "push", `--remote=${target}`], {
     cwd,
     env: targetEnv,
+    interactive: true,
   });
   requireSuccess(result, "Non-Production migration push", targetEnv, io);
-  assertResolvedTarget(result.stderr, target);
-  emitResult(result, targetEnv, io);
 }
 
 function main() {

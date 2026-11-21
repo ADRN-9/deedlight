@@ -46,6 +46,14 @@ No forwarded arguments are accepted by the wrappers. This prevents `npm run` arg
 - Local reset is still destructive to the local database. It recreates the local database and discards local schema/data changes not represented by migrations and seed files.
 - The remote wrapper rejects a missing, malformed, empty, duplicate, Production-containing, or unauthorized allowlist; mismatched `SUPABASE_PROJECT_ID`; missing/malformed/mismatched linked identity; a CLI version mismatch; missing or ambiguous resolved-target output; and all forwarded arguments.
 
+## Hosted migration confirmation boundary
+
+Hosted non-Production migrations require the CLI's normal interactive confirmation. The wrapper rejects any caller-provided `SUPABASE_YES` variable for `supabase:push:nonprod`, including values such as `false` or an empty string. This is deliberately stricter than the CLI's truthiness parsing: the wrapper does not accept an ambient confirmation-bypass setting. The wrapper also removes `SUPABASE_YES` from the child environment used by hosted commands. It never adds `--yes`.
+
+The CLI's captured `--version` and `--dry-run` calls use piped stdout/stderr so the resolved `Target:` line can be verified. The final mutating `db push` inherits stdin, stdout and stderr instead. Supabase CLI 3.2.0 determines prompt availability from whether stdout and stdin are TTYs; capturing stdout into a pipe makes `Output.interactive` false and blocks the prompt. Inheriting all three streams keeps the CLI confirmation visible and answerable. If the parent process itself is non-interactive, the CLI continues to fail closed rather than auto-confirming.
+
+Local `supabase:push` and `supabase:reset` retain the caller's normal environment; the `SUPABASE_YES` restriction applies only to hosted migration mode. Local operations do not target hosted projects.
+
 ## npm scripts are not a Production authorization boundary
 
 These wrappers are defense in depth for normal developer workflows, not an authorization boundary against a user who can execute arbitrary commands. A user can invoke the Supabase CLI directly, edit local files, or change their shell environment. Do not put Production credentials in a developer shell, `.env` file, repository secret, or local Supabase configuration.
