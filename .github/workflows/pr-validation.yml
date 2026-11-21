@@ -189,6 +189,9 @@ jobs:
             --dbname deedlight_reliability_test \
             --file scripts/test-delivery-reliability-terminals.sql
 
+      - name: PostgreSQL lease expiry under row-lock contention
+        run: bash scripts/test-delivery-reliability-concurrency.sh
+
   gentle_delivery_transport_database_behavior:
     runs-on: ubuntu-latest
     timeout-minutes: 10

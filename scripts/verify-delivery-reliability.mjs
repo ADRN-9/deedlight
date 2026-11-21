@@ -30,6 +30,9 @@ function requireAbsent(name, text, pattern) {
 }
 
 const migration = read(files.migration);
+const leaseMigration = read("supabase/migrations/202611210028_delivery_claim_lock_expiry.sql");
+const concurrencyTest = read("scripts/test-delivery-reliability-concurrency.sh");
+const workflow = read(".github/workflows/pr-validation.yml");
 const aggregateSql = read(files.aggregateSql);
 const packageJson = read(files.packageJson);
 const wrangler = read(files.wrangler);
@@ -185,4 +188,28 @@ if (!aggregateSql.includes(migration.trim())) {
 }
 console.log("PASS: canonical migration is mirrored verbatim in aggregate SQL");
 
+if (!aggregateSql.includes(leaseMigration.trim())) {
+  throw new Error("Delivery reliability security assertion failed: migration 028 is not mirrored verbatim in aggregate SQL.");
+}
+console.log("PASS: additive lease correction is mirrored verbatim in aggregate SQL");
+for (const fn of ["authorize_delivery_job", "retry_delivery_job", "mark_delivery_sent", "mark_delivery_failed"]) {
+  const start = leaseMigration.indexOf(`create or replace function public.${fn}(`);
+  const end = leaseMigration.indexOf("\\n$", start);
+  const definition = start < 0 ? "" : leaseMigration.slice(start, end < 0 ? undefined : end);
+  requireMatch(`${fn} locks the ledger row before checking lease expiry`, definition,
+    /for update[\\s\\S]*?clock_timestamp\(\)/i);
+  requireAbsent(`${fn} does not compare lease expiry to transaction-start now()`, definition,
+    /claim_expires_at\\s*(?:<=|>)\\s*now\(\)/i);
+}
+requireMatch("Retry bounds use wall-clock time after row locking", leaseMigration,
+  /retry_delivery_job[\\s\\S]*?for update[\\s\\S]*?p_retry_at <= v_now[\\s\\S]*?p_retry_at > v_now \+ interval '24 hours'/i);
+requireMatch("Fifth attempt still becomes terminal retry_exhausted", leaseMigration,
+  /attempt_count >= 5[\\s\\S]*?error_code = 'retry_exhausted'/i);
+for (const fn of ["authorize_delivery_job", "retry_delivery_job", "mark_delivery_sent", "mark_delivery_failed"]) {
+  if (!concurrencyTest.includes(fn)) throw new Error(`Missing row-lock expiry concurrency case: ${fn}`);
+}
+requireMatch("Concurrency harness waits for a PostgreSQL row-lock wait", concurrencyTest,
+  /wait_for_row_lock_wait[\\s\\S]*?wait_event_type='Lock'/i);
+requireMatch("PR Validation runs the lease lock-contention test", workflow,
+  /bash scripts\\/test-delivery-reliability-concurrency\\.sh/);
 console.log("Delivery reliability security assertions: PASS");
