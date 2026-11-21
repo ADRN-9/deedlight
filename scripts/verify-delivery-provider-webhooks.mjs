@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
 const read = (path) => readFileSync(path, "utf8");
@@ -6,6 +7,7 @@ const migration = read("supabase/migrations/202611190025_delivery_provider_webho
 const lifecycleMigration = read("supabase/migrations/202611190026_delivery_provider_lifecycle.sql");
 const integrityMigration = read("supabase/migrations/202611200027_delivery_provider_integrity.sql");
 const legacyGuardMigration = read("supabase/migrations/202611210029_delivery_legacy_replay_guard.sql");
+const migrationOrderTest = read("scripts/test-delivery-migration-order.sh");
 const aggregate = read("supabase/run_in_sql_editor_all.sql");
 const route = read("app/api/webhooks/resend/route.ts");
 const parser = read("lib/delivery/resend-webhook.ts");
@@ -22,6 +24,24 @@ const pkg = JSON.parse(read("package.json"));
 assert(aggregate.includes(migration.trim()), "Migration 025 must remain mirrored in the SQL Editor aggregate");
 assert(aggregate.includes(lifecycleMigration.trim()), "Migration 026 must be mirrored verbatim in the SQL Editor aggregate");
 assert(aggregate.includes(integrityMigration.trim()), "Migration 027 must be mirrored verbatim in the SQL Editor aggregate");
+const migration027Body = integrityMigration
+  .split("create or replace function public.record_delivery_provider_lifecycle_event(")[1]
+  ?.split("as $")[1]
+  ?.split("$;")[0];
+assert(migration027Body, "Migration 027 canonical lifecycle implementation source must exist");
+const migration027Sha256 = createHash("sha256").update(migration027Body, "utf8").digest("hex");
+assert.equal(
+  migration027Sha256,
+  "8dbfc65b93677f9928114561d372dad69f16c9c746dadf80551c662161ba3ed5",
+  "Migration 027 implementation source fingerprint changed; review migration 029 identity pin",
+);
+assert(legacyGuardMigration.includes(migration027Sha256), "Migration 029 must pin the exact migration-027 source fingerprint");
+assert(legacyGuardMigration.includes("p.prosecdef") && legacyGuardMigration.includes("p.proconfig"));
+assert(legacyGuardMigration.includes("deedlight:027:provider-lifecycle-integrity-and-suppression-reasons:v1"));
+assert(legacyGuardMigration.includes("pg_catalog.pg_extension") && legacyGuardMigration.includes("''sha256''"));
+assert(databaseTests.includes("create extension if not exists pgcrypto"), "Migration 029 CI fixture must provide pgcrypto");
+assert(migrationOrderTest.includes("C226 deliberate source drift"));
+assert(migrationOrderTest.includes("Migration 029 source identity drift rejection, atomic rollback and legacy replay compatibility: PASS"));
 assert(aggregate.includes(legacyGuardMigration.trim()), "Migration 029 must be mirrored verbatim in the SQL Editor aggregate");
 assert(/alter function public\.record_delivery_provider_lifecycle_event\([\s\S]*?rename to _record_delivery_provider_lifecycle_event_fingerprinted_impl/i.test(legacyGuardMigration));
 for (const signature of [

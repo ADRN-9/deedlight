@@ -15,8 +15,14 @@ export type ResendTransportConfig = {
 
 type FetchLike = typeof fetch;
 
+const RESEND_EMAIL_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function providerIdIsValid(value: unknown): value is string {
-  return typeof value === "string" && value.length >= 1 && value.length <= 255;
+  return typeof value === "string"
+    && value.length === 36
+    && value === value.trim()
+    && RESEND_EMAIL_ID_PATTERN.test(value);
 }
 
 function idempotencyKey(job: ClaimedDeliveryJob) {

@@ -5,8 +5,6 @@ import type {
   DeliveryTransport,
 } from "./types.ts";
 
-const RETRY_DELAY_MS = 5 * 60 * 1000;
-const PROVIDER_IDEMPOTENCY_SAFETY_MS = 23 * 60 * 60 * 1000;
 
 export type DeliveryProcessingResult =
   | "cancelled"
@@ -19,14 +17,12 @@ export async function processClaimedDelivery(input: {
   gateway: DeliveryGateway;
   recipientResolver: DeliveryRecipientResolver;
   transport: DeliveryTransport;
-  clock?: () => Date;
 }): Promise<DeliveryProcessingResult> {
   const {
     job,
     gateway,
     recipientResolver,
     transport,
-    clock = () => new Date(),
   } = input;
 
   if (!(await gateway.authorize(job))) {
@@ -45,19 +41,10 @@ export async function processClaimedDelivery(input: {
     return "cancelled";
   }
 
-  const firstTransportAt = await gateway.beginTransport(job, recipient);
-  if (firstTransportAt === null) return "cancelled";
+  if (await gateway.beginTransport(job, recipient) === null) return "cancelled";
 
-  const decisionNow = clock();
-  const elapsed = Math.max(
-    0,
-    decisionNow.getTime() - firstTransportAt.getTime(),
-  );
-
-  if (elapsed >= PROVIDER_IDEMPOTENCY_SAFETY_MS) {
-    await gateway.markFailed(job, "provider_idempotency_window_expired");
-    return "failed";
-  }
+  // PostgreSQL checks the persisted first transport time against its own clock.
+  if (!(await gateway.authorizeProviderIdempotencyWindow(job))) return "failed";
 
   const outcome = await transport.send(job, recipient);
 
@@ -71,15 +58,6 @@ export async function processClaimedDelivery(input: {
     return "failed";
   }
 
-  const retryAt = new Date(decisionNow.getTime() + RETRY_DELAY_MS);
-  if (
-    retryAt.getTime() >=
-    firstTransportAt.getTime() + PROVIDER_IDEMPOTENCY_SAFETY_MS
-  ) {
-    await gateway.markFailed(job, "provider_idempotency_window_expired");
-    return "failed";
-  }
-
-  const requeued = await gateway.retry(job, retryAt, outcome.errorCode);
+  const requeued = await gateway.retry(job, outcome.errorCode);
   return requeued ? "retried" : "failed";
 }

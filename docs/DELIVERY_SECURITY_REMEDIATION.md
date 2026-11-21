@@ -159,3 +159,20 @@ migration reconciliation, safe application of 023/024, independent review,
 and staged scheduler/provider/kill-switch evidence. Do not use Production
 `supabase db push`, restore the unbound transport RPC, or treat CI as
 Production proof.
+
+
+## C226 — independent security review remediation
+
+C225 identified three findings. C226 implements the repository-side remediations without changing Production:
+
+- **HIGH — migration 029 implementation identity.** Migration 029 now checks the exact SHA-256 fingerprint of the original migration-027 PL/pgSQL source, verifies its SECURITY DEFINER flag, exact constrained search path, language and migration marker, and rejects an existing unexpected private implementation before rename. The migration-order regression deliberately changes the body while retaining its signature and security metadata, expects an atomic rejection, verifies permissions and legacy replay behavior remain unchanged, restores the authentic definition, and exercises the positive path.
+- **MEDIUM — Worker clock skew.** Migration 030 makes PostgreSQL authoritative for retry scheduling and the 23-hour safe horizon using persisted `transport_started_at` and `clock_timestamp()`. The Worker no longer supplies retry timestamps or computes elapsed time. The four-argument legacy RPC remains as a compatibility wrapper but ignores its supplied timestamp. A separate pre-send authorization RPC prevents transport after the safe horizon.
+- **MEDIUM — invalid provider receipt IDs.** The Resend adapter accepts only canonical UUID-formatted identifiers without surrounding whitespace or control characters. The SQL sent transition independently enforces the UUID shape and requires persisted transport-start evidence.
+
+C226 exact-head CI is required before considering these findings remediated. An independent security review of the new exact HEAD is still required. No Production migrations, sends, scheduler changes, secrets, or GitHub governance settings were changed.
+
+## Human-only GitHub governance requirements
+
+The responsible administrator is the ADRN-9 repository owner or a delegated GitHub administrator with repository and Environment permissions. The repository's read-only branch API currently reports `main.protected=false`, and the repository rulesets API returns an empty list. Production Environment protections and secret scopes remain unverified.
+
+The administrator must enforce main branch protection, allow Production deployments only from protected main, require independent Environment approval, enable Prevent self-review, and ensure Production credentials exist only at Environment scope (removing repository/organization duplicates). Closeout evidence must include branch/ruleset API output, Production Environment protection settings, and a redacted secret-name/scope inventory. Secret values must never be included.

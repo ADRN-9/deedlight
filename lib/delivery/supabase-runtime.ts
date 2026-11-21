@@ -143,6 +143,15 @@ export class SupabaseDeliveryRuntime implements DeliveryGateway, DeliveryRecipie
     return startedAt;
   }
 
+  async authorizeProviderIdempotencyWindow(job: ClaimedDeliveryJob): Promise<boolean> {
+    const { data, error } = await this.client.rpc("authorize_delivery_idempotency_window", {
+      p_job_id: job.jobId,
+      p_claim_token: job.claimToken,
+    });
+    if (error || typeof data !== "boolean") fail("authorize provider idempotency window");
+    return data;
+  }
+
   async markSent(job: ClaimedDeliveryJob, providerResultId: string): Promise<void> {
     const { data, error } = await this.client.rpc("mark_delivery_sent", {
       p_job_id: job.jobId,
@@ -161,15 +170,14 @@ export class SupabaseDeliveryRuntime implements DeliveryGateway, DeliveryRecipie
     if (error || data !== true) fail("mark failed");
   }
 
-  async retry(job: ClaimedDeliveryJob, retryAt: Date, errorCode: string): Promise<boolean> {
+  async retry(job: ClaimedDeliveryJob, errorCode: string): Promise<boolean> {
     const { data, error } = await this.client.rpc("retry_delivery_job", {
       p_job_id: job.jobId,
       p_claim_token: job.claimToken,
-      p_retry_at: retryAt.toISOString(),
       p_error_code: errorCode,
     });
     if (error || typeof data !== "boolean") fail("retry job");
-    return data; // false means the fifth attempt was terminated in PostgreSQL.
+    return data; // false means PostgreSQL made the job terminal.
   }
 
   async resolve(userId: string): Promise<AuthorizedRecipient | null> {

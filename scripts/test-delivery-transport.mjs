@@ -33,7 +33,6 @@ const weeklyJob = {
 };
 
 const fixedNow = new Date("2026-09-23T20:00:00.000Z");
-const fixedClock = () => new Date(fixedNow);
 
 function runtimeEnv(overrides = {}) {
   return {
@@ -65,14 +64,18 @@ function fakeGateway(options = {}) {
         if (options.expectedRecipient && recipient.email !== options.expectedRecipient) return null;
         return options.transportDenied ? null : options.firstTransportAt ?? new Date(fixedNow);
       },
+      async authorizeProviderIdempotencyWindow() {
+        events.push("idempotency-window");
+        return options.idempotencyWindowAuthorized ?? true;
+      },
       async markSent(_job, id) {
         events.push(`sent:${id}`);
       },
       async markFailed(_job, code) {
         events.push(`failed:${code}`);
       },
-      async retry(_job, retryAt, code) {
-        events.push(`retry:${code}:${retryAt.toISOString()}`);
+      async retry(_job, code) {
+        events.push(`retry:${code}`);
         return options.retryResult ?? true;
       },
     },
@@ -179,12 +182,12 @@ test("Resend transport uses stable idempotency and generic daily content", async
     { apiKey: "re_test", fromEmail: "Deedlight <hello@example.com>", siteOrigin: "https://deedlight.example" },
     async (url, init) => {
       calls.push({ url, init });
-      return new Response(JSON.stringify({ id: "provider-123" }), { status: 200, headers: { "content-type": "application/json" } });
+      return new Response(JSON.stringify({ id: "49a3999c-0ce1-4ea6-ab68-afcd6dc2e794" }), { status: 200, headers: { "content-type": "application/json" } });
     },
   );
 
   const outcome = await transport.send(job, { email: "member@example.com" });
-  assert.deepEqual(outcome, { status: "sent", providerResultId: "provider-123" });
+  assert.deepEqual(outcome, { status: "sent", providerResultId: "49a3999c-0ce1-4ea6-ab68-afcd6dc2e794" });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].init.headers["Idempotency-Key"], `deedlight/${job.kind}/${job.jobId}`);
   const payload = JSON.parse(calls[0].init.body);
@@ -200,7 +203,7 @@ test("weekly transport uses the weekly preference route and a distinct idempoten
     { apiKey: "re_test", fromEmail: "Deedlight <hello@example.com>", siteOrigin: "https://deedlight.example" },
     async (_url, init) => {
       captured = init;
-      return new Response(JSON.stringify({ id: "provider-weekly" }), { status: 200 });
+      return new Response(JSON.stringify({ id: "49a3999c-0ce1-4ea6-ab68-afcd6dc2e795" }), { status: 200 });
     },
   );
 
@@ -231,7 +234,6 @@ test("revocation before recipient lookup prevents transport", async () => {
     gateway,
     recipientResolver: { async resolve() { resolved = true; return { email: "a@b.com" }; } },
     transport: { async send() { sent = true; return { status: "sent", providerResultId: "x" }; } },
-    clock: fixedClock,
   });
   assert.equal(result, "cancelled");
   assert.equal(resolved, false);
@@ -247,7 +249,6 @@ test("revocation after recipient lookup is checked again immediately before tran
     gateway,
     recipientResolver: { async resolve() { return { email: "a@b.com" }; } },
     transport: { async send() { sent = true; return { status: "sent", providerResultId: "x" }; } },
-    clock: fixedClock,
   });
   assert.equal(result, "cancelled");
   assert.equal(sent, false);
@@ -262,10 +263,9 @@ test("temporary provider failure requeues while permanent failure terminates", a
       gateway,
       recipientResolver: { async resolve() { return { email: "a@b.com" }; } },
       transport: { async send() { return { status: "temporary_failure", errorCode: "provider_http_503" }; } },
-      clock: fixedClock,
     });
     assert.equal(result, "retried");
-    assert(events.includes("retry:provider_http_503:2026-09-23T20:05:00.000Z"));
+    assert(events.includes("retry:provider_http_503"));
   }
   {
     const { gateway, events } = fakeGateway();
@@ -274,41 +274,27 @@ test("temporary provider failure requeues while permanent failure terminates", a
       gateway,
       recipientResolver: { async resolve() { return { email: "a@b.com" }; } },
       transport: { async send() { return { status: "permanent_failure", errorCode: "provider_http_400" }; } },
-      clock: fixedClock,
     });
     assert.equal(result, "failed");
     assert(events.includes("failed:provider_http_400"));
   }
 });
 
-test("small database/worker clock skew does not fail a new transport attempt", async () => {
+test("database-authoritative idempotency expiry prevents another provider request", async () => {
   const { gateway, events } = fakeGateway({
-    firstTransportAt: new Date("2026-09-23T20:00:00.250Z"),
+    firstTransportAt: new Date("2026-09-22T20:59:59.000Z"),
+    idempotencyWindowAuthorized: false,
   });
-  const result = await processClaimedDelivery({
-    job,
-    gateway,
-    recipientResolver: { async resolve() { return { email: "a@b.com" }; } },
-    transport: { async send() { return { status: "sent", providerResultId: "clock-safe" }; } },
-    clock: fixedClock,
-  });
-  assert.equal(result, "sent");
-  assert(events.includes("sent:clock-safe"));
-});
-
-test("ambiguous delivery older than the provider safety window never sends again", async () => {
-  const { gateway, events } = fakeGateway({ firstTransportAt: new Date("2026-09-22T20:59:59.000Z") });
   let sent = false;
   const result = await processClaimedDelivery({
     job,
     gateway,
     recipientResolver: { async resolve() { return { email: "a@b.com" }; } },
     transport: { async send() { sent = true; return { status: "sent", providerResultId: "x" }; } },
-    clock: fixedClock,
   });
   assert.equal(result, "failed");
   assert.equal(sent, false);
-  assert(events.includes("failed:provider_idempotency_window_expired"));
+  assert.deepEqual(events, ["authorize", "authorize", "begin", "idempotency-window"]);
 });
 
 test("database transport denial after two earlier authorizations produces zero provider calls", async () => {
@@ -320,7 +306,6 @@ test("database transport denial after two earlier authorizations produces zero p
       gateway,
       recipientResolver: { async resolve() { return { email: "member@example.test" }; } },
       transport: { async send() { providerCalls += 1; throw new Error("provider must not be called"); } },
-      clock: fixedClock,
     });
     assert.equal(result, "cancelled");
     assert.equal(providerCalls, 0);
@@ -335,7 +320,6 @@ test("fifth attempt terminal retry is counted as failed, not retried or processi
     gateway,
     recipientResolver: { async resolve() { return { email: "member@example.test" }; } },
     transport: { async send() { return { status: "temporary_failure", errorCode: "provider_http_503" }; } },
-    clock: fixedClock,
   });
   assert.equal(result, "failed");
   assert(events.some((event) => event.startsWith("retry:provider_http_503")));
@@ -348,7 +332,6 @@ test("changed Auth email invalidates resolved recipient at final gate", async ()
     job, gateway,
     recipientResolver:{async resolve(){return {email:"old@example.test"};}},
     transport:{async send(){sends++;throw Error("should not send");}},
-    clock:fixedClock,
   });
   assert.equal(outcome,"cancelled");
   assert.equal(sends,0);
@@ -528,13 +511,32 @@ test("ambiguous successful provider responses remain retryable", async () => {
   }
 });
 
+test("Resend receipt identifiers must be canonical UUIDs without whitespace or controls", async () => {
+  const config = { apiKey: "x", fromEmail: "x@y.com", siteOrigin: "https://example.com" };
+  const validId = "49a3999c-0ce1-4ea6-ab68-afcd6dc2e794";
+  const valid = createResendTransport(config, async () =>
+    new Response(JSON.stringify({ id: validId }), { status: 200 }));
+  assert.deepEqual(await valid.send(job, { email: "a@b.com" }), {
+    status: "sent",
+    providerResultId: validId,
+  });
+  for (const id of [null, "", "   ", "provider-123", ` ${validId}`, `${validId} `, `${validId}\\n`, `bad\\t${validId}`]) {
+    const invalid = createResendTransport(config, async () =>
+      new Response(JSON.stringify({ id }), { status: 200 }));
+    assert.deepEqual(await invalid.send(job, { email: "a@b.com" }), {
+      status: "temporary_failure",
+      errorCode: "provider_ambiguous_response",
+    });
+  }
+});
+
 test("provider idempotency key remains stable across retry attempts", async () => {
   const keys = [];
   const transport = createResendTransport(
     { apiKey: "x", fromEmail: "x@y.com", siteOrigin: "https://example.com" },
     async (_url, init) => {
       keys.push(init.headers["Idempotency-Key"]);
-      return new Response(JSON.stringify({ id: "same-provider-id" }), { status: 200 });
+      return new Response(JSON.stringify({ id: "49a3999c-0ce1-4ea6-ab68-afcd6dc2e796" }), { status: 200 });
     },
   );
   await transport.send(job, { email: "a@b.com" });
@@ -545,34 +547,21 @@ test("provider idempotency key remains stable across retry attempts", async () =
   ]);
 });
 
-test("provider safety horizon refuses retries at the boundary but allows retries before it", async () => {
-  const { gateway: boundaryGateway, events: boundaryEvents } = fakeGateway({
-    firstTransportAt: new Date(fixedNow.getTime() - (23 * 60 * 60 * 1000 - 5 * 60 * 1000)),
+test("retry and provider-window RPCs never trust a Worker timestamp", async () => {
+  const calls = [];
+  const runtime = new SupabaseDeliveryRuntime({
+    async rpc(name, params) {
+      calls.push({ name, params });
+      return { data: true, error: null };
+    },
   });
-  let boundarySends = 0;
-  const boundary = await processClaimedDelivery({
-    job,
-    gateway: boundaryGateway,
-    recipientResolver: { async resolve() { return { email: "a@b.com" }; } },
-    transport: { async send() { boundarySends += 1; return { status: "temporary_failure", errorCode: "provider_timeout" }; } },
-    clock: fixedClock,
-  });
-  assert.equal(boundary, "failed");
-  assert.equal(boundarySends, 1);
-  assert(boundaryEvents.includes("failed:provider_idempotency_window_expired"));
-
-  const { gateway: safeGateway, events: safeEvents } = fakeGateway({
-    firstTransportAt: new Date(fixedNow.getTime() - (23 * 60 * 60 * 1000 - 5 * 60 * 1000 - 1)),
-  });
-  const safe = await processClaimedDelivery({
-    job,
-    gateway: safeGateway,
-    recipientResolver: { async resolve() { return { email: "a@b.com" }; } },
-    transport: { async send() { return { status: "temporary_failure", errorCode: "provider_timeout" }; } },
-    clock: fixedClock,
-  });
-  assert.equal(safe, "retried");
-  assert(safeEvents.some((event) => event.startsWith("retry:provider_timeout")));
+  assert.equal(await runtime.authorizeProviderIdempotencyWindow(job), true);
+  assert.equal(await runtime.retry(job, "provider_timeout"), true);
+  assert.deepEqual(calls, [
+    { name: "authorize_delivery_idempotency_window", params: { p_job_id: job.jobId, p_claim_token: job.claimToken } },
+    { name: "retry_delivery_job", params: { p_job_id: job.jobId, p_claim_token: job.claimToken, p_error_code: "provider_timeout" } },
+  ]);
+  assert.equal("p_retry_at" in calls[1].params, false);
 });
 
 test("daily and Weekly Goodness schedules have separate exact routing", () => {

@@ -1,4 +1,7 @@
 \set ON_ERROR_STOP on
+
+create schema if not exists extensions;
+create extension if not exists pgcrypto with schema extensions;
 \ir test-delivery-consent-gates.sql
 \ir ../supabase/migrations/202611190025_delivery_provider_webhooks.sql
 
