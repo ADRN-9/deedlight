@@ -14,19 +14,21 @@
     "supabase:push": "node scripts/supabase-cli.mjs push-local",
     "supabase:reset": "node scripts/supabase-cli.mjs reset-local",
     "supabase:push:nonprod": "node scripts/supabase-cli.mjs push-non-production",
-    "test:supabase-cli-security": "node --test scripts/test-supabase-cli-security.mjs"
+    "test:supabase-cli-security": "node --test scripts/test-supabase-cli-security.mjs",
+    "verify:dependency-security": "node scripts/verify-dependency-security.mjs",
+    "test:dependency-security": "node --test scripts/test-dependency-security.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "latest",
     "@supabase/supabase-js": "latest",
     "lucide-react": "latest",
-    "next": "16.3.6",
+    "next": "16.4.6",
     "react": "latest",
     "react-dom": "latest",
-    "zod": "latest"
+    "zod": "4.6.7"
   },
   "devDependencies": {
-    "@opennextjs/cloudflare": "latest",
+    "@opennextjs/cloudflare": "1.20.17",
     "@tailwindcss/postcss": "latest",
     "@types/node": "latest",
     "@types/react": "latest",
@@ -35,6 +37,16 @@
     "eslint-config-next": "latest",
     "tailwindcss": "latest",
     "typescript": "latest",
-    "wrangler": "latest"
+    "wrangler": "latest",
+    "typescript-eslint": "8.73.0"
+  },
+  "overrides": {
+    "source-map-js": "^1.2.2",
+    "miniflare@5.20261110.2-beta": {
+      "undici": "7.30.2"
+    },
+    "@opennextjs/cloudflare": {
+      "glob": "14.0.2"
+    }
   }
 }

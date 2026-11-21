@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -10,7 +11,7 @@ import {
   parseProjectPolicy,
   resolveApprovedProjectRef,
 } from "./supabase-cli-policy.mjs";
-import { executeSupabaseMode, runSupabase } from "./supabase-cli.mjs";
+import { createHostedCliEnvironment, executeSupabaseMode, runSupabase } from "./supabase-cli.mjs";
 
 const APPROVED = "aaaaaaaaaaaaaaaaaaaa";
 const OTHER = "bbbbbbbbbbbbbbbbbbbb";
@@ -454,6 +455,97 @@ test("interactive Supabase execution inherits all stdio while preflight captures
 
   assert.deepEqual(observed[0].stdio, ["inherit", "pipe", "pipe"]);
   assert.equal(observed[1].stdio, "inherit");
+});
+
+
+function writeInteractiveFakeSupabase(root) {
+  const bin = path.join(root, "bin");
+  fs.mkdirSync(bin, { recursive: true });
+  const executable = path.join(bin, "supabase");
+  fs.writeFileSync(executable, "#!/usr/bin/env node\nconst fs = require('node:fs');\nconst args = process.argv.slice(2);\nif (args[0] === '--version') { process.stdout.write('3.2.0\\n'); process.exit(0); }\nif (args[0] === 'db' && args[1] === 'push' && args.includes('--dry-run')) {\n  process.stderr.write('Target: project ' + process.env.SUPABASE_PROJECT_ID + '\\n');\n  process.exit(0);\n}\nif (args[0] === 'db' && args[1] === 'push') {\n  if (!process.stdin.isTTY || !process.stdout.isTTY) {\n    process.stderr.write('Refusing hosted migration without an interactive TTY.\\n');\n    process.exit(1);\n  }\n  process.stdout.write('Proceed with hosted migration? [y/N] ');\n  let answer = '';\n  process.stdin.setEncoding('utf8');\n  process.stdin.on('data', (chunk) => {\n    answer += chunk;\n    if (!answer.includes('\\n')) return;\n    if (answer.trim().toLowerCase() !== 'y') { process.exitCode = 1; process.stdin.pause(); return; }\n    fs.writeFileSync(process.env.DEEDLIGHT_MUTATION_MARKER, 'confirmed\\n');\n    process.stdout.write('\\nConfirmation accepted.\\n', () => process.exit(0));\n  });\n  process.stdin.resume();\n  return;\n}\nprocess.stderr.write('Unexpected fake Supabase CLI invocation.\\n');\nprocess.exit(90);\n");
+  fs.chmodSync(executable, 0o755);
+  return bin;
+}
+
+const PYTHON_PTY_RUNNER = "import errno, os, pty, select, subprocess, sys, time\n\nmaster, slave = pty.openpty()\nprocess = subprocess.Popen(\n    [sys.argv[1], sys.argv[2], 'push-non-production'],\n    stdin=slave,\n    stdout=slave,\n    stderr=slave,\n    close_fds=True,\n)\nos.close(slave)\noutput = bytearray()\nsent = False\ndeadline = time.monotonic() + 12\n\nwhile True:\n    if time.monotonic() > deadline and process.poll() is None:\n        process.kill()\n        process.wait()\n        sys.stderr.write('PTY command timed out.\\n')\n        break\n\n    readable, _, _ = select.select([master], [], [], 0.1)\n    if readable:\n        try:\n            chunk = os.read(master, 4096)\n        except OSError as error:\n            if error.errno == errno.EIO:\n                chunk = b''\n            else:\n                raise\n        if chunk:\n            output.extend(chunk)\n            if not sent and b'Proceed with hosted migration? [y/N]' in output:\n                os.write(master, b'y\\n')\n                sent = True\n\n    if process.poll() is not None and not readable:\n        break\n\nos.close(master)\nsys.stdout.write(output.decode('utf-8', 'replace'))\nif not sent:\n    sys.stderr.write('PTY prompt was not visible or interactive.\\n')\n    sys.exit(23)\nsys.exit(process.returncode)\n";
+
+test("hosted child environment sanitization removes inherited SUPABASE_YES", () => {
+  const sanitized = createHostedCliEnvironment({
+    SUPABASE_YES: "true",
+    SUPABASE_ACCESS_TOKEN: "retained-token",
+    NODE_ENV: "test",
+  }, APPROVED);
+
+  assert.equal(Object.hasOwn(sanitized, "SUPABASE_YES"), false);
+  assert.equal(sanitized.SUPABASE_PROJECT_ID, APPROVED);
+  assert.equal(sanitized.SUPABASE_ACCESS_TOKEN, "retained-token");
+  assert.equal(sanitized.NODE_ENV, "test");
+});
+
+test("hosted confirmation prompt is visible and answerable through a real PTY", () => {
+  withRoot((root) => {
+    writeConfig(root);
+    writeLink(root, APPROVED);
+    const marker = path.join(root, "mutation-confirmed");
+    const bin = writeInteractiveFakeSupabase(root);
+    const childEnv = {
+      ...process.env,
+      PATH: bin + path.delimiter + (process.env.PATH ?? ""),
+      SUPABASE_PROJECT_REF: APPROVED,
+      SUPABASE_PROJECT_ID: APPROVED,
+      DEEDLIGHT_MUTATION_MARKER: marker,
+    };
+    delete childEnv.SUPABASE_YES;
+
+    const wrapperPath = path.join(process.cwd(), "scripts", "supabase-cli.mjs");
+    const result = spawnSync("python3", [
+      "-c",
+      PYTHON_PTY_RUNNER,
+      process.execPath,
+      wrapperPath,
+    ], {
+      cwd: root,
+      env: childEnv,
+      encoding: "utf8",
+      timeout: 15_000,
+    });
+
+    assert.equal(result.error, undefined, result.error?.message);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.ok(result.stdout.includes("Proceed with hosted migration? [y/N]"), result.stdout);
+    assert.ok(result.stdout.includes("Confirmation accepted"), result.stdout);
+    assert.equal(fs.readFileSync(marker, "utf8"), "confirmed\n");
+  });
+});
+
+test("non-TTY hosted migration fails closed before the mutation shim executes", () => {
+  withRoot((root) => {
+    writeConfig(root);
+    writeLink(root, APPROVED);
+    const marker = path.join(root, "must-not-mutate");
+    const bin = writeInteractiveFakeSupabase(root);
+    const childEnv = {
+      ...process.env,
+      PATH: bin + path.delimiter + (process.env.PATH ?? ""),
+      SUPABASE_PROJECT_REF: APPROVED,
+      SUPABASE_PROJECT_ID: APPROVED,
+      DEEDLIGHT_MUTATION_MARKER: marker,
+    };
+    delete childEnv.SUPABASE_YES;
+
+    const wrapperPath = path.join(process.cwd(), "scripts", "supabase-cli.mjs");
+    const result = spawnSync(process.execPath, [wrapperPath, "push-non-production"], {
+      cwd: root,
+      env: childEnv,
+      encoding: "utf8",
+      timeout: 10_000,
+    });
+
+    assert.equal(result.error, undefined, result.error?.message);
+    assert.notEqual(result.status, 0, result.stdout);
+    assert.ok(result.stderr.includes("Refusing hosted migration without an interactive TTY"), result.stderr);
+    assert.equal(fs.existsSync(marker), false);
+  });
 });
 
 test("a CLI version mismatch prevents database commands", () => {

@@ -62,6 +62,19 @@ Production authorization must remain enforced independently through protected Gi
 
 The legacy `.github/workflows/supabase-migrations.yml` remains present in the current `main` tree and must not be used. Its removal is tracked separately; this remediation does not change or restore it.
 
+
+## Confirmation and dependency CI evidence
+
+The hosted CLI environment is built by `createHostedCliEnvironment`, which removes `SUPABASE_YES` even when given contaminated input. The hosted migration path separately rejects a caller-provided value before any CLI invocation. A regression test directly exercises the sanitization helper.
+
+The CLI wrapper's final hosted push inherits stdin, stdout and stderr. The security suite now uses Python's standard-library `pty` module to start the wrapper in a real pseudo-terminal with a terminal-aware CLI shim. The test verifies that the confirmation prompt reaches the terminal, that an operator response is read, and that the mutation shim records execution only after an affirmative response. A companion non-TTY test verifies the CLI shim refuses the hosted mutation and leaves its marker absent. This is a wrapper/TTY integration test with a safe CLI shim, not a live Supabase project operation.
+
+Dependency audit findings were traced to vulnerable Next.js, Zod, body-parser, proxy-addr, qs, sharp, source-map-js, undici, glob and minimatch resolutions. PR #11's dependency-only package/lock update resolves these advisories in its exact-head CI run. Its lockfile changes 289 package entries, so the update is intentionally limited to package.json, package-lock.json and the dependency verifier/tests; its unrelated audit fixture and schema changes are not imported.
+
+The PR #11 lockfile also moves the transitive Miniflare dependency from `5.20260921.0-alpha` to `5.20261110.2-beta`; both are pre-release versions. The scoped `undici@7.30.2` override is attached to that exact Miniflare beta. This is an inherited pre-release build-tool dependency, not a new application runtime API. It is not covered by the C166 stable-version verifier and remains an explicit maintenance risk to review when Wrangler/OpenNext publish a stable compatible dependency set.
+
+The OpenNext-scoped `glob@14.0.2` override remains a major-version compatibility exception: OpenNext 1.20.17 declares `glob ^13.0.6`, while the patched version is 14.0.2. The C166 review found the adapter uses the compatible `glob`, `globSync` and `withFileTypes` API surface, and the PR #11 Cloudflare build passed. This is evidence for the current build, not a formal upstream semver guarantee. Keep the exception narrow and remove it once upstream supports a patched compatible major.
+
 ## Rollback
 
 Reverting the remediation commit restores the prior npm script definitions and setup instructions. It does not run a migration or reset, change Supabase credentials, alter GitHub Environment settings, or modify Production. If the wrapper fails closed, use the local CLI directly only for local development; do not bypass the wrapper for hosted targets.

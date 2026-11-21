@@ -80,7 +80,7 @@ function requirePinnedCli(runCli, version, options) {
   }
 }
 
-function cliEnvironment(env, target) {
+export function createHostedCliEnvironment(env, target) {
   const result = { ...env, SUPABASE_PROJECT_ID: target };
   // The wrapper never forwards shell-level confirmation bypasses to hosted commands.
   delete result.SUPABASE_YES;
@@ -134,7 +134,7 @@ export function executeSupabaseMode({
   const version = loadCliVersion(cwd);
   const policy = loadProjectPolicy(cwd);
   const target = resolveApprovedProjectRef({ root: cwd, env, policy });
-  const targetEnv = cliEnvironment(env, target);
+  const targetEnv = createHostedCliEnvironment(env, target);
 
   if (mode === "link") {
     assertLinkedProject(cwd, target, { required: false });
