@@ -63,7 +63,7 @@ The lifecycle RPC does not read or mutate `delivery_ledger`, queue state, claim 
 
 ## Automated evidence
 
-CI exercises parser and route handling for all seven event types, raw-body HMAC authenticity, timestamp validation, malformed payloads, normalized failure classes, event-ID replay, PostgreSQL lifecycle persistence, provider/receipt timestamps, out-of-order and concurrent events, cross-recipient provider-email-ID collision rollback, complaint precedence, shared suppression/transport locking, RLS/table grants, and the no-queue-mutation invariant. Provider calls in CI use fake fetch and synthetic local PostgreSQL fixtures only; no real provider email is sent.
+CI exercises parser and route handling for all seven event types, raw-body HMAC authenticity, timestamp validation, malformed payloads, normalized failure classes, event-ID replay, PostgreSQL lifecycle persistence, provider/receipt timestamps, out-of-order and concurrent events, cross-recipient provider-email-ID collision rollback, complaint precedence, shared suppression/transport locking, RLS/table grants, and the no-queue-mutation invariant. Provider calls in CI use fake fetch and synthetic local PostgreSQL fixtures only; no real provider email is sent. The route also maps thrown Supabase client/database transport exceptions to an empty-body 503; a route regression fixture explicitly rejects the database fetch and verifies this retryable response.
 
 ## Production status
 
