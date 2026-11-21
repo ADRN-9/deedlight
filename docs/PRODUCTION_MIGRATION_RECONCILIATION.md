@@ -48,7 +48,7 @@ An inaccessible migration-history table must not be interpreted as an empty hist
 
 ## Repository inventory
 
-The inspected tree contains 31 SQL migration files and 30 unique filename version prefixes. All files and Git blob SHAs are listed below. Production status is UNKNOWN for every row because no live history or schema evidence was available.
+The inspected tree contains 31 SQL migration files and 30 unique filename version prefixes. All files and Git blob SHAs are listed below. The table has one row per migration file; duplicate version prefixes do not merge distinct SQL files. Production status is UNKNOWN for every row because no live history or schema evidence was available. Independently identifiable schema effects within each file must also be reconciled and classified separately; a file-level label must not conceal partial application.
 
 | Version | Migration file | Dependency / reconciliation note | Git blob SHA | Production classification |
 |---|---|---|---|---|
@@ -58,9 +58,9 @@ The inspected tree contains 31 SQL migration files and 30 unique filename versio
 | 202607260004 | 202607260004_sprint4_reactions.sql | Depends on reactions from 001 and policies from 002; replaces reaction count triggers/RPC behavior and policies. Aggregate bundle is not byte-identical. | c25dce46ecf69d082fcdbea2bb931b6acd9180fc | Ambiguous — no live evidence |
 | 202607260005 | 202607260005_sprint5_moderation.sql | Depends on offerings/reports/reactions from 001 and RLS from 002/004; changes report aggregation and moderation policies. Aggregate bundle is not byte-identical. | b48b4b8b3eea9fb55b68068011fa1371559228c2 | Ambiguous — no live evidence |
 | 202607260006 | 202607260006_sprint5_admin_edit_hide_hotfix.sql | Depends on Offering moderation policy baseline from 005; narrows member/admin update policy. Aggregate bundle is not byte-identical. | 9e163de5119c3813724341b7a9eabeba6fdc2970 | Ambiguous — no live evidence |
-| 202607260007 | 202607260007_sprint6_daily_deedlight.sql | Depends on 001/002; extends legacy Daily Post/Reflection model. Shares its version prefix with the next file. | e0c2379255003b8c7bc85a1fab781e23051f5e47 | Ambiguous — duplicate version |
-| 202607260007 | 202607260007_sprint7_pwa_daily_engagement.sql | Depends on initial Offering/Auth model; introduces Daily Lights and another Daily Reflection shape. Shares version prefix with prior file and overlaps public.daily_reflections. | 8b051cfce05ea75b1ee7a726864e2ad760f6fe5f | Ambiguous — duplicate version |
-| 202607270008 | 202607270008_sprint8_short_video_studio.sql | Depends on daily_lights from the Sprint 7 007 file; adds video metadata/indexes. Aggregate bundle is not byte-identical. | 5b583bd99562e14db554943d034c748ce302f5ee | Ambiguous — no live evidence |
+| 202607260007 | 202607260007_sprint6_daily_deedlight.sql | Depends on 001/002; extends the legacy daily_posts/daily_reflections model with scheduling/editorial/video-planning fields, constraints, and indexes. The aggregate bundle contains only an earlier/different daily_posts shape and omits the Sprint 6 additions/indexes. Shares its version prefix with the next file. | e0c2379255003b8c7bc85a1fab781e23051f5e47 | Ambiguous — duplicate version |
+| 202607260007 | 202607260007_sprint7_pwa_daily_engagement.sql | Depends on initial Offering/Auth model; creates public.daily_lights and changes daily_reflections. The aggregate bundle has no CREATE/ALTER TABLE DDL for daily_lights, although later statements reference it. Shares version prefix with prior file. | 8b051cfce05ea75b1ee7a726864e2ad760f6fe5f | Ambiguous — duplicate version |
+| 202607270008 | 202607270008_sprint8_short_video_studio.sql | Depends on Sprint 7 public.daily_lights; adds short-video metadata, status/visibility constraints, grants, and three indexes. Its video columns and indexes are absent from the aggregate bundle. | 5b583bd99562e14db554943d034c748ce302f5ee | Ambiguous — no live evidence |
 | 202608060009 | 202608060009_sprint9_profiles_privacy.sql | Depends on profiles and offerings from 001; changes opt-in public identity, profile policies, and public projections. | 6594ce6daa0183944fcc548885d6514e8adb9436 | Ambiguous — no live evidence |
 | 202608100010 | 202608100010_sprint9_2_community_identity_consistency.sql | Depends on 009 public identity projections and Auth profile bootstrap; replaces handle_new_user and community views. | 774708b7705d88a5a1e0da97e72a9d1b47c8884c | Ambiguous — no live evidence |
 | 202608100011 | 202608100011_sprint9_3_moderation_aware_members.sql | Depends on profiles, offerings, and reflection policies; adds member_moderation_events and suspension-aware controls. | 1d1b7b844b88077351d2658af4be2b2db92eda97 | Ambiguous — no live evidence |
@@ -84,16 +84,16 @@ The inspected tree contains 31 SQL migration files and 30 unique filename versio
 | 202611210029 | 202611210029_delivery_legacy_replay_guard.sql | Requires exact 027 RPC overloads, pgcrypto, function metadata, migration comment, and pinned SHA-256 source hash; renames implementation and restricts fingerprint-less replays. | 872fc49ec47e49b17e96ecf6ccaf5c8eb0e6322a | Ambiguous — no live evidence |
 | 202611210030 | 202611210030_delivery_idempotency_receipt_guard.sql | Requires 024 recipient-bound transport, 028 transitions, and delivery_ledger.transport_started_at; adds database-authoritative idempotency timing and validates Resend receipt UUIDs. | 42c227cc1c36b2889e88d9bee1432e6fc6829d41 | Ambiguous — no live evidence |
 
-## Classification summary
+## File-level classification summary
 
-| Required class | Count | Evidence-backed conclusion |
+| Required class | Migration files | Evidence-backed conclusion |
 |---|---:|---|
 | Verified applied and recorded | 0 | No Production history was readable. |
 | Verified represented in schema but missing from history | 0 | No Production schema was readable. |
 | Verified unapplied | 0 | No Production history or schema was readable. |
-| Ambiguous / requires further evidence | 31 | All repository migrations remain unclassified against Production. |
+| Ambiguous / requires further evidence | 31 | All 31 repository files remain unclassified against Production. |
 
-This does not mean none are applied. It means Production status is unknown.
+These counts are per migration file, not per unique version prefix: there are 31 files and 30 prefixes because two distinct files use 202607260007. The effect-level classification is also wholly unknown because no Production schema was readable. This does not mean none are applied; it means Production status is unknown.
 
 ## High-priority reconciliation findings
 
@@ -122,13 +122,50 @@ The 022 header labels the file Production Auth hotfix and requires extensions.ge
 
 The header identifies the reason, not the actual execution date, exact live function body, extension schema, trigger state, or history row. Verify the extension namespace, trigger on auth.users, function body, search_path, SECURITY DEFINER metadata, and privileges before classifying it. Do not restore the pre-hotfix function as a rollback.
 
-### 4. SQL Editor bundle is not an execution record or complete canonical mirror
+### 4. SQL Editor bundle is not a verified full migration replay
 
-supabase/run_in_sql_editor_all.sql is 7,136 lines, blob SHA 83725a196186f4fd913fab1cf5c9c02c9c6d822c.
+supabase/run_in_sql_editor_all.sql is 7,136 lines, blob SHA 83725a196186f4fd913fab1cf5c9c02c9c6d822c. Byte-for-byte comparison against all 31 migration files found exact file content for 001, 002, and 009–030. The contents of migrations 003–008 were not byte-for-byte present. This bundle is therefore not a canonical byte-identical replay of the full migration directory.
 
-Byte-for-byte comparison against all 31 migration files found exact file content for 001, 002, and 009–030. The contents of migrations 003–008 were not byte-for-byte present. This does not prove their SQL effects are absent; it means the aggregate is not a canonical byte-identical copy of those seven migrations.
+**Do not treat run_in_sql_editor_all.sql as a verified full migration replay, a substitute for the individual migration files, or proof that any SQL was executed.** The source comparison below identifies concrete gaps in 007 and 008. It is a repository-content finding only: missing aggregate SQL effects do **not** prove those objects are absent from Production. They may have been applied manually, through a separate SQL Editor session, from another reviewed source, or by another deployment path. No Production schema was available to establish that.
 
-The bundle makes a SQL Editor/manual execution path plausible, but no execution record was obtained. Running SQL directly against a remote database bypasses Supabase CLI migration history unless history is separately reconciled. The bundle cannot prove application or migration-history state.
+#### 007 Sprint 6 — incomplete daily_posts representation
+
+The Sprint 6 file (202607260007_sprint6_daily_deedlight.sql, blob e0c2379255003b8c7bc85a1fab781e23051f5e47) extends public.daily_posts and public.daily_reflections. The aggregate bundle's earlier public.daily_posts definition is a different shape: it uses date, theme_id, reflection, daily_action, and reflection_question, while the Sprint 6 migration adds a separate scheduled/editorial model. The bundle does not represent the Sprint 6 daily_posts additions as a complete effect set. Among the Sprint 6 additions not represented in the aggregate are scheduled_for (the bundle instead has date), kicker, theme, summary, body, small_deed, reflection_prompt, featured_offering_id, video_title, video_hook, video_script, video_caption, video_status, and archived_at. Overlapping names such as slug, title, status, image_url, and youtube_url do not establish equivalent definitions, defaults, constraints, or semantics.
+
+The aggregate also omits the Sprint 6 named indexes:
+
+- daily_posts_status_scheduled_idx
+- daily_posts_featured_offering_idx
+- daily_reflections_post_idx
+- daily_reflections_user_idx
+
+These are schema effects of the Sprint 6 file and must be checked individually against live catalog evidence; their absence from the bundle is not evidence that Production lacks them.
+
+#### 007 Sprint 7 — daily_lights table DDL absent
+
+The Sprint 7 file (202607260007_sprint7_pwa_daily_engagement.sql, blob 8b051cfce05ea75b1ee7a726864e2ad760f6fe5f) creates public.daily_lights, adds its columns/unique scheduled-date constraint, and configures its access policies; it also extends public.daily_reflections. The aggregate bundle contains zero CREATE TABLE public.daily_lights statements and zero ALTER TABLE public.daily_lights statements. It therefore does not provide the Sprint 7 table DDL or a verified substitute for its associated constraints, policies, and reflection changes.
+
+This omission is particularly important because later SQL in the aggregate references public.daily_lights, including a foreign-key addition to public.daily_deed_completions around line 1501 and later queries/projections around lines 1589, 1630, 1768, and 2783. A clean replay of the aggregate can therefore fail when it reaches a reference to public.daily_lights if no earlier statement created that relation. No clean replay was executed in C242; this is a dependency conclusion from the checked-in SQL text.
+
+#### 008 — short-video metadata and indexes absent
+
+The Sprint 8 file (202607270008_sprint8_short_video_studio.sql, blob 5b583bd99562e14db554943d034c748ce302f5ee) alters public.daily_lights to add video_status, video_platform, video_hashtags, video_notes, video_asset_url, tiktok_url, instagram_url, short_video_public, and video_posted_at. It normalizes and constrains video_status, enforces the short_video_public default/not-null behavior, adds the daily_lights_video_status_check constraint, grants the intended table privileges, and creates three indexes:
+
+- daily_lights_video_status_idx
+- daily_lights_video_public_idx (partial index for public videos)
+- daily_lights_video_posted_at_idx
+
+The aggregate contains zero occurrences of these 008 column names and zero occurrences of the three named indexes. In particular, video_platform, video_hashtags, video_asset_url, and short_video_public are absent. The 008 column, constraint, grant, and index effects are not represented in the aggregate source.
+
+#### Required reconciliation before any clean replay or history decision
+
+1. Treat each of the two 007 files as a separate migration file despite their shared version prefix. Do not rename either file, guess which SQL body ran, or mark the shared version applied/reverted to resolve the collision.
+2. Reconcile every missing/partial effect group from Sprint 6 007, Sprint 7 007, and 008 individually against the exact migration source and read-only Production catalog inventory. This includes columns and definitions/defaults, constraints, indexes, RLS policies, grants, triggers, and dependent objects.
+3. Obtain retained SQL Editor execution history/audit logs, operator/timestamp details, and SQL hashes for any manual application of these files or the aggregate bundle. A copy of SQL is not an execution receipt.
+4. Record any proven manual application as an evidence-backed schema/history discrepancy and obtain separate authorization before proposing any history-only repair or forward-only schema change.
+5. Resolve the duplicate 007 mapping and missing prerequisites on a disposable database or restored clone before attempting a clean replay. Do not use the aggregate bundle as the replay authority.
+
+Running SQL directly against a remote database can bypass Supabase CLI migration history unless history is separately reconciled. The bundle cannot prove application, non-application, or migration-history state.
 
 ### 5. Migration-specific source/state guards
 
@@ -200,24 +237,29 @@ Do not use db pull, supabase pull, db push, db reset, migration repair, or any c
 
 ## Classification rules
 
-For each unique migration version, apply exactly one evidence-backed classification:
+Classification is performed at two linked levels:
 
-- **Verified applied and recorded:** a remote history row exists and live schema/function/security state matches the exact migration and required follow-on changes.
-- **Verified represented in schema but missing from history:** no remote history row exists, but all relevant SQL effects match exact migration source, including functions, constraints, RLS, triggers, grants, and data-sensitive preconditions. This is only a candidate for later separately authorized history-only repair; it is not permission to run repair now.
-- **Verified unapplied:** no history row exists, no SQL effects are present, no partial state exists, and predecessor/data preconditions are satisfied. This is not permission to push now.
-- **Ambiguous / requires further evidence:** partial objects, differing function source, unverified manual edits, missing dependencies, duplicate version, contradictory history, or any uncertainty.
+1. **Individual migration file:** identify the full filename and Git blob SHA. Do not classify only a unique timestamp/version prefix or collapse two files that share one prefix.
+2. **Individual schema effect:** within each file, classify each independently identifiable table, column, constraint, index, function, trigger, view, RLS policy, grant, extension, or data change. A file may be partially represented, partially applied, or contain drift; one overall file label must not hide mixed effect states.
 
-For duplicate 202607260007, timestamps alone cannot determine which SQL file was applied. Schema inspection and historical execution evidence are mandatory.
+Apply exactly one evidence-backed class to each file and each effect group:
+
+- **Verified applied and recorded:** a remote history row exists and the live schema/function/security state matches the exact file and its effects. For a shared version prefix, the history row alone is insufficient to identify the file body.
+- **Verified represented in schema but missing from history:** no remote history row exists, but all relevant effects match the exact file source, including functions, constraints, RLS, triggers, grants, and data-sensitive preconditions. This is only a candidate for later separately authorized history-only repair; it is not permission to run repair now.
+- **Verified unapplied:** no history row exists, no effects are present, no partial state exists, and predecessor/data preconditions are satisfied. This is not permission to push now.
+- **Ambiguous / requires further evidence:** partial effects, differing definitions/source, unverified manual edits, missing dependencies, duplicate version, contradictory history, or any uncertainty.
+
+The file-level summary above counts 31 files, not 30 unique prefixes. Effect-level Production counts are not available because no Production schema was readable. For duplicate 202607260007, the two files and their schema effects must be independently reconciled; the shared timestamp cannot identify which SQL body was executed. Do not rename the files, guess the executed body, or repair migration history as a shortcut.
 
 ## Reconciliation plan after evidence is available
 
 1. **Freeze:** keep the Production target guard, delivery kill switch, and Cron activation barriers intact. No push, repair, or manual DDL.
 2. **Snapshot:** export remote history and schema evidence, retain audit records, capture a backup/PITR point, and verify project identity.
-3. **Normalize inventory:** compare every local timestamp to remote history. Identify remote-only versions, local-only versions, duplicate local versions, and files changed since execution.
-4. **Resolve source ambiguity:** reconcile 007 from live Daily tables/columns and SQL Editor evidence. Verify 018/022 hotfixes. Verify 023/024 source attestations and 027/029 function identity.
-5. **Classify:** fill the four status classes with reviewer and evidence reference for every row. Never classify from filename, code comments, aggregate SQL, or history alone.
+3. **Normalize inventory:** compare every local file and version prefix to remote history. Identify remote-only versions, local-only files, duplicate local prefixes, and files changed since execution.
+4. **Resolve source ambiguity effect by effect:** compare both 007 files and 008 against the live Daily tables/columns, constraints, indexes, policies, grants, and SQL Editor/audit evidence. In particular, reconcile Sprint 6 daily_posts fields/indexes, Sprint 7 daily_lights DDL and reflection changes, and Sprint 8 video metadata/indexes. Verify 018/022 hotfixes and 023/024 source attestations and 027/029 function identity.
+5. **Classify:** record the four status classes for each individual file and independently identifiable effect group, with reviewer and evidence reference. Never classify from filename, version prefix, code comments, aggregate SQL, or history alone.
 6. **Design minimal reconciliation:** preserve already-applied schema and executed migration files. If represented but missing from history, prepare a separate reviewed history-only repair proposal after proof. If schema drift exists, create a forward-only migration preserving data. If genuinely unapplied, review dependencies and preconditions before any separate deployment approval.
-7. **Test away from Production:** replay the reconciled sequence on an isolated disposable database or restored clone. Verify schema, function source, RLS, grants, and application tests. Resolve duplicate 007 before using the directory for fresh reset/push.
+7. **Test away from Production:** replay the individually reconciled migration sequence on an isolated disposable database or restored clone. Do not use run_in_sql_editor_all.sql as a verified full replay. Resolve the duplicate 007 mapping and missing 007/008 prerequisites before any clean replay. Verify schema, function source, RLS, grants, indexes, and application tests.
 8. **Approval gate:** only after independent review may an authorized administrator approve a separately scoped Production history/schema operation. C240 grants no such approval.
 
 ## Rollback and data-protection considerations
@@ -230,6 +272,20 @@ For duplicate 202607260007, timestamps alone cannot determine which SQL file was
 - Before any future 024/029 operation, verify exact function bodies, comments, pgcrypto namespace, security metadata, and expected source fingerprints. Do not bypass a failed fingerprint gate.
 - Before any delivery migration operation, keep outbound delivery disabled and scheduling inactive; do not alter queue rows/claims as a shortcut.
 - Take and verify a recoverable backup before any approved Production mutation. A history-row repair is not a substitute for backup.
+
+## C241 independent review acceptance
+
+C241 independently accepted the repository-level migration reconciliation investigation and plan, subject to the documentation clarifications recorded in C242. The acceptance is limited to the quality/completeness of the repository investigation and its fail-closed next steps. It is not a statement about live Production state, does not classify any migration as applied/unapplied, and does not authorize a Production history or schema mutation. It is not a formal GitHub PR review submission or approval; the PR review endpoint remains a separate governance record.
+
+## C242 documentation correction execution status
+
+- Confirmed from repository source that Sprint 7 migration 007 creates public.daily_lights, while the aggregate bundle contains no CREATE TABLE or ALTER TABLE DDL for that relation.
+- Confirmed the aggregate later references public.daily_lights, including a foreign-key addition around line 1501; a clean replay may fail if no earlier step supplied the table.
+- Confirmed Sprint 8 migration 008's video metadata columns and three named indexes are absent from the aggregate bundle.
+- Confirmed Sprint 6 migration 007's extended daily_posts fields and four named indexes are not fully represented in the aggregate bundle.
+- Clarified that absence from the aggregate is repository-source evidence only and does not prove the corresponding objects are absent from Production.
+- Changed classification guidance to apply to individual files and individual schema effects, not merely unique version prefixes.
+- Preserved the duplicate 202607260007 restriction: no renaming, guessed execution mapping, history repair, or Production mutation.
 
 ## C240 execution status
 
