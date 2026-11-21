@@ -239,11 +239,13 @@ console.log("PASS: migration 030 is mirrored verbatim in aggregate SQL");
 const retryStart = idempotencyMigration.indexOf("create or replace function public.retry_delivery_job(");
 const retryEnd = idempotencyMigration.indexOf("\n$retry$;", retryStart);
 const authoritativeRetry = idempotencyMigration.slice(retryStart, retryEnd);
+const compactRetry = authoritativeRetry.replace(/\\s+/g, "");
+const compactMigration = idempotencyMigration.replace(/\\s+/g, "");
 if (retryStart < 0 || retryEnd < 0
-  || authoritativeRetry.includes("p_retry_at")
-  || !authoritativeRetry.includes("v_now := clock_timestamp()")
-  || !authoritativeRetry.includes("v_retry_at := v_now + interval '5 minutes'")
-  || !authoritativeRetry.includes("transport_started_at + interval '23 hours'")) {
+  || compactRetry.includes("p_retry_at")
+  || !compactRetry.includes("v_now:=clock_timestamp()")
+  || !compactRetry.includes("v_retry_at:=v_now+interval'5minutes'")
+  || !compactRetry.includes("transport_started_at+interval'23hours'")) {
   throw new Error("Migration 030 retry must use PostgreSQL time and persisted transport-start evidence.");
 }
 if (!idempotencyMigration.includes("return public.retry_delivery_job(p_job_id,p_claim_token,p_error_code);")) {
@@ -255,10 +257,10 @@ if (!idempotencyMigration.includes("authorize_delivery_idempotency_window")
   || !idempotencyMigration.includes("interval '30 seconds'")) {
   throw new Error("Migration 030 pre-send provider idempotency authorization is incomplete.");
 }
-if (!idempotencyMigration.includes("p_provider_result_id is null")
-  || !idempotencyMigration.includes("char_length(p_provider_result_id) <> 36")
-  || !idempotencyMigration.includes("p_provider_result_id <> btrim(p_provider_result_id)")
-  || !idempotencyMigration.includes("transport_started_at is null")) {
+if (!compactMigration.includes("p_provider_result_idisnull")
+  || !compactMigration.includes("char_length(p_provider_result_id)<>36")
+  || !compactMigration.includes("p_provider_result_id<>btrim(p_provider_result_id)")
+  || !compactMigration.includes("transport_started_atisnull")) {
   throw new Error("Migration 030 sent transition must require transport evidence and a validated receipt.");
 }
 if (!deliveryRunner.includes("authorizeProviderIdempotencyWindow")
