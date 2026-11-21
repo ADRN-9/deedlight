@@ -19,7 +19,10 @@ function eventPayload() {
     created_at: "2026-11-19T00:00:00.000Z",
     data: {
       email_id: "resend_email_route_fixture_01",
+      created_at: "2026-11-19T00:00:00.000Z",
+      from: "Deedlight <no-reply@deedlight.example>",
       to: ["Member@Example.test"],
+      subject: "Daily Deedlight",
       tags: { application: "deedlight" },
       bounce: {
         diagnosticCode: [],

@@ -31,7 +31,10 @@ function signed(payload, options = {}) {
 function event(type, data = {}) {
   const eventData = {
     email_id: "resend_email_fixture_01",
+    created_at: "2026-11-19T00:00:00.000Z",
+    from: "Deedlight <no-reply@deedlight.example>",
     to: ["Member@Example.test"],
+    subject: "Daily Deedlight",
     tags: { application: "deedlight" },
     ...(type === "email.bounced" ? {
       bounce: {
@@ -355,4 +358,15 @@ test("computes a stable SHA-256 fingerprint of the exact signed webhook body", a
   assert.match(fingerprint, /^[a-f0-9]{64}$/);
   assert.equal(await fingerprintResendWebhookPayload(payload), fingerprint);
   assert.notEqual(await fingerprintResendWebhookPayload(payload + " "), fingerprint);
+});
+
+
+test("rejects missing common event data required by Resend", () => {
+  for (const payload of [
+    event("email.sent", { created_at: undefined }),
+    event("email.sent", { from: undefined }),
+    event("email.sent", { subject: undefined }),
+  ]) {
+    assert.throws(() => parseResendProviderEvent(payload, id));
+  }
 });

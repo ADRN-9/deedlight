@@ -102,6 +102,20 @@ begin
     raise exception 'Conflicting duplicate event ID was not recorded as an integrity anomaly.';
   end if;
 
+
+
+  if public.record_delivery_provider_event(
+    'msg_complaint_upgrade_20001', 'email.complained', 'resend-complaint-20001',
+    'webhook-20001@example.test', null
+  ) is not true then
+    raise exception 'Complaint upgrade event was not recorded.';
+  end if;
+end;
+$$;
+reset role;
+
+do $$
+begin
   if (select event_type from public.delivery_provider_events
       where event_id = 'msg_bounce_permanent_20001') <> 'email.bounced'
     or (select provider_email_id from public.delivery_provider_events
@@ -119,19 +133,6 @@ begin
     ) then
     raise exception 'Conflicting duplicate changed original event or suppression state.';
   end if;
-
-  if public.record_delivery_provider_event(
-    'msg_complaint_upgrade_20001', 'email.complained', 'resend-complaint-20001',
-    'webhook-20001@example.test', null
-  ) is not true then
-    raise exception 'Complaint upgrade event was not recorded.';
-  end if;
-end;
-$$;
-reset role;
-
-do $$
-begin
   if (select reason from public.delivery_provider_suppressions
       where recipient_email = 'webhook-20001@example.test') <> 'complaint' then
     raise exception 'Complaint did not take precedence over a permanent bounce.';
@@ -349,15 +350,7 @@ begin
     null, null, null, repeat('b', 64)
   ) is not null then raise exception 'Payload fingerprint conflict was not recorded as an integrity anomaly.'; end if;
 
-  if (select payload_fingerprint from public.delivery_provider_events
-      where event_id = 'evt_payload_fingerprint') <> repeat('a', 64)
-    or not exists (
-      select 1 from public.delivery_provider_integrity_anomalies
-      where event_id = 'evt_payload_fingerprint'
-        and anomaly_type = 'duplicate_event_id_conflict'
-    ) then
-    raise exception 'Payload fingerprint conflict replaced the original event.';
-  end if;
+
 
   if public.record_delivery_provider_lifecycle_event(
     'evt_terminal_delivered_first', 'email.delivered', 'resend-terminal-delivered-first',
@@ -409,6 +402,15 @@ reset role;
 
 do $lifecycle$
 begin
+  if (select payload_fingerprint from public.delivery_provider_events
+      where event_id = 'evt_payload_fingerprint') <> repeat('a', 64)
+    or not exists (
+      select 1 from public.delivery_provider_integrity_anomalies
+      where event_id = 'evt_payload_fingerprint'
+        and anomaly_type = 'duplicate_event_id_conflict'
+    ) then
+    raise exception 'Payload fingerprint conflict replaced the original event.';
+  end if;
   if (select status from public.delivery_provider_lifecycle
       where provider_email_id = 'resend-order-20001') <> 'email.delivered' then
     raise exception 'Out-of-order event regressed delivered lifecycle evidence.';

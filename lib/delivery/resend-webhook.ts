@@ -223,6 +223,11 @@ export function parseResendProviderEvent(
     || typeof data.email_id !== "string"
     || data.email_id.length < 1
     || data.email_id.length > MAX_PROVIDER_ID_LENGTH
+    || typeof data.created_at !== "string"
+    || !normalizedProviderTimestamp(data.created_at)
+    || typeof data.from !== "string"
+    || data.from.trim().length === 0
+    || typeof data.subject !== "string"
     || !Array.isArray(data.to)
     || data.to.length !== 1) {
     throw new Error("Invalid Resend delivery event.");

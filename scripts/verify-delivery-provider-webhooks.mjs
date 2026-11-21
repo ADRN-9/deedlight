@@ -96,6 +96,9 @@ assert(route.includes("p_suppression_reason"));
 assert(route.includes("p_payload_fingerprint"));
 assert(route.includes("data !== true && data !== false"));
 assert(parser.includes("fingerprintResendWebhookPayload"));
+assert(parser.includes("data.created_at"));
+assert(parser.includes("data.from"));
+assert(parser.includes("data.subject"));
 
 for (const value of [
   "accepts numeric Content-Length and a valid Svix signature",
@@ -139,6 +142,7 @@ assert(tests.includes("provider-shaped fixtures for all seven lifecycle events")
 assert(tests.includes("maps both Resend suppression reasons"));
 assert(tests.includes("rejects missing or malformed bounce and suppression objects"));
 assert(tests.includes("computes a stable SHA-256 fingerprint"));
+assert(tests.includes("rejects missing common event data"));
 assert(tests.includes("normalizes failed-event reasons without retaining provider diagnostics"));
 assert(tests.includes("rejects missing or malformed provider event timestamps"));
 assert(databaseTests.includes("Conflicting duplicate event ID was not recorded as an integrity anomaly."));
