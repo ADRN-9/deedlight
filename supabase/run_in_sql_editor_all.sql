@@ -6879,10 +6879,12 @@ begin
         using errcode = '22023';
     end if;
 
+    -- Do not lock the event row here: the implementation acquires the
+    -- address/provider advisory locks before its authoritative row lock.
+    -- This existence check rejects new IDs without reversing that lock order.
     select e.* into v_existing
     from public.delivery_provider_events e
-    where e.event_id = p_event_id
-    for update;
+    where e.event_id = p_event_id;
 
     if not found then
       raise exception 'Fingerprint-less provider events cannot be inserted; use the fingerprinted canonical RPC.'
