@@ -6,7 +6,7 @@ psql_scalar() {
   "${psql_cmd[@]}" --quiet --no-align --tuples-only --pset=null=__NULL__ --command="$1"
 }
 psql_service_scalar() {
-  "${psql_cmd[@]}" --quiet --no-align --tuples-only --pset=null=__NULL__ --role=service_role --command="$1"
+  "${psql_cmd[@]}" --quiet --no-align --tuples-only --pset=null=__NULL__ --command="set role service_role; $1"
 }
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
