@@ -6,15 +6,16 @@ values ('2027-03-01'),('2027-03-08'),('2027-03-15'),('2027-03-22'),
        ('2027-03-29'),('2027-04-05'),('2027-04-12'),('2027-04-19')
 on conflict (week_start) do nothing;
 
-do $
+do $idempotency_guard$
 begin
   if to_regprocedure('public.authorize_delivery_idempotency_window(uuid,uuid)') is null
+    or pg_get_function_result(to_regprocedure('public.authorize_delivery_idempotency_window(uuid,uuid)')) is distinct from 'text'
     or to_regprocedure('public.retry_delivery_job(uuid,uuid,text)') is null
     or to_regprocedure('public.mark_delivery_sent(uuid,uuid,text)') is null then
-    raise exception 'Migration 030 idempotency and receipt RPCs are missing.';
+    raise exception 'Migration 030 idempotency and receipt RPCs are missing or have an unexpected return type.';
   end if;
 end;
-$$;
+$idempotency_guard$;
 
 insert into public.delivery_ledger (
   id,user_id,kind,delivery_key,state,scheduled_for,claim_token,claimed_at,

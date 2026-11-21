@@ -251,16 +251,27 @@ if (retryStart < 0 || retryEnd < 0
 if (!idempotencyMigration.includes("return public.retry_delivery_job(p_job_id,p_claim_token,p_error_code);")) {
   throw new Error("Legacy retry overload must ignore its Worker-supplied timestamp.");
 }
-if (!idempotencyMigration.includes("authorize_delivery_idempotency_window")
-  || !idempotencyMigration.includes("public.authorize_delivery_job(p_job_id,p_claim_token)")
-  || !idempotencyMigration.includes("return 'cancelled'")
-  || !idempotencyMigration.includes("return 'expired'")
-  || !idempotencyMigration.includes("return 'authorized'")
-  || !idempotencyMigration.includes("clock_timestamp()")
-  || !idempotencyMigration.includes("interval '23 hours'")
-  || !idempotencyMigration.includes("interval '30 seconds'")) {
-  throw new Error("Migration 030 pre-send provider idempotency authorization is incomplete.");
+const providerWindowSqlStart = idempotencyMigration.indexOf("create function public.authorize_delivery_idempotency_window(");
+const providerWindowSqlEnd = idempotencyMigration.indexOf("\n$idempotency$;", providerWindowSqlStart);
+const providerWindowSql = providerWindowSqlStart < 0 || providerWindowSqlEnd < 0
+  ? ""
+  : idempotencyMigration.slice(providerWindowSqlStart, providerWindowSqlEnd);
+const consentAuthorizationIndex = providerWindowSql.indexOf("public.authorize_delivery_job(p_job_id,p_claim_token)");
+const lockedLedgerIndex = providerWindowSql.indexOf("for update");
+const databaseClockIndex = providerWindowSql.indexOf("v_now := clock_timestamp()");
+const providerHorizonIndex = providerWindowSql.indexOf("transport_started_at + interval '23 hours'");
+if (!providerWindowSql.includes("returns text")
+  || consentAuthorizationIndex < 0
+  || lockedLedgerIndex <= consentAuthorizationIndex
+  || databaseClockIndex <= lockedLedgerIndex
+  || providerHorizonIndex <= databaseClockIndex
+  || !providerWindowSql.includes("return 'cancelled'")
+  || !providerWindowSql.includes("return 'expired'")
+  || !providerWindowSql.includes("return 'authorized'")
+  || !providerWindowSql.includes("interval '30 seconds'")) {
+  throw new Error("Migration 030 final database authorization must recheck consent, lock the claim, then validate its database-clock provider horizon.");
 }
+console.log("PASS: Migration 030 final database authorization order and text status contract");
 if (!compactMigration.includes("p_provider_result_idisnull")
   || !compactMigration.includes("char_length(p_provider_result_id)<>36")
   || !compactMigration.includes("p_provider_result_id<>btrim(p_provider_result_id)")
@@ -273,10 +284,57 @@ if (!deliveryRunner.includes("authorizeProviderIdempotencyWindow")
   || deliveryRunner.includes("clock?:")) {
   throw new Error("Worker must delegate provider horizon and retry timing to PostgreSQL.");
 }
-if (!deliveryRuntime.includes("authorize_delivery_idempotency_window")
-  || !deliveryRuntime.includes("p_error_code: errorCode")
-  || deliveryRuntime.includes("p_retry_at")) {
-  throw new Error("Supabase runtime must call DB-authoritative RPCs without Worker timestamps.");
+const transportStartIndex = deliveryRunner.indexOf("gateway.beginTransport(job, recipient)");
+const providerAuthorizationIndex = deliveryRunner.indexOf("gateway.authorizeProviderIdempotencyWindow(job)");
+const providerSendIndex = deliveryRunner.indexOf("transport.send(job, recipient)");
+if (transportStartIndex < 0 || providerAuthorizationIndex <= transportStartIndex || providerSendIndex <= providerAuthorizationIndex) {
+  throw new Error("Final database provider authorization must run after transport start and before the external send.");
+}
+requireMatch(
+  "Final provider authorization is ordered after persisted transport start and before the external send",
+  deliveryRunner,
+  /if \(await gateway\.beginTransport\(job, recipient\) === null\) return "cancelled";[\s\S]*?const idempotencyAuthorization = await gateway\.authorizeProviderIdempotencyWindow\(job\);[\s\S]*?const outcome = await transport\.send\(job, recipient\);/,
+);
+requireMatch(
+  "Revoked consent at the final provider gate cancels without sending",
+  deliveryRunner,
+  /if \(idempotencyAuthorization === "cancelled"\) return "cancelled";/,
+);
+requireMatch(
+  "Expired provider idempotency authorization fails without sending",
+  deliveryRunner,
+  /if \(idempotencyAuthorization === "expired"\) return "failed";/,
+);
+requireMatch(
+  "Unknown provider authorization results fail closed before sending",
+  deliveryRunner,
+  /if \(idempotencyAuthorization !== "authorized"\) \{\s*throw new Error\("Provider idempotency authorization returned an unsupported result\."\);\s*\}/,
+);
+const providerWindowMethod = deliveryRuntime.match(
+  /async authorizeProviderIdempotencyWindow\([\s\S]*?\n  }\n\n  async markSent/,
+)?.[0] ?? "";
+requireMatch(
+  "Provider idempotency adapter declares the exact three-status return union",
+  providerWindowMethod,
+  /async authorizeProviderIdempotencyWindow[\s\S]*?Promise<"authorized" \| "cancelled" \| "expired">/,
+);
+requireMatch(
+  "Provider idempotency adapter calls the dedicated database RPC with claim identity",
+  providerWindowMethod,
+  /rpc\("authorize_delivery_idempotency_window",\s*\{\s*p_job_id: job\.jobId,\s*p_claim_token: job\.claimToken,\s*\}\)/,
+);
+requireMatch(
+  "Provider idempotency adapter rejects database errors and every unknown status",
+  providerWindowMethod,
+  /if \(error \|\| \(data !== "authorized" && data !== "cancelled" && data !== "expired"\)\) \{\s*fail\("authorize provider idempotency window"\);\s*\}/,
+);
+requireMatch(
+  "Provider idempotency adapter returns only the validated database status",
+  providerWindowMethod,
+  /return data;/,
+);
+if (!deliveryRuntime.includes("p_error_code: errorCode") || deliveryRuntime.includes("p_retry_at")) {
+  throw new Error("Supabase runtime must call DB-authoritative retry RPCs without Worker timestamps.");
 }
 if (!resendTransport.includes("RESEND_EMAIL_ID_PATTERN")
   || !resendTransport.includes("value === value.trim()")) {
@@ -285,7 +343,9 @@ if (!resendTransport.includes("RESEND_EMAIL_ID_PATTERN")
 if (!idempotencyTests.includes("worker_clock_two_hours_behind")
   || !idempotencyTests.includes("24 hours 1 second")
   || !idempotencyTests.includes("provider-message-123")
-  || !idempotencyTests.includes("missing transport-start evidence")) {
+  || !idempotencyTests.includes("missing transport-start evidence")
+  || !idempotencyTests.includes("pg_get_function_result(to_regprocedure('public.authorize_delivery_idempotency_window(uuid,uuid)')) is distinct from 'text'")
+  || !idempotencyTests.includes("Final provider gate failed to recheck revoked newsletter consent.")) {
   throw new Error("Migration 030 PostgreSQL regression coverage is incomplete.");
 }
 if (!migrationOrderTest.includes("C226 deliberate source drift")
@@ -295,6 +355,9 @@ if (!migrationOrderTest.includes("C226 deliberate source drift")
 }
 if (!transportTests.includes("database-authoritative idempotency expiry")
   || !transportTests.includes("final provider gate cancels when consent is revoked")
+  || !transportTests.includes("provider idempotency RPC validates exact status union and fails closed")
+  || !transportTests.includes("final provider gate fails closed for cancelled and expired authorization")
+  || !transportTests.includes("unsupported provider authorization result fails closed before provider send")
   || !transportTests.includes("retry and provider-window RPCs never trust a Worker timestamp")
   || !transportTests.includes("canonical UUIDs")) {
   throw new Error("Transport tests must cover DB-authoritative timing and Resend receipt validation.");

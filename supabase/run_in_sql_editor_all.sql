@@ -6999,7 +6999,7 @@ commit;
 
 -- Make provider idempotency timing database-authoritative and validate Resend receipts.
 begin;
-do $
+do $$
 begin
   if to_regprocedure('public.begin_delivery_transport(uuid,uuid,text)') is null
     or to_regprocedure('public.retry_delivery_job(uuid,uuid,timestamptz,text)') is null
@@ -7009,7 +7009,7 @@ begin
     raise exception 'Migration 030 requires recipient-bound transport, persisted transport start, and migration-028 transitions.';
   end if;
 end;
-$;
+$$;
 
 drop function if exists public.authorize_delivery_idempotency_window(uuid,uuid);
 create function public.authorize_delivery_idempotency_window(p_job_id uuid,p_claim_token uuid)
@@ -7116,8 +7116,7 @@ begin
   end if;
   if p_provider_result_id is null or char_length(p_provider_result_id)<>36
     or p_provider_result_id<>btrim(p_provider_result_id)
-    or p_provider_result_id !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
- then
+    or p_provider_result_id !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
     raise exception 'A valid Resend email identifier is required.' using errcode='22023';
   end if;
   update public.delivery_ledger set state='sent',sent_at=clock_timestamp(),claim_token=null,claim_expires_at=null,

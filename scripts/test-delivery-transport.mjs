@@ -559,15 +559,91 @@ test("final provider gate cancels when consent is revoked after transport start"
   assert.deepEqual(events, ["authorize", "authorize", "begin", "idempotency-window"]);
 });
 
+test("provider idempotency RPC validates exact status union and fails closed", async () => {
+  for (const status of ["authorized", "cancelled", "expired"]) {
+    const runtime = new SupabaseDeliveryRuntime({
+      async rpc(name) {
+        assert.equal(name, "authorize_delivery_idempotency_window");
+        return { data: status, error: null };
+      },
+    });
+    assert.equal(await runtime.authorizeProviderIdempotencyWindow(job), status);
+  }
+
+  for (const invalidStatus of [true, false, null, undefined, "", "pending", { status: "authorized" }]) {
+    const runtime = new SupabaseDeliveryRuntime({
+      async rpc() {
+        return { data: invalidStatus, error: null };
+      },
+    });
+    await assert.rejects(
+      runtime.authorizeProviderIdempotencyWindow(job),
+      /Delivery database operation failed: authorize provider idempotency window/,
+    );
+  }
+
+  const erroredRuntime = new SupabaseDeliveryRuntime({
+    async rpc() {
+      return { data: "authorized", error: { message: "database authorization error" } };
+    },
+  });
+  await assert.rejects(
+    erroredRuntime.authorizeProviderIdempotencyWindow(job),
+    /Delivery database operation failed: authorize provider idempotency window/,
+  );
+});
+
+test("final provider gate fails closed for cancelled and expired authorization", async () => {
+  for (const [status, expected] of [["cancelled", "cancelled"], ["expired", "failed"]]) {
+    const { gateway, events } = fakeGateway({ idempotencyWindowResult: status });
+    let providerCalls = 0;
+    const result = await processClaimedDelivery({
+      job,
+      gateway,
+      recipientResolver: { async resolve() { return { email: "a@b.com" }; } },
+      transport: {
+        async send() {
+          providerCalls += 1;
+          throw new Error("provider transport must not run after a terminal authorization result");
+        },
+      },
+    });
+    assert.equal(result, expected);
+    assert.equal(providerCalls, 0);
+    assert.deepEqual(events, ["authorize", "authorize", "begin", "idempotency-window"]);
+  }
+});
+
+test("unsupported provider authorization result fails closed before provider send", async () => {
+  const { gateway, events } = fakeGateway({ idempotencyWindowResult: "unknown" });
+  let providerCalls = 0;
+  await assert.rejects(
+    processClaimedDelivery({
+      job,
+      gateway,
+      recipientResolver: { async resolve() { return { email: "a@b.com" }; } },
+      transport: {
+        async send() {
+          providerCalls += 1;
+          throw new Error("provider transport must not run for an unsupported authorization result");
+        },
+      },
+    }),
+    /unsupported result/,
+  );
+  assert.equal(providerCalls, 0);
+  assert.deepEqual(events, ["authorize", "authorize", "begin", "idempotency-window"]);
+});
+
 test("retry and provider-window RPCs never trust a Worker timestamp", async () => {
   const calls = [];
   const runtime = new SupabaseDeliveryRuntime({
     async rpc(name, params) {
       calls.push({ name, params });
-      return { data: true, error: null };
+      return { data: name === "authorize_delivery_idempotency_window" ? "authorized" : true, error: null };
     },
   });
-  assert.equal(await runtime.authorizeProviderIdempotencyWindow(job), true);
+  assert.equal(await runtime.authorizeProviderIdempotencyWindow(job), "authorized");
   assert.equal(await runtime.retry(job, "provider_timeout"), true);
   assert.deepEqual(calls, [
     { name: "authorize_delivery_idempotency_window", params: { p_job_id: job.jobId, p_claim_token: job.claimToken } },
