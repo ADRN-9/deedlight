@@ -39,7 +39,10 @@ for (const name of ["enqueue_due_daily_reminders", "enqueue_weekly_goodness_deli
   assert(body.includes("on conflict (kind, user_id, delivery_key) do nothing"));
 }
 
-assert(runner.includes('if (firstTransportAt === null) return "cancelled"'));
+assert(runner.includes('if (await gateway.beginTransport(job, recipient) === null) return "cancelled"'));
+assert(runner.includes("authorizeProviderIdempotencyWindow"));
+assert(runner.indexOf("authorizeProviderIdempotencyWindow") < runner.indexOf("transport.send"),
+  "provider horizon authorization must happen after consent authorization and before transport");
 assert(runner.includes('return requeued ? "retried" : "failed"'));
 assert(runtime.includes('typeof data !== "boolean"'));
 assert(types.includes("Promise<boolean>"));
