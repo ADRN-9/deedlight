@@ -60,18 +60,20 @@ Responsible owner: the GitHub repository owner/administrator for \`ADRN-9/deedli
 
 Until these administrator and technical gates are independently evidenced, Production migrations remain disabled. Non-Production database behavior tests using isolated CI services may continue.
 
-## CI evidence for the current PR #13 head
+## CI evidence
 
-The exact current PR head before this C206 documentation refresh was \`64ed94976fb952a160c45cf793e9c647ac34d8f2\` (tree \`b62d9e33312969e8ecb4c119d4e1627256591e0b\`).
+The PR #13 workflow-deletion head before the C206 documentation refresh was \`64ed94976fb952a160c45cf793e9c647ac34d8f2\` (tree \`b62d9e33312969e8ecb4c119d4e1627256591e0b\`). Both [PR Validation run 44877087042](https://github.com/ADRN-9/deedlight/actions/runs/44877087042) and [push validation run 44877083297](https://github.com/ADRN-9/deedlight/actions/runs/44877083297) failed at that exact SHA, with 3/5 jobs passing.
 
-- [PR Validation run 44877087042](https://github.com/ADRN-9/deedlight/actions/runs/44877087042): **FAILURE**, 3/5 jobs passed.
-- [Push validation run 44877083297](https://github.com/ADRN-9/deedlight/actions/runs/44877083297): **FAILURE**, 3/5 jobs passed.
-- Both runs checked out the exact same PR head SHA.
-- The \`auth_pgcrypto_database_behavior\`, \`delivery_reliability_database_behavior\`, and \`sprint12_2_database_behavior\` jobs passed.
+The C206 documentation commit \`d11f38540e5a0ad80aba923355d17dee0dd62cfc\` (tree \`bee480b0fa519d764a3ea9773bda8b3564208c78\`) was also tested at exact head:
+
+- [PR Validation run 44901467035](https://github.com/ADRN-9/deedlight/actions/runs/44901467035): **FAILURE**, 3/5 jobs passed.
+- [Push validation run 44901462535](https://github.com/ADRN-9/deedlight/actions/runs/44901462535): **FAILURE**, 3/5 jobs passed.
+- Both runs checked out the exact \`d11f38540e5a0ad80aba923355d17dee0dd62cfc\` head.
+- \`auth_pgcrypto_database_behavior\`, \`delivery_reliability_database_behavior\`, and \`sprint12_2_database_behavior\` passed.
 - \`gentle_delivery_transport_database_behavior\` failed at \`scripts/test-gentle-delivery-transport.sql:96\` with \`Delivery claim is not authorized.\`
-- \`validate\` failed at \`npm audit --audit-level=high\`: 21 vulnerabilities (12 moderate, 7 high, 2 critical). The earlier diff-integrity and security assertion steps passed; TypeScript, Next.js build, and Cloudflare packaging were skipped after the audit failure.
+- \`validate\` failed at \`npm audit --audit-level=high\`: **21 vulnerabilities (12 moderate, 7 high, 2 critical)**. Diff integrity, all listed security assertion steps, and the fake transport behavior step passed; TypeScript, Next.js build, and Cloudflare packaging were skipped after the audit failure.
 
-The failing SQL fixture and \`package-lock.json\` have identical blob SHAs on \`main\` and this PR branch, so these failures are not introduced by the two-file retirement change. They remain real merge/acceptance blockers and must not be hidden. No fresh successful CI is claimed by this documentation update.
+The failing SQL fixture and \`package-lock.json\` have identical blob SHAs on \`main\` and the PR branch. These are existing validation blockers outside the workflow-deletion/documentation scope. They remain real blockers and are not hidden or waived. No successful exact-head CI is claimed.
 
 ## Rollback and recovery expectations
 
