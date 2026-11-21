@@ -1,6 +1,6 @@
 # Production Supabase migrations temporarily disabled
 
-**Status:** Production migrations are disabled through GitHub Actions on the default branch until the repository's independent GitHub protections and historical Supabase migration reconciliation are complete.
+**Status:** Proposed by PR #13. After this PR is merged, the default branch will no longer contain a GitHub Actions Production migration workflow. Until the PR is merged, `main` still contains the legacy workflow; do not dispatch it or run Production migrations. The hotfix branch deletes that workflow until the repository's independent GitHub protections and historical Supabase migration reconciliation are complete.
 
 ## Why the workflow was removed
 
