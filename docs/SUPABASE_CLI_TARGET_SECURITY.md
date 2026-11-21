@@ -82,7 +82,20 @@ The guard inspects only the decoded top-level `experimental.stack` property. Thi
 
 Configuration discovery matches Supabase CLI 3.2.0 precedence: `config.json` first, then `config.jsonc`, then `config.toml`. Only the first existing file is parsed. A malformed selected file is an error; the guard never falls back to a lower-priority file.
 
-Regression coverage includes nested multiline inline tables, escaped quoted keys, malformed TOML, dynamic JSON/JSONC values, and competing config files that prove the CLI precedence. It also mutates the allowlist and linked identity after dry-run and verifies that neither change can reach the hosted mutation invocation.
+The Supabase CLI security suite now has **44 tests**. C204 adds the exact C201 inline-table reproducer (experimental = { pgdelta = { stack = false }, stack = true }), a nested-only pgdelta.stack = true case with top-level experimental.stack = false, and two preflight-race regressions. The race shims respectively introduce stack-enabled TOML configuration and create supabase/.link.json after dry-run; both assert that the hosted mutation invocation is never reached. The earlier allowlist and legacy linked-identity race tests remain.
+
+
+### Inherited Supabase CLI 3.2.0 parser availability advisory
+
+The pinned Supabase CLI v3.2.0 source has packages/config/package.json declaring smol-toml: ^1.8.0, and its checked-in pnpm-lock.yaml resolves that dependency to **1.8.0**. Version 1.8.0 is affected by **GHSA-r4xh-jqrq-34v2** (CWE-407, CVSS 5.3 Moderate; no CVE assigned). The defect is quadratic-time parsing: parseKey searches the remainder of the whole TOML document for a dotted-key separator on each key/table line, even when the current line has no dotted key. Ordinary valid flat-key documents can therefore take O(n²) CPU. Attacker-controlled input can synchronously stall the parser process/event loop and impair CLI or CI availability. The advisory's example reports roughly 14 seconds to parse a 2.8 MB valid document. The advisory identifies versions <=1.8.0 as affected and **1.9.0** as patched.
+
+This is an availability issue, not evidence of code execution, data disclosure, or database mutation. Exploitation requires the vulnerable parser to process attacker-controlled TOML. In this project the relevant boundary is a checked-out supabase/config.toml being parsed by the pinned CLI during a CLI operation; a malicious contribution or untrusted checkout can make that config attacker-controlled in a developer/CI workflow. The risk is conditional on the CLI actually parsing the file. The repository wrapper's smol-toml@1.9.1 development dependency fixes the wrapper's own stack-mode parser only; it does **not** replace the separately bundled smol-toml@1.8.0 inside the Supabase CLI 3.2.0 binary. A clean application npm audit is not proof that the downloaded CLI binary is free of this advisory.
+
+The upstream upgrade path is for Supabase CLI to refresh the @supabase/config lockfile resolution to smol-toml@1.9.0 or later (prefer a current patched release such as 1.9.1), validate CLI compatibility, and publish a new official CLI release. Once that release exists and its exact binary/version is verified, Deedlight can update config/supabase-cli.json and the matching pinned CI installer together. **No newer Supabase CLI release has been verified for this task, so the pinned CLI remains 3.2.0; do not guess or install a prerelease/untested CLI version.** Until upstream ships and Deedlight validates a fixed CLI, avoid running the pinned CLI against untrusted TOML checkouts, especially in environments holding credentials; keep CI credentials absent as the current workflow requires. The residual CLI-binary availability risk remains an explicit security-review item.
+
+Advisory: https://github.com/squirrelchat/smol-toml/security/advisories/GHSA-r4xh-jqrq-34v2
+Supabase CLI 3.2.0 dependency manifest: https://github.com/supabase/cli/blob/v3.2.0/packages/config/package.json
+Supabase CLI 3.2.0 dependency lock: https://github.com/supabase/cli/blob/v3.2.0/pnpm-lock.yaml
 
 ## Separate legacy Production migration workflow blocker
 

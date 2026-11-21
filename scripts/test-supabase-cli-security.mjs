@@ -674,6 +674,34 @@ test("escaped quoted TOML keys are decoded before stack-mode inspection", () => 
   });
 });
 
+
+test("C201 exact pgdelta inline-table reproducer rejects stack mode", () => {
+  withRoot((root) => {
+    writeConfig(root);
+    fs.mkdirSync(path.join(root, "supabase"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "supabase", "config.toml"),
+      "experimental = { pgdelta = { stack = false }, stack = true }\n",
+    );
+    assert.throws(
+      () => assertLegacyProjectStateMode(root, env()),
+      /stack mode is enabled/u,
+    );
+  });
+});
+
+test("nested-only experimental.stack does not override top-level false", () => {
+  withRoot((root) => {
+    writeConfig(root);
+    fs.mkdirSync(path.join(root, "supabase"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "supabase", "config.toml"),
+      "experimental = { pgdelta = { stack = true }, stack = false }\n",
+    );
+    assert.equal(assertLegacyProjectStateMode(root, env()), "legacy");
+  });
+});
+
 test("competing Supabase config files follow CLI JSON then JSONC then TOML precedence", () => {
   withRoot((root) => {
     writeConfig(root);
@@ -789,6 +817,66 @@ test("linked identity changes after dry-run block hosted mutation", () => {
         io: quietIo,
       }),
       /does not match/u,
+    );
+    assert.equal(mutationCalls, 0);
+  });
+});
+
+
+test("stack-mode config introduced after dry-run blocks hosted mutation", () => {
+  withRoot((root) => {
+    writeConfig(root);
+    writeLink(root, APPROVED);
+    const { runCli: fakeRunCli } = fakeCli(root);
+    let mutationCalls = 0;
+
+    assert.throws(
+      () => executeSupabaseMode({
+        mode: "push-non-production",
+        cwd: root,
+        env: env(),
+        runCli: (args, options) => {
+          if (args[0] === "db" && args[1] === "push" && args.includes("--dry-run")) {
+            fs.writeFileSync(
+              path.join(root, "supabase", "config.toml"),
+              "experimental = { pgdelta = { stack = false }, stack = true }\n",
+            );
+          } else if (args[0] === "db" && args[1] === "push") {
+            mutationCalls += 1;
+          }
+          return fakeRunCli(args, options);
+        },
+        io: quietIo,
+      }),
+      /stack mode is enabled/u,
+    );
+    assert.equal(mutationCalls, 0);
+  });
+});
+
+test("stack-mode link introduced after dry-run blocks hosted mutation", () => {
+  withRoot((root) => {
+    writeConfig(root);
+    writeLink(root, APPROVED);
+    const { runCli: fakeRunCli } = fakeCli(root);
+    let mutationCalls = 0;
+
+    assert.throws(
+      () => executeSupabaseMode({
+        mode: "push-non-production",
+        cwd: root,
+        env: env(),
+        runCli: (args, options) => {
+          if (args[0] === "db" && args[1] === "push" && args.includes("--dry-run")) {
+            writeStackLink(root, OTHER, APPROVED);
+          } else if (args[0] === "db" && args[1] === "push") {
+            mutationCalls += 1;
+          }
+          return fakeRunCli(args, options);
+        },
+        io: quietIo,
+      }),
+      /stack-mode link identity/u,
     );
     assert.equal(mutationCalls, 0);
   });
