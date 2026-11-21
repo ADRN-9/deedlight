@@ -47,8 +47,24 @@ jobs:
           node-version: 24
           cache: npm
 
+      - name: Setup pinned Supabase CLI
+        uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1
+        with:
+          version: 3.2.0
+
+      - name: Verify pinned Supabase CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(node -e 'process.stdout.write(JSON.parse(require("node:fs").readFileSync("config/supabase-cli.json", "utf8")).version)')"
+          actual="$(supabase --version)"
+          test "$actual" = "$expected"
+
       - name: Install dependencies
         run: npm ci
+
+      - name: Supabase CLI target security tests
+        run: npm run test:supabase-cli-security
 
       - name: Diff integrity
         run: git diff --check

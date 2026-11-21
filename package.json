@@ -10,9 +10,11 @@
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "upload": "opennextjs-cloudflare build && opennextjs-cloudflare upload",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
-    "supabase:link": "supabase link --project-ref YOUR_PROJECT_REF",
-    "supabase:push": "supabase db push",
-    "supabase:reset": "supabase db reset"
+    "supabase:link": "node scripts/supabase-cli.mjs link",
+    "supabase:push": "node scripts/supabase-cli.mjs push-local",
+    "supabase:reset": "node scripts/supabase-cli.mjs reset-local",
+    "supabase:push:nonprod": "node scripts/supabase-cli.mjs push-non-production",
+    "test:supabase-cli-security": "node --test scripts/test-supabase-cli-security.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "latest",
