@@ -28,7 +28,10 @@ do $$
 declare
   v_bad text;
   v_retry boolean;
+  v_window boolean;
   v_next timestamptz;
+  v_state text;
+  v_error text;
 begin
   if public.mark_delivery_sent('00000000-0000-0000-0000-00000000c901','00000000-0000-0000-0000-00000000d901','49a3999c-0ce1-4ea6-ab68-afcd6dc2e794') is not true then
     raise exception 'Valid Resend UUID receipt did not mark delivery sent.';
@@ -82,9 +85,18 @@ begin
     raise exception 'Expired provider idempotency retention was not terminal.';
   end if;
 
-  if public.authorize_delivery_idempotency_window('00000000-0000-0000-0000-00000000c907','00000000-0000-0000-0000-00000000d907') is not false
-    or not exists (select 1 from public.delivery_ledger where id='00000000-0000-0000-0000-00000000c907'
-      and state='failed' and error_code='provider_idempotency_window_expired') then
+  update public.delivery_ledger
+  set transport_started_at=clock_timestamp()-interval '23 hours 5 minutes'
+  where id='00000000-0000-0000-0000-00000000c907';
+  v_window := public.authorize_delivery_idempotency_window(
+    '00000000-0000-0000-0000-00000000c907',
+    '00000000-0000-0000-0000-00000000d907'
+  );
+  select state,error_code into v_state,v_error
+  from public.delivery_ledger where id='00000000-0000-0000-0000-00000000c907';
+  raise notice 'C226 pre-send gate: result %, state %, error %',v_window,v_state,v_error;
+  if v_window is distinct from false or v_state is distinct from 'failed'
+    or v_error is distinct from 'provider_idempotency_window_expired' then
     raise exception 'Pre-send provider idempotency horizon did not fail closed.';
   end if;
 end;
