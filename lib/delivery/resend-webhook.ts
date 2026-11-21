@@ -15,6 +15,8 @@ export type ResendLifecycleEventType =
   | "email.suppressed"
   | "email.failed";
 
+export type ResendSuppressionReason = "previous_bounce" | "previous_complaint";
+
 export type ResendFailureClass =
   | "invalid_recipient"
   | "provider_authentication"
@@ -31,6 +33,7 @@ export type ResendProviderEvent = {
   providerCreatedAt: string;
   bounceType: ResendBounceType | null;
   failureClass: ResendFailureClass | null;
+  suppressionReason: ResendSuppressionReason | null;
 };
 
 export type ResendWebhookParseResult =
@@ -113,6 +116,15 @@ export async function verifyResendWebhookSignature(input: {
   }
 
   return false;
+}
+
+
+export async function fingerprintResendWebhookPayload(payload: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(payload),
+  );
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function recordObject(value: unknown): Record<string, unknown> | null {
@@ -225,8 +237,43 @@ export function parseResendProviderEvent(
   let bounceType: ResendBounceType | null = null;
   if (envelope.type === "email.bounced") {
     const bounce = recordObject(data.bounce);
-    const rawType = bounce?.type;
-    bounceType = rawType === "Permanent" || rawType === "Transient" ? rawType : "Unknown";
+    const subTypes = [
+      "Undetermined",
+      "General",
+      "NoEmail",
+      "MailboxFull",
+      "MessageTooLarge",
+      "ContentRejected",
+      "AttachmentRejected",
+    ];
+    if (!bounce
+      || !Array.isArray(bounce.diagnosticCode)
+      || !bounce.diagnosticCode.every((item) => typeof item === "string")
+      || typeof bounce.message !== "string"
+      || bounce.message.trim().length === 0
+      || typeof bounce.subType !== "string"
+      || !subTypes.includes(bounce.subType)
+      || !["Permanent", "Transient", "Undetermined"].includes(String(bounce.type))) {
+      throw new Error("Invalid Resend bounce event.");
+    }
+    bounceType = bounce.type === "Permanent" || bounce.type === "Transient"
+      ? bounce.type
+      : "Unknown";
+  }
+
+  let suppressionReason: ResendSuppressionReason | null = null;
+  if (envelope.type === "email.suppressed") {
+    const suppressed = recordObject(data.suppressed);
+    if (!suppressed
+      || !Array.isArray(suppressed.diagnosticCode)
+      || !suppressed.diagnosticCode.every((item) => typeof item === "string")
+      || typeof suppressed.message !== "string"
+      || suppressed.message.trim().length === 0
+      || !["Suppressed", "OnAccountSuppressionList"].includes(String(suppressed.type))
+      || (suppressed.reason !== "previous_bounce" && suppressed.reason !== "previous_complaint")) {
+      throw new Error("Invalid Resend suppression event.");
+    }
+    suppressionReason = suppressed.reason;
   }
 
   let failureClass: ResendFailureClass | null = null;
@@ -248,6 +295,7 @@ export function parseResendProviderEvent(
       providerCreatedAt,
       bounceType,
       failureClass,
+      suppressionReason,
     },
   };
 }

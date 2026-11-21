@@ -2,6 +2,7 @@
 \ir test-delivery-consent-gates.sql
 \ir ../supabase/migrations/202611190025_delivery_provider_webhooks.sql
 \ir ../supabase/migrations/202611190026_delivery_provider_lifecycle.sql
+\ir ../supabase/migrations/202611200027_delivery_provider_integrity.sql
 
 -- Synthetic local-only users; no provider sends or Production data.
 update public.daily_reminder_preferences set daily_enabled = false;
@@ -44,6 +45,13 @@ begin
   end if;
 
   if public.record_delivery_provider_event(
+    'msg_bounce_permanent_20001', 'email.bounced', 'resend-bounce-20001',
+    'webhook-20001@example.test', 'Permanent'
+  ) is not false then
+    raise exception 'Exact duplicate provider event was not a successful no-op.';
+  end if;
+
+  if public.record_delivery_provider_event(
     'msg_bounce_transient_20002', 'email.bounced', 'resend-bounce-20002',
     'webhook-20002@example.test', 'Transient'
   ) is not true then
@@ -64,6 +72,22 @@ begin
     raise exception 'Provider suppression event was not recorded.';
   end if;
 
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_suppressed_previous_bounce', 'email.suppressed',
+    'resend-suppressed-previous-bounce', 'lifecycle-previous-bounce@example.test',
+    '2027-03-01T10:20:00Z', null, null, 'previous_bounce'
+  ) is not true then
+    raise exception 'previous_bounce suppression reason was not recorded.';
+  end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_suppressed_previous_complaint', 'email.suppressed',
+    'resend-suppressed-previous-complaint', 'lifecycle-previous-complaint@example.test',
+    '2027-03-01T10:21:00Z', null, null, 'previous_complaint'
+  ) is not true then
+    raise exception 'previous_complaint suppression reason was not recorded.';
+  end if;
+
   if public.record_delivery_provider_event(
     'msg_bounce_unknown_20005', 'email.bounced', 'resend-bounce-20005',
     'webhook-20005@example.test', 'Unknown'
@@ -74,8 +98,26 @@ begin
   if public.record_delivery_provider_event(
     'msg_bounce_permanent_20001', 'email.complained', 'different-provider-id',
     'attacker@example.test', null
-  ) is not false then
-    raise exception 'Duplicate provider event ID was processed twice.';
+  ) is not null then
+    raise exception 'Conflicting duplicate event ID was not recorded as an integrity anomaly.';
+  end if;
+
+  if (select event_type from public.delivery_provider_events
+      where event_id = 'msg_bounce_permanent_20001') <> 'email.bounced'
+    or (select provider_email_id from public.delivery_provider_events
+      where event_id = 'msg_bounce_permanent_20001') <> 'resend-bounce-20001'
+    or (select recipient_email from public.delivery_provider_events
+      where event_id = 'msg_bounce_permanent_20001') <> 'webhook-20001@example.test'
+    or (select reason from public.delivery_provider_suppressions
+      where recipient_email = 'webhook-20001@example.test') <> 'permanent_bounce'
+    or (select status from public.delivery_provider_lifecycle
+      where provider_email_id = 'resend-bounce-20001') <> 'integrity_anomaly'
+    or not exists (
+      select 1 from public.delivery_provider_integrity_anomalies
+      where event_id = 'msg_bounce_permanent_20001'
+        and anomaly_type = 'duplicate_event_id_conflict'
+    ) then
+    raise exception 'Conflicting duplicate changed original event or suppression state.';
   end if;
 
   if public.record_delivery_provider_event(
@@ -208,8 +250,11 @@ begin
     or has_table_privilege('service_role','public.delivery_provider_events','SELECT')
     or has_table_privilege('anon','public.delivery_provider_suppressions','SELECT')
     or has_table_privilege('authenticated','public.delivery_provider_suppressions','SELECT')
-    or has_table_privilege('service_role','public.delivery_provider_suppressions','SELECT') then
-    raise exception 'Provider webhook tables are directly readable.';
+    or has_table_privilege('service_role','public.delivery_provider_suppressions','SELECT')
+    or has_table_privilege('anon','public.delivery_provider_integrity_anomalies','SELECT')
+    or has_table_privilege('authenticated','public.delivery_provider_integrity_anomalies','SELECT')
+    or has_table_privilege('service_role','public.delivery_provider_integrity_anomalies','SELECT') then
+    raise exception 'Provider webhook and integrity tables are directly readable.';
   end if;
   if has_function_privilege('anon',
        'public.record_delivery_provider_event(text,text,text,text,text)','EXECUTE')
@@ -220,8 +265,9 @@ begin
     raise exception 'Provider event RPC grants regressed.';
   end if;
   if not (select relrowsecurity from pg_class where oid='public.delivery_provider_events'::regclass)
-    or not (select relrowsecurity from pg_class where oid='public.delivery_provider_suppressions'::regclass) then
-    raise exception 'Provider webhook tables must retain RLS.';
+    or not (select relrowsecurity from pg_class where oid='public.delivery_provider_suppressions'::regclass)
+    or not (select relrowsecurity from pg_class where oid='public.delivery_provider_integrity_anomalies'::regclass) then
+    raise exception 'Provider webhook and integrity tables must retain RLS.';
   end if;
 end;
 $$;
@@ -268,12 +314,12 @@ begin
   if public.record_delivery_provider_lifecycle_event(
     'evt_precedence_complaint', 'email.complained', 'resend-precedence-20003',
     'lifecycle-precedence@example.test', '2027-03-01T10:01:00Z', null, null
-  ) is not true then raise exception 'Lifecycle complaint was not recorded.'; end if;
+  ) is not null then raise exception 'Contradictory complaint after bounce was not flagged.'; end if;
 
   if public.record_delivery_provider_lifecycle_event(
     'evt_precedence_bounce_late', 'email.bounced', 'resend-precedence-20003',
     'lifecycle-precedence@example.test', '2027-03-01T10:02:00Z', 'Permanent', null
-  ) is not true then raise exception 'Late lifecycle bounce was not recorded.'; end if;
+  ) is not null then raise exception 'Contradictory late bounce was not flagged.'; end if;
 
   if public.record_delivery_provider_lifecycle_event(
     'evt_provider_suppressed', 'email.suppressed', 'resend-lifecycle-suppressed-20004',
@@ -286,9 +332,67 @@ begin
   ) is not true then raise exception 'Transient lifecycle bounce was not recorded.'; end if;
 
   if public.record_delivery_provider_lifecycle_event(
-    'evt_order_delayed_old', 'email.complained', 'resend-order-20001',
-    'lifecycle-order@example.test', '2027-03-01T10:14:00Z', null, null
-  ) is not false then raise exception 'Lifecycle replay was not idempotent.'; end if;
+    'evt_payload_fingerprint', 'email.sent', 'resend-payload-fingerprint',
+    'payload-fingerprint@example.test', '2027-03-01T10:25:00Z',
+    null, null, null, repeat('a', 64)
+  ) is not true then raise exception 'Payload fingerprint fixture was not recorded.'; end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_payload_fingerprint', 'email.sent', 'resend-payload-fingerprint',
+    'payload-fingerprint@example.test', '2027-03-01T10:25:00Z',
+    null, null, null, repeat('a', 64)
+  ) is not false then raise exception 'Exact payload fingerprint replay was not a no-op.'; end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_payload_fingerprint', 'email.sent', 'resend-payload-fingerprint',
+    'payload-fingerprint@example.test', '2027-03-01T10:25:00Z',
+    null, null, null, repeat('b', 64)
+  ) is not null then raise exception 'Payload fingerprint conflict was not recorded as an integrity anomaly.'; end if;
+
+  if (select payload_fingerprint from public.delivery_provider_events
+      where event_id = 'evt_payload_fingerprint') <> repeat('a', 64)
+    or not exists (
+      select 1 from public.delivery_provider_integrity_anomalies
+      where event_id = 'evt_payload_fingerprint'
+        and anomaly_type = 'duplicate_event_id_conflict'
+    ) then
+    raise exception 'Payload fingerprint conflict replaced the original event.';
+  end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_terminal_delivered_first', 'email.delivered', 'resend-terminal-delivered-first',
+    'terminal-delivered-first@example.test', '2027-03-01T10:30:00Z', null, null
+  ) is not true then raise exception 'Delivered-first terminal fixture failed.'; end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_terminal_bounce_after', 'email.bounced', 'resend-terminal-delivered-first',
+    'terminal-delivered-first@example.test', '2027-03-01T10:31:00Z', 'Permanent', null
+  ) is not null then raise exception 'Delivered then bounced was not flagged.'; end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_terminal_bounce_first', 'email.bounced', 'resend-terminal-bounced-first',
+    'terminal-bounced-first@example.test', '2027-03-01T10:40:00Z', 'Permanent', null
+  ) is not true then raise exception 'Bounced-first terminal fixture failed.'; end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_terminal_delivered_after', 'email.delivered', 'resend-terminal-bounced-first',
+    'terminal-bounced-first@example.test', '2027-03-01T10:41:00Z', null, null
+  ) is not null then raise exception 'Bounced then delivered was not flagged.'; end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_precedence_complaint_first', 'email.complained', 'resend-precedence-reverse',
+    'lifecycle-precedence-reverse@example.test', '2027-03-01T10:50:00Z', null, null
+  ) is not true then raise exception 'Complaint-first fixture failed.'; end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_precedence_bounce_after', 'email.bounced', 'resend-precedence-reverse',
+    'lifecycle-precedence-reverse@example.test', '2027-03-01T10:51:00Z', 'Permanent', null
+  ) is not null then raise exception 'Complaint then bounce was not flagged.'; end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_order_delayed_old', 'email.delivery_delayed', 'resend-order-20001',
+    'lifecycle-order@example.test', '2027-03-01T10:04:00Z', null, null
+  ) is not false then raise exception 'Exact lifecycle replay was not an idempotent no-op.'; end if;
 
   begin
     perform public.record_delivery_provider_lifecycle_event(
@@ -335,8 +439,13 @@ begin
     raise exception 'Normalized email.failed classification was not persisted.';
   end if;
   if (select status from public.delivery_provider_lifecycle
-      where provider_email_id = 'resend-precedence-20003') <> 'email.complained' then
-    raise exception 'Complaint lifecycle evidence was regressed by a later bounce.';
+      where provider_email_id = 'resend-precedence-20003') <> 'integrity_anomaly'
+    or not exists (
+      select 1 from public.delivery_provider_integrity_anomalies
+      where event_id = 'evt_precedence_complaint'
+        and anomaly_type = 'contradictory_terminal_outcome'
+    ) then
+    raise exception 'Contradictory bounce/complaint lifecycle was not marked as an integrity anomaly.';
   end if;
   if (select reason from public.delivery_provider_suppressions
       where recipient_email = 'lifecycle-precedence@example.test') <> 'complaint' then
@@ -359,6 +468,30 @@ begin
       and status = 'email.bounced'
   ) then
     raise exception 'Transient bounce lifecycle evidence was not persisted.';
+  end if;
+  if (select reason from public.delivery_provider_suppressions
+      where recipient_email = 'lifecycle-previous-bounce@example.test') <> 'permanent_bounce'
+    or (select reason from public.delivery_provider_suppressions
+      where recipient_email = 'lifecycle-previous-complaint@example.test') <> 'complaint' then
+    raise exception 'Resend nested suppression reasons were not mapped to the correct suppression classes.';
+  end if;
+  if (select status from public.delivery_provider_lifecycle
+      where provider_email_id = 'resend-terminal-delivered-first') <> 'integrity_anomaly'
+    or (select count(*) from public.delivery_provider_events
+      where provider_email_id = 'resend-terminal-delivered-first') <> 2 then
+    raise exception 'Delivered-then-bounced terminal conflict was not retained and flagged.';
+  end if;
+  if (select status from public.delivery_provider_lifecycle
+      where provider_email_id = 'resend-terminal-bounced-first') <> 'integrity_anomaly'
+    or (select count(*) from public.delivery_provider_events
+      where provider_email_id = 'resend-terminal-bounced-first') <> 2 then
+    raise exception 'Bounced-then-delivered terminal conflict was not retained and flagged.';
+  end if;
+  if (select reason from public.delivery_provider_suppressions
+      where recipient_email = 'lifecycle-precedence-reverse@example.test') <> 'complaint'
+    or (select status from public.delivery_provider_lifecycle
+      where provider_email_id = 'resend-precedence-reverse') <> 'integrity_anomaly' then
+    raise exception 'Complaint precedence was not preserved for reverse-order contradictory outcomes.';
   end if;
   if exists (select 1 from public.delivery_provider_suppressions
       where recipient_email in (
@@ -396,8 +529,28 @@ begin
     or has_function_privilege('authenticated',
        'public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text)','EXECUTE')
     or not has_function_privilege('service_role',
-       'public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text)','EXECUTE') then
+       'public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text)','EXECUTE')
+    or has_function_privilege('anon',
+       'public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text)','EXECUTE')
+    or has_function_privilege('authenticated',
+       'public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text)','EXECUTE')
+    or not has_function_privilege('service_role',
+       'public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text)','EXECUTE')
+    or has_function_privilege('anon',
+       'public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)','EXECUTE')
+    or has_function_privilege('authenticated',
+       'public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)','EXECUTE')
+    or not has_function_privilege('service_role',
+       'public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)','EXECUTE') then
     raise exception 'Provider lifecycle RPC grants regressed.';
+  end if;
+  if not exists (
+    select 1 from pg_attribute
+    where attrelid = 'public.delivery_provider_events'::regclass
+      and attnum > 0 and not attisdropped
+      and attname = 'payload_fingerprint'
+  ) then
+    raise exception 'Provider event payload fingerprint column is missing.';
   end if;
   if exists (
     select 1 from pg_attribute
@@ -421,6 +574,10 @@ $lifecycle$;
 
 select jsonb_build_object(
   'provider_event_dedupe','pass',
+  'payload_fingerprint_idempotency','pass',
+  'conflicting_duplicate_integrity_anomaly','pass',
+  'resend_suppression_reason_mapping','pass',
+  'contradictory_terminal_outcomes','pass',
   'permanent_bounce_suppression','pass',
   'transient_bounce_not_suppressed','pass',
   'complaint_and_provider_suppression','pass',

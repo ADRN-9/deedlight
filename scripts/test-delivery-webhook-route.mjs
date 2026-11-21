@@ -21,7 +21,12 @@ function eventPayload() {
       email_id: "resend_email_route_fixture_01",
       to: ["Member@Example.test"],
       tags: { application: "deedlight" },
-      bounce: { type: "Permanent" },
+      bounce: {
+        diagnosticCode: [],
+        message: "The recipient server rejected the message.",
+        subType: "General",
+        type: "Permanent",
+      },
     },
   });
 }
@@ -32,6 +37,14 @@ function lifecyclePayload(type) {
   if (type === "email.failed") {
     delete payload.data.bounce;
     payload.data.failed = { reason: "reached_daily_quota" };
+  } else if (type === "email.suppressed") {
+    delete payload.data.bounce;
+    payload.data.suppressed = {
+      diagnosticCode: [],
+      message: "Resend suppressed the address.",
+      reason: "previous_bounce",
+      type: "OnAccountSuppressionList",
+    };
   } else if (type !== "email.bounced") {
     delete payload.data.bounce;
   }
@@ -208,10 +221,21 @@ test("persists all seven lifecycle event types through one database RPC and neve
     const body = JSON.parse(calls[0].body);
     assert.equal(body.p_event_type, type);
     assert.equal(body.p_provider_created_at, "2026-11-19T00:00:00.000Z");
+    assert.equal(body.p_suppression_reason, type === "email.suppressed" ? "previous_bounce" : null);
+    assert.match(body.p_payload_fingerprint, /^[a-f0-9]{64}$/);
     if (type === "email.failed") {
       assert.equal(body.p_failure_class, "quota_exceeded");
       assert.equal(body.p_failure_reason, undefined);
       assert.equal(calls[0].body.includes("reached_daily_quota"), false);
     }
   }
+});
+
+
+test("returns 503 for a persisted integrity anomaly instead of acknowledging it as a duplicate", async () => {
+  const { response, calls } = await invoke(eventPayload(), {
+    databaseBody: "null",
+  });
+  assert.equal(response.status, 503);
+  assert.equal(calls.length, 1);
 });

@@ -2,7 +2,7 @@
 
 ## Scope
 
-Migration 025 established authenticated bounce/complaint suppression and the shared suppression/transport lock. Additive migration 026 extends the server-only `POST /api/webhooks/resend` route to persist all seven delivery lifecycle events: `email.sent`, `email.delivered`, `email.delivery_delayed`, `email.bounced`, `email.complained`, `email.suppressed`, and `email.failed`. It does not activate outbound delivery, configure a Production webhook, or send messages.
+Migration 025 established authenticated bounce/complaint suppression and the shared suppression/transport lock. Additive migration 026 extends the server-only `POST /api/webhooks/resend` route to persist all seven delivery lifecycle events. Additive migration 027 adds full-payload idempotency fingerprints, private integrity-anomaly recording, and normalized Resend suppression reasons: `email.sent`, `email.delivered`, `email.delivery_delayed`, `email.bounced`, `email.complained`, `email.suppressed`, and `email.failed`. It does not activate outbound delivery, configure a Production webhook, or send messages.
 
 ## Provider configuration (human-only)
 
@@ -23,13 +23,14 @@ Do not put the signing secret in `NEXT_PUBLIC_*`, source control, client configu
 - Timestamps more than five minutes in the past or future are rejected.
 - The request body is streamed with a 64 KiB maximum.
 - Only sends tagged `application=deedlight` are processed; unrelated Resend events are acknowledged without changing Deedlight data.
-- The provider event ID is the database primary key. Replays are idempotent no-ops, including concurrent duplicate deliveries.
-- Provider `created_at` is preserved as `provider_created_at`; `received_at` is assigned by PostgreSQL at receipt. Raw webhook bodies and provider diagnostics are not stored.
+- The provider event ID is the database primary key. Exact signed-body replays are idempotent no-ops, including concurrent duplicate deliveries. A reused event ID with a different payload records an integrity anomaly, preserves the original event and suppression state, and returns a retryable failure.
+- A SHA-256 fingerprint of the exact signed request body supports full-payload comparison. The digest is stored; raw webhook bodies and provider diagnostics are not.
+- Provider `created_at` is preserved as `provider_created_at`; `received_at` is assigned by PostgreSQL at receipt.
 - Invalid signatures return 401, malformed signed payloads return 400, oversized bodies return 413, and missing server configuration or database failures return 503 so the provider can retry.
 
 ## Lifecycle and ordering
 
-The lifecycle projection is keyed by Resend's provider email ID. Events are retained individually, while the projection advances monotonically by evidence rank: sent, delayed, failed, bounced, suppressed, delivered, then complained. Equal-rank events use provider timestamp and event ID as deterministic tie-breakers. Consequently, a late `email.sent`, `email.delivery_delayed`, or `email.failed` event cannot replace delivered/complaint evidence. Provider timestamps and database receipt timestamps remain available per event. The legacy 025 service-role RPC remains as a compatibility wrapper for its original three event types; because that signature has no provider timestamp parameter, it records database receipt time in that legacy path. The webhook route uses the 026 RPC and the actual provider event timestamp.
+The lifecycle projection is keyed by Resend's provider email ID. Events are retained individually, while the projection advances monotonically by evidence rank. A delayed event may legitimately arrive after delivery and cannot regress the projection. A complaint after delivery is also valid later evidence. Incompatible terminal outcomes (including delivered/bounced, delivered/failed, and delivered/suppressed) are retained in event history, recorded in a private integrity-anomaly table, and projected as `integrity_anomaly` rather than successful delivery. Reused event IDs with conflicting payloads also mark the original lifecycle projection anomalous without replacing the original event or changing its suppression. The legacy 025 service-role RPC remains as a compatibility wrapper for its original three event types; because that signature has no provider timestamp parameter, it records database receipt time in that legacy path. The webhook route uses the 027 RPC and the actual provider event timestamp.
 
 `email.delivery_delayed` is informational. Resend retries deferred delivery itself; Deedlight does not resend, reset a retry, reset a claim, or re-enqueue in response to any lifecycle event. `email.failed` is recorded with one normalized class only: `invalid_recipient`, `provider_authentication`, `domain_verification`, `quota_exceeded`, `content_rejected`, or `unknown`. Raw failure reasons, bounce diagnostics, message content and raw payloads are not persisted.
 
@@ -37,7 +38,8 @@ The lifecycle projection is keyed by Resend's provider email ID. Events are reta
 
 - Permanent and unknown bounces suppress the normalized recipient address.
 - Transient bounces are recorded but do not suppress future deliveries.
-- Complaints and provider-level suppressions suppress the address.
+- Complaints suppress the address.
+- Resend `email.suppressed` events require the provider-shaped `data.suppressed` object. `previous_complaint` maps to complaint suppression; `previous_bounce` maps to permanent-bounce suppression.
 - A complaint takes precedence over a permanent bounce regardless of event arrival order.
 - Suppression is address-scoped, not account-scoped. If the member later changes their Auth email address, the old address suppression does not block the new address.
 - Suppressed recipients are excluded before daily/weekly batch limits and are checked again in the final transport authorization RPC.
@@ -45,7 +47,7 @@ The lifecycle projection is keyed by Resend's provider email ID. Events are reta
 
 ## Privacy and database boundary
 
-Migration 025's private event and suppression tables remain inaccessible through direct grants, including to `service_role`. Migration 026 adds a private lifecycle table with RLS enabled and no direct grants to `public`, `anon`, `authenticated`, or `service_role`. The service-role-only SECURITY DEFINER lifecycle RPC stores normalized classifications, not recipient addresses or raw provider diagnostics, in the lifecycle projection. The existing event table retains normalized recipient addresses only for suppression/transport safety and remains unreadable except inside its narrow database functions.
+Migration 025's private event and suppression tables remain inaccessible through direct grants, including to `service_role`. Migration 026 adds a private lifecycle table, and migration 027 adds a private integrity-anomaly table; both have RLS enabled and no direct grants to `public`, `anon`, `authenticated`, or `service_role`. The service-role-only SECURITY DEFINER lifecycle RPC stores normalized classifications, not recipient addresses or raw provider diagnostics, in the lifecycle projection. The existing event table retains normalized recipient addresses only for suppression/transport safety and remains unreadable except inside its narrow database functions.
 
 The lifecycle RPC does not read or mutate `delivery_ledger`, queue state, claim tokens, retry counters, or scheduler state. It cannot initiate an outbound send. Suppression records are not automatically removed; clearing one requires an independently reviewed operational decision and confirmation that the address is safe to contact.
 

@@ -3,6 +3,7 @@ import { createHmac } from "node:crypto";
 import test from "node:test";
 
 import {
+  fingerprintResendWebhookPayload,
   parseResendProviderEvent,
   verifyResendWebhookSignature,
 } from "../lib/delivery/resend-webhook.ts";
@@ -28,20 +29,41 @@ function signed(payload, options = {}) {
 }
 
 function event(type, data = {}) {
+  const eventData = {
+    email_id: "resend_email_fixture_01",
+    to: ["Member@Example.test"],
+    tags: { application: "deedlight" },
+    ...(type === "email.bounced" ? {
+      bounce: {
+        diagnosticCode: [],
+        message: "The recipient server rejected the message.",
+        subType: "General",
+        type: "Permanent",
+      },
+    } : {}),
+    ...(type === "email.suppressed" ? {
+      suppressed: {
+        diagnosticCode: [],
+        message: "The address is on the suppression list.",
+        reason: "previous_bounce",
+        type: "Suppressed",
+      },
+    } : {}),
+    ...(type === "email.failed" ? {
+      failed: { reason: "reached_daily_quota" },
+    } : {}),
+    ...data,
+  };
+
   return {
     type,
     created_at: "2026-11-19T00:00:00.000Z",
-    data: {
-      email_id: "resend_email_fixture_01",
-      to: ["Member@Example.test"],
-      tags: { application: "deedlight" },
-      ...data,
-    },
+    data: eventData,
   };
 }
 
 test("verifies the raw Svix HMAC signature", async () => {
-  const payload = JSON.stringify(event("email.bounced", { bounce: { type: "Permanent" } }));
+  const payload = JSON.stringify(event("email.bounced", { bounce: { diagnosticCode: [], message: "Rejected by recipient server.", subType: "General", type: "Permanent" } }));
   assert.equal(await verifyResendWebhookSignature({
     payload,
     headers: signed(payload),
@@ -63,7 +85,7 @@ test("accepts a valid v1 signature among rotated signature candidates", async ()
 });
 
 test("rejects modified payloads, wrong secrets and malformed signatures", async () => {
-  const payload = JSON.stringify(event("email.bounced", { bounce: { type: "Permanent" } }));
+  const payload = JSON.stringify(event("email.bounced", { bounce: { diagnosticCode: [], message: "Rejected by recipient server.", subType: "General", type: "Permanent" } }));
   const headers = signed(payload);
   assert.equal(await verifyResendWebhookSignature({
     payload: payload + " ",
@@ -106,7 +128,7 @@ test("rejects stale and future timestamps outside the five-minute window", async
 });
 
 test("rejects missing, malformed and oversized signing metadata", async () => {
-  const payload = JSON.stringify(event("email.bounced", { bounce: { type: "Permanent" } }));
+  const payload = JSON.stringify(event("email.bounced", { bounce: { diagnosticCode: [], message: "Rejected by recipient server.", subType: "General", type: "Permanent" } }));
   const headers = signed(payload);
   for (const candidate of [
     { ...headers, id: "" },
@@ -132,7 +154,7 @@ test("rejects missing, malformed and oversized signing metadata", async () => {
 
 test("parses permanent bounce and normalizes the recipient", () => {
   const parsed = parseResendProviderEvent(
-    event("email.bounced", { to: [" Member@Example.test "], bounce: { type: "Permanent" } }),
+    event("email.bounced", { to: [" Member@Example.test "], bounce: { diagnosticCode: [], message: "Rejected by recipient server.", subType: "General", type: "Permanent" } }),
     id,
   );
   assert.deepEqual(parsed, {
@@ -145,13 +167,14 @@ test("parses permanent bounce and normalizes the recipient", () => {
       providerCreatedAt: "2026-11-19T00:00:00.000Z",
       bounceType: "Permanent",
       failureClass: null,
+      suppressionReason: null,
     },
   });
 });
 
 test("transient bounces are distinguished from permanent bounces", () => {
   const parsed = parseResendProviderEvent(
-    event("email.bounced", { bounce: { type: "Transient" } }),
+    event("email.bounced", { bounce: { diagnosticCode: [], message: "Temporary recipient failure.", subType: "MailboxFull", type: "Transient" } }),
     id,
   );
   assert.equal(parsed.status, "accepted");
@@ -170,6 +193,7 @@ test("complaints and provider suppressions are recognized", () => {
   if (suppressed.status === "accepted") {
     assert.equal(suppressed.event.eventType, "email.suppressed");
     assert.equal(suppressed.event.bounceType, null);
+    assert.equal(suppressed.event.suppressionReason, "previous_bounce");
   }
 });
 
@@ -185,26 +209,33 @@ test("unknown event types and other application tags are ignored", () => {
 
 test("malformed Deedlight delivery events fail closed", () => {
   for (const payload of [
-    event("email.bounced", { to: ["one@example.test", "two@example.test"], bounce: { type: "Permanent" } }),
-    event("email.bounced", { email_id: "", bounce: { type: "Permanent" } }),
-    event("email.bounced", { to: ["not-an-email"], bounce: { type: "Permanent" } }),
+    event("email.bounced", { to: ["one@example.test", "two@example.test"], bounce: { diagnosticCode: [], message: "Rejected by recipient server.", subType: "General", type: "Permanent" } }),
+    event("email.bounced", { email_id: "", bounce: { diagnosticCode: [], message: "Rejected by recipient server.", subType: "General", type: "Permanent" } }),
+    event("email.bounced", { to: ["not-an-email"], bounce: { diagnosticCode: [], message: "Rejected by recipient server.", subType: "General", type: "Permanent" } }),
   ]) {
     assert.throws(() => parseResendProviderEvent(payload, id));
   }
 });
 
 test("unknown bounce classification is preserved for fail-closed suppression", () => {
-  const parsed = parseResendProviderEvent(event("email.bounced"), id);
+  const parsed = parseResendProviderEvent(event("email.bounced", {
+    bounce: {
+      diagnosticCode: [],
+      message: "Provider could not classify the bounce.",
+      subType: "Undetermined",
+      type: "Undetermined",
+    },
+  }), id);
   assert.equal(parsed.status, "accepted");
   if (parsed.status === "accepted") assert.equal(parsed.event.bounceType, "Unknown");
 });
 
-test("accepts all seven lifecycle events and preserves provider event timestamps", () => {
+test("accepts provider-shaped fixtures for all seven lifecycle events", () => {
   const cases = [
     ["email.sent", {}],
     ["email.delivered", {}],
     ["email.delivery_delayed", {}],
-    ["email.bounced", { bounce: { type: "Permanent" } }],
+    ["email.bounced", {}],
     ["email.complained", {}],
     ["email.suppressed", {}],
     ["email.failed", { failed: { reason: "reached_daily_quota" } }],
@@ -215,6 +246,7 @@ test("accepts all seven lifecycle events and preserves provider event timestamps
     if (parsed.status === "accepted") {
       assert.equal(parsed.event.eventType, type);
       assert.equal(parsed.event.providerCreatedAt, "2026-11-19T00:00:00.000Z");
+      assert.equal(parsed.event.suppressionReason, type === "email.suppressed" ? "previous_bounce" : null);
     }
   }
 });
@@ -254,15 +286,73 @@ test("rejects missing or malformed provider event timestamps", () => {
 });
 
 test("failed lifecycle events require a reason and event-specific metadata stays isolated", () => {
-  assert.throws(() => parseResendProviderEvent(event("email.failed"), id));
+  assert.throws(() => parseResendProviderEvent(event("email.failed", { failed: undefined }), id));
   const sent = parseResendProviderEvent(event("email.sent", {
     failed: { reason: "daily quota reached" },
   }), id);
   const delivered = parseResendProviderEvent(event("email.delivered", {
-    bounce: { type: "Permanent" },
+    bounce: { diagnosticCode: [], message: "Rejected by recipient server.", subType: "General", type: "Permanent" },
   }), id);
   assert.equal(sent.status, "accepted");
   assert.equal(delivered.status, "accepted");
   if (sent.status === "accepted") assert.equal(sent.event.failureClass, null);
   if (delivered.status === "accepted") assert.equal(delivered.event.bounceType, null);
+});
+
+
+test("maps both Resend suppression reasons without retaining provider diagnostics", () => {
+  for (const [reason, expected] of [
+    ["previous_bounce", "previous_bounce"],
+    ["previous_complaint", "previous_complaint"],
+  ]) {
+    const parsed = parseResendProviderEvent(event("email.suppressed", {
+      suppressed: {
+        diagnosticCode: ["smtp; 550 suppression"],
+        message: "Resend suppressed this address.",
+        reason,
+        type: "OnAccountSuppressionList",
+      },
+    }), id);
+    assert.equal(parsed.status, "accepted");
+    if (parsed.status === "accepted") {
+      assert.equal(parsed.event.suppressionReason, expected);
+      assert.equal(JSON.stringify(parsed).includes("smtp; 550"), false);
+      assert.equal(JSON.stringify(parsed).includes("Resend suppressed"), false);
+    }
+  }
+});
+
+test("rejects missing or malformed bounce and suppression objects", () => {
+  for (const payload of [
+    event("email.bounced", { bounce: undefined }),
+    event("email.bounced", { bounce: { type: "Permanent" } }),
+    event("email.bounced", { bounce: {
+      diagnosticCode: [],
+      message: "Rejected.",
+      subType: "NotAProviderSubtype",
+      type: "Permanent",
+    } }),
+    event("email.suppressed", { suppressed: undefined }),
+    event("email.suppressed", { suppressed: {
+      diagnosticCode: [],
+      message: "Suppressed.",
+      type: "Suppressed",
+    } }),
+    event("email.suppressed", { suppressed: {
+      diagnosticCode: [],
+      message: "Suppressed.",
+      reason: "manual",
+      type: "Suppressed",
+    } }),
+  ]) {
+    assert.throws(() => parseResendProviderEvent(payload, id));
+  }
+});
+
+test("computes a stable SHA-256 fingerprint of the exact signed webhook body", async () => {
+  const payload = JSON.stringify(event("email.bounced"));
+  const fingerprint = await fingerprintResendWebhookPayload(payload);
+  assert.match(fingerprint, /^[a-f0-9]{64}$/);
+  assert.equal(await fingerprintResendWebhookPayload(payload), fingerprint);
+  assert.notEqual(await fingerprintResendWebhookPayload(payload + " "), fingerprint);
 });

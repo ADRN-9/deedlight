@@ -21,7 +21,7 @@ wait_for_marker() {
   return 1
 }
 
-# Two concurrent deliveries with the same Svix ID must persist only once.
+# A concurrent conflicting payload under the same Svix ID is an integrity anomaly.
 "${psql_cmd[@]}" >"$tmp/duplicate-first.log" 2>&1 <<'SQL' &
 begin;
 set role service_role;
@@ -38,12 +38,72 @@ duplicate_pid=$!
 wait_for_marker "$duplicate_pid" "$tmp/duplicate-first.log" "DUPLICATE_EVENT_LOCK_HELD"
 "${psql_cmd[@]}" -Atc "set role service_role; select public.record_delivery_provider_lifecycle_event('evt_concurrent_duplicate','email.complained','resend-concurrent-duplicate','concurrent-duplicate@example.test','2027-03-02T10:01:00Z',null,null); reset role;" >"$tmp/duplicate-result"
 wait "$duplicate_pid"
-grep -qx 'f' "$tmp/duplicate-result"
+duplicate_result="$(cat "$tmp/duplicate-result")"
+[[ -z "$duplicate_result" ]]
 count="$("${psql_cmd[@]}" -Atc "select count(*) from public.delivery_provider_events where event_id='evt_concurrent_duplicate'")"
 [[ "$count" == "1" ]]
 suppression="$("${psql_cmd[@]}" -Atc "select count(*) from public.delivery_provider_suppressions where recipient_email='concurrent-duplicate@example.test'")"
 [[ "$suppression" == "0" ]]
-echo "Concurrent duplicate event idempotency: PASS"
+event_type="$(${psql_cmd[@]} -Atc "select event_type from public.delivery_provider_events where event_id='evt_concurrent_duplicate'")"
+[[ "$event_type" == "email.sent" ]]
+anomaly="$(${psql_cmd[@]} -Atc "select count(*) from public.delivery_provider_integrity_anomalies where event_id='evt_concurrent_duplicate' and anomaly_type='duplicate_event_id_conflict'")"
+[[ "$anomaly" == "1" ]]
+status="$(${psql_cmd[@]} -Atc "select status from public.delivery_provider_lifecycle where provider_email_id='resend-concurrent-duplicate'")"
+[[ "$status" == "integrity_anomaly" ]]
+echo "Concurrent conflicting duplicate integrity anomaly: PASS"
+
+
+# Conflicting terminal outcomes are retained but never projected as delivered.
+for order in delivered-first bounced-first; do
+  if [[ "$order" == "delivered-first" ]]; then
+    first_type="email.delivered"
+    first_id="evt_concurrent_terminal_delivered"
+    first_time="2027-03-02T11:00:00Z"
+    first_bounce="null"
+    second_type="email.bounced"
+    second_id="evt_concurrent_terminal_bounced"
+    second_time="2027-03-02T11:01:00Z"
+    second_bounce="'Permanent'"
+  else
+    first_type="email.bounced"
+    first_id="evt_concurrent_terminal_bounced_reverse"
+    first_time="2027-03-02T11:10:00Z"
+    first_bounce="'Permanent'"
+    second_type="email.delivered"
+    second_id="evt_concurrent_terminal_delivered_reverse"
+    second_time="2027-03-02T11:11:00Z"
+    second_bounce="null"
+  fi
+  provider_id="resend-concurrent-terminal-$order"
+  recipient="concurrent-terminal-$order@example.test"
+  log="$tmp/$order-first.log"
+  result="$tmp/$order-result"
+  "${psql_cmd[@]}" >"$log" 2>&1 <<SQL &
+begin;
+set role service_role;
+select public.record_delivery_provider_lifecycle_event(
+  '$first_id', '$first_type', '$provider_id', '$recipient',
+  '$first_time', $first_bounce, null
+);
+\echo TERMINAL_EVENT_LOCK_HELD
+select pg_sleep(2);
+commit;
+reset role;
+SQL
+  terminal_pid=$!
+  wait_for_marker "$terminal_pid" "$log" "TERMINAL_EVENT_LOCK_HELD"
+  "${psql_cmd[@]}" -Atc "set role service_role; select public.record_delivery_provider_lifecycle_event('$second_id','$second_type','$provider_id','$recipient','$second_time',$second_bounce,null); reset role;" >"$result"
+  wait "$terminal_pid"
+  terminal_result="$(cat "$result")"
+  [[ -z "$terminal_result" ]]
+  status="$(${psql_cmd[@]} -Atc "select status from public.delivery_provider_lifecycle where provider_email_id='$provider_id'")"
+  [[ "$status" == "integrity_anomaly" ]]
+  count="$(${psql_cmd[@]} -Atc "select count(*) from public.delivery_provider_events where provider_email_id='$provider_id'")"
+  [[ "$count" == "2" ]]
+  anomaly="$(${psql_cmd[@]} -Atc "select count(*) from public.delivery_provider_integrity_anomalies where event_id='$second_id' and anomaly_type='contradictory_terminal_outcome'")"
+  [[ "$anomaly" == "1" ]]
+done
+echo "Concurrent contradictory terminal outcomes in both arrival orders: PASS"
 
 # A delayed event arriving after a later delivered event cannot regress status.
 "${psql_cmd[@]}" >"$tmp/delivered-first.log" 2>&1 <<'SQL' &

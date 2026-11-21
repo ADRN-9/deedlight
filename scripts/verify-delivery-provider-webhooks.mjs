@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 const read = (path) => readFileSync(path, "utf8");
 const migration = read("supabase/migrations/202611190025_delivery_provider_webhooks.sql");
 const lifecycleMigration = read("supabase/migrations/202611190026_delivery_provider_lifecycle.sql");
+const integrityMigration = read("supabase/migrations/202611200027_delivery_provider_integrity.sql");
 const aggregate = read("supabase/run_in_sql_editor_all.sql");
 const route = read("app/api/webhooks/resend/route.ts");
 const parser = read("lib/delivery/resend-webhook.ts");
@@ -19,6 +20,7 @@ const pkg = JSON.parse(read("package.json"));
 
 assert(aggregate.includes(migration.trim()), "Migration 025 must remain mirrored in the SQL Editor aggregate");
 assert(aggregate.includes(lifecycleMigration.trim()), "Migration 026 must be mirrored verbatim in the SQL Editor aggregate");
+assert(aggregate.includes(integrityMigration.trim()), "Migration 027 must be mirrored verbatim in the SQL Editor aggregate");
 
 for (const name of [
   "delivery_provider_events",
@@ -42,6 +44,15 @@ for (const type of eventTypes) {
 assert(/add column provider_created_at timestamptz/i.test(lifecycleMigration));
 assert(/add column failure_class text/i.test(lifecycleMigration));
 assert(/create table public\.delivery_provider_lifecycle/i.test(lifecycleMigration));
+assert(/create table public\.delivery_provider_integrity_anomalies/i.test(integrityMigration));
+assert(integrityMigration.includes("duplicate_event_id_conflict"));
+assert(integrityMigration.includes("contradictory_terminal_outcome"));
+assert(integrityMigration.includes("p_payload_fingerprint"));
+assert(integrityMigration.includes("v_existing.payload_fingerprint is not distinct from p_payload_fingerprint"));
+assert(integrityMigration.includes("'previous_complaint' then 'complaint'"));
+assert(integrityMigration.includes("'previous_bounce' then 'permanent_bounce'"));
+assert(/grant execute[\s\S]*record_delivery_provider_lifecycle_event\(text, text, text, text, timestamptz, text, text, text, text\)[\s\S]*to service_role/i.test(integrityMigration));
+assert(!/raw_payload|diagnostic_code|diagnostic_message|failure_reason|provider_error/i.test(integrityMigration));
 assert(/received_at timestamptz not null/i.test(lifecycleMigration));
 assert(/revoke all privileges on table public\.delivery_provider_lifecycle\s+from public, anon, authenticated, service_role/i.test(lifecycleMigration));
 assert(/alter table public\.delivery_provider_lifecycle enable row level security/i.test(lifecycleMigration));
@@ -81,6 +92,10 @@ assert(!route.includes("NEXT_PUBLIC_RESEND_WEBHOOK_SECRET"));
 assert(route.includes('if (!/^[0-9]+$/.test(contentLength))'));
 assert(route.includes("p_provider_created_at"));
 assert(route.includes("p_failure_class"));
+assert(route.includes("p_suppression_reason"));
+assert(route.includes("p_payload_fingerprint"));
+assert(route.includes("data !== true && data !== false"));
+assert(parser.includes("fingerprintResendWebhookPayload"));
 
 for (const value of [
   "accepts numeric Content-Length and a valid Svix signature",
@@ -91,6 +106,7 @@ for (const value of [
   "rejects invalid signatures without invoking the database",
   "acknowledges replay attempts while preserving event-id idempotency",
   "returns 503 when provider-event persistence fails",
+  "returns 503 for a persisted integrity anomaly",
   "persists all seven lifecycle event types through one database RPC and never sends email",
 ]) assert(routeTests.includes(value), "Missing HTTP route regression test: " + value);
 
@@ -107,6 +123,10 @@ for (const value of [
   "email.failed",
   "providerCreatedAt",
   "normalizeFailureClass",
+  "suppressionReason",
+  "previous_bounce",
+  "previous_complaint",
+  "crypto.subtle.digest",
   "quota_exceeded",
 ]) assert(parser.includes(value), "Webhook parser missing behavior: " + value);
 
@@ -115,18 +135,27 @@ assert(scheduler.includes("deliveryScheduleKind"));
 assert(transportTests.includes("provider_http_408") || transportTests.includes("[408, 429, 500, 502, 503]"));
 assert(transportTests.includes("provider_idempotency_conflict"));
 assert(transportTests.includes("provider_idempotency_window_expired"));
-assert(tests.includes("accepts all seven lifecycle events"));
+assert(tests.includes("provider-shaped fixtures for all seven lifecycle events"));
+assert(tests.includes("maps both Resend suppression reasons"));
+assert(tests.includes("rejects missing or malformed bounce and suppression objects"));
+assert(tests.includes("computes a stable SHA-256 fingerprint"));
 assert(tests.includes("normalizes failed-event reasons without retaining provider diagnostics"));
 assert(tests.includes("rejects missing or malformed provider event timestamps"));
-assert(databaseTests.includes("Duplicate provider event ID was processed twice."));
+assert(databaseTests.includes("Conflicting duplicate event ID was not recorded as an integrity anomaly."));
+assert(databaseTests.includes("Exact duplicate provider event was not a successful no-op."));
+assert(databaseTests.includes("Payload fingerprint conflict was not recorded as an integrity anomaly."));
+assert(databaseTests.includes("Delivered then bounced was not flagged."));
+assert(databaseTests.includes("Bounced then delivered was not flagged."));
+assert(databaseTests.includes("Resend nested suppression reasons were not mapped"));
 assert(databaseTests.includes("Transient bounce incorrectly suppressed"));
 assert(databaseTests.includes("Suppressed daily recipient reached transport"));
 assert(databaseTests.includes("Complained weekly recipient reached transport"));
 assert(databaseTests.includes("Complaint did not take precedence over a permanent bounce."));
 assert(databaseTests.includes("Out-of-order event regressed delivered lifecycle evidence."));
 assert(databaseTests.includes("Lifecycle webhook mutated delivery queue, claim or retry state."));
-assert(databaseTests.includes("Provider lifecycle projection is directly readable."));
-assert(concurrencyTests.includes("Concurrent duplicate event idempotency"));
+assert(databaseTests.includes("Provider webhook and integrity tables are directly readable."));
+assert(concurrencyTests.includes("Concurrent conflicting duplicate integrity anomaly"));
+assert(concurrencyTests.includes("Concurrent contradictory terminal outcomes in both arrival orders"));
 assert(concurrencyTests.includes("Concurrent out-of-order lifecycle monotonicity"));
 assert(concurrencyTests.includes("Shared suppression-first transport authorization"));
 assert(concurrencyTests.includes("Shared transport-first suppression ordering"));
