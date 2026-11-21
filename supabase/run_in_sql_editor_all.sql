@@ -6826,7 +6826,7 @@ commit;
 -- Migration 027 remains immutable; new events require the fingerprinted 9-argument RPC.
 begin;
 
-do $
+do $c226$
 declare
   v_oid oid; v_source text; v_hash text; v_crypto_schema text;
   v_definer boolean; v_config text[]; v_language text; v_comment text;
@@ -6861,7 +6861,7 @@ begin
     raise exception 'Migration 029 refuses an unrecognized migration-027 provider lifecycle implementation.';
   end if;
 end;
-$;
+$c226$;
 
 -- Keep the reviewed 027 lifecycle implementation intact under a private name.
 -- The public canonical RPC below becomes the only entry point to this implementation.

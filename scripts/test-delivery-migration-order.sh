@@ -137,7 +137,7 @@ create table public.c226_provider_replay_fixture as
 select event_id,provider_created_at from public.delivery_provider_events
 where event_id='evt_c226_migration029_replay';
 grant select on public.c226_provider_replay_fixture to service_role;
-do $
+do $c226$
 declare v_definition text;
 begin
   select definition into v_definition from public.c226_provider_impl_snapshot;
@@ -148,7 +148,7 @@ begin
     'v_email := lower(btrim(p_recipient_email));',
     'v_email := lower(btrim(p_recipient_email)); -- C226 deliberate source drift');
 end;
-$;
+$c226$;
 SQL
 if "${psql_cmd[@]}" --file supabase/migrations/202611210029_delivery_legacy_replay_guard.sql >"$tmp/m029-negative.log" 2>&1; then
   echo "ERROR: Migration 029 accepted a drifted migration-027 implementation." >&2
@@ -160,7 +160,7 @@ if ! grep -q "Migration 029 refuses an unrecognized migration-027 provider lifec
   exit 1
 fi
 "${psql_cmd[@]}" <<'SQL'
-do $
+do $c226$
 declare v_source text;
 begin
   if to_regprocedure('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)') is null
@@ -180,9 +180,9 @@ begin
     raise exception 'Failed migration 029 did not leave the deliberate drift fixture intact.';
   end if;
 end;
-$;
+$c226$;
 set role service_role;
-do $
+do $c226$
 declare v_created timestamptz;
 begin
   select provider_created_at into v_created from public.c226_provider_replay_fixture;
@@ -198,19 +198,19 @@ begin
     raise exception 'Historical 8-, 7- or 5-argument replay changed after failed migration 029.';
   end if;
 end;
-$;
+$c226$;
 reset role;
-do $
+do $c226$
 declare v_definition text;
 begin
   select definition into v_definition from public.c226_provider_impl_snapshot;
   execute v_definition;
 end;
-$;
+$c226$;
 SQL
 "${psql_cmd[@]}" --file supabase/migrations/202611210029_delivery_legacy_replay_guard.sql >"$tmp/m029-positive.log"
 "${psql_cmd[@]}" <<'SQL'
-do $
+do $c226$
 begin
   if to_regprocedure('public._record_delivery_provider_lifecycle_event_fingerprinted_impl(text,text,text,text,timestamptz,text,text,text,text)') is null
     or has_function_privilege('anon','public._record_delivery_provider_lifecycle_event_fingerprinted_impl(text,text,text,text,timestamptz,text,text,text,text)','EXECUTE')
@@ -222,9 +222,9 @@ begin
     raise exception 'Migration 029 positive path failed its private ACL boundary.';
   end if;
 end;
-$;
+$c226$;
 set role service_role;
-do $
+do $c226$
 declare v_created timestamptz;
 begin
   select provider_created_at into v_created from public.c226_provider_replay_fixture;
@@ -240,7 +240,7 @@ begin
     raise exception 'Historical 8-, 7- or 5-argument replay changed after successful migration 029.';
   end if;
 end;
-$;
+$c226$;
 reset role;
 drop table public.c226_provider_replay_fixture;
 drop table public.c226_provider_impl_snapshot;
