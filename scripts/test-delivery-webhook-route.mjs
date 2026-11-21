@@ -103,6 +103,9 @@ async function invoke(payload, options = {}) {
       method: init?.method,
       body: String(init?.body ?? ""),
     });
+    if (options.databaseThrows) {
+      throw new TypeError("fixture database transport failure");
+    }
     const status = options.databaseStatus ?? 200;
     const body = options.databaseBody ?? "true";
     return new Response(body, {
@@ -221,6 +224,16 @@ test("returns 503 when provider-event persistence fails", async () => {
   const { response, calls } = await invoke(eventPayload(), {
     databaseStatus: 500,
     databaseBody: JSON.stringify({ message: "fixture database failure" }),
+  });
+
+  assert.equal(response.status, 503);
+  assert.equal(calls.length, 1);
+  assert.equal(await response.text(), "");
+});
+
+test("returns 503 when the database transport rejects before a response", async () => {
+  const { response, calls } = await invoke(eventPayload(), {
+    databaseThrows: true,
   });
 
   assert.equal(response.status, 503);

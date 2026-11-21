@@ -122,26 +122,32 @@ export async function POST(request: Request): Promise<Response> {
     return response(503);
   }
 
-  const client = createClient(parsedUrl.origin, serviceRoleKey, {
-    auth: {
-      autoRefreshToken: false,
-      detectSessionInUrl: false,
-      persistSession: false,
-    },
-  });
+  try {
+    const client = createClient(parsedUrl.origin, serviceRoleKey, {
+      auth: {
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+        persistSession: false,
+      },
+    });
 
-  const { data, error } = await client.rpc("record_delivery_provider_lifecycle_event", {
-    p_event_id: result.event.eventId,
-    p_event_type: result.event.eventType,
-    p_provider_email_id: result.event.providerEmailId,
-    p_recipient_email: result.event.recipientEmail,
-    p_provider_created_at: result.event.providerCreatedAt,
-    p_bounce_type: result.event.bounceType,
-    p_failure_class: result.event.failureClass,
-    p_suppression_reason: result.event.suppressionReason,
-    p_payload_fingerprint: payloadFingerprint,
-  });
+    const { data, error } = await client.rpc("record_delivery_provider_lifecycle_event", {
+      p_event_id: result.event.eventId,
+      p_event_type: result.event.eventType,
+      p_provider_email_id: result.event.providerEmailId,
+      p_recipient_email: result.event.recipientEmail,
+      p_provider_created_at: result.event.providerCreatedAt,
+      p_bounce_type: result.event.bounceType,
+      p_failure_class: result.event.failureClass,
+      p_suppression_reason: result.event.suppressionReason,
+      p_payload_fingerprint: payloadFingerprint,
+    });
 
-  if (error || (data !== true && data !== false)) return response(503);
+    if (error || (data !== true && data !== false)) return response(503);
+  } catch {
+    // Database transport failures must remain retryable and must not leak details.
+    return response(503);
+  }
+
   return response(204);
 }
