@@ -74,6 +74,9 @@ jobs:
       - name: Fail closed on high or critical dependency advisories
         run: npm audit --audit-level=high
 
+      - name: Fail closed on production dependency advisories
+        run: npm audit --omit=dev --audit-level=low
+
       - name: TypeScript check
         run: npx tsc --noEmit
 
