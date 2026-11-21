@@ -192,7 +192,9 @@ assert(transport.includes('tags: [{ name: "application", value: "deedlight" }]')
 assert(scheduler.includes("deliveryScheduleKind"));
 assert(transportTests.includes("provider_http_408") || transportTests.includes("[408, 429, 500, 502, 503]"));
 assert(transportTests.includes("provider_idempotency_conflict"));
-assert(transportTests.includes("provider_idempotency_window_expired"));
+assert(transportTests.includes("database-authoritative idempotency expiry"));
+assert(transportTests.includes("final provider gate cancels when consent is revoked"));
+assert(transportTests.includes("final provider gate fails closed for cancelled and expired authorization"));
 assert(tests.includes("provider-shaped fixtures for all seven lifecycle events"));
 assert(tests.includes("maps both Resend suppression reasons"));
 assert(tests.includes("accepts Resend's documented bounce shape without diagnosticCode"));

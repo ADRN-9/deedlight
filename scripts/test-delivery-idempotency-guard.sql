@@ -111,7 +111,7 @@ begin
   if public.begin_delivery_transport(
     '00000000-0000-0000-0000-00000000c908',
     '00000000-0000-0000-0000-00000000d908',
-    'delivery-member-2@example.test'
+    'two@example.test'
   ) is null then
     raise exception 'Consent-revocation fixture did not begin transport.';
   end if;
