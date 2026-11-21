@@ -23,8 +23,8 @@ Do not put the signing secret in `NEXT_PUBLIC_*`, source control, client configu
 - Timestamps more than five minutes in the past or future are rejected.
 - The request body is streamed with a 64 KiB maximum.
 - Only sends tagged `application=deedlight` are processed; unrelated Resend events are acknowledged without changing Deedlight data.
-- The provider event ID is the database primary key. Exact signed-body replays are idempotent no-ops, including concurrent duplicate deliveries. A reused event ID with a different payload records an integrity anomaly, preserves the original event and suppression state, and returns a retryable failure.
-- A SHA-256 fingerprint of the exact signed request body supports full-payload comparison. The digest is stored; raw webhook bodies and provider diagnostics are not.
+- The provider event ID is the database primary key. Exact signed-body replays are idempotent no-ops, including concurrent duplicate deliveries. A reused event ID with conflicting normalized fields, or different fingerprints when both are present, records an integrity anomaly, preserves the original event and suppression state, and returns a retryable failure.
+- A SHA-256 fingerprint of the exact signed request body supports full-payload comparison for events that have one. Rows created before migration 027 and trusted legacy RPC calls may have no fingerprint (and historical suppression rows may have no normalized suppression reason). For those rows, the RPC compares every field available to the older schema and treats missing new metadata as unknown; it never fabricates a digest or overwrites the original event. Two present, unequal fingerprints remain a conflict. Raw webhook bodies and provider diagnostics are not stored.
 - Provider `created_at` is preserved as `provider_created_at`; `received_at` is assigned by PostgreSQL at receipt.
 - Invalid signatures return 401, malformed signed payloads return 400, oversized bodies return 413, and missing server configuration or database failures return 503 so the provider can retry.
 

@@ -2,6 +2,12 @@
 set -euo pipefail
 
 psql_cmd=(psql -X -v ON_ERROR_STOP=1 --host 127.0.0.1 --port 5432 --username postgres --dbname deedlight_webhook_test)
+psql_scalar() {
+  "${psql_cmd[@]}" --quiet --no-align --tuples-only --pset=null=__NULL__ --command="$1"
+}
+psql_service_scalar() {
+  "${psql_cmd[@]}" --quiet --no-align --tuples-only --pset=null=__NULL__ --role=service_role --command="$1"
+}
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
@@ -21,13 +27,47 @@ wait_for_marker() {
   return 1
 }
 
+# An exact duplicate blocks behind the first insert and remains an idempotent no-op.
+"${psql_cmd[@]}" >"$tmp/exact-first.log" 2>&1 <<'SQL' &
+begin;
+set role service_role;
+select public.record_delivery_provider_lifecycle_event(
+  'evt_concurrent_exact_duplicate', 'email.bounced', 'resend-concurrent-exact',
+  'concurrent-exact@example.test', '2027-03-02T09:00:00Z', 'Permanent', null,
+  null, repeat('e', 64)
+);
+\echo EXACT_DUPLICATE_EVENT_LOCK_HELD
+select pg_sleep(2);
+commit;
+reset role;
+SQL
+exact_pid=$!
+wait_for_marker "$exact_pid" "$tmp/exact-first.log" "EXACT_DUPLICATE_EVENT_LOCK_HELD"
+exact_result="$(psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
+  'evt_concurrent_exact_duplicate', 'email.bounced', 'resend-concurrent-exact',
+  'concurrent-exact@example.test', '2027-03-02T09:00:00Z', 'Permanent', null,
+  null, repeat('e', 64)
+)")"
+wait "$exact_pid"
+[[ "$exact_result" == "f" ]]
+exact_event_count="$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_concurrent_exact_duplicate'")"
+exact_suppression="$(psql_scalar "select reason || ':' || provider_event_id from public.delivery_provider_suppressions where recipient_email='concurrent-exact@example.test'")"
+exact_status="$(psql_scalar "select status from public.delivery_provider_lifecycle where provider_email_id='resend-concurrent-exact'")"
+exact_anomalies="$(psql_scalar "select count(*) from public.delivery_provider_integrity_anomalies where event_id='evt_concurrent_exact_duplicate'")"
+[[ "$exact_event_count" == "1" ]]
+[[ "$exact_suppression" == "permanent_bounce:evt_concurrent_exact_duplicate" ]]
+[[ "$exact_status" == "email.bounced" ]]
+[[ "$exact_anomalies" == "0" ]]
+echo "Concurrent exact duplicate event: PASS"
+
 # A concurrent conflicting payload under the same Svix ID is an integrity anomaly.
 "${psql_cmd[@]}" >"$tmp/duplicate-first.log" 2>&1 <<'SQL' &
 begin;
 set role service_role;
 select public.record_delivery_provider_lifecycle_event(
-  'evt_concurrent_duplicate', 'email.sent', 'resend-concurrent-duplicate',
-  'concurrent-duplicate@example.test', '2027-03-02T10:00:00Z', null, null
+  'evt_concurrent_duplicate', 'email.bounced', 'resend-concurrent-duplicate',
+  'concurrent-duplicate@example.test', '2027-03-02T10:00:00Z', 'Permanent', null,
+  null, repeat('f', 64)
 );
 \echo DUPLICATE_EVENT_LOCK_HELD
 select pg_sleep(2);
@@ -36,21 +76,115 @@ reset role;
 SQL
 duplicate_pid=$!
 wait_for_marker "$duplicate_pid" "$tmp/duplicate-first.log" "DUPLICATE_EVENT_LOCK_HELD"
-"${psql_cmd[@]}" -Atc "set role service_role; select public.record_delivery_provider_lifecycle_event('evt_concurrent_duplicate','email.complained','resend-concurrent-duplicate','concurrent-duplicate@example.test','2027-03-02T10:01:00Z',null,null); reset role;" >"$tmp/duplicate-result"
+duplicate_result="$(psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
+  'evt_concurrent_duplicate', 'email.complained', 'different-provider-id',
+  'attacker-concurrent@example.test', '2027-03-02T10:01:00Z', null, null,
+  null, repeat('a', 64)
+)")"
 wait "$duplicate_pid"
-duplicate_result="$(cat "$tmp/duplicate-result")"
-[[ -z "$duplicate_result" ]]
-count="$("${psql_cmd[@]}" -Atc "select count(*) from public.delivery_provider_events where event_id='evt_concurrent_duplicate'")"
+[[ "$duplicate_result" == "__NULL__" ]]
+count="$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_concurrent_duplicate'")"
+suppression="$(psql_scalar "select reason || ':' || provider_event_id from public.delivery_provider_suppressions where recipient_email='concurrent-duplicate@example.test'")"
+event_state="$(psql_scalar "select event_type || ':' || provider_email_id || ':' || recipient_email || ':' || payload_fingerprint from public.delivery_provider_events where event_id='evt_concurrent_duplicate'")"
+attacker_suppression="$(psql_scalar "select count(*) from public.delivery_provider_suppressions where recipient_email='attacker-concurrent@example.test'")"
+anomaly="$(psql_scalar "select count(*) from public.delivery_provider_integrity_anomalies where event_id='evt_concurrent_duplicate' and anomaly_type='duplicate_event_id_conflict'")"
+status="$(psql_scalar "select status from public.delivery_provider_lifecycle where provider_email_id='resend-concurrent-duplicate'")"
 [[ "$count" == "1" ]]
-suppression="$("${psql_cmd[@]}" -Atc "select count(*) from public.delivery_provider_suppressions where recipient_email='concurrent-duplicate@example.test'")"
-[[ "$suppression" == "0" ]]
-event_type="$(${psql_cmd[@]} -Atc "select event_type from public.delivery_provider_events where event_id='evt_concurrent_duplicate'")"
-[[ "$event_type" == "email.sent" ]]
-anomaly="$(${psql_cmd[@]} -Atc "select count(*) from public.delivery_provider_integrity_anomalies where event_id='evt_concurrent_duplicate' and anomaly_type='duplicate_event_id_conflict'")"
+[[ "$suppression" == "permanent_bounce:evt_concurrent_duplicate" ]]
+[[ "$event_state" == "email.bounced:resend-concurrent-duplicate:concurrent-duplicate@example.test:$(printf 'f%.0s' {1..64})" ]]
+[[ "$attacker_suppression" == "0" ]]
 [[ "$anomaly" == "1" ]]
-status="$(${psql_cmd[@]} -Atc "select status from public.delivery_provider_lifecycle where provider_email_id='resend-concurrent-duplicate'")"
 [[ "$status" == "integrity_anomaly" ]]
 echo "Concurrent conflicting duplicate integrity anomaly: PASS"
+
+# A replay of a pre-027 row with no fingerprint remains a no-op under concurrency.
+"${psql_cmd[@]}" >"$tmp/historical-first.log" 2>&1 <<'SQL' &
+begin;
+set role service_role;
+select public.record_delivery_provider_lifecycle_event(
+  'evt_historical_026_complaint', 'email.complained', 'resend-historical-026-complaint',
+  'historical-026-complaint@example.test', '2027-03-01T09:15:00Z', null, null,
+  null, null
+);
+\echo HISTORICAL_EVENT_LOCK_HELD
+select pg_sleep(2);
+commit;
+reset role;
+SQL
+historical_pid=$!
+wait_for_marker "$historical_pid" "$tmp/historical-first.log" "HISTORICAL_EVENT_LOCK_HELD"
+historical_result="$(psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
+  'evt_historical_026_complaint', 'email.complained', 'resend-historical-026-complaint',
+  'historical-026-complaint@example.test', '2027-03-01T09:15:00Z', null, null,
+  null, repeat('e', 64)
+)")"
+wait "$historical_pid"
+historical_fingerprint="$(psql_scalar "select coalesce(payload_fingerprint, '__NULL__') from public.delivery_provider_events where event_id='evt_historical_026_complaint'")"
+historical_anomalies="$(psql_scalar "select count(*) from public.delivery_provider_integrity_anomalies where event_id='evt_historical_026_complaint'")"
+historical_suppression="$(psql_scalar "select reason || ':' || provider_event_id from public.delivery_provider_suppressions where recipient_email='historical-026-complaint@example.test'")"
+historical_status="$(psql_scalar "select status from public.delivery_provider_lifecycle where provider_email_id='resend-historical-026-complaint'")"
+[[ "$historical_result" == "f" ]]
+[[ "$historical_fingerprint" == "__NULL__" ]]
+[[ "$historical_anomalies" == "0" ]]
+[[ "$historical_suppression" == "complaint:evt_historical_026_complaint" ]]
+[[ "$historical_status" == "email.complained" ]]
+echo "Concurrent historical event without fingerprint: PASS"
+
+# Previous complaint always outranks previous-bounce suppression, regardless of lock order.
+for order in complaint-first bounce-first; do
+  if [[ "$order" == "complaint-first" ]]; then
+    first_reason="previous_complaint"
+    first_id="evt_concurrent_previous_complaint_first"
+    first_provider_id="resend-concurrent-previous-complaint-first"
+    first_time="2027-03-02T10:30:00Z"
+    second_reason="previous_bounce"
+    second_id="evt_concurrent_previous_bounce_second"
+    second_provider_id="resend-concurrent-previous-bounce-second"
+    second_time="2027-03-02T10:31:00Z"
+    complaint_id="$first_id"
+  else
+    first_reason="previous_bounce"
+    first_id="evt_concurrent_previous_bounce_first"
+    first_provider_id="resend-concurrent-previous-bounce-first"
+    first_time="2027-03-02T10:40:00Z"
+    second_reason="previous_complaint"
+    second_id="evt_concurrent_previous_complaint_second"
+    second_provider_id="resend-concurrent-previous-complaint-second"
+    second_time="2027-03-02T10:41:00Z"
+    complaint_id="$second_id"
+  fi
+  recipient="concurrent-previous-$order@example.test"
+  first_log="$tmp/previous-$order-first.log"
+  "${psql_cmd[@]}" >"$first_log" 2>&1 <<SQL &
+begin;
+set role service_role;
+select public.record_delivery_provider_lifecycle_event(
+  '$first_id', 'email.suppressed', '$first_provider_id', '$recipient',
+  '$first_time', null, null, '$first_reason', repeat('1', 64)
+);
+\echo PREVIOUS_SUPPRESSION_LOCK_HELD
+select pg_sleep(2);
+commit;
+reset role;
+SQL
+  first_pid=$!
+  wait_for_marker "$first_pid" "$first_log" "PREVIOUS_SUPPRESSION_LOCK_HELD"
+  second_result="$(psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
+    '$second_id', 'email.suppressed', '$second_provider_id', '$recipient',
+    '$second_time', null, null, '$second_reason', repeat('2', 64)
+  )")"
+  wait "$first_pid"
+  suppression_state="$(psql_scalar "select reason || ':' || provider_event_id from public.delivery_provider_suppressions where recipient_email='$recipient'")"
+  event_count="$(psql_scalar "select count(*) from public.delivery_provider_events where recipient_email='$recipient'")"
+  anomaly_count="$(psql_scalar "select count(*) from public.delivery_provider_integrity_anomalies where event_id in ('$first_id','$second_id')")"
+  [[ "$second_result" == "t" ]]
+  [[ "$suppression_state" == "complaint:$complaint_id" ]]
+  [[ "$event_count" == "2" ]]
+  [[ "$anomaly_count" == "0" ]]
+done
+echo "Concurrent previous complaint/bounce suppression precedence: PASS"
+
+
 
 
 # Conflicting terminal outcomes are retained but never projected as delivered.
@@ -92,16 +226,23 @@ reset role;
 SQL
   terminal_pid=$!
   wait_for_marker "$terminal_pid" "$log" "TERMINAL_EVENT_LOCK_HELD"
-  "${psql_cmd[@]}" -Atc "set role service_role; select public.record_delivery_provider_lifecycle_event('$second_id','$second_type','$provider_id','$recipient','$second_time',$second_bounce,null); reset role;" >"$result"
+  psql_service_scalar "select public.record_delivery_provider_lifecycle_event('$second_id','$second_type','$provider_id','$recipient','$second_time',$second_bounce,null)" >"$result"
   wait "$terminal_pid"
   terminal_result="$(cat "$result")"
-  [[ -z "$terminal_result" ]]
-  status="$(${psql_cmd[@]} -Atc "select status from public.delivery_provider_lifecycle where provider_email_id='$provider_id'")"
+  [[ "$terminal_result" == "__NULL__" ]]
+  status="$(psql_scalar "select status from public.delivery_provider_lifecycle where provider_email_id='$provider_id'")"
   [[ "$status" == "integrity_anomaly" ]]
-  count="$(${psql_cmd[@]} -Atc "select count(*) from public.delivery_provider_events where provider_email_id='$provider_id'")"
+  count="$(psql_scalar "select count(*) from public.delivery_provider_events where provider_email_id='$provider_id'")"
   [[ "$count" == "2" ]]
-  anomaly="$(${psql_cmd[@]} -Atc "select count(*) from public.delivery_provider_integrity_anomalies where event_id='$second_id' and anomaly_type='contradictory_terminal_outcome'")"
+  anomaly="$(psql_scalar "select count(*) from public.delivery_provider_integrity_anomalies where event_id='$second_id' and anomaly_type='contradictory_terminal_outcome'")"
   [[ "$anomaly" == "1" ]]
+  if [[ "$order" == "delivered-first" ]]; then bounce_event_id="$second_id"; else bounce_event_id="$first_id"; fi
+  suppression_state="$(psql_scalar "select reason || ':' || provider_event_id from public.delivery_provider_suppressions where recipient_email='$recipient'")"
+  first_event_type="$(psql_scalar "select event_type from public.delivery_provider_events where event_id='$first_id'")"
+  second_event_type="$(psql_scalar "select event_type from public.delivery_provider_events where event_id='$second_id'")"
+  [[ "$first_event_type" == "$first_type" ]]
+  [[ "$second_event_type" == "$second_type" ]]
+  [[ "$suppression_state" == "permanent_bounce:$bounce_event_id" ]]
 done
 echo "Concurrent contradictory terminal outcomes in both arrival orders: PASS"
 
@@ -120,12 +261,12 @@ reset role;
 SQL
 delivered_pid=$!
 wait_for_marker "$delivered_pid" "$tmp/delivered-first.log" "DELIVERED_EVENT_LOCK_HELD"
-"${psql_cmd[@]}" -Atc "set role service_role; select public.record_delivery_provider_lifecycle_event('evt_concurrent_delayed','email.delivery_delayed','resend-concurrent-order','concurrent-order@example.test','2027-03-02T10:05:00Z',null,null); reset role;" >"$tmp/delayed-result"
+psql_service_scalar "select public.record_delivery_provider_lifecycle_event('evt_concurrent_delayed','email.delivery_delayed','resend-concurrent-order','concurrent-order@example.test','2027-03-02T10:05:00Z',null,null)" >"$tmp/delayed-result"
 wait "$delivered_pid"
 grep -qx 't' "$tmp/delayed-result"
-status="$("${psql_cmd[@]}" -Atc "select status from public.delivery_provider_lifecycle where provider_email_id='resend-concurrent-order'")"
+status="$(psql_scalar "select status from public.delivery_provider_lifecycle where provider_email_id='resend-concurrent-order'")"
 [[ "$status" == "email.delivered" ]]
-count="$("${psql_cmd[@]}" -Atc "select count(*) from public.delivery_provider_events where provider_email_id='resend-concurrent-order'")"
+count="$(psql_scalar "select count(*) from public.delivery_provider_events where provider_email_id='resend-concurrent-order'")"
 [[ "$count" == "2" ]]
 echo "Concurrent out-of-order lifecycle monotonicity: PASS"
 
@@ -182,7 +323,7 @@ $$;
 reset role;
 SQL
 wait "$suppression_pid"
-result="$("${psql_cmd[@]}" -Atc "select state || ':' || (transport_started_at is null)::text from public.delivery_ledger where user_id='00000000-0000-0000-0000-000000020006'")"
+result="$(psql_scalar "select state || ':' || (transport_started_at is null)::text from public.delivery_ledger where user_id='00000000-0000-0000-0000-000000020006'")"
 [[ "$result" == "cancelled:true" ]]
 echo "Shared suppression-first transport authorization: PASS"
 
@@ -229,9 +370,9 @@ reset role;
 SQL
 transport_pid=$!
 wait_for_marker "$transport_pid" "$tmp/transport-first.log" "TRANSPORT_LOCK_HELD"
-"${psql_cmd[@]}" -Atc "set role service_role; select public.record_delivery_provider_lifecycle_event('evt_suppression_race_after_transport','email.complained','resend-suppression-race-after','transport-race@example.test','2027-03-02T10:21:00Z',null,null); reset role;" >"$tmp/suppression-after-result"
+psql_service_scalar "select public.record_delivery_provider_lifecycle_event('evt_suppression_race_after_transport','email.complained','resend-suppression-race-after','transport-race@example.test','2027-03-02T10:21:00Z',null,null)" >"$tmp/suppression-after-result"
 wait "$transport_pid"
 grep -qx 't' "$tmp/suppression-after-result"
-result="$("${psql_cmd[@]}" -Atc "select (transport_started_at is not null)::text || ':' || (select count(*)::text from public.delivery_provider_suppressions where recipient_email='transport-race@example.test') from public.delivery_ledger where user_id='00000000-0000-0000-0000-000000020007'")"
+result="$(psql_scalar "select (transport_started_at is not null)::text || ':' || (select count(*)::text from public.delivery_provider_suppressions where recipient_email='transport-race@example.test') from public.delivery_ledger where user_id='00000000-0000-0000-0000-000000020007'")"
 [[ "$result" == "true:1" ]]
 echo "Shared transport-first suppression ordering: PASS"

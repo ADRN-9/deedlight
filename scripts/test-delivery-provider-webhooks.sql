@@ -1,8 +1,127 @@
 \set ON_ERROR_STOP on
 \ir test-delivery-consent-gates.sql
 \ir ../supabase/migrations/202611190025_delivery_provider_webhooks.sql
+
+-- Preserve a real pre-026 row whose provider timestamp is also historically NULL.
+set role service_role;
+select public.record_delivery_provider_event(
+  'evt_historical_025_suppressed',
+  'email.suppressed',
+  'resend-historical-025-suppressed',
+  'historical-025-suppressed@example.test',
+  null
+);
+reset role;
+
 \ir ../supabase/migrations/202611190026_delivery_provider_lifecycle.sql
+
+-- Seed a pre-027 lifecycle event before fingerprint/reason columns exist.
+set role service_role;
+select public.record_delivery_provider_lifecycle_event(
+  'evt_historical_026_complaint',
+  'email.complained',
+  'resend-historical-026-complaint',
+  'historical-026-complaint@example.test',
+  '2027-03-01T09:15:00Z',
+  null,
+  null
+);
+reset role;
+
 \ir ../supabase/migrations/202611200027_delivery_provider_integrity.sql
+
+-- Replays with a new digest must remain compatible with historical NULL metadata.
+set role service_role;
+do $historical_replay$
+begin
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_historical_025_suppressed',
+    'email.suppressed',
+    'resend-historical-025-suppressed',
+    'historical-025-suppressed@example.test',
+    '2027-03-01T09:00:00Z',
+    null,
+    null,
+    'previous_complaint',
+    repeat('d', 64)
+  ) is not false then
+    raise exception 'Pre-026 historical event replay was not a compatible no-op.';
+  end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_historical_026_complaint',
+    'email.complained',
+    'resend-historical-026-complaint',
+    'historical-026-complaint@example.test',
+    '2027-03-01T09:15:00Z',
+    null,
+    null,
+    null,
+    repeat('e', 64)
+  ) is not false then
+    raise exception 'Pre-027 historical event replay was not a compatible no-op.';
+  end if;
+end;
+$historical_replay$;
+reset role;
+
+do $historical_assertions$
+begin
+  if not exists (
+    select 1
+    from public.delivery_provider_events
+    where event_id = 'evt_historical_025_suppressed'
+      and event_type = 'email.suppressed'
+      and provider_created_at is null
+      and suppression_reason is null
+      and payload_fingerprint is null
+  )
+    or not exists (
+      select 1
+      from public.delivery_provider_suppressions
+      where recipient_email = 'historical-025-suppressed@example.test'
+        and reason = 'provider_suppressed'
+        and provider_event_id = 'evt_historical_025_suppressed'
+    )
+    or exists (
+      select 1 from public.delivery_provider_integrity_anomalies
+      where event_id = 'evt_historical_025_suppressed'
+    ) then
+    raise exception 'Pre-026 event history or fail-closed suppression state changed on replay.';
+  end if;
+
+  if not exists (
+    select 1
+    from public.delivery_provider_events
+    where event_id = 'evt_historical_026_complaint'
+      and event_type = 'email.complained'
+      and provider_created_at = '2027-03-01T09:15:00Z'::timestamptz
+      and suppression_reason is null
+      and payload_fingerprint is null
+  )
+    or not exists (
+      select 1
+      from public.delivery_provider_suppressions
+      where recipient_email = 'historical-026-complaint@example.test'
+        and reason = 'complaint'
+        and provider_event_id = 'evt_historical_026_complaint'
+    )
+    or not exists (
+      select 1
+      from public.delivery_provider_lifecycle
+      where provider_email_id = 'resend-historical-026-complaint'
+        and status = 'email.complained'
+        and event_id = 'evt_historical_026_complaint'
+    )
+    or exists (
+      select 1 from public.delivery_provider_integrity_anomalies
+      where event_id = 'evt_historical_026_complaint'
+    ) then
+    raise exception 'Pre-027 event history or complaint suppression changed on replay.';
+  end if;
+end;
+$historical_assertions$;
+
 
 -- Synthetic local-only users; no provider sends or Production data.
 update public.daily_reminder_preferences set daily_enabled = false;
@@ -109,6 +228,16 @@ begin
     raise exception 'Conflicting duplicate fixture exact replay was not a no-op.';
   end if;
 
+  create temporary table provider_conflict_event_snapshot as
+    select to_jsonb(e) as row_data
+    from public.delivery_provider_events e
+    where e.event_id = 'msg_bounce_conflict_20006';
+
+  create temporary table provider_conflict_suppression_snapshot as
+    select to_jsonb(s) as row_data
+    from public.delivery_provider_suppressions s
+    where s.recipient_email = 'conflict-duplicate@example.test';
+
   if public.record_delivery_provider_event(
     'msg_bounce_conflict_20006', 'email.complained', 'different-provider-id',
     'attacker@example.test', null
@@ -146,6 +275,18 @@ begin
         and anomaly_type = 'duplicate_event_id_conflict'
     ) then
     raise exception 'Conflicting duplicate changed original event or suppression state.';
+  end if;
+  if (select row_data from provider_conflict_event_snapshot)
+       is distinct from (
+         select to_jsonb(e) from public.delivery_provider_events e
+         where e.event_id = 'msg_bounce_conflict_20006'
+       )
+    or (select row_data from provider_conflict_suppression_snapshot)
+       is distinct from (
+         select to_jsonb(s) from public.delivery_provider_suppressions s
+         where s.recipient_email = 'conflict-duplicate@example.test'
+       ) then
+    raise exception 'Conflicting duplicate mutated original event history or suppression row.';
   end if;
   if (select reason from public.delivery_provider_suppressions
       where recipient_email = 'webhook-20001@example.test') <> 'complaint' then

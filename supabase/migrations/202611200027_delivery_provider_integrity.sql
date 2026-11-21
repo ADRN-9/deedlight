@@ -241,12 +241,21 @@ begin
       and v_existing.provider_email_id = p_provider_email_id
       and v_existing.recipient_email = v_email
       and v_existing.bounce_type is not distinct from p_bounce_type
-      and (p_payload_fingerprint is null
-        or v_existing.provider_created_at is null
+      and (v_existing.provider_created_at is null
         or v_existing.provider_created_at = p_provider_created_at)
       and v_existing.failure_class is not distinct from p_failure_class
-      and v_existing.suppression_reason is not distinct from p_suppression_reason
-      and v_existing.payload_fingerprint is not distinct from p_payload_fingerprint then
+      -- Older events and legacy RPC callers have no fingerprint or suppression reason.
+      -- Compare new metadata only when both sides actually carry it; never invent a digest.
+      and (
+        v_existing.suppression_reason is null
+        or p_suppression_reason is null
+        or v_existing.suppression_reason = p_suppression_reason
+      )
+      and (
+        v_existing.payload_fingerprint is null
+        or p_payload_fingerprint is null
+        or v_existing.payload_fingerprint = p_payload_fingerprint
+      ) then
       return false;
     end if;
 
