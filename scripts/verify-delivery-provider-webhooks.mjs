@@ -28,14 +28,15 @@ assert(/create or replace function public\.record_delivery_provider_lifecycle_ev
   "New events must require a fingerprint while fingerprint-less calls can only reach existing event IDs.");
 assert(/revoke all privileges[\s\S]*?_record_delivery_provider_lifecycle_event_fingerprinted_impl[\s\S]*?from public, anon, authenticated, service_role/i.test(legacyGuardMigration),
   "The renamed lifecycle implementation must not be directly executable by service_role or browser roles.");
+const normalizedLegacyGuard = legacyGuardMigration.replace(/\\s+/g, " ");
 for (const signature of [
   "record_delivery_provider_lifecycle_event(text, text, text, text, timestamptz, text, text, text)",
   "record_delivery_provider_lifecycle_event(text, text, text, text, timestamptz, text, text)",
   "record_delivery_provider_event(text, text, text, text, text)",
 ]) {
-  assert(legacyGuardMigration.includes("revoke all privileges") && legacyGuardMigration.includes(signature),
+  assert(normalizedLegacyGuard.includes("revoke all privileges on function public." + signature),
     "Migration 029 must explicitly revoke browser execution for legacy overload: " + signature);
-  assert(legacyGuardMigration.includes("grant execute") && legacyGuardMigration.includes(signature),
+  assert(normalizedLegacyGuard.includes("grant execute on function public." + signature),
     "Migration 029 must retain service_role execution for legacy overload: " + signature);
 }
 
