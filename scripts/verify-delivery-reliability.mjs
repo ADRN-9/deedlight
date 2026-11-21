@@ -239,8 +239,8 @@ console.log("PASS: migration 030 is mirrored verbatim in aggregate SQL");
 const retryStart = idempotencyMigration.indexOf("create or replace function public.retry_delivery_job(");
 const retryEnd = idempotencyMigration.indexOf("\n$retry$;", retryStart);
 const authoritativeRetry = idempotencyMigration.slice(retryStart, retryEnd);
-const compactRetry = authoritativeRetry.replace(/\\s+/g, "");
-const compactMigration = idempotencyMigration.replace(/\\s+/g, "");
+const compactRetry = authoritativeRetry.replace(/\s+/g, "");
+const compactMigration = idempotencyMigration.replace(/\s+/g, "");
 if (retryStart < 0 || retryEnd < 0
   || compactRetry.includes("p_retry_at")
   || !compactRetry.includes("v_now:=clock_timestamp()")
