@@ -193,23 +193,34 @@ if (!aggregateSql.includes(leaseMigration.trim())) {
 }
 console.log("PASS: additive lease correction is mirrored verbatim in aggregate SQL");
 for (const fn of ["authorize_delivery_job", "retry_delivery_job", "mark_delivery_sent", "mark_delivery_failed"]) {
-  const start = leaseMigration.indexOf(`create or replace function public.${fn}(`);
-  const end = leaseMigration.indexOf("\\n$", start);
+  const start = leaseMigration.indexOf("create or replace function public." + fn + "(");
+  const end = leaseMigration.indexOf("\n$", start);
   const definition = start < 0 ? "" : leaseMigration.slice(start, end < 0 ? undefined : end);
-  requireMatch(`${fn} locks the ledger row before checking lease expiry`, definition,
-    /for update[\\s\\S]*?clock_timestamp\(\)/i);
-  requireAbsent(`${fn} does not compare lease expiry to transaction-start now()`, definition,
-    /claim_expires_at\\s*(?:<=|>)\\s*now\(\)/i);
+  if (!/for update[\s\S]*?clock_timestamp\(\)/i.test(definition)) {
+    throw new Error(fn + " must lock the ledger row before wall-clock lease validation.");
+  }
+  if (/claim_expires_at\s*(?:<=|>)\s*now\(\)/i.test(definition)) {
+    throw new Error(fn + " must not validate lease expiry using transaction-start now().");
+  }
+  if (!/security definer[\s\S]*?set search_path = public, auth, pg_temp/i.test(definition)
+    || !leaseMigration.includes("revoke all privileges on function public." + fn)
+    || !leaseMigration.includes("grant execute on function public." + fn)) {
+    throw new Error(fn + " security-definer or service-role privilege boundary regressed.");
+  }
+  if (!concurrencyTest.includes(fn)) {
+    throw new Error("Missing row-lock expiry concurrency case: " + fn);
+  }
 }
-requireMatch("Retry bounds use wall-clock time after row locking", leaseMigration,
-  /retry_delivery_job[\\s\\S]*?for update[\\s\\S]*?p_retry_at <= v_now[\\s\\S]*?p_retry_at > v_now \+ interval '24 hours'/i);
-requireMatch("Fifth attempt still becomes terminal retry_exhausted", leaseMigration,
-  /attempt_count >= 5[\\s\\S]*?error_code = 'retry_exhausted'/i);
-for (const fn of ["authorize_delivery_job", "retry_delivery_job", "mark_delivery_sent", "mark_delivery_failed"]) {
-  if (!concurrencyTest.includes(fn)) throw new Error(`Missing row-lock expiry concurrency case: ${fn}`);
+if (!/retry_delivery_job[\s\S]*?for update[\s\S]*?p_retry_at <= v_now[\s\S]*?p_retry_at > v_now \+ interval '24 hours'/i.test(leaseMigration)) {
+  throw new Error("Retry time must remain bounded against wall-clock time after the row lock.");
 }
-requireMatch("Concurrency harness waits for a PostgreSQL row-lock wait", concurrencyTest,
-  /wait_for_row_lock_wait[\\s\\S]*?wait_event_type='Lock'/i);
-requireMatch("PR Validation runs the lease lock-contention test", workflow,
-  /bash scripts\\/test-delivery-reliability-concurrency\\.sh/);
+if (!/attempt_count >= 5[\s\S]*?error_code = 'retry_exhausted'/i.test(leaseMigration)) {
+  throw new Error("Fifth-attempt retry exhaustion must remain terminal.");
+}
+if (!/wait_for_row_lock_wait[\s\S]*?wait_event_type='Lock'/i.test(concurrencyTest)) {
+  throw new Error("Concurrency harness must wait for an actual PostgreSQL row-lock wait.");
+}
+if (!workflow.includes("bash scripts/test-delivery-reliability-concurrency.sh")) {
+  throw new Error("PR Validation must run the lease lock-contention test.");
+}
 console.log("Delivery reliability security assertions: PASS");
