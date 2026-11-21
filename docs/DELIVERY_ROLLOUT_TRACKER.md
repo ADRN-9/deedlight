@@ -147,3 +147,27 @@ Rollback is operational and fail-closed: disable new outbound work, remove futur
 - Classification is clarified at both migration-file and independently identifiable schema-effect level. The 31-file/30-prefix distinction remains; the two 007 files remain separate and ambiguous. Do not rename either file, infer which body executed, or repair migration history.
 - Missing aggregate effects are not Production evidence: they do not establish whether any object exists or is absent in Production. No Production access escalation, credential change, database query/mutation, migration repair, db push, deployment, Cron change, or delivery enablement occurred. Keep outbound delivery disabled and Production NO-GO.
 - Required follow-up: obtain authorized read-only Production history/catalog access and retained SQL Editor/audit records; reconcile 007 Sprint 6, 007 Sprint 7, and 008 effects individually; independently review any proposed future history/schema operation.
+
+
+## C242 exact-head CI evidence (job accounting corrected in C244)
+
+- **Branch-push validation #766:** [run 44956495277](https://github.com/ADRN-9/deedlight/actions/runs/44956495277) completed **SUCCESS, 7/7 jobs**. Its `validate` job checked out the exact branch HEAD `a85f165587cd10e4f20c1a45986b2e8130d3d7e4`.
+- **PR integration validation #767:** [run 44956500758](https://github.com/ADRN-9/deedlight/actions/runs/44956500758) completed **SUCCESS, 7/7 jobs**. Its `validate` job checked out synthetic merge commit `98d4aa1f84cb5bca98c7a77c70d6452afeecc452`, tree `556e9c8d7ab65b93580ab92bae587e537fa9e17a`, with base `ce82b3fdf1a73510de70e3729a487d4ae00e66e3` and branch HEAD `a85f165587cd10e4f20c1a45986b2e8130d3d7e4` as parents.
+- The seven workflow jobs in **each** run were exactly:
+  1. `validate`
+  2. `delivery_provider_webhook_database_behavior`
+  3. `delivery_migration_order_database_behavior`
+  4. `auth_pgcrypto_database_behavior`
+  5. `delivery_reliability_database_behavior`
+  6. `sprint12_2_database_behavior`
+  7. `gentle_delivery_transport_database_behavior`
+- Security assertion suites are steps within the `validate` job; they are **not** a separate eighth workflow job. The Validate steps also include lint/type/build/package and the configured dependency-audit checks.
+- These run types are distinct: #766 validates the pushed branch commit directly; #767 validates the PR integration merge result. Both completed successfully with all seven jobs successful.
+- These CI runs are non-Production engineering evidence only. They do not establish Production schema, provider, scheduler, deployment, or outbound-delivery readiness.
+
+## C244 — CI evidence presentation correction
+
+- Corrected the C242 CI evidence presentation to enumerate the seven actual workflow jobs by their exact GitHub job names.
+- Explicitly recorded that security assertions are steps within `validate`, not an independent eighth job.
+- Preserved the C241/C242 migration findings, the branch-push versus PR-integration distinction, the exact #766/#767 run references, and all Production NO-GO restrictions.
+- Documentation-only correction. No migration, database, Production, credential, scheduler, deployment, Cron, or delivery setting was changed. No PR approval or merge was performed.
