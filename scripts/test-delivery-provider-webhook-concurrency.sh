@@ -120,10 +120,15 @@ psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
   null, repeat('d', 64)
 )" >"$tmp/cross-recipient-second.log" 2>&1 &
 cross_recipient_second_pid=$!
-sleep 0.2
-if ! kill -0 "$cross_recipient_second_pid" 2>/dev/null; then
+cross_recipient_waiting="0"
+for _ in {1..100}; do
+  cross_recipient_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%evt_cross_recipient_second%'")"
+  if [[ "$cross_recipient_waiting" == "1" ]]; then break; fi
+  sleep 0.05
+done
+if [[ "$cross_recipient_waiting" != "1" ]]; then
   cat "$tmp/cross-recipient-second.log"
-  echo "Cross-recipient collision did not wait on the provider-email-ID lock." >&2
+  echo "Cross-recipient callback did not wait on the provider-email-ID advisory lock." >&2
   exit 1
 fi
 wait "$cross_recipient_first_pid"
