@@ -1,10 +1,28 @@
 import { parseDeliveryRuntimeConfig } from "./config.ts";
 import { createResendTransport } from "./resend-transport.ts";
 import { processClaimedDelivery } from "./run-delivery.ts";
-import { createSupabaseDeliveryRuntime } from "./supabase-runtime.ts";
+import {
+  createSupabaseDeliveryRuntime,
+  WeeklyDeliveryCapacityError,
+  weeklyIssueStartUtc,
+} from "./supabase-runtime.ts";
 
 export const DAILY_DELIVERY_CRON = "*/5 * * * *";
 export const WEEKLY_DELIVERY_CRON = "0 16 * * 1";
+export const MAX_DELIVERY_CLAIM_BATCH_SIZE = 5;
+
+export function deliveryClaimBatchSize(configured: number): number {
+  if (!Number.isInteger(configured) || configured < 1) {
+    throw new Error("Delivery claim batch size must be a positive integer.");
+  }
+  return Math.min(configured, MAX_DELIVERY_CLAIM_BATCH_SIZE);
+}
+
+export function deliveryScheduleKind(cron: string): "daily" | "weekly" | null {
+  if (cron === DAILY_DELIVERY_CRON) return "daily";
+  if (cron === WEEKLY_DELIVERY_CRON) return "weekly";
+  return null;
+}
 
 export type DeliverySchedulerSummary = {
   enabled: boolean;
@@ -18,6 +36,27 @@ export type DeliverySchedulerSummary = {
   processingErrors: number;
   ignored: boolean;
 };
+
+// Enqueue rejection is terminal for this invocation: no claims or provider IO.
+export async function enqueueWeeklyWithMonitoring(
+  enqueue: (now: Date, limit: number) => Promise<number>,
+  scheduledAt: Date,
+  limit: number,
+  logError: (message: string, context: { code: string; weekStart: string }) => void =
+    (message, context) => console.error(message, context),
+): Promise<number> {
+  try {
+    return await enqueue(scheduledAt, limit);
+  } catch (error) {
+    const capacity = error instanceof WeeklyDeliveryCapacityError;
+    logError("Weekly Goodness enqueue failed", {
+      code: capacity ? error.code : "weekly_enqueue_database_error",
+      weekStart: weeklyIssueStartUtc(scheduledAt),
+    });
+    if (capacity) throw error;
+    throw new Error("Delivery database operation failed: enqueue weekly goodness");
+  }
+}
 
 export async function runScheduledDelivery(
   env: Record<string, string | undefined>,
@@ -38,11 +77,19 @@ export async function runScheduledDelivery(
 
   const config = parseDeliveryRuntimeConfig(env);
   if (!config.enabled) {
+    console.info("Delivery scheduler disabled", {
+      cron: input.cron,
+      scheduledAt: Number.isFinite(input.scheduledTime)
+        ? new Date(input.scheduledTime).toISOString()
+        : null,
+      reason: "delivery_disabled",
+    });
     return summary;
   }
   summary.enabled = true;
 
-  if (input.cron !== DAILY_DELIVERY_CRON && input.cron !== WEEKLY_DELIVERY_CRON) {
+  const scheduleKind = deliveryScheduleKind(input.cron);
+  if (!scheduleKind) {
     summary.ignored = true;
     return summary;
   }
@@ -59,16 +106,20 @@ export async function runScheduledDelivery(
     siteOrigin: config.siteOrigin,
   });
 
-  if (input.cron === DAILY_DELIVERY_CRON) {
+  if (scheduleKind === "daily") {
     summary.enqueued = await runtime.enqueueDaily(
       scheduledAt,
       Math.min(config.batchSize * 20, 2000),
     );
   } else {
-    summary.enqueued = await runtime.enqueueWeekly(scheduledAt, 5000);
+    summary.enqueued = await enqueueWeeklyWithMonitoring(
+      (at, limit) => runtime.enqueueWeekly(at, limit),
+      scheduledAt,
+      5000,
+    );
   }
 
-  const jobs = await runtime.claim(scheduledAt, config.batchSize);
+  const jobs = await runtime.claim(deliveryClaimBatchSize(config.batchSize));
   summary.claimed = jobs.length;
 
   for (const job of jobs) {
@@ -85,7 +136,6 @@ export async function runScheduledDelivery(
       // later scheduler invocation to reclaim safely with the same provider key.
       summary.processingErrors += 1;
       console.error("Delivery job processing failed", {
-        jobId: job.jobId,
         kind: job.kind,
       });
     }

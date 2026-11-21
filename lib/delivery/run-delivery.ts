@@ -45,7 +45,9 @@ export async function processClaimedDelivery(input: {
     return "cancelled";
   }
 
-  const firstTransportAt = await gateway.beginTransport(job);
+  const firstTransportAt = await gateway.beginTransport(job, recipient);
+  if (firstTransportAt === null) return "cancelled";
+
   const decisionNow = clock();
   const elapsed = Math.max(
     0,
@@ -78,6 +80,6 @@ export async function processClaimedDelivery(input: {
     return "failed";
   }
 
-  await gateway.retry(job, retryAt, outcome.errorCode);
-  return "retried";
+  const requeued = await gateway.retry(job, retryAt, outcome.errorCode);
+  return requeued ? "retried" : "failed";
 }

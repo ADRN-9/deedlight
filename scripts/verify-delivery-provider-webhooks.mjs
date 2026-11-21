@@ -1,0 +1,273 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+const read = (path) => readFileSync(path, "utf8");
+const migration = read("supabase/migrations/202611190025_delivery_provider_webhooks.sql");
+const lifecycleMigration = read("supabase/migrations/202611190026_delivery_provider_lifecycle.sql");
+const integrityMigration = read("supabase/migrations/202611200027_delivery_provider_integrity.sql");
+const legacyGuardMigration = read("supabase/migrations/202611210029_delivery_legacy_replay_guard.sql");
+const aggregate = read("supabase/run_in_sql_editor_all.sql");
+const route = read("app/api/webhooks/resend/route.ts");
+const parser = read("lib/delivery/resend-webhook.ts");
+const transport = read("lib/delivery/resend-transport.ts");
+const scheduler = read("lib/delivery/scheduler.ts");
+const tests = read("scripts/test-delivery-webhook.mjs");
+const routeTests = read("scripts/test-delivery-webhook-route.mjs");
+const transportTests = read("scripts/test-delivery-transport.mjs");
+const databaseTests = read("scripts/test-delivery-provider-webhooks.sql");
+const concurrencyTests = read("scripts/test-delivery-provider-webhook-concurrency.sh");
+const workflow = read(".github/workflows/pr-validation.yml");
+const pkg = JSON.parse(read("package.json"));
+
+assert(aggregate.includes(migration.trim()), "Migration 025 must remain mirrored in the SQL Editor aggregate");
+assert(aggregate.includes(lifecycleMigration.trim()), "Migration 026 must be mirrored verbatim in the SQL Editor aggregate");
+assert(aggregate.includes(integrityMigration.trim()), "Migration 027 must be mirrored verbatim in the SQL Editor aggregate");
+assert(aggregate.includes(legacyGuardMigration.trim()), "Migration 029 must be mirrored verbatim in the SQL Editor aggregate");
+assert(/alter function public\.record_delivery_provider_lifecycle_event\([\s\S]*?rename to _record_delivery_provider_lifecycle_event_fingerprinted_impl/i.test(legacyGuardMigration));
+for (const signature of [
+  "record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)",
+  "record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text)",
+  "record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text)",
+  "record_delivery_provider_event(text,text,text,text,text)",
+]) {
+  assert(legacyGuardMigration.includes("to_regprocedure('public." + signature + "') is null"),
+    "Migration 029 must verify every canonical and legacy RPC overload: " + signature);
+}
+assert(/create or replace function public\.record_delivery_provider_lifecycle_event\([\s\S]*?p_payload_fingerprint text[\s\S]*?if p_payload_fingerprint is null[\s\S]*?pg_advisory_xact_lock\(20261119, hashtext\(v_email\)\)[\s\S]*?pg_advisory_xact_lock\(20261126, hashtext\(p_provider_email_id\)\)[\s\S]*?select e\.\* into v_existing[\s\S]*?for update[\s\S]*?if not found[\s\S]*?errcode = '42501'[\s\S]*?_record_delivery_provider_lifecycle_event_fingerprinted_impl/i.test(legacyGuardMigration),
+  "New events must require a fingerprint and legacy replays must preserve canonical advisory-lock ordering.");
+assert(/revoke all privileges[\s\S]*?_record_delivery_provider_lifecycle_event_fingerprinted_impl[\s\S]*?from public, anon, authenticated, service_role/i.test(legacyGuardMigration),
+  "The renamed lifecycle implementation must not be directly executable by service_role or browser roles.");
+const compactLegacyGuard = legacyGuardMigration.replace(/\s+/g, "");
+for (const signature of [
+  "record_delivery_provider_lifecycle_event(text, text, text, text, timestamptz, text, text, text)",
+  "record_delivery_provider_lifecycle_event(text, text, text, text, timestamptz, text, text)",
+  "record_delivery_provider_event(text, text, text, text, text)",
+]) {
+  const compactSignature = signature.replace(/\s+/g, "");
+  assert(compactLegacyGuard.includes("revokeallprivilegesonfunctionpublic." + compactSignature),
+    "Migration 029 must explicitly revoke browser execution for legacy overload: " + signature);
+  assert(compactLegacyGuard.includes("grantexecuteonfunctionpublic." + compactSignature),
+    "Migration 029 must retain service_role execution for legacy overload: " + signature);
+}
+
+for (const name of [
+  "delivery_provider_events",
+  "delivery_provider_suppressions",
+  "record_delivery_provider_event",
+]) assert(migration.includes(name), "Migration 025 provider suppression objects must remain intact");
+
+const eventTypes = [
+  "email.sent",
+  "email.delivered",
+  "email.delivery_delayed",
+  "email.bounced",
+  "email.complained",
+  "email.suppressed",
+  "email.failed",
+];
+for (const type of eventTypes) {
+  assert(lifecycleMigration.includes(type), "Missing lifecycle event type: " + type);
+  assert(parser.includes('"' + type + '"'), "Parser missing lifecycle event type: " + type);
+}
+assert(/add column provider_created_at timestamptz/i.test(lifecycleMigration));
+assert(/add column failure_class text/i.test(lifecycleMigration));
+assert(/create table public\.delivery_provider_lifecycle/i.test(lifecycleMigration));
+assert(/create table public\.delivery_provider_integrity_anomalies/i.test(integrityMigration));
+assert(integrityMigration.includes("duplicate_event_id_conflict"));
+assert(integrityMigration.includes("contradictory_terminal_outcome"));
+assert(integrityMigration.includes("p_payload_fingerprint"));
+assert(integrityMigration.includes("v_existing.payload_fingerprint is null"));
+assert(integrityMigration.includes("p_payload_fingerprint is not null"));
+assert(integrityMigration.includes("v_existing.payload_fingerprint = p_payload_fingerprint"));
+assert(!/v_existing\.payload_fingerprint is null\s+or\s+p_payload_fingerprint is null/i.test(integrityMigration),
+  "A NULL incoming fingerprint must not wildcard-match a stored fingerprint.");
+assert(integrityMigration.includes("v_existing.suppression_reason is null"));
+assert(integrityMigration.includes("p_suppression_reason is null"));
+assert(integrityMigration.includes("v_existing.suppression_reason = p_suppression_reason"));
+assert(integrityMigration.includes("'previous_complaint' then 'complaint'"));
+assert(integrityMigration.includes("'previous_bounce' then 'permanent_bounce'"));
+assert(/grant execute[\s\S]*record_delivery_provider_lifecycle_event\(text, text, text, text, timestamptz, text, text, text, text\)[\s\S]*to service_role/i.test(integrityMigration));
+assert(!/raw_payload|diagnostic_code|diagnostic_message|failure_reason|provider_error/i.test(integrityMigration));
+assert(/received_at timestamptz not null/i.test(lifecycleMigration));
+assert(/revoke all privileges on table public\.delivery_provider_lifecycle\s+from public, anon, authenticated, service_role/i.test(lifecycleMigration));
+assert(/alter table public\.delivery_provider_lifecycle enable row level security/i.test(lifecycleMigration));
+assert(/grant execute\s+on function public\.record_delivery_provider_lifecycle_event[\s\S]*?to service_role/i.test(lifecycleMigration));
+assert(/revoke all privileges\s+on function public\.record_delivery_provider_lifecycle_event[\s\S]*?from public, anon, authenticated/i.test(lifecycleMigration));
+assert(lifecycleMigration.includes("pg_advisory_xact_lock(20261119, hashtext(v_email))"));
+assert(lifecycleMigration.includes("pg_advisory_xact_lock(20261126, hashtext(p_provider_email_id))"));
+assert(lifecycleMigration.includes("on conflict (event_id) do nothing"));
+assert(lifecycleMigration.includes("create or replace function public.record_delivery_provider_event"));
+assert(lifecycleMigration.includes("clock_timestamp()"));
+assert(lifecycleMigration.includes("when excluded.reason = 'complaint' then 'complaint'"));
+assert(lifecycleMigration.includes("greatest("));
+assert(lifecycleMigration.includes("excluded.status_rank > delivery_provider_lifecycle.status_rank"));
+assert(lifecycleMigration.includes("(excluded.provider_created_at, excluded.event_id)"));
+assert(!/raw_payload|diagnostic_code|diagnostic_message|failure_reason|provider_error/i.test(lifecycleMigration));
+
+const lifecycleFunction = lifecycleMigration
+  .split("create or replace function public.record_delivery_provider_lifecycle_event")[1]
+  .split("\n$$;")[0];
+assert(!/delivery_ledger|enqueue_|retry_delivery_job|claim_delivery_jobs|begin_delivery_transport|resend\.com|send_email/i.test(lifecycleFunction),
+  "Lifecycle intake must never mutate queue/claim/retry state or send mail");
+
+for (const value of [
+  "svix-id",
+  "svix-timestamp",
+  "svix-signature",
+  "request.body.getReader()",
+  "MAX_BODY_BYTES",
+  "verifyResendWebhookSignature",
+  "record_delivery_provider_lifecycle_event",
+  "RESEND_WEBHOOK_SECRET",
+  "SUPABASE_SERVICE_ROLE_KEY",
+]) assert(route.includes(value), "Webhook route missing security boundary: " + value);
+assert(!route.includes("DELIVERY_ENABLED"), "Inbound lifecycle intake must remain available while outbound delivery is disabled");
+assert(!route.includes("console.log") && !route.includes("console.error"), "Webhook route must not log recipient or provider payload data");
+assert(!route.includes("NEXT_PUBLIC_RESEND_WEBHOOK_SECRET"));
+assert(route.includes('if (!/^[0-9]+$/.test(contentLength))'));
+assert(route.includes("p_provider_created_at"));
+assert(route.includes("p_failure_class"));
+assert(route.includes("p_suppression_reason"));
+assert(route.includes("p_payload_fingerprint"));
+assert(route.includes("data !== true && data !== false"));
+assert(parser.includes("fingerprintResendWebhookPayload"));
+assert(parser.includes("data.created_at"));
+assert(parser.includes("data.from"));
+assert(parser.includes("data.subject"));
+
+for (const value of [
+  "accepts numeric Content-Length and a valid Svix signature",
+  "accepts a valid Svix signature without Content-Length",
+  "rejects malformed Content-Length before signature verification",
+  "rejects oversized declared Content-Length before reading the body",
+  "rejects oversized streamed request bodies without Content-Length",
+  "rejects invalid signatures without invoking the database",
+  "acknowledges replay attempts while preserving event-id idempotency",
+  "returns 503 when provider-event persistence fails",
+  "returns 503 for a persisted integrity anomaly",
+  "persists all seven lifecycle event types through one database RPC and never sends email",
+]) assert(routeTests.includes(value), "Missing HTTP route regression test: " + value);
+
+for (const value of [
+  "crypto.subtle.verify",
+  "whsec_",
+  "SIGNATURE_TOLERANCE_SECONDS = 300",
+  "email.sent",
+  "email.delivered",
+  "email.delivery_delayed",
+  "email.bounced",
+  "email.complained",
+  "email.suppressed",
+  "email.failed",
+  "providerCreatedAt",
+  "normalizeFailureClass",
+  "suppressionReason",
+  "previous_bounce",
+  "previous_complaint",
+  "crypto.subtle.digest",
+  "quota_exceeded",
+]) assert(parser.includes(value), "Webhook parser missing behavior: " + value);
+
+assert(transport.includes('tags: [{ name: "application", value: "deedlight" }]'));
+assert(scheduler.includes("deliveryScheduleKind"));
+assert(transportTests.includes("provider_http_408") || transportTests.includes("[408, 429, 500, 502, 503]"));
+assert(transportTests.includes("provider_idempotency_conflict"));
+assert(transportTests.includes("provider_idempotency_window_expired"));
+assert(tests.includes("provider-shaped fixtures for all seven lifecycle events"));
+assert(tests.includes("maps both Resend suppression reasons"));
+assert(tests.includes("accepts Resend's documented bounce shape without diagnosticCode"));
+assert(tests.includes("unknown bounce type and subtype classifications normalize to Unknown"));
+assert(tests.includes("unknown suppression classifications normalize to generic provider suppression"));
+assert(tests.includes("rejects malformed diagnostic codes even for unknown provider classifications"));
+assert(tests.includes("accepts Resend's documented suppression shape without optional diagnostics or reason"));
+assert(routeTests.includes("accepts Resend's documented bounce shape without diagnosticCode"));
+assert(routeTests.includes("accepts Resend's documented suppression shape without optional diagnostics or reason"));
+assert(parser.includes('"provider_suppressed"'));
+assert(parser.includes('"Suppressed"'));
+assert(tests.includes("rejects missing or malformed bounce and suppression objects"));
+assert(tests.includes("computes a stable SHA-256 fingerprint"));
+assert(tests.includes("rejects missing common event data"));
+assert(tests.includes("normalizes failed-event reasons without retaining provider diagnostics"));
+assert(tests.includes("rejects missing or malformed provider event timestamps"));
+assert(databaseTests.includes("Conflicting duplicate event ID was not recorded as an integrity anomaly."));
+assert(databaseTests.includes("Pre-026 historical event replay was not a compatible no-op."));
+assert(databaseTests.includes("Pre-027 historical event replay was not a compatible no-op."));
+assert(databaseTests.includes("Historical NULL fingerprint was not compatible through the eight-argument RPC."));
+assert(databaseTests.includes("Historical NULL fingerprint was not compatible through the seven-argument RPC."));
+assert(databaseTests.includes("Historical NULL fingerprint was not compatible through the five-argument RPC."));
+assert(databaseTests.includes("Eight-argument legacy RPC unexpectedly inserted a new event."));
+assert(databaseTests.includes("Seven-argument legacy RPC unexpectedly inserted a new event."));
+assert(databaseTests.includes("Five-argument legacy RPC unexpectedly inserted a new event."));
+assert(databaseTests.includes("Canonical RPC unexpectedly inserted a new event without a fingerprint."));
+assert(databaseTests.includes("Legacy fingerprint conflicts mutated or removed existing event records."));
+assert(databaseTests.includes("Five-argument legacy fingerprint conflict mutated existing suppression state."));
+assert(databaseTests.includes("e.payload_fingerprint is distinct from expected.payload_fingerprint"));
+assert(databaseTests.includes("a.grantee = 0 and a.privilege_type = 'EXECUTE'"));
+assert(databaseTests.includes("Private provider lifecycle implementation ACLs regressed."));
+assert(databaseTests.includes("Canonical provider lifecycle RPC ACLs regressed."));
+const privateImplementationSignature = "public._record_delivery_provider_lifecycle_event_fingerprinted_impl(text,text,text,text,timestamptz,text,text,text,text)";
+const canonicalLifecycleSignature = "public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)";
+for (const role of ["anon", "authenticated", "service_role"]) {
+  assert(databaseTests.includes("has_function_privilege('" + role + "',\n       '" + privateImplementationSignature + "','EXECUTE')"),
+    "SQL regression suite must explicitly deny private implementation execution to " + role + ".");
+}
+for (const role of ["anon", "authenticated"]) {
+  assert(databaseTests.includes("has_function_privilege('" + role + "',\n       '" + canonicalLifecycleSignature + "','EXECUTE')"),
+    "SQL regression suite must preserve canonical RPC denial for " + role + ".");
+}
+assert(databaseTests.includes("not has_function_privilege('service_role',\n       '" + canonicalLifecycleSignature + "','EXECUTE')"),
+  "SQL regression suite must preserve canonical RPC service_role execution.");
+assert(/p\.oid = to_regprocedure\('public\._record_delivery_provider_lifecycle_event_fingerprinted_impl\([^)]+\)'\)\s+and a\.grantee = 0 and a\.privilege_type = 'EXECUTE'/s.test(databaseTests),
+  "SQL regression suite must deny PUBLIC direct execution of the private implementation.");
+assert(/p\.oid = to_regprocedure\('public\.record_delivery_provider_lifecycle_event\([^)]+\)'\)\s+and a\.grantee = 0 and a\.privilege_type = 'EXECUTE'/s.test(databaseTests),
+  "SQL regression suite must deny PUBLIC direct execution of the canonical RPC.");
+assert(databaseTests.includes("Eight-argument legacy RPC bypassed a stored provider payload fingerprint."));
+assert(databaseTests.includes("Seven-argument legacy RPC bypassed a stored provider payload fingerprint."));
+assert(databaseTests.includes("Five-argument legacy provider-event RPC bypassed a stored provider payload fingerprint."));
+assert(databaseTests.includes("Conflicting duplicate mutated original event history or suppression row."));
+assert(databaseTests.includes("Exact duplicate provider event was not a successful no-op."));
+assert(databaseTests.includes("Payload fingerprint conflict was not recorded as an integrity anomaly."));
+assert(databaseTests.includes("Delivered then bounced was not flagged."));
+assert(databaseTests.includes("Bounced then delivered was not flagged."));
+assert(databaseTests.includes("Resend nested suppression reasons were not mapped"));
+assert(databaseTests.includes("Transient bounce incorrectly suppressed"));
+assert(databaseTests.includes("Suppressed daily recipient reached transport"));
+assert(databaseTests.includes("Complained weekly recipient reached transport"));
+assert(databaseTests.includes("Complaint did not take precedence over a permanent bounce."));
+assert(databaseTests.includes("Out-of-order event regressed delivered lifecycle evidence."));
+assert(databaseTests.includes("Lifecycle webhook mutated delivery queue, claim or retry state."));
+assert(databaseTests.includes("Provider webhook and integrity tables are directly readable."));
+assert(concurrencyTests.includes("Concurrent exact duplicate event"));
+assert(concurrencyTests.includes("Concurrent conflicting duplicate integrity anomaly"));
+assert(concurrencyTests.includes("Concurrent cross-recipient provider email ID collision"));
+assert(concurrencyTests.includes("CROSS_RECIPIENT_PROVIDER_ID_LOCK_HELD"));
+assert(concurrencyTests.includes("Provider email correlation does not match."));
+for (const value of [
+  "collision_event_count",
+  "collision_first_event",
+  "collision_second_event",
+  "collision_lifecycle",
+  "collision_suppression",
+  "collision_anomaly",
+]) assert(concurrencyTests.includes(value), "Missing cross-recipient collision integrity assertion: " + value);
+assert(integrityMigration.includes("pg_advisory_xact_lock(20261126, hashtext(p_provider_email_id))"));
+assert(integrityMigration.includes("e.provider_email_id = p_provider_email_id"));
+assert(integrityMigration.includes("e.recipient_email <> v_email"));
+assert(concurrencyTests.includes("Concurrent historical event without fingerprint"));
+assert(concurrencyTests.includes("Concurrent previous complaint/bounce suppression precedence"));
+assert(concurrencyTests.includes("--pset=null=__NULL__"));
+assert(concurrencyTests.includes("--quiet --no-align --tuples-only"));
+assert(!concurrencyTests.includes("-Atc"), "Concurrency scalar assertions must not include psql command status output");
+assert(concurrencyTests.includes("Concurrent contradictory terminal outcomes in both arrival orders"));
+assert(concurrencyTests.includes("Concurrent out-of-order lifecycle monotonicity"));
+assert(concurrencyTests.includes("Shared suppression-first transport authorization"));
+assert(concurrencyTests.includes("Shared transport-first suppression ordering"));
+assert(pkg.scripts["test:delivery-webhook"] === "node --test scripts/test-delivery-webhook.mjs scripts/test-delivery-webhook-route.mjs");
+assert(workflow.includes("node scripts/verify-delivery-provider-webhooks.mjs"));
+assert(workflow.includes("npm run test:delivery-webhook"));
+assert(workflow.includes("delivery_provider_webhook_database_behavior"));
+assert(workflow.includes("scripts/test-delivery-provider-webhooks.sql"));
+assert(workflow.includes("scripts/test-delivery-provider-webhook-concurrency.sh"));
+assert(workflow.includes('test -z "' + "$" + '{RESEND_WEBHOOK_SECRET:-}"'));
+
+console.log("Resend webhook authenticity, seven-event lifecycle, ordering, suppression and privacy assertions: PASS");

@@ -30,6 +30,9 @@ function requireAbsent(name, text, pattern) {
 }
 
 const migration = read(files.migration);
+const leaseMigration = read("supabase/migrations/202611210028_delivery_claim_lock_expiry.sql");
+const concurrencyTest = read("scripts/test-delivery-reliability-concurrency.sh");
+const workflow = read(".github/workflows/pr-validation.yml");
 const aggregateSql = read(files.aggregateSql);
 const packageJson = read(files.packageJson);
 const wrangler = read(files.wrangler);
@@ -185,4 +188,39 @@ if (!aggregateSql.includes(migration.trim())) {
 }
 console.log("PASS: canonical migration is mirrored verbatim in aggregate SQL");
 
+if (!aggregateSql.includes(leaseMigration.trim())) {
+  throw new Error("Delivery reliability security assertion failed: migration 028 is not mirrored verbatim in aggregate SQL.");
+}
+console.log("PASS: additive lease correction is mirrored verbatim in aggregate SQL");
+for (const fn of ["authorize_delivery_job", "retry_delivery_job", "mark_delivery_sent", "mark_delivery_failed"]) {
+  const start = leaseMigration.indexOf("create or replace function public." + fn + "(");
+  const end = leaseMigration.indexOf("\n$", start);
+  const definition = start < 0 ? "" : leaseMigration.slice(start, end < 0 ? undefined : end);
+  if (!/for update[\s\S]*?clock_timestamp\(\)/i.test(definition)) {
+    throw new Error(fn + " must lock the ledger row before wall-clock lease validation.");
+  }
+  if (/claim_expires_at\s*(?:<=|>)\s*now\(\)/i.test(definition)) {
+    throw new Error(fn + " must not validate lease expiry using transaction-start now().");
+  }
+  if (!/security definer[\s\S]*?set search_path = public, auth, pg_temp/i.test(definition)
+    || !leaseMigration.includes("revoke all privileges on function public." + fn)
+    || !leaseMigration.includes("grant execute on function public." + fn)) {
+    throw new Error(fn + " security-definer or service-role privilege boundary regressed.");
+  }
+  if (!concurrencyTest.includes(fn)) {
+    throw new Error("Missing row-lock expiry concurrency case: " + fn);
+  }
+}
+if (!/retry_delivery_job[\s\S]*?for update[\s\S]*?p_retry_at <= v_now[\s\S]*?p_retry_at > v_now \+ interval '24 hours'/i.test(leaseMigration)) {
+  throw new Error("Retry time must remain bounded against wall-clock time after the row lock.");
+}
+if (!/attempt_count >= 5[\s\S]*?error_code = 'retry_exhausted'/i.test(leaseMigration)) {
+  throw new Error("Fifth-attempt retry exhaustion must remain terminal.");
+}
+if (!/wait_for_row_lock_wait[\s\S]*?wait_event_type='Lock'/i.test(concurrencyTest)) {
+  throw new Error("Concurrency harness must wait for an actual PostgreSQL row-lock wait.");
+}
+if (!workflow.includes("bash scripts/test-delivery-reliability-concurrency.sh")) {
+  throw new Error("PR Validation must run the lease lock-contention test.");
+}
 console.log("Delivery reliability security assertions: PASS");

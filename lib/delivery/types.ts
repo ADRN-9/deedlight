@@ -20,10 +20,10 @@ export type DeliveryTransportOutcome =
 
 export interface DeliveryGateway {
   authorize(job: ClaimedDeliveryJob): Promise<boolean>;
-  beginTransport(job: ClaimedDeliveryJob): Promise<Date>;
+  beginTransport(job: ClaimedDeliveryJob, recipient: AuthorizedRecipient): Promise<Date | null>;
   markSent(job: ClaimedDeliveryJob, providerResultId: string): Promise<void>;
   markFailed(job: ClaimedDeliveryJob, errorCode: string): Promise<void>;
-  retry(job: ClaimedDeliveryJob, retryAt: Date, errorCode: string): Promise<void>;
+  retry(job: ClaimedDeliveryJob, retryAt: Date, errorCode: string): Promise<boolean>;
 }
 
 export interface DeliveryRecipientResolver {

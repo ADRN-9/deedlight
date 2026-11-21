@@ -87,6 +87,7 @@ export function createResendTransport(
             subject: message.subject,
             text: message.text,
             html: message.html,
+            tags: [{ name: "application", value: "deedlight" }],
           }),
           signal: AbortSignal.timeout(timeoutMs),
         });
