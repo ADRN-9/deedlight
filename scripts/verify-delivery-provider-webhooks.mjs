@@ -24,6 +24,15 @@ assert(aggregate.includes(lifecycleMigration.trim()), "Migration 026 must be mir
 assert(aggregate.includes(integrityMigration.trim()), "Migration 027 must be mirrored verbatim in the SQL Editor aggregate");
 assert(aggregate.includes(legacyGuardMigration.trim()), "Migration 029 must be mirrored verbatim in the SQL Editor aggregate");
 assert(/alter function public\.record_delivery_provider_lifecycle_event\([\s\S]*?rename to _record_delivery_provider_lifecycle_event_fingerprinted_impl/i.test(legacyGuardMigration));
+for (const signature of [
+  "record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)",
+  "record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text)",
+  "record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text)",
+  "record_delivery_provider_event(text,text,text,text,text)",
+]) {
+  assert(legacyGuardMigration.includes("to_regprocedure('public." + signature + "') is null"),
+    "Migration 029 must verify every canonical and legacy RPC overload: " + signature);
+}
 assert(/create or replace function public\.record_delivery_provider_lifecycle_event\([\s\S]*?p_payload_fingerprint text[\s\S]*?if p_payload_fingerprint is null[\s\S]*?pg_advisory_xact_lock\(20261119, hashtext\(v_email\)\)[\s\S]*?pg_advisory_xact_lock\(20261126, hashtext\(p_provider_email_id\)\)[\s\S]*?select e\.\* into v_existing[\s\S]*?for update[\s\S]*?if not found[\s\S]*?errcode = '42501'[\s\S]*?_record_delivery_provider_lifecycle_event_fingerprinted_impl/i.test(legacyGuardMigration),
   "New events must require a fingerprint and legacy replays must preserve canonical advisory-lock ordering.");
 assert(/revoke all privileges[\s\S]*?_record_delivery_provider_lifecycle_event_fingerprinted_impl[\s\S]*?from public, anon, authenticated, service_role/i.test(legacyGuardMigration),

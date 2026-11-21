@@ -6,7 +6,7 @@ do $$
 begin
   if to_regprocedure('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)') is null
     or to_regprocedure('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text)') is null
-    or to_regprocedure('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)') is null
+    or to_regprocedure('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text)') is null
     or to_regprocedure('public.record_delivery_provider_event(text,text,text,text,text)') is null then
     raise exception 'Migration 029 requires the reviewed provider lifecycle and legacy RPC overloads from migration 027.';
   end if;
