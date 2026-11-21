@@ -247,25 +247,18 @@ export function parseResendProviderEvent(
   let bounceType: ResendBounceType | null = null;
   if (envelope.type === "email.bounced") {
     const bounce = recordObject(data.bounce);
-    const subTypes = [
-      "Undetermined",
-      "General",
-      "NoEmail",
-      "MailboxFull",
-      "MessageTooLarge",
-      "ContentRejected",
-      "AttachmentRejected",
-      "Suppressed",
-    ];
     if (!bounce
       || !validOptionalDiagnosticCode(bounce.diagnosticCode)
       || typeof bounce.message !== "string"
       || bounce.message.trim().length === 0
       || typeof bounce.subType !== "string"
-      || !subTypes.includes(bounce.subType)
-      || !["Permanent", "Transient", "Undetermined"].includes(String(bounce.type))) {
+      || bounce.subType.trim().length === 0
+      || typeof bounce.type !== "string"
+      || bounce.type.trim().length === 0) {
       throw new Error("Invalid Resend bounce event.");
     }
+    // Provider classifications may expand. Preserve only known actionable
+    // classes; unknown values remain Unknown and therefore suppress safely.
     bounceType = bounce.type === "Permanent" || bounce.type === "Transient"
       ? bounce.type
       : "Unknown";
@@ -278,11 +271,16 @@ export function parseResendProviderEvent(
       || !validOptionalDiagnosticCode(suppressed.diagnosticCode)
       || typeof suppressed.message !== "string"
       || suppressed.message.trim().length === 0
-      || !["Suppressed", "OnAccountSuppressionList"].includes(String(suppressed.type))
-      || (suppressed.reason !== undefined && suppressed.reason !== null && typeof suppressed.reason !== "string")) {
+      || typeof suppressed.type !== "string"
+      || suppressed.type.trim().length === 0
+      || (suppressed.reason !== undefined && suppressed.reason !== null
+        && (typeof suppressed.reason !== "string" || suppressed.reason.trim().length === 0))) {
       throw new Error("Invalid Resend suppression event.");
     }
-    suppressionReason = suppressed.reason === "previous_bounce" || suppressed.reason === "previous_complaint"
+    const knownSuppressionType = suppressed.type === "Suppressed"
+      || suppressed.type === "OnAccountSuppressionList";
+    suppressionReason = knownSuppressionType
+      && (suppressed.reason === "previous_bounce" || suppressed.reason === "previous_complaint")
       ? suppressed.reason
       : "provider_suppressed";
   }

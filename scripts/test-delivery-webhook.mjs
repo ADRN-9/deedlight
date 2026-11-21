@@ -250,6 +250,53 @@ test("unknown suppression reasons fail closed into generic provider suppression"
   }
 });
 
+
+test("unknown bounce type and subtype classifications normalize to Unknown", () => {
+  const parsed = parseResendProviderEvent(event("email.bounced", {
+    bounce: {
+      diagnosticCode: [],
+      message: "Provider added a new bounce classification.",
+      subType: "FutureProviderSubtype",
+      type: "FutureProviderBounceType",
+    },
+  }), id);
+  assert.equal(parsed.status, "accepted");
+  if (parsed.status === "accepted") assert.equal(parsed.event.bounceType, "Unknown");
+});
+
+test("unknown suppression classifications normalize to generic provider suppression", () => {
+  const parsed = parseResendProviderEvent(event("email.suppressed", {
+    suppressed: {
+      diagnosticCode: [],
+      message: "Provider added a new suppression classification.",
+      reason: "future_provider_reason",
+      type: "FutureProviderSuppressionType",
+    },
+  }), id);
+  assert.equal(parsed.status, "accepted");
+  if (parsed.status === "accepted") {
+    assert.equal(parsed.event.suppressionReason, "provider_suppressed");
+  }
+});
+
+test("rejects malformed diagnostic codes even for unknown provider classifications", () => {
+  for (const payload of [
+    event("email.bounced", { bounce: {
+      diagnosticCode: ["valid", 7],
+      message: "Provider added a new bounce classification.",
+      subType: "FutureProviderSubtype",
+      type: "FutureProviderBounceType",
+    } }),
+    event("email.suppressed", { suppressed: {
+      diagnosticCode: { code: "malformed" },
+      message: "Provider added a new suppression classification.",
+      type: "FutureProviderSuppressionType",
+    } }),
+  ]) {
+    assert.throws(() => parseResendProviderEvent(payload, id));
+  }
+});
+
 test("unknown event types and other application tags are ignored", () => {
   assert.deepEqual(parseResendProviderEvent(event("email.opened"), id), { status: "ignored" });
   const otherApp = event("email.complained", {
@@ -382,8 +429,25 @@ test("rejects missing or malformed bounce and suppression objects", () => {
     event("email.bounced", { bounce: {
       diagnosticCode: [],
       message: "Rejected.",
-      subType: "NotAProviderSubtype",
+      subType: 42,
       type: "Permanent",
+    } }),
+    event("email.bounced", { bounce: {
+      diagnosticCode: [],
+      message: "Rejected.",
+      subType: "General",
+      type: 42,
+    } }),
+    event("email.suppressed", { suppressed: {
+      diagnosticCode: [],
+      message: "Suppressed.",
+      type: 42,
+    } }),
+    event("email.suppressed", { suppressed: {
+      diagnosticCode: [],
+      message: "Suppressed.",
+      reason: " ",
+      type: "Suppressed",
     } }),
     event("email.suppressed", { suppressed: undefined }),
     event("email.bounced", { bounce: {
