@@ -47,6 +47,23 @@ assert(tests.includes("public.begin_delivery_transport"));
 assert(tests.includes("Daily enqueue stalled"));
 assert(tests.includes("Weekly enqueue stalled"));
 
+assert(workflow.includes("environment:\n      name: production"),
+  "Production migration job must be bound to the protected production Environment");
+assert(workflow.includes("if: github.ref == 'refs/heads/main' && github.ref_protected"),
+  "Production migration job must be restricted to protected main");
+assert(workflow.includes('test "$GITHUB_REF_PROTECTED" = "true"'));
+assert(workflow.includes("PRODUCTION_MIGRATION_ENVIRONMENT_GUARD"));
+assert(workflow.includes("production-environment-protected"));
+assert(workflow.includes("vars.PRODUCTION_MIGRATION_ENVIRONMENT_GUARD"));
+for (const name of [
+  "PRODUCTION_SUPABASE_ACCESS_TOKEN",
+  "PRODUCTION_SUPABASE_DB_PASSWORD",
+  "PRODUCTION_SUPABASE_PROJECT_REF",
+]) assert(workflow.includes("secrets." + name), "Missing Environment-scoped secret reference: " + name);
+assert(!workflow.includes("secrets.SUPABASE_ACCESS_TOKEN"));
+assert(!workflow.includes("secrets.SUPABASE_DB_PASSWORD"));
+assert(!workflow.includes("secrets.SUPABASE_PROJECT_REF"));
+
 const section = workflow.split("name: Link and push migrations")[1];
 assert(section, "Migration push workflow must retain guarded step");
 const guardIndex = section.indexOf("bash scripts/guard-supabase-migration-target.sh");

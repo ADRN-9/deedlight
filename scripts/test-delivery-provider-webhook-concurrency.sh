@@ -97,6 +97,56 @@ status="$(psql_scalar "select status from public.delivery_provider_lifecycle whe
 [[ "$status" == "integrity_anomaly" ]]
 echo "Concurrent conflicting duplicate integrity anomaly: PASS"
 
+# A provider email ID is permanently bound to one recipient, even across concurrent callbacks.
+"${psql_cmd[@]}" >"$tmp/cross-recipient-first.log" 2>&1 <<'SQL' &
+begin;
+set role service_role;
+select public.record_delivery_provider_lifecycle_event(
+  'evt_cross_recipient_first', 'email.delivered', 'resend-cross-recipient-collision',
+  'first-recipient@example.test', '2027-03-02T12:00:00Z', null, null,
+  null, repeat('c', 64)
+);
+\echo CROSS_RECIPIENT_PROVIDER_ID_LOCK_HELD
+select pg_sleep(2);
+commit;
+reset role;
+SQL
+cross_recipient_first_pid=$!
+wait_for_marker "$cross_recipient_first_pid" "$tmp/cross-recipient-first.log" "CROSS_RECIPIENT_PROVIDER_ID_LOCK_HELD"
+
+psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
+  'evt_cross_recipient_second', 'email.complained', 'resend-cross-recipient-collision',
+  'second-recipient@example.test', '2027-03-02T12:01:00Z', null, null,
+  null, repeat('d', 64)
+)" >"$tmp/cross-recipient-second.log" 2>&1 &
+cross_recipient_second_pid=$!
+sleep 0.2
+if ! kill -0 "$cross_recipient_second_pid" 2>/dev/null; then
+  cat "$tmp/cross-recipient-second.log"
+  echo "Cross-recipient collision did not wait on the provider-email-ID lock." >&2
+  exit 1
+fi
+wait "$cross_recipient_first_pid"
+if wait "$cross_recipient_second_pid"; then
+  echo "Cross-recipient provider email ID collision was accepted." >&2
+  exit 1
+fi
+grep -q "Provider email correlation does not match." "$tmp/cross-recipient-second.log"
+
+collision_event_count="$(psql_scalar "select count(*) from public.delivery_provider_events where provider_email_id='resend-cross-recipient-collision'")"
+collision_first_event="$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_cross_recipient_first' and recipient_email='first-recipient@example.test'")"
+collision_second_event="$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_cross_recipient_second' or recipient_email='second-recipient@example.test'")"
+collision_lifecycle="$(psql_scalar "select status || ':' || event_id from public.delivery_provider_lifecycle where provider_email_id='resend-cross-recipient-collision'")"
+collision_suppression="$(psql_scalar "select count(*) from public.delivery_provider_suppressions where recipient_email='second-recipient@example.test'")"
+collision_anomaly="$(psql_scalar "select count(*) from public.delivery_provider_integrity_anomalies where event_id='evt_cross_recipient_second'")"
+[[ "$collision_event_count" == "1" ]]
+[[ "$collision_first_event" == "1" ]]
+[[ "$collision_second_event" == "0" ]]
+[[ "$collision_lifecycle" == "email.delivered:evt_cross_recipient_first" ]]
+[[ "$collision_suppression" == "0" ]]
+[[ "$collision_anomaly" == "0" ]]
+echo "Concurrent cross-recipient provider email ID collision: PASS"
+
 # A replay of a pre-027 row with no fingerprint remains a no-op under concurrency.
 "${psql_cmd[@]}" >"$tmp/historical-first.log" 2>&1 <<'SQL' &
 begin;

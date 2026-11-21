@@ -168,6 +168,20 @@ assert(databaseTests.includes("Lifecycle webhook mutated delivery queue, claim o
 assert(databaseTests.includes("Provider webhook and integrity tables are directly readable."));
 assert(concurrencyTests.includes("Concurrent exact duplicate event"));
 assert(concurrencyTests.includes("Concurrent conflicting duplicate integrity anomaly"));
+assert(concurrencyTests.includes("Concurrent cross-recipient provider email ID collision"));
+assert(concurrencyTests.includes("CROSS_RECIPIENT_PROVIDER_ID_LOCK_HELD"));
+assert(concurrencyTests.includes("Provider email correlation does not match."));
+for (const value of [
+  "collision_event_count",
+  "collision_first_event",
+  "collision_second_event",
+  "collision_lifecycle",
+  "collision_suppression",
+  "collision_anomaly",
+]) assert(concurrencyTests.includes(value), "Missing cross-recipient collision integrity assertion: " + value);
+assert(integrityMigration.includes("pg_advisory_xact_lock(20261126, hashtext(p_provider_email_id))"));
+assert(integrityMigration.includes("e.provider_email_id = p_provider_email_id"));
+assert(integrityMigration.includes("e.recipient_email <> v_email"));
 assert(concurrencyTests.includes("Concurrent historical event without fingerprint"));
 assert(concurrencyTests.includes("Concurrent previous complaint/bounce suppression precedence"));
 assert(concurrencyTests.includes("--pset=null=__NULL__"));
