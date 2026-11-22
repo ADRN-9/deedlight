@@ -93,6 +93,13 @@ verify_postgres_target() {
 # This read-only identity/version check runs before temp setup, cleanup traps, or any DROP/CREATE.
 verify_postgres_target
 
+cli_version="$(supabase --version 2>&1)"
+echo "Supabase CLI: $cli_version"
+case "$cli_version" in
+  *3.2.0*) ;;
+  *) die "Expected pinned Supabase CLI v3.2.0." ;;
+esac
+
 readonly TMP="$(mktemp -d)"
 readonly DB_S6_S7="deedlight_007_s6_s7"
 readonly DB_S7_S6="deedlight_007_s7_s6"
