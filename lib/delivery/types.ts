@@ -21,7 +21,7 @@ export type DeliveryTransportOutcome =
 export interface DeliveryGateway {
   authorize(job: ClaimedDeliveryJob): Promise<boolean>;
   beginTransport(job: ClaimedDeliveryJob, recipient: AuthorizedRecipient): Promise<Date | null>;
-  authorizeProviderIdempotencyWindow(job: ClaimedDeliveryJob): Promise<"authorized" | "cancelled" | "expired">;
+  authorizeProviderIdempotencyWindow(job: ClaimedDeliveryJob, recipient: AuthorizedRecipient): Promise<"authorized" | "cancelled" | "expired">;
   markSent(job: ClaimedDeliveryJob, providerResultId: string): Promise<void>;
   markFailed(job: ClaimedDeliveryJob, errorCode: string): Promise<void>;
   retry(job: ClaimedDeliveryJob, errorCode: string): Promise<boolean>;
