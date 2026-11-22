@@ -306,6 +306,19 @@ VALUES
     'What mattered today?'
   );
 
+INSERT INTO public.daily_lights (
+  id, scheduled_date, status, title, summary, small_deed, reflection_prompt
+)
+VALUES (
+  '00000000-0000-4000-8000-000000000218',
+  current_date + 370,
+  'published',
+  'C310 Daily-linked Saved Light owner-delete fixture',
+  'Synthetic published Daily Light used only to test Saved Light owner deletion.',
+  'No action; this fixture exists only inside the test transaction.',
+  'What mattered today?'
+);
+
 UPDATE public.daily_reflections
 SET daily_light_id = '00000000-0000-4000-8000-000000000206',
     reflection = 'C298_PRIVATE_DAILY_LIGHT_REFLECTION_MEMBER_A_SENTINEL',
@@ -430,6 +443,17 @@ VALUES
     '00000000-0000-4000-8000-000000000207'
   );
 
+-- C310: a separate member-owned Daily-linked Saved Light exercises RLS
+-- deletion independently from the four C307 parent-restriction fixtures.
+INSERT INTO public.saved_lights (
+  id, user_id, daily_light_id
+)
+VALUES (
+  '00000000-0000-4000-8000-000000000317',
+  '00000000-0000-4000-8000-000000000102',
+  '00000000-0000-4000-8000-000000000218'
+);
+
 INSERT INTO public.weekly_goodness_features (
   week_start, offering_id, selected_by
 )
@@ -501,6 +525,21 @@ BEGIN
         '00000000-0000-4000-8000-000000000322'
       )) <> 4 THEN
     RAISE EXCEPTION 'C307 Journey/Saved Lights parent and account-erasure fixtures were not created.';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.daily_lights
+    WHERE id = '00000000-0000-4000-8000-000000000218'
+      AND status = 'published'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM public.saved_lights
+    WHERE id = '00000000-0000-4000-8000-000000000317'
+      AND user_id = '00000000-0000-4000-8000-000000000102'
+      AND daily_light_id = '00000000-0000-4000-8000-000000000218'
+      AND offering_id IS NULL
+      AND daily_post_id IS NULL
+  ) THEN
+    RAISE EXCEPTION 'C310 owner-delete Daily-linked Saved Light fixture was not created.';
   END IF;
 
   IF NOT EXISTS (
@@ -787,11 +826,16 @@ BEGIN
   END IF;
 
   SELECT count(*) INTO v_count FROM public.saved_lights;
-  IF v_count <> 1 OR EXISTS (
+  IF v_count <> 2 OR EXISTS (
     SELECT 1 FROM public.saved_lights
     WHERE user_id = '00000000-0000-4000-8000-000000000101'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM public.saved_lights
+    WHERE id = '00000000-0000-4000-8000-000000000317'
+      AND user_id = auth.uid()
+      AND daily_light_id = '00000000-0000-4000-8000-000000000218'
   ) THEN
-    RAISE EXCEPTION 'Member B can see another member''s Saved Lights.';
+    RAISE EXCEPTION 'Member B cannot read only their own Offering- and Daily-linked Saved Lights.';
   END IF;
 
   SELECT count(*) INTO v_count
@@ -1030,8 +1074,11 @@ BEGIN
   IF v_count <> 1 OR EXISTS (
     SELECT 1 FROM public.saved_lights
     WHERE user_id = '00000000-0000-4000-8000-000000000102'
+  ) OR EXISTS (
+    SELECT 1 FROM public.saved_lights
+    WHERE id = '00000000-0000-4000-8000-000000000317'
   ) THEN
-    RAISE EXCEPTION 'Member A can see another member''s Saved Lights.';
+    RAISE EXCEPTION 'Member A can see another member''s Offering- or Daily-linked Saved Lights.';
   END IF;
 
   DELETE FROM public.saved_lights
@@ -1039,6 +1086,14 @@ BEGIN
   GET DIAGNOSTICS v_rows = ROW_COUNT;
   IF v_rows <> 0 THEN
     RAISE EXCEPTION 'Member A deleted Member B''s Saved Light.';
+  END IF;
+
+  -- C310: another authenticated member cannot delete a Daily-linked Saved Light.
+  DELETE FROM public.saved_lights
+  WHERE id = '00000000-0000-4000-8000-000000000317';
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows <> 0 THEN
+    RAISE EXCEPTION 'Member A deleted Member B''s Daily-linked Saved Light.';
   END IF;
 
   v_denied := false;
@@ -1316,11 +1371,33 @@ DECLARE
   v_denied boolean;
 BEGIN
   SELECT count(*) INTO v_count FROM public.saved_lights;
-  IF v_count <> 1 OR EXISTS (
+  IF v_count <> 2 OR EXISTS (
     SELECT 1 FROM public.saved_lights
     WHERE user_id = '00000000-0000-4000-8000-000000000101'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM public.saved_lights
+    WHERE id = '00000000-0000-4000-8000-000000000317'
+      AND user_id = auth.uid()
+      AND daily_light_id = '00000000-0000-4000-8000-000000000218'
+      AND offering_id IS NULL
+      AND daily_post_id IS NULL
   ) THEN
-    RAISE EXCEPTION 'Member B Saved Lights isolation changed after Member A removal.';
+    RAISE EXCEPTION 'Member B Daily-linked Saved Light was not preserved after the cross-member delete attempt.';
+  END IF;
+
+  -- C310: the owner may legitimately remove their own Daily-linked Saved Light.
+  DELETE FROM public.saved_lights
+  WHERE id = '00000000-0000-4000-8000-000000000317';
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows <> 1 THEN
+    RAISE EXCEPTION 'Member B could not delete their own Daily-linked Saved Light.';
+  END IF;
+
+  SELECT count(*) INTO v_count
+  FROM public.saved_lights
+  WHERE id = '00000000-0000-4000-8000-000000000317';
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'Member B''s owner-deleted Daily-linked Saved Light remains visible.';
   END IF;
 
   v_denied := false;
