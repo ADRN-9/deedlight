@@ -56,8 +56,16 @@ for (const file of new Set(inspectFiles)) {
     } catch (error) {
       throw new Error(`source map reference is not valid URL encoding: ${relative(root, file)} -> ${value}`, { cause: error });
     }
-    const mapPath = resolve(dirname(file), decodedValue);
-    assert.ok(existsSync(mapPath) && statSync(mapPath).isFile(), `source map reference must resolve: ${relative(root, file)} -> ${value}`);
+    const mapCandidates = [...new Set([value, decodedValue])].map((candidate) =>
+      resolve(dirname(file), candidate),
+    );
+    const mapPath = mapCandidates.find(
+      (candidate) => existsSync(candidate) && statSync(candidate).isFile(),
+    );
+    assert.ok(
+      mapPath,
+      `source map reference must resolve: ${relative(root, file)} -> ${value}; checked ${mapCandidates.map((candidate) => relative(root, candidate)).join(", ")}`,
+    );
     const map = JSON.parse(readFileSync(mapPath, "utf8"));
     assert.equal(map.version, 3, `source map must use version 3: ${relative(root, mapPath)}`);
     assert.ok(Array.isArray(map.sources), `source map must contain sources: ${relative(root, mapPath)}`);
