@@ -77,6 +77,7 @@ run_rejected_override() {
 }
 
 run_rejected_override PGHOST "203.0.113.44" remote_host
+run_rejected_override PGHOST "localhost" hostname_alias
 run_rejected_override PGHOSTADDR "203.0.113.44" remote_hostaddr
 run_rejected_override PGSERVICE "production" service_name
 run_rejected_override PGSERVICEFILE "$TMP/production.pg_service.conf" service_file
@@ -87,7 +88,7 @@ run_rejected_override PGTARGETSESSIONATTRS "read-write" target_session_override
 run_rejected_override PGPASSFILE "$TMP/production.pgpass" password_file_override
 run_rejected_override PGSSLMODE "require" ssl_mode_override
 
-# The documented local CI values pass the environment guard. Fake commands ensure no database is created.
+# The documented local CI values pass the environment guard. Fake commands prevent database mutation.
 : > "$CALL_LOG"
 local_status=0
 env -i \
@@ -113,12 +114,8 @@ grep -Fq "Verified isolated PostgreSQL client target: 127.0.0.1:5432/deedlight_m
   fail "Exact local CI target was not accepted by the read-only preflight."
 }
 grep -Fq "server_version_num=160016" "$TMP/local-allowlist.log" || fail "Numeric PostgreSQL version evidence was not logged."
-grep -q $'^psql\t' "$CALL_LOG" || fail "The local target preflight did not call the fake psql command."
-grep -q 
-
-printf 'Exact local CI target accepted; fake createdb prevented any database mutation: PASS\n'
-printf 'Duplicate-007 remote-target safety regressions: PASS\n'
-^createdb\t' "$CALL_LOG" || fail "The exact local target did not reach the fake createdb boundary."
+grep -q '^psql' "$CALL_LOG" || fail "The local target preflight did not call the fake psql command."
+grep -q '^createdb' "$CALL_LOG" || fail "The exact local target did not reach the fake createdb boundary."
 grep -Fq -- "--host 127.0.0.1 --port 5432 --username postgres --dbname deedlight_migration_order_test" "$CALL_LOG" || fail "The local preflight did not use explicit loopback connection arguments."
 
 printf 'Exact local CI target accepted; fake createdb prevented any database mutation: PASS\n'
