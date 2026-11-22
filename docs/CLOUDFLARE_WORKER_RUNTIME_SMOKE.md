@@ -12,7 +12,7 @@ The workflow first builds and inspects artifacts using the repository's committe
 
 The runtime smoke then creates a temporary `wrangler.runtime-smoke.jsonc` from the committed configuration. It removes only `global_fetch_strictly_public` for the local test Worker because the fixture Supabase hostname resolves to loopback. The temporary config retains the Images binding and the empty Cron schedule. It is deleted in the test cleanup path.
 
-The smoke temporarily extends `next.config.ts` with one HTTP image host, `auth.supabase.co:54321`, so a local fixture can exercise the permitted Supabase Storage image-optimization path. The committed production image pattern remains HTTPS-only for `*.supabase.co`. The original Next config is restored in the test cleanup path.
+The smoke leaves `next.config.ts` unchanged and exercises the production HTTPS wildcard with a public image asset hosted in Supabase's own public Storage project. The local `auth.supabase.co:54321` mock is used only for Auth and REST session/profile calls; it is not used as an image origin.
 
 ## Local-only runtime and credentials
 
