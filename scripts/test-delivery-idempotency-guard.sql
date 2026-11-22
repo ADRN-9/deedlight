@@ -384,8 +384,15 @@ where id = '00000000-0000-0000-0000-000000000002';
 
 set role service_role;
 do $c252_suppression$
+declare
+  v_inserted boolean;
+  v_suppressed boolean;
+  v_current_email text;
+  v_result text;
+  v_state text;
+  v_error text;
 begin
-  if public.record_delivery_provider_lifecycle_event(
+  v_inserted := public.record_delivery_provider_lifecycle_event(
     'evt_c252_suppression_after_transport',
     'email.complained',
     'resend-c252-suppression',
@@ -395,15 +402,28 @@ begin
     null,
     null,
     repeat('a', 64)
-  ) is not true then
-    raise exception 'C252 provider suppression fixture was not recorded.';
-  end if;
-  if public.authorize_delivery_idempotency_window(
-      '00000000-0000-0000-0000-00000000c914',
-      '00000000-0000-0000-0000-00000000d914',
-      'two@example.test') is distinct from 'cancelled'
+  );
+  select exists (select 1 from public.delivery_provider_suppressions where recipient_email='two@example.test')
+  into v_suppressed;
+  select lower(btrim(email)) into v_current_email
+  from auth.users where id='00000000-0000-0000-0000-000000000002';
+  v_result := public.authorize_delivery_idempotency_window(
+    '00000000-0000-0000-0000-00000000c914',
+    '00000000-0000-0000-0000-00000000d914',
+    'two@example.test'
+  );
+  select state,error_code into v_state,v_error
+  from public.delivery_ledger
+  where id='00000000-0000-0000-0000-00000000c914';
+  raise notice 'C252 provider suppression gate: inserted %, suppressed %, email %, result %, state %, error %',
+    v_inserted,v_suppressed,v_current_email,v_result,v_state,v_error;
+  if v_inserted is distinct from true
+    or v_suppressed is distinct from true
+    or v_current_email is distinct from 'two@example.test'
+    or v_result is distinct from 'cancelled'
+    or v_state is distinct from 'cancelled'
     or not exists (select 1 from public.delivery_ledger where id='00000000-0000-0000-0000-00000000c914'
-      and state='cancelled' and claim_token is null and claim_expires_at is null) then
+      and claim_token is null and claim_expires_at is null) then
     raise exception 'Final provider gate did not recheck provider suppression.';
   end if;
 end;
