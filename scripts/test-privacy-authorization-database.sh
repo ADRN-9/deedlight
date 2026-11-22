@@ -171,6 +171,10 @@ cleanup_check() {
         SELECT 1 FROM public.daily_reflections
         WHERE reflection_text = 'C296_PRIVATE_DAILY_REFLECTION_SENTINEL'
       )
+      AND NOT EXISTS (
+        SELECT 1 FROM public.daily_posts
+        WHERE slug = 'c296-privacy-test-daily-post'
+      )
       THEN 'privacy_fixture_cleanup=pass'
       ELSE 'privacy_fixture_cleanup=FAIL'
     END;
