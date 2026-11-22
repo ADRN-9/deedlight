@@ -339,6 +339,14 @@ jobs:
       - name: Run migration ordering positive and negative behavior
         run: bash scripts/test-delivery-migration-order.sh
 
+      - name: Install pinned Supabase CLI for duplicate migration regression
+        uses: supabase/setup-cli@v1
+        with:
+          version: 3.2.0
+
+      - name: Verify duplicate 007 order and CLI migration semantics
+        run: bash scripts/test-duplicate-migration-007.sh
+
   delivery_provider_webhook_database_behavior:
     runs-on: ubuntu-latest
     timeout-minutes: 10
