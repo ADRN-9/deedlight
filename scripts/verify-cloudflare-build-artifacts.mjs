@@ -50,7 +50,13 @@ for (const file of new Set(inspectFiles)) {
   for (const match of references) {
     const value = match[1];
     if (value.startsWith("data:")) continue;
-    const mapPath = resolve(dirname(file), value);
+    let decodedValue;
+    try {
+      decodedValue = decodeURIComponent(value);
+    } catch (error) {
+      throw new Error(`source map reference is not valid URL encoding: ${relative(root, file)} -> ${value}`, { cause: error });
+    }
+    const mapPath = resolve(dirname(file), decodedValue);
     assert.ok(existsSync(mapPath) && statSync(mapPath).isFile(), `source map reference must resolve: ${relative(root, file)} -> ${value}`);
     const map = JSON.parse(readFileSync(mapPath, "utf8"));
     assert.equal(map.version, 3, `source map must use version 3: ${relative(root, mapPath)}`);
