@@ -158,6 +158,8 @@ function createSessionCookie() {
 async function main() {
   assert.ok(originalWranglerConfig.compatibility_flags.includes("global_fetch_strictly_public"),
     "production Wrangler config must retain global_fetch_strictly_public");
+  assert.equal(originalWranglerConfig.images?.binding, "IMAGES",
+    "production Worker must bind Cloudflare Images for permitted Supabase optimization");
   assert.deepEqual(originalWranglerConfig.triggers?.crons ?? [], [],
     "runtime smoke must not activate Cron");
   assert.equal(process.env.DELIVERY_ENABLED, "false",
