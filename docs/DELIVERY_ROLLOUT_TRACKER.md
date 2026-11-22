@@ -193,3 +193,9 @@ Rollback is operational and fail-closed: disable new outbound work, remove futur
 - Initial test attempt #772 failed before migration execution because the temporary CLI config set an unsupported local major_version=16. The config was corrected; #774/#775 then passed. This was a harness configuration issue, not a migration result.
 - C247 evidence is repository/isolated-runner evidence only. Production migration history and live schema remain unobserved. No Production SQL, migration-history repair, credential/configuration change, deploy, Cron, scheduler, or delivery mutation occurred. Production remains NO-GO.
 - Independent review focus: inspect the two 007 files and the new regression assertions; verify the explicit transaction boundary on Sprint 7, default CLI transaction on Sprint 6, and the missing NOT NULL/unique/index/trigger/policy contracts in the Sprint 7-first state. Production reconciliation still requires authorized read-only history, full catalog definitions, and retained manual-execution/audit evidence.
+
+### Final exact-head validation before this evidence addendum
+
+- Branch-push #778, run 44965914853, completed SUCCESS with 7/7 jobs. Validate checked out exact branch HEAD c73902feb46768dd76044f63d2908d6ab746e74a, tree 1b7bd9b2bf526ab04be4daba2cba9ce2b19ed2d6.
+- PR integration #779, run 44965919311, completed SUCCESS with 7/7 jobs. Validate checked out synthetic merge commit 94af4082989f98eff0390ec2fce8d6bfaae2ffe1, tree 1b7bd9b2bf526ab04be4daba2cba9ce2b19ed2d6; parents ce82b3fdf1a73510de70e3729a487d4ae00e66e3 and c73902feb46768dd76044f63d2908d6ab746e74a.
+- Each run passed all seven jobs: validate, delivery_provider_webhook_database_behavior, delivery_migration_order_database_behavior, auth_pgcrypto_database_behavior, delivery_reliability_database_behavior, sprint12_2_database_behavior, and gentle_delivery_transport_database_behavior.

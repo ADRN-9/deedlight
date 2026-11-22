@@ -651,3 +651,9 @@ Every entry is a separate migration file. Tables, columns, indexes, constraints,
 - Next independent review should verify the new script and CI logs, especially the asymmetric transaction behavior (Sprint 7 commits before duplicate history insertion; Sprint 6 rolls back on SQLSTATE 42703) and the nullability/constraint gaps in the Sprint 7-first state.
 - Production migration classification remains UNKNOWN for every file and effect group. Authorized read-only Production migration history, live catalog definitions, and retained SQL Editor/audit/deployment evidence are still required to determine which 007 body or bodies were actually applied.
 - No Production migration history, schema, credentials, deployment configuration, scheduler, Cron, delivery setting, or external provider was changed. Production remains NO-GO.
+
+### Final exact-head validation before this evidence addendum
+
+- Branch-push #778, run 44965914853, completed SUCCESS with 7/7 jobs. Validate checked out exact branch HEAD c73902feb46768dd76044f63d2908d6ab746e74a, tree 1b7bd9b2bf526ab04be4daba2cba9ce2b19ed2d6.
+- PR integration #779, run 44965919311, completed SUCCESS with 7/7 jobs. Validate checked out synthetic merge commit 94af4082989f98eff0390ec2fce8d6bfaae2ffe1, tree 1b7bd9b2bf526ab04be4daba2cba9ce2b19ed2d6; parents ce82b3fdf1a73510de70e3729a487d4ae00e66e3 and c73902feb46768dd76044f63d2908d6ab746e74a.
+- Each run passed all seven jobs: validate, delivery_provider_webhook_database_behavior, delivery_migration_order_database_behavior, auth_pgcrypto_database_behavior, delivery_reliability_database_behavior, sprint12_2_database_behavior, and gentle_delivery_transport_database_behavior.
