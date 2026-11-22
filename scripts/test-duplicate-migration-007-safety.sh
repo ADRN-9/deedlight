@@ -172,41 +172,7 @@ run_rejected_backend_address() {
     cat "$CALL_LOG" >&2
     fail "Backend-address mismatch did not stop after Docker metadata and read-only PostgreSQL identity checks."
   }
-  if grep -Eq : > "$CALL_LOG"
-local_status=0
-env -i \
-  "PATH=$TEST_PATH" "HOME=$TMP/home" \
-  GITHUB_ACTIONS=true \
-  GITHUB_REPOSITORY=ADRN-9/deedlight \
-  GITHUB_JOB=delivery_migration_order_database_behavior \
-  GITHUB_EVENT_NAME=pull_request \
-  DELIVERY_ENABLED=false \
-  PGHOST=127.0.0.1 \
-  PGPORT=5432 \
-  PGUSER=postgres \
-  PGPASSWORD=postgres \
-  "POSTGRES_SERVICE_CONTAINER_ID=$TEST_CONTAINER_ID" \
-  "DEEDLIGHT_TEST_DOCKER_INSPECT_OUTPUT=$TEST_CONTAINER_ID|postgres:16.16|true|1|172.18.0.2" \
-  "DEEDLIGHT_SAFETY_CALL_LOG=$CALL_LOG" \
-  bash "$TARGET_SCRIPT" > "$TMP/local-allowlist.log" 2>&1 || local_status=$?
-
-[[ "$local_status" -eq 97 ]] || {
-  cat "$TMP/local-allowlist.log" >&2
-  fail "Local CI target did not reach the fake createdb boundary (status=$local_status)."
-}
-grep -Fq "Verified isolated PostgreSQL target: client=127.0.0.1:5432/deedlight_migration_order_test user=postgres docker_service_addr=172.18.0.2 server_addr=172.18.0.2" "$TMP/local-allowlist.log" || {
-  cat "$TMP/local-allowlist.log" >&2
-  fail "Exact local CI target was not accepted by the Docker-bound read-only preflight."
-}
-grep -Fq "server_version_num=160016" "$TMP/local-allowlist.log" || fail "Numeric PostgreSQL version evidence was not logged."
-grep -q '^docker' "$CALL_LOG" || fail "The local target preflight did not inspect the expected Docker service container."
-grep -q '^psql' "$CALL_LOG" || fail "The local target preflight did not call the fake psql command."
-grep -q '^createdb' "$CALL_LOG" || fail "The exact local target did not reach the fake createdb boundary."
-grep -Fq -- "--host 127.0.0.1 --port 5432 --username postgres --dbname deedlight_migration_order_test" "$CALL_LOG" || fail "The local preflight did not use explicit loopback connection arguments."
-
-printf 'Exact local CI target accepted; fake createdb prevented any database mutation: PASS\n'
-printf 'Duplicate-007 remote-target safety regressions: PASS\n'
-^(dropdb|createdb|supabase)\\t' "$CALL_LOG"; then
+  if grep -Eq '^(dropdb|createdb|supabase)[[:space:]]' "$CALL_LOG"; then
     cat "$CALL_LOG" >&2
     fail "Backend-address mismatch reached a destructive database or CLI command."
   fi
@@ -236,6 +202,8 @@ env -i \
   PGPORT=5432 \
   PGUSER=postgres \
   PGPASSWORD=postgres \
+  "POSTGRES_SERVICE_CONTAINER_ID=$TEST_CONTAINER_ID" \
+  "DEEDLIGHT_TEST_DOCKER_INSPECT_OUTPUT=$TEST_CONTAINER_ID|postgres:16.16|true|1|172.18.0.2" \
   "DEEDLIGHT_SAFETY_CALL_LOG=$CALL_LOG" \
   bash "$TARGET_SCRIPT" > "$TMP/local-allowlist.log" 2>&1 || local_status=$?
 
@@ -243,11 +211,12 @@ env -i \
   cat "$TMP/local-allowlist.log" >&2
   fail "Local CI target did not reach the fake createdb boundary (status=$local_status)."
 }
-grep -Fq "Verified isolated PostgreSQL client target: 127.0.0.1:5432/deedlight_migration_order_test" "$TMP/local-allowlist.log" || {
+grep -Fq "Verified isolated PostgreSQL target: client=127.0.0.1:5432/deedlight_migration_order_test user=postgres docker_service_addr=172.18.0.2 server_addr=172.18.0.2" "$TMP/local-allowlist.log" || {
   cat "$TMP/local-allowlist.log" >&2
-  fail "Exact local CI target was not accepted by the read-only preflight."
+  fail "Exact local CI target was not accepted by the Docker-bound read-only preflight."
 }
 grep -Fq "server_version_num=160016" "$TMP/local-allowlist.log" || fail "Numeric PostgreSQL version evidence was not logged."
+grep -q '^docker' "$CALL_LOG" || fail "The local target preflight did not inspect the expected Docker service container."
 grep -q '^psql' "$CALL_LOG" || fail "The local target preflight did not call the fake psql command."
 grep -q '^createdb' "$CALL_LOG" || fail "The exact local target did not reach the fake createdb boundary."
 grep -Fq -- "--host 127.0.0.1 --port 5432 --username postgres --dbname deedlight_migration_order_test" "$CALL_LOG" || fail "The local preflight did not use explicit loopback connection arguments."
