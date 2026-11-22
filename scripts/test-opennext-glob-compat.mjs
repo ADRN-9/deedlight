@@ -129,6 +129,8 @@ function loadManifest(path) {
   return path.endsWith("/BUILD_ID") ? contents : JSON.parse(contents);
 }
 function evalManifest(path, shouldCache = true, cache = new Map(), handleMissing = false) {
+  if (shouldCache && cache.has(path)) return cache.get(path);
+  if (handleMissing) return undefined;
   return require(path);
 }`,
     );
