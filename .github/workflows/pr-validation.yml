@@ -71,6 +71,7 @@ jobs:
       - name: Gentle delivery transport behavior
         run: node --test scripts/test-delivery-transport.mjs
 
+      # Preserve complete advisory metadata and vulnerable dependency paths in CI logs.
       - name: Fail closed on high or critical dependency advisories
         shell: bash
         run: |
