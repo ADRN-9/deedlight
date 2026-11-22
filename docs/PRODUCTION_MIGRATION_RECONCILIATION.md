@@ -4,11 +4,12 @@
 **Repository:** ADRN-9/deedlight  
 **Branch:** security/delivery-transport-consent-gates  
 **Historical C240 source HEAD (archival):** 02468dd809a1f5922e354c654f2db186fe8e8ca4  
-**Historical C240 source tree (archival):** 356f750ce7c116b72829ba28578701a1b4e24771
-**C247 verified test-source HEAD:** 56785783f6fd00421a05586d4132274b3345dbad
+**Historical C240 source tree (archival):** 356f750ce7c116b72829ba28578701a1b4e24771  
+**C247 verified test-source HEAD:** 56785783f6fd00421a05586d4132274b3345dbad  
 **C247 verified test-source tree:** f815740d7ee35a65d56af65251dad6e2aa9701a8  
 **PR:** #10 — OPEN / DRAFT / UNMERGED  
-**Date:** 2026-11-21  
+**Historical C240 date (UTC):** 2026-11-21  
+**C247 verification date (UTC):** 2026-11-22  
 **Disposition:** INCOMPLETE — Production read-only access not authorized
 
 ## Executive result
