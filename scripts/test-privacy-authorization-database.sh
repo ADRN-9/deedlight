@@ -196,6 +196,9 @@ echo "Applying supabase/migrations/202611220025_sprint12_5_private_daily_reflect
 echo "Applying supabase/migrations/202611220026_sprint12_6_daily_reflection_restrict_parent_delete.sql"
 "${psql_cmd[@]}" --file supabase/migrations/202611220026_sprint12_6_daily_reflection_restrict_parent_delete.sql
 
+echo "Applying supabase/migrations/202611220027_sprint12_7_daily_journey_restrict_parent_delete.sql"
+"${psql_cmd[@]}" --file supabase/migrations/202611220027_sprint12_7_daily_journey_restrict_parent_delete.sql
+
 legacy_policy_count="$("${psql_cmd[@]}" -Atqc "
   SELECT count(*)
   FROM pg_policies
@@ -380,6 +383,125 @@ if [[ "$daily_reflection_account_erasure_fk_count" != "1" ]]; then
   exit 1
 fi
 
+daily_private_parent_fk_count="$("${psql_cmd[@]}" -Atqc "
+  SELECT count(*)
+  FROM pg_constraint c
+  JOIN pg_attribute a
+    ON a.attrelid = c.conrelid
+   AND a.attnum = c.conkey[1]
+  WHERE c.contype = 'f'
+    AND cardinality(c.conkey) = 1
+    AND (
+      (c.conrelid = 'public.saved_lights'::regclass
+        AND a.attname = 'daily_post_id'
+        AND c.confrelid = 'public.daily_posts'::regclass)
+      OR
+      (c.conrelid = 'public.saved_lights'::regclass
+        AND a.attname = 'daily_light_id'
+        AND c.confrelid = 'public.daily_lights'::regclass)
+      OR
+      (c.conrelid = 'public.daily_deed_completions'::regclass
+        AND a.attname = 'daily_post_id'
+        AND c.confrelid = 'public.daily_posts'::regclass)
+      OR
+      (c.conrelid = 'public.daily_deed_completions'::regclass
+        AND a.attname = 'daily_light_id'
+        AND c.confrelid = 'public.daily_lights'::regclass)
+    );
+")"
+if [[ "$daily_private_parent_fk_count" != "4" ]]; then
+  echo "Saved Lights and Daily Journey must retain exactly four expected Daily parent foreign keys." >&2
+  exit 1
+fi
+
+daily_private_parent_restrict_fk_count="$("${psql_cmd[@]}" -Atqc "
+  SELECT count(*)
+  FROM pg_constraint c
+  JOIN pg_attribute a
+    ON a.attrelid = c.conrelid
+   AND a.attnum = c.conkey[1]
+  WHERE c.contype = 'f'
+    AND cardinality(c.conkey) = 1
+    AND c.confdeltype = 'r'
+    AND (
+      (c.conrelid = 'public.saved_lights'::regclass
+        AND a.attname = 'daily_post_id'
+        AND c.confrelid = 'public.daily_posts'::regclass)
+      OR
+      (c.conrelid = 'public.saved_lights'::regclass
+        AND a.attname = 'daily_light_id'
+        AND c.confrelid = 'public.daily_lights'::regclass)
+      OR
+      (c.conrelid = 'public.daily_deed_completions'::regclass
+        AND a.attname = 'daily_post_id'
+        AND c.confrelid = 'public.daily_posts'::regclass)
+      OR
+      (c.conrelid = 'public.daily_deed_completions'::regclass
+        AND a.attname = 'daily_light_id'
+        AND c.confrelid = 'public.daily_lights'::regclass)
+    );
+")"
+if [[ "$daily_private_parent_restrict_fk_count" != "4" ]]; then
+  echo "Migration 027 did not install all four restrictive Saved Lights/Journey parent foreign keys." >&2
+  exit 1
+fi
+
+daily_private_parent_cascade_fk_count="$("${psql_cmd[@]}" -Atqc "
+  SELECT count(*)
+  FROM pg_constraint c
+  JOIN pg_attribute a
+    ON a.attrelid = c.conrelid
+   AND a.attnum = c.conkey[1]
+  WHERE c.contype = 'f'
+    AND cardinality(c.conkey) = 1
+    AND c.confdeltype = 'c'
+    AND (
+      (c.conrelid = 'public.saved_lights'::regclass
+        AND a.attname = 'daily_post_id'
+        AND c.confrelid = 'public.daily_posts'::regclass)
+      OR
+      (c.conrelid = 'public.saved_lights'::regclass
+        AND a.attname = 'daily_light_id'
+        AND c.confrelid = 'public.daily_lights'::regclass)
+      OR
+      (c.conrelid = 'public.daily_deed_completions'::regclass
+        AND a.attname = 'daily_post_id'
+        AND c.confdeltype = 'c'
+        AND c.confrelid = 'public.daily_posts'::regclass)
+      OR
+      (c.conrelid = 'public.daily_deed_completions'::regclass
+        AND a.attname = 'daily_light_id'
+        AND c.confdeltype = 'c'
+        AND c.confrelid = 'public.daily_lights'::regclass)
+    );
+")"
+if [[ "$daily_private_parent_cascade_fk_count" != "0" ]]; then
+  echo "Migration 027 left a cascading Daily parent foreign key on private Journey or Saved Lights data." >&2
+  exit 1
+fi
+
+daily_private_user_fk_cascade_count="$("${psql_cmd[@]}" -Atqc "
+  SELECT count(*)
+  FROM pg_constraint c
+  JOIN pg_attribute a
+    ON a.attrelid = c.conrelid
+   AND a.attnum = c.conkey[1]
+  WHERE c.contype = 'f'
+    AND cardinality(c.conkey) = 1
+    AND a.attname = 'user_id'
+    AND c.confrelid = 'auth.users'::regclass
+    AND c.confdeltype = 'c'
+    AND c.conrelid IN (
+      'public.saved_lights'::regclass,
+      'public.daily_deed_completions'::regclass
+    );
+")"
+if [[ "$daily_private_user_fk_cascade_count" != "2" ]]; then
+  echo "Migration 027 changed the auth.users account-erasure cascades for Saved Lights or Daily Journey." >&2
+  exit 1
+fi
+echo "Migration 027 Saved Lights/Journey parent RESTRICT and account-erasure cascade catalog checks: PASS"
+
 
 cleanup_check() {
   local phase="$1"
@@ -395,6 +517,7 @@ cleanup_check() {
           '00000000-0000-4000-8000-000000000103',
           '00000000-0000-4000-8000-000000000104',
           '00000000-0000-4000-8000-000000000105',
+          '00000000-0000-4000-8000-000000000106',
           '00000000-0000-4000-8000-000000000109',
           '00000000-0000-4000-8000-000000000110',
           '00000000-0000-4000-8000-000000000111'
@@ -408,6 +531,7 @@ cleanup_check() {
           '00000000-0000-4000-8000-000000000103',
           '00000000-0000-4000-8000-000000000104',
           '00000000-0000-4000-8000-000000000105',
+          '00000000-0000-4000-8000-000000000106',
           '00000000-0000-4000-8000-000000000109',
           '00000000-0000-4000-8000-000000000110',
           '00000000-0000-4000-8000-000000000111'
@@ -431,7 +555,11 @@ cleanup_check() {
         WHERE id IN (
           '00000000-0000-4000-8000-000000000301',
           '00000000-0000-4000-8000-000000000302',
-          '00000000-0000-4000-8000-000000000307'
+          '00000000-0000-4000-8000-000000000307',
+          '00000000-0000-4000-8000-000000000315',
+          '00000000-0000-4000-8000-000000000316',
+          '00000000-0000-4000-8000-000000000321',
+          '00000000-0000-4000-8000-000000000322'
         )
       )
       AND NOT EXISTS (
@@ -445,7 +573,9 @@ cleanup_check() {
         WHERE id IN (
           '00000000-0000-4000-8000-000000000206',
           '00000000-0000-4000-8000-000000000207',
-          '00000000-0000-4000-8000-000000000208'
+          '00000000-0000-4000-8000-000000000208',
+          '00000000-0000-4000-8000-000000000216',
+          '00000000-0000-4000-8000-000000000217'
         )
       )
       AND NOT EXISTS (
@@ -454,7 +584,11 @@ cleanup_check() {
           '00000000-0000-4000-8000-000000000311',
           '00000000-0000-4000-8000-000000000312',
           '00000000-0000-4000-8000-000000000313',
-          '00000000-0000-4000-8000-000000000314'
+          '00000000-0000-4000-8000-000000000314',
+          '00000000-0000-4000-8000-000000000315',
+          '00000000-0000-4000-8000-000000000316',
+          '00000000-0000-4000-8000-000000000321',
+          '00000000-0000-4000-8000-000000000322'
         )
       )
       AND NOT EXISTS (
@@ -503,8 +637,16 @@ cleanup_check() {
         WHERE slug IN (
           'c296-privacy-test-daily-post',
           'c300-privacy-test-owner-write-daily-post',
-          'c304-privacy-test-unreferenced-daily-post'
+          'c304-privacy-test-unreferenced-daily-post',
+          'c307-privacy-test-completion-only-daily-post',
+          'c307-privacy-test-saved-light-only-daily-post'
         )
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'offerings'
+          AND policyname = 'offerings_select_public_or_own'
       )
       THEN 'privacy_fixture_cleanup=pass'
       ELSE 'privacy_fixture_cleanup=FAIL'

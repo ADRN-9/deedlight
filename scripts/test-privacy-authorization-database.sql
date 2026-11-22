@@ -44,7 +44,8 @@ VALUES
   ('00000000-0000-4000-8000-000000000102', 'public-member@privacy-test.invalid', '{"display_name":"Public Member"}'::jsonb),
   ('00000000-0000-4000-8000-000000000103', 'suspended-member@privacy-test.invalid', '{"display_name":"Suspended Member"}'::jsonb),
   ('00000000-0000-4000-8000-000000000104', 'admin-member@privacy-test.invalid', '{"display_name":"Admin Member"}'::jsonb),
-  ('00000000-0000-4000-8000-000000000105', 'erasure-member@privacy-test.invalid', '{"display_name":"Erasure Member"}'::jsonb);
+  ('00000000-0000-4000-8000-000000000105', 'erasure-member@privacy-test.invalid', '{"display_name":"Erasure Member"}'::jsonb),
+  ('00000000-0000-4000-8000-000000000106', 'journey-protection@privacy-test.invalid', '{"display_name":"Journey Protection Fixture"}'::jsonb);
 
 UPDATE public.profiles
 SET username = 'private-member',
@@ -209,6 +210,29 @@ VALUES (
   null
 );
 
+INSERT INTO public.daily_posts (
+  date, slug, title, reflection, daily_action, status, published_at
+)
+VALUES
+  (
+    current_date + 3,
+    'c307-privacy-test-completion-only-daily-post',
+    'C307 Daily Post with completion-only Journey reference',
+    'Synthetic parent for the completion-only Daily Post restriction test.',
+    'No action; this fixture exists only inside the test transaction.',
+    'draft',
+    null
+  ),
+  (
+    current_date + 4,
+    'c307-privacy-test-saved-light-only-daily-post',
+    'C307 Daily Post with Saved Light-only reference',
+    'Synthetic parent for the Saved Light-only Daily Post restriction test.',
+    'No action; this fixture exists only inside the test transaction.',
+    'draft',
+    null
+  );
+
 INSERT INTO public.daily_reflections (
   user_id, daily_post_id, reflection_text, is_private
 )
@@ -258,6 +282,29 @@ VALUES (
   'No action; this fixture exists only inside the test transaction.',
   'What mattered today?'
 );
+
+INSERT INTO public.daily_lights (
+  id, scheduled_date, status, title, summary, small_deed, reflection_prompt
+)
+VALUES
+  (
+    '00000000-0000-4000-8000-000000000216',
+    current_date + 368,
+    'draft',
+    'C307 Daily Light with completion-only Journey reference',
+    'Synthetic parent for the completion-only Daily Light restriction test.',
+    'No action; this fixture exists only inside the test transaction.',
+    'What mattered today?'
+  ),
+  (
+    '00000000-0000-4000-8000-000000000217',
+    current_date + 369,
+    'draft',
+    'C307 Daily Light with Saved Light-only reference',
+    'Synthetic parent for the Saved Light-only Daily Light restriction test.',
+    'No action; this fixture exists only inside the test transaction.',
+    'What mattered today?'
+  );
 
 UPDATE public.daily_reflections
 SET daily_light_id = '00000000-0000-4000-8000-000000000206',
@@ -313,6 +360,76 @@ VALUES
     'completed'
   );
 
+-- Four isolated private-child references exercise each restrictive parent FK.
+-- The two user-105 rows in each table also prove account-erasure cascades remain intact.
+INSERT INTO public.daily_deed_completions (
+  id, user_id, daily_post_id, status
+)
+SELECT
+  '00000000-0000-4000-8000-000000000315'::uuid,
+  '00000000-0000-4000-8000-000000000106'::uuid,
+  dp.id,
+  'completed'
+FROM public.daily_posts dp
+WHERE dp.slug = 'c307-privacy-test-completion-only-daily-post'
+UNION ALL
+SELECT
+  '00000000-0000-4000-8000-000000000321'::uuid,
+  '00000000-0000-4000-8000-000000000105'::uuid,
+  dp.id,
+  'completed'
+FROM public.daily_posts dp
+WHERE dp.slug = 'c300-privacy-test-owner-write-daily-post';
+
+INSERT INTO public.daily_deed_completions (
+  id, user_id, daily_light_id, status
+)
+VALUES
+  (
+    '00000000-0000-4000-8000-000000000316',
+    '00000000-0000-4000-8000-000000000106',
+    '00000000-0000-4000-8000-000000000216',
+    'completed'
+  ),
+  (
+    '00000000-0000-4000-8000-000000000322',
+    '00000000-0000-4000-8000-000000000105',
+    '00000000-0000-4000-8000-000000000207',
+    'completed'
+  );
+
+INSERT INTO public.saved_lights (
+  id, user_id, daily_post_id
+)
+SELECT
+  '00000000-0000-4000-8000-000000000315'::uuid,
+  '00000000-0000-4000-8000-000000000106'::uuid,
+  dp.id
+FROM public.daily_posts dp
+WHERE dp.slug = 'c307-privacy-test-saved-light-only-daily-post'
+UNION ALL
+SELECT
+  '00000000-0000-4000-8000-000000000321'::uuid,
+  '00000000-0000-4000-8000-000000000105'::uuid,
+  dp.id
+FROM public.daily_posts dp
+WHERE dp.slug = 'c300-privacy-test-owner-write-daily-post';
+
+INSERT INTO public.saved_lights (
+  id, user_id, daily_light_id
+)
+VALUES
+  (
+    '00000000-0000-4000-8000-000000000316',
+    '00000000-0000-4000-8000-000000000106',
+    '00000000-0000-4000-8000-000000000217'
+  ),
+  (
+    '00000000-0000-4000-8000-000000000322',
+    '00000000-0000-4000-8000-000000000105',
+    '00000000-0000-4000-8000-000000000207'
+  );
+
 INSERT INTO public.weekly_goodness_features (
   week_start, offering_id, selected_by
 )
@@ -329,9 +446,10 @@ BEGIN
     '00000000-0000-4000-8000-000000000102',
     '00000000-0000-4000-8000-000000000103',
     '00000000-0000-4000-8000-000000000104',
-    '00000000-0000-4000-8000-000000000105'
-  )) <> 5 THEN
-    RAISE EXCEPTION 'C296/C304 fixture users were not created.';
+    '00000000-0000-4000-8000-000000000105',
+    '00000000-0000-4000-8000-000000000106'
+  )) <> 6 THEN
+    RAISE EXCEPTION 'C296/C304/C307 fixture users were not created.';
   END IF;
 
   IF NOT EXISTS (
@@ -366,6 +484,23 @@ BEGIN
         '00000000-0000-4000-8000-000000000312'
       )) <> 2 THEN
     RAISE EXCEPTION 'Two-member private Journey fixtures were not created.';
+  END IF;
+
+  IF (SELECT count(*) FROM public.daily_deed_completions
+      WHERE id IN (
+        '00000000-0000-4000-8000-000000000315',
+        '00000000-0000-4000-8000-000000000316',
+        '00000000-0000-4000-8000-000000000321',
+        '00000000-0000-4000-8000-000000000322'
+      )) <> 4
+     OR (SELECT count(*) FROM public.saved_lights
+      WHERE id IN (
+        '00000000-0000-4000-8000-000000000315',
+        '00000000-0000-4000-8000-000000000316',
+        '00000000-0000-4000-8000-000000000321',
+        '00000000-0000-4000-8000-000000000322'
+      )) <> 4 THEN
+    RAISE EXCEPTION 'C307 Journey/Saved Lights parent and account-erasure fixtures were not created.';
   END IF;
 
   IF NOT EXISTS (
@@ -1288,6 +1423,54 @@ BEGIN
     RAISE EXCEPTION 'Administrator deleted a Daily Light referenced by another member''s private reflection.';
   END IF;
 
+  -- C307-1: a Daily Post referenced only by a private Journey completion.
+  v_denied := false;
+  BEGIN
+    DELETE FROM public.daily_posts
+    WHERE slug = 'c307-privacy-test-completion-only-daily-post';
+  EXCEPTION WHEN foreign_key_violation THEN
+    v_denied := true;
+  END;
+  IF NOT v_denied THEN
+    RAISE EXCEPTION 'Administrator deleted a Daily Post with a completion-only private Journey reference.';
+  END IF;
+
+  -- C307-2: a Daily Post referenced only by a private Saved Light.
+  v_denied := false;
+  BEGIN
+    DELETE FROM public.daily_posts
+    WHERE slug = 'c307-privacy-test-saved-light-only-daily-post';
+  EXCEPTION WHEN foreign_key_violation THEN
+    v_denied := true;
+  END;
+  IF NOT v_denied THEN
+    RAISE EXCEPTION 'Administrator deleted a Daily Post with a Saved Light-only reference.';
+  END IF;
+
+  -- C307-3: a Daily Light referenced only by a private Journey completion.
+  v_denied := false;
+  BEGIN
+    DELETE FROM public.daily_lights
+    WHERE id = '00000000-0000-4000-8000-000000000216';
+  EXCEPTION WHEN foreign_key_violation THEN
+    v_denied := true;
+  END;
+  IF NOT v_denied THEN
+    RAISE EXCEPTION 'Administrator deleted a Daily Light with a completion-only private Journey reference.';
+  END IF;
+
+  -- C307-4: a Daily Light referenced only by a private Saved Light.
+  v_denied := false;
+  BEGIN
+    DELETE FROM public.daily_lights
+    WHERE id = '00000000-0000-4000-8000-000000000217';
+  EXCEPTION WHEN foreign_key_violation THEN
+    v_denied := true;
+  END;
+  IF NOT v_denied THEN
+    RAISE EXCEPTION 'Administrator deleted a Daily Light with a Saved Light-only reference.';
+  END IF;
+
   DELETE FROM public.daily_posts
   WHERE slug = 'c304-privacy-test-unreferenced-daily-post';
   GET DIAGNOSTICS v_rows = ROW_COUNT;
@@ -1385,6 +1568,61 @@ $c304admin$;
 
 RESET ROLE;
 
+-- Verify all four private child records survived the administrator DELETE attempts.
+DO $c307verify$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.daily_deed_completions c
+    JOIN public.daily_posts dp ON dp.id = c.daily_post_id
+    WHERE c.id = '00000000-0000-4000-8000-000000000315'
+      AND c.user_id = '00000000-0000-4000-8000-000000000106'
+      AND c.daily_light_id IS NULL
+      AND dp.slug = 'c307-privacy-test-completion-only-daily-post'
+  ) THEN
+    RAISE EXCEPTION 'Daily Post deletion removed its completion-only private Journey record.';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.saved_lights s
+    JOIN public.daily_posts dp ON dp.id = s.daily_post_id
+    WHERE s.id = '00000000-0000-4000-8000-000000000315'
+      AND s.user_id = '00000000-0000-4000-8000-000000000106'
+      AND s.offering_id IS NULL
+      AND s.daily_light_id IS NULL
+      AND dp.slug = 'c307-privacy-test-saved-light-only-daily-post'
+  ) THEN
+    RAISE EXCEPTION 'Daily Post deletion removed its Saved Light-only private record.';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.daily_deed_completions c
+    JOIN public.daily_lights dl ON dl.id = c.daily_light_id
+    WHERE c.id = '00000000-0000-4000-8000-000000000316'
+      AND c.user_id = '00000000-0000-4000-8000-000000000106'
+      AND c.daily_post_id IS NULL
+      AND dl.id = '00000000-0000-4000-8000-000000000216'
+  ) THEN
+    RAISE EXCEPTION 'Daily Light deletion removed its completion-only private Journey record.';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.saved_lights s
+    JOIN public.daily_lights dl ON dl.id = s.daily_light_id
+    WHERE s.id = '00000000-0000-4000-8000-000000000316'
+      AND s.user_id = '00000000-0000-4000-8000-000000000106'
+      AND s.offering_id IS NULL
+      AND s.daily_post_id IS NULL
+      AND dl.id = '00000000-0000-4000-8000-000000000217'
+  ) THEN
+    RAISE EXCEPTION 'Daily Light deletion removed its Saved Light-only private record.';
+  END IF;
+END
+$c307verify$;
+
 DO $c304$
 DECLARE
   v_count integer;
@@ -1447,6 +1685,22 @@ BEGIN
     WHERE user_id = '00000000-0000-4000-8000-000000000105'
   ) THEN
     RAISE EXCEPTION 'Existing account-erasure cascade did not remove the member profile and private reflection.';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM public.daily_deed_completions
+    WHERE id IN (
+      '00000000-0000-4000-8000-000000000321',
+      '00000000-0000-4000-8000-000000000322'
+    )
+  ) OR EXISTS (
+    SELECT 1 FROM public.saved_lights
+    WHERE id IN (
+      '00000000-0000-4000-8000-000000000321',
+      '00000000-0000-4000-8000-000000000322'
+    )
+  ) THEN
+    RAISE EXCEPTION 'Account erasure did not cascade through the member-owned Journey completions and Saved Lights.';
   END IF;
 
   SELECT count(*) INTO v_count

@@ -1,5 +1,7 @@
 \set ON_ERROR_STOP on
 
+BEGIN;
+
 -- Exact historical Sprint 5 policy, reintroduced as a disposable regression
 -- fixture so migration 023 must remove a real broad-read policy.
 DROP POLICY IF EXISTS "offerings_select_public_or_own" ON public.offerings;
@@ -11,8 +13,6 @@ USING (
   OR user_id = auth.uid()
   OR public.is_admin()
 );
-
-BEGIN;
 
 INSERT INTO auth.users (id, email, raw_user_meta_data)
 VALUES
