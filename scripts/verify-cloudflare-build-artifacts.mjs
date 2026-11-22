@@ -59,12 +59,18 @@ for (const file of new Set(inspectFiles)) {
     const mapCandidates = [...new Set([value, decodedValue])].map((candidate) =>
       resolve(dirname(file), candidate),
     );
+    const openNextServerDir = join(openNextDir, "server-functions", "default", ".next", "server");
+    const relativeServerDir = relative(openNextServerDir, dirname(file));
+    if (relativeServerDir !== ".." && !relativeServerDir.startsWith(`..${process.platform === "win32" ? "\\\\" : "/"}`)) {
+      mapCandidates.push(resolve(nextServerDir, relativeServerDir, decodedValue));
+    }
     const mapPath = mapCandidates.find(
       (candidate) => existsSync(candidate) && statSync(candidate).isFile(),
     );
+    const availableSiblingMaps = readdirSync(dirname(file)).filter((name) => name.endsWith(".map"));
     assert.ok(
       mapPath,
-      `source map reference must resolve: ${relative(root, file)} -> ${value}; checked ${mapCandidates.map((candidate) => relative(root, candidate)).join(", ")}`,
+      `source map reference must resolve: ${relative(root, file)} -> ${value}; checked ${mapCandidates.map((candidate) => relative(root, candidate)).join(", ")}; sibling maps: ${availableSiblingMaps.join(", ") || "none"}`,
     );
     const map = JSON.parse(readFileSync(mapPath, "utf8"));
     assert.equal(map.version, 3, `source map must use version 3: ${relative(root, mapPath)}`);
