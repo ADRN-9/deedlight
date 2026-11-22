@@ -346,6 +346,28 @@ BEGIN
     RAISE EXCEPTION 'Member A assertions are not running under the expected identity.';
   END IF;
 
+  IF EXISTS (
+    SELECT 1 FROM public.offerings
+    WHERE user_id <> auth.uid()
+  ) THEN
+    RAISE EXCEPTION 'Authenticated member can read another member''s private Offering base row.';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.offerings
+    WHERE id = '00000000-0000-4000-8000-000000000201'
+      AND user_id = auth.uid()
+  ) THEN
+    RAISE EXCEPTION 'Member A lost access to their own Offering base row.';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE user_id <> auth.uid()
+  ) THEN
+    RAISE EXCEPTION 'Authenticated member can read another member''s private profile row.';
+  END IF;
+
   SELECT count(*) INTO v_count FROM public.saved_lights;
   IF v_count <> 1 OR EXISTS (
     SELECT 1 FROM public.saved_lights
@@ -681,6 +703,13 @@ DECLARE
 BEGIN
   IF NOT public.is_admin() THEN
     RAISE EXCEPTION 'Active database admin fixture was not recognized as admin.';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.offerings
+    WHERE id = '00000000-0000-4000-8000-000000000202'
+  ) THEN
+    RAISE EXCEPTION 'Database admin lost access to internal Offering moderation rows.';
   END IF;
 
   v_context := public.admin_get_member_context(
