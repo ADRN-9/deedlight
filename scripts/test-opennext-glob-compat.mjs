@@ -128,7 +128,7 @@ function loadManifest(path) {
   const contents = (0, _fs.readFileSync)(path, "utf8");
   return path.endsWith("/BUILD_ID") ? contents : JSON.parse(contents);
 }
-function evalManifest(path) {
+function evalManifest(path, shouldCache = true) {
   return require(path);
 }`,
     );
