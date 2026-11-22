@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { AUDIT_SEVERITIES, parseNpmAuditJson, validateNpmAuditReport } from "./verify-npm-audit.mjs";
 
@@ -122,4 +124,30 @@ test("parses JSON text and preserves a clean report summary", () => {
   const parsed = parseNpmAuditJson(JSON.stringify(cleanReport()));
   assert.equal(parsed.counts.total, 0);
   assert.deepEqual(parsed.packages, []);
+});
+
+test("rejects missing and unsupported npm audit report versions", () => {
+  for (const invalid of [undefined, 1, 3, "2", null]) {
+    const report = cleanReport();
+    if (invalid === undefined) {
+      delete report.auditReportVersion;
+    } else {
+      report.auditReportVersion = invalid;
+    }
+    assert.throws(
+      () => validateNpmAuditReport(report),
+      /unsupported or missing auditReportVersion/,
+    );
+  }
+});
+
+test("requires an explicit npm audit exit status argument", () => {
+  const scriptPath = fileURLToPath(new URL("./verify-npm-audit.mjs", import.meta.url));
+  const missingAll = spawnSync(process.execPath, [scriptPath], { encoding: "utf8" });
+  assert.notEqual(missingAll.status, 0);
+  assert.match(missingAll.stderr, /Usage: node scripts\/verify-npm-audit\.mjs/);
+
+  const missingStatus = spawnSync(process.execPath, [scriptPath, "report.json"], { encoding: "utf8" });
+  assert.notEqual(missingStatus.status, 0);
+  assert.match(missingStatus.stderr, /Usage: node scripts\/verify-npm-audit\.mjs/);
 });
