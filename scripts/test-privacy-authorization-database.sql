@@ -27,6 +27,7 @@ WHERE user_id = '00000000-0000-4000-8000-000000000102';
 UPDATE public.profiles
 SET username = 'suspended-member',
     display_name = 'Suspended Member',
+    role = 'admin',
     is_public = true,
     is_suspended = true
 WHERE user_id = '00000000-0000-4000-8000-000000000103';
@@ -630,6 +631,22 @@ DECLARE
   v_status text;
   v_removed_at timestamptz;
 BEGIN
+  IF public.is_admin() THEN
+    RAISE EXCEPTION 'Suspended database admin retained administrative authority.';
+  END IF;
+
+  v_denied := false;
+  BEGIN
+    PERFORM public.admin_get_member_context(
+      '00000000-0000-4000-8000-000000000101'
+    );
+  EXCEPTION WHEN insufficient_privilege THEN
+    v_denied := true;
+  END;
+  IF NOT v_denied THEN
+    RAISE EXCEPTION 'Suspended database admin accessed internal moderation context.';
+  END IF;
+
   v_denied := false;
   BEGIN
     INSERT INTO public.reactions (id, offering_id, user_id, reaction_type)
