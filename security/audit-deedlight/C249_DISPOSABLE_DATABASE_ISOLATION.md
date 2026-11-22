@@ -77,4 +77,15 @@ Production remains NO-GO.
 - Sanitized artifact: `deedlight-catalog-audit-pg16`, ID `14738474877`, 44,066 bytes; expires 2026-12-06.
 - The lifecycle test log contains `C249 disposable PostgreSQL lifecycle, ownership, parallel isolation and cleanup regression: PASS`.
 
-Two earlier exact-head audit attempts were diagnostic failures and are retained in GitHub Actions history: run `44984901933` exposed a too-strict server-version string comparison; run `44985192012` exposed psql variable interpolation being incorrectly used with `-c`. The runner now checks `server_version_num=160016` and feeds variable-bearing SQL through stdin. The final run above passes.
+The first audit attempt `44984901933` stopped at the PostgreSQL client/version preflight before diagnostic output was added. The instrumented run `44985094812` confirmed that `SHOW server_version` includes the Debian build suffix, so strict text equality was too narrow. Run `44985192012` then exposed psql variable interpolation being incorrectly used with `-c`. The runner now checks `server_version_num=160016` and feeds variable-bearing SQL through stdin. Both issues are fixed; the final runs above pass.
+
+
+## Final branch-head revalidation after documentation update
+
+**Documentation head:** `7bc940a7b3a11ef1e62df31508dc5599b4923b02`  
+**Documentation tree:** `a978d042a79315a4198b124e179cf21c8521664f`
+
+- [Disposable PostgreSQL 16.16 audit run #45](https://github.com/ADRN-9/deedlight/actions/runs/44985572691) — PASS, 1/1 job; job `137095266964`.
+- [Push PR Validation #811](https://github.com/ADRN-9/deedlight/actions/runs/44985572674) — PASS, 5/5 jobs.
+- [PR Validation #812](https://github.com/ADRN-9/deedlight/actions/runs/44985576902) — PASS, 5/5 jobs.
+- Sanitized artifact: `deedlight-catalog-audit-pg16`, ID `14740000188`, 44,071 bytes; expires 2026-12-06.
