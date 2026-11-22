@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { updateReminderPreferenceAction } from "@/app/settings/reminders/actions";
 
 type Props = {
@@ -10,6 +10,12 @@ type Props = {
   hasSavedPreference: boolean;
   isSuspended: boolean;
 };
+
+const subscribeToTimezone = () => () => {};
+
+function getBrowserTimezone() {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+}
 
 const COMMON_TIMEZONES = [
   "UTC",
@@ -35,18 +41,15 @@ export function ReminderSettingsForm({
   isSuspended,
 }: Props) {
   const [enabled, setEnabled] = useState(initialEnabled);
-  const [timezone, setTimezone] = useState(initialTimezone);
-
-  useEffect(() => {
-    if (hasSavedPreference) return;
-
-    const detected =
-      Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-    if (detected) {
-      setTimezone(detected);
-    }
-  }, [hasSavedPreference]);
+  const [timezoneOverride, setTimezoneOverride] = useState<string | null>(null);
+  const browserTimezone = useSyncExternalStore(
+    subscribeToTimezone,
+    getBrowserTimezone,
+    () => initialTimezone,
+  );
+  const timezone = timezoneOverride ?? (
+    hasSavedPreference ? initialTimezone : browserTimezone
+  );
 
   const cannotEnable = isSuspended && !enabled;
 
@@ -117,7 +120,7 @@ export function ReminderSettingsForm({
             list="deedlight-timezones"
             maxLength={64}
             name="timezone"
-            onChange={(event) => setTimezone(event.target.value)}
+            onChange={(event) => setTimezoneOverride(event.target.value)}
             required
             value={timezone}
           />

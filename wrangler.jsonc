@@ -23,5 +23,8 @@
   "observability": {
     "enabled": true
   },
-  "keep_vars": true
+  "keep_vars": true,
+  "images": {
+    "binding": "IMAGES"
+  }
 }

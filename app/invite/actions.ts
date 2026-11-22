@@ -7,9 +7,7 @@ import { requireSignedIn } from "@/lib/auth/admin";
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export async function createInvitationLinkAction(
-  _formData: FormData,
-) {
+export async function createInvitationLinkAction() {
   const { supabase } = await requireSignedIn("/invite");
   const { error } = await supabase.rpc("create_invitation_link");
 

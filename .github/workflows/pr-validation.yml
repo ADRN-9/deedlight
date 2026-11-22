@@ -4,7 +4,7 @@ on:
   push:
     branches-ignore: [main]
   pull_request:
-    branches: [main]
+    branches: [main, fix/gentle-delivery-test-clock-fixture]
 
 permissions:
   contents: read
@@ -16,7 +16,7 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     env:
       NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
       NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
@@ -71,8 +71,24 @@ jobs:
       - name: Gentle delivery transport behavior
         run: node --test scripts/test-delivery-transport.mjs
 
-      - name: Fail closed on high or critical dependency advisories
-        run: npm audit --audit-level=high
+      - name: npm audit parser regression tests
+        run: node --test scripts/test-npm-audit-report.mjs
+
+      - name: OpenNext glob compatibility regression tests
+        run: node --test scripts/test-opennext-glob-compat.mjs
+
+      # Fail closed on every severity and on malformed or inconsistent audit JSON.
+      - name: Dependency audit
+        shell: bash
+        run: |
+          set +e
+          npm audit --json > "$RUNNER_TEMP/npm-audit.json"
+          audit_status=$?
+          set -e
+          node scripts/verify-npm-audit.mjs "$RUNNER_TEMP/npm-audit.json" "$audit_status"
+
+      - name: ESLint
+        run: npm run lint
 
       - name: TypeScript check
         run: npx tsc --noEmit
@@ -82,6 +98,15 @@ jobs:
 
       - name: Cloudflare packaging build with non-production configuration
         run: npx opennextjs-cloudflare build
+
+      - name: Verify generated Cloudflare artifacts and source maps
+        run: node scripts/verify-cloudflare-build-artifacts.mjs
+
+      - name: Configure loopback Supabase hostname for Worker runtime smoke
+        run: sudo sh -c 'echo "127.0.0.1 auth.supabase.co" >> /etc/hosts'
+
+      - name: Execute generated Worker runtime smoke
+        run: node scripts/test-cloudflare-worker.mjs
 
   sprint12_2_database_behavior:
     runs-on: ubuntu-latest
