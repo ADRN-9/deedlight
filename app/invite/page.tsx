@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { PendingActionButton } from "@/components/growth/pending-action-button";
 import { ShareButton } from "@/components/share-button";
 import { requireSignedIn } from "@/lib/auth/admin";
-import { getMyInvitationLinks } from "@/lib/data/invitations";
+import { getActiveInvitationLink, getMyInvitationLinks } from "@/lib/data/invitations";
 import {
   createInvitationLinkAction,
   revokeInvitationLinkAction,
@@ -47,13 +47,7 @@ export default async function InvitePage({
     );
   }
 
-  const now = Date.now();
-  const activeLink =
-    links.find(
-      (item) =>
-        !item.revoked_at &&
-        new Date(item.expires_at).getTime() > now,
-    ) || null;
+  const activeLink = getActiveInvitationLink(links);
 
   const siteUrl = (
     process.env.NEXT_PUBLIC_SITE_URL ||
