@@ -59,9 +59,17 @@ jobs:
           set -euo pipefail
           sudo apt-get update -q
           sudo apt-get install -y postgresql-client
-          server_version="$(psql -X -At --host 127.0.0.1 --port 5432 --username postgres --dbname postgres -c 'show server_version;')"
-          test "$server_version" = "16.16"
-          printf 'Disposable PostgreSQL server version: %s\n' "$server_version"
+          command -v psql
+          psql --version
+          if ! server_version="$(PGCONNECT_TIMEOUT=5 psql --no-password -X -At --host 127.0.0.1 --port 5432 --username postgres --dbname postgres -c 'show server_version;' 2>&1)"; then
+            printf 'PostgreSQL service version query failed: %s\n' "$server_version" >&2
+            exit 1
+          fi
+          printf 'Observed disposable PostgreSQL server version: <%s>\n' "$server_version"
+          if [[ "$server_version" != "16.16" ]]; then
+            echo "Expected PostgreSQL 16.16 service" >&2
+            exit 1
+          fi
 
       - name: Check out reviewed delivery-security source
         shell: bash
