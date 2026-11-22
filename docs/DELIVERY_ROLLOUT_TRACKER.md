@@ -199,3 +199,25 @@ Rollback is operational and fail-closed: disable new outbound work, remove futur
 - Branch-push #778, run 44965914853, completed SUCCESS with 7/7 jobs. Validate checked out exact branch HEAD c73902feb46768dd76044f63d2908d6ab746e74a, tree 1b7bd9b2bf526ab04be4daba2cba9ce2b19ed2d6.
 - PR integration #779, run 44965919311, completed SUCCESS with 7/7 jobs. Validate checked out synthetic merge commit 94af4082989f98eff0390ec2fce8d6bfaae2ffe1, tree 1b7bd9b2bf526ab04be4daba2cba9ce2b19ed2d6; parents ce82b3fdf1a73510de70e3729a487d4ae00e66e3 and c73902feb46768dd76044f63d2908d6ab746e74a.
 - Each run passed all seven jobs: validate, delivery_provider_webhook_database_behavior, delivery_migration_order_database_behavior, auth_pgcrypto_database_behavior, delivery_reliability_database_behavior, sprint12_2_database_behavior, and gentle_delivery_transport_database_behavior.
+
+
+## C268 — Production migration reconciliation recheck
+
+- \`main\` remains \`ce82b3fdf1a73510de70e3729a487d4ae00e66e3\` (23 migration files / 22 version prefixes). PR #10's candidate branch was \`9072f3b8824ec9618849def1c0832000cd130474\` (31 files / 30 prefixes; migrations 023–030 candidate-only).
+- Duplicate 007 remains unresolved. C268's connected Supabase read-only project/history access was denied/unavailable; no Production SQL was run. All 31 candidate migration files/effect groups remain Production UNKNOWN. No Production operation occurred.
+
+## C269 — independent-review handoff: unresolved security/release topics
+
+The exact C269 review artifact was not found in accessible PR #10 review/comment records or available ChatGPT Spaces. The three named handoff topics are retained without inventing additional review detail or acceptance:
+
+- **Provider suppression / transport-start linearization:** migrations 021/027 remain the historical baseline. PR #17's candidate migration 031 and PR #18's concurrency matrix are open, draft, stacked on PR #10, and unmerged. They are not accepted Production behavior. No C270 semantics change.
+- **Suspended-member Offering removal:** \`remove_own_offering(uuid)\` in migrations 017/018 is \`SECURITY DEFINER\` and checks actor/ownership/moderation state but does not explicitly require \`profiles.is_suspended=false\`; the restore path does. This remains an executable-security test/design gap. No C270 semantics change.
+- **Main migration workflow protection / CLI targeting:** main is unprotected and its current privileged workflow uses floating Supabase CLI \`latest\` followed by \`link\`/\`db push\` without a verified protected Environment/explicit target. PR #13 proposes workflow retirement and PR #15 CLI target allowlisting; both remain open/unmerged and were not modified.
+
+## C270 — duplicate-007 audit harness safety
+
+- Added pre-destructive GitHub Actions/repository/job/event checks, \`DELIVERY_ENABLED=false\` enforcement, a strict libpq environment allowlist, and an explicit read-only local PostgreSQL identity/version preflight. No \`DROP\`/\`CREATE\` or cleanup trap can run before that preflight passes.
+- Added mocked-command regressions for remote \`PGHOST\`, \`PGHOSTADDR\`, service-file/service-name, database, port, options, passfile, session-target, and SSL overrides. The tests assert no \`psql\`, \`dropdb\`, \`createdb\`, or Supabase CLI command is invoked for rejected targets. The exact local CI allowlist is also exercised with fake commands.
+- Pinned the duplicate-migration job service to \`postgres:16.16\`; runtime numeric version must equal \`160016\`.
+- This work is stacked as a new child PR on PR #10. PR #10 and its dependent PRs #17/#18 are not moved or rewritten. PR #13/#15 are not duplicated or modified. No Production access, migration repair, \`db push\`, deployment, Cron, scheduler, provider, or delivery mutation occurred. Production remains NO-GO.
+- Exact-head CI evidence will be added after the branch-push and PR validation runs complete.
