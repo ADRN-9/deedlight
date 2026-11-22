@@ -43,7 +43,8 @@ VALUES
   ('00000000-0000-4000-8000-000000000101', 'private-member@privacy-test.invalid', '{"display_name":"Private Member"}'::jsonb),
   ('00000000-0000-4000-8000-000000000102', 'public-member@privacy-test.invalid', '{"display_name":"Public Member"}'::jsonb),
   ('00000000-0000-4000-8000-000000000103', 'suspended-member@privacy-test.invalid', '{"display_name":"Suspended Member"}'::jsonb),
-  ('00000000-0000-4000-8000-000000000104', 'admin-member@privacy-test.invalid', '{"display_name":"Admin Member"}'::jsonb);
+  ('00000000-0000-4000-8000-000000000104', 'admin-member@privacy-test.invalid', '{"display_name":"Admin Member"}'::jsonb),
+  ('00000000-0000-4000-8000-000000000105', 'erasure-member@privacy-test.invalid', '{"display_name":"Erasure Member"}'::jsonb);
 
 UPDATE public.profiles
 SET username = 'private-member',
@@ -195,6 +196,19 @@ VALUES (
   now()
 );
 
+INSERT INTO public.daily_posts (
+  date, slug, title, reflection, daily_action, status, published_at
+)
+VALUES (
+  current_date + 2,
+  'c304-privacy-test-unreferenced-daily-post',
+  'C304 unreferenced Daily Post',
+  'Synthetic unreferenced Daily Post used only by the privacy database regression suite.',
+  'No action; this fixture exists only inside the test transaction.',
+  'draft',
+  null
+);
+
 INSERT INTO public.daily_reflections (
   user_id, daily_post_id, reflection_text, is_private
 )
@@ -232,6 +246,19 @@ VALUES (
   'What mattered today?'
 );
 
+INSERT INTO public.daily_lights (
+  id, scheduled_date, status, title, summary, small_deed, reflection_prompt
+)
+VALUES (
+  '00000000-0000-4000-8000-000000000208',
+  current_date + 367,
+  'draft',
+  'C304 unreferenced Daily Light',
+  'Synthetic unreferenced Daily Light used only by the privacy database regression suite.',
+  'No action; this fixture exists only inside the test transaction.',
+  'What mattered today?'
+);
+
 UPDATE public.daily_reflections
 SET daily_light_id = '00000000-0000-4000-8000-000000000206',
     reflection = 'C298_PRIVATE_DAILY_LIGHT_REFLECTION_MEMBER_A_SENTINEL',
@@ -253,6 +280,21 @@ SELECT
   true
 FROM public.daily_posts dp
 WHERE dp.slug = 'c296-privacy-test-daily-post';
+
+INSERT INTO public.daily_reflections (
+  user_id, daily_post_id, daily_light_id, reflection_text,
+  reflection, intention, is_private
+)
+SELECT
+  '00000000-0000-4000-8000-000000000105',
+  dp.id,
+  '00000000-0000-4000-8000-000000000207',
+  'C304_ACCOUNT_ERASURE_REFLECTION_SENTINEL',
+  'Private reflection removed through account erasure.',
+  'No account-erasure cascade should be blocked by the parent restrictions.',
+  true
+FROM public.daily_posts dp
+WHERE dp.slug = 'c300-privacy-test-owner-write-daily-post';
 
 INSERT INTO public.daily_deed_completions (
   id, user_id, daily_light_id, status
@@ -286,9 +328,10 @@ BEGIN
     '00000000-0000-4000-8000-000000000101',
     '00000000-0000-4000-8000-000000000102',
     '00000000-0000-4000-8000-000000000103',
-    '00000000-0000-4000-8000-000000000104'
-  )) <> 4 THEN
-    RAISE EXCEPTION 'C296 fixture users were not created.';
+    '00000000-0000-4000-8000-000000000104',
+    '00000000-0000-4000-8000-000000000105'
+  )) <> 5 THEN
+    RAISE EXCEPTION 'C296/C304 fixture users were not created.';
   END IF;
 
   IF NOT EXISTS (
@@ -307,6 +350,14 @@ BEGIN
       AND reflection = 'C298_PRIVATE_DAILY_LIGHT_REFLECTION_MEMBER_B_SENTINEL'
   ) THEN
     RAISE EXCEPTION 'Member B private Daily reflection fixture was not created.';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.daily_reflections
+    WHERE user_id = '00000000-0000-4000-8000-000000000105'
+      AND reflection_text = 'C304_ACCOUNT_ERASURE_REFLECTION_SENTINEL'
+  ) THEN
+    RAISE EXCEPTION 'C304 account-erasure reflection fixture was not created.';
   END IF;
 
   IF (SELECT count(*) FROM public.daily_deed_completions
@@ -1215,6 +1266,42 @@ BEGIN
     RAISE EXCEPTION 'Database admin lost access to internal Offering moderation rows.';
   END IF;
 
+  v_denied := false;
+  BEGIN
+    DELETE FROM public.daily_posts
+    WHERE slug = 'c296-privacy-test-daily-post';
+  EXCEPTION WHEN foreign_key_violation THEN
+    v_denied := true;
+  END;
+  IF NOT v_denied THEN
+    RAISE EXCEPTION 'Administrator deleted a Daily Post referenced by another member''s private reflection.';
+  END IF;
+
+  v_denied := false;
+  BEGIN
+    DELETE FROM public.daily_lights
+    WHERE id = '00000000-0000-4000-8000-000000000206';
+  EXCEPTION WHEN foreign_key_violation THEN
+    v_denied := true;
+  END;
+  IF NOT v_denied THEN
+    RAISE EXCEPTION 'Administrator deleted a Daily Light referenced by another member''s private reflection.';
+  END IF;
+
+  DELETE FROM public.daily_posts
+  WHERE slug = 'c304-privacy-test-unreferenced-daily-post';
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows <> 1 THEN
+    RAISE EXCEPTION 'Administrator could not delete an unreferenced Daily Post.';
+  END IF;
+
+  DELETE FROM public.daily_lights
+  WHERE id = '00000000-0000-4000-8000-000000000208';
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows <> 1 THEN
+    RAISE EXCEPTION 'Administrator could not delete an unreferenced Daily Light.';
+  END IF;
+
   v_context := public.admin_get_member_context(
     '00000000-0000-4000-8000-000000000101'
   );
@@ -1237,7 +1324,8 @@ BEGIN
      OR position('C298_PRIVATE_DAILY_LIGHT_REFLECTION_MEMBER_B_SENTINEL' in v_context::text) > 0
      OR position('C300_PRIVATE_DAILY_REFLECTION_OWNER_UPDATE_SENTINEL' in v_context::text) > 0
      OR position('C300_PRIVATE_DAILY_REFLECTION_OWNER_UPDATE_BODY_SENTINEL' in v_context::text) > 0
-     OR position('C300_PRIVATE_DAILY_REFLECTION_OWNER_INSERT_SENTINEL' in v_context::text) > 0 THEN
+     OR position('C300_PRIVATE_DAILY_REFLECTION_OWNER_INSERT_SENTINEL' in v_context::text) > 0
+     OR position('C304_ACCOUNT_ERASURE_REFLECTION_SENTINEL' in v_context::text) > 0 THEN
     RAISE EXCEPTION 'Admin moderation context exposed private reflection text.';
   END IF;
 
@@ -1293,7 +1381,95 @@ BEGIN
     RAISE EXCEPTION 'Admin unexpectedly bypassed the narrow moderation-context RPC.';
   END IF;
 END
-$$;
+$;
+
+RESET ROLE;
+
+DO $
+DECLARE
+  v_count integer;
+  v_rows bigint;
+BEGIN
+  SELECT count(*) INTO v_count
+  FROM public.daily_reflections
+  WHERE reflection_text IN (
+    'C296_PRIVATE_DAILY_REFLECTION_SENTINEL',
+    'C298_PRIVATE_DAILY_REFLECTION_MEMBER_B_SENTINEL'
+  );
+  IF v_count <> 2 THEN
+    RAISE EXCEPTION 'Blocked Daily Post/Light deletion did not preserve both members'' private reflections.';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.daily_posts
+    WHERE slug = 'c296-privacy-test-daily-post'
+  ) OR NOT EXISTS (
+    SELECT 1
+    FROM public.daily_lights
+    WHERE id = '00000000-0000-4000-8000-000000000206'
+  ) THEN
+    RAISE EXCEPTION 'A referenced Daily Post or Daily Light was deleted despite its private reflection.';
+  END IF;
+
+  SELECT count(*) INTO v_count
+  FROM public.daily_deed_completions
+  WHERE id IN (
+    '00000000-0000-4000-8000-000000000311',
+    '00000000-0000-4000-8000-000000000312'
+  );
+  IF v_count <> 2 THEN
+    RAISE EXCEPTION 'Blocked Daily Light deletion cascaded into existing private Journey completions.';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM public.daily_posts
+    WHERE slug = 'c304-privacy-test-unreferenced-daily-post'
+  ) OR EXISTS (
+    SELECT 1 FROM public.daily_lights
+    WHERE id = '00000000-0000-4000-8000-000000000208'
+  ) THEN
+    RAISE EXCEPTION 'Administrator could not remove unreferenced Daily content.';
+  END IF;
+
+  DELETE FROM auth.users
+  WHERE id = '00000000-0000-4000-8000-000000000105';
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows <> 1 THEN
+    RAISE EXCEPTION 'Dedicated account-erasure fixture user was not deleted.';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM public.daily_reflections
+    WHERE reflection_text = 'C304_ACCOUNT_ERASURE_REFLECTION_SENTINEL'
+  ) OR EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE user_id = '00000000-0000-4000-8000-000000000105'
+  ) THEN
+    RAISE EXCEPTION 'Existing account-erasure cascade did not remove the member profile and private reflection.';
+  END IF;
+
+  SELECT count(*) INTO v_count
+  FROM public.daily_reflections
+  WHERE reflection_text IN (
+    'C296_PRIVATE_DAILY_REFLECTION_SENTINEL',
+    'C298_PRIVATE_DAILY_REFLECTION_MEMBER_B_SENTINEL'
+  );
+  IF v_count <> 2 THEN
+    RAISE EXCEPTION 'Account erasure removed another member''s private reflection.';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.daily_posts
+    WHERE slug = 'c300-privacy-test-owner-write-daily-post'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM public.daily_lights
+    WHERE id = '00000000-0000-4000-8000-000000000207'
+  ) THEN
+    RAISE EXCEPTION 'Account erasure unexpectedly removed shared Daily content.';
+  END IF;
+END
+$;
 
 ROLLBACK;
 

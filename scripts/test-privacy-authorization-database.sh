@@ -51,6 +51,34 @@ fi
 
 psql_cmd=(psql -X -v ON_ERROR_STOP=1)
 
+legacy_fixture_active=0
+
+cleanup_legacy_fixture() {
+  "${psql_cmd[@]}" --file scripts/test-privacy-authorization-legacy-policy-cleanup.sql || return
+  legacy_fixture_active=0
+  echo "Historical moderation-note fixture cleanup: PASS"
+}
+
+cleanup_on_exit() {
+  local exit_status=$?
+  local cleanup_status=0
+  trap - EXIT
+
+  if [[ "$legacy_fixture_active" == "1" ]]; then
+    set +e
+    cleanup_legacy_fixture
+    cleanup_status=$?
+    set -e
+    if [[ "$cleanup_status" -ne 0 ]]; then
+      echo "EXIT cleanup could not remove the historical privacy fixture." >&2
+      exit_status=1
+    fi
+  fi
+
+  exit "$exit_status"
+}
+trap cleanup_on_exit EXIT
+
 # Minimal Supabase-compatible auth/storage boundary for a disposable database.
 "${psql_cmd[@]}" <<'SQL'
 CREATE ROLE anon NOLOGIN NOBYPASSRLS;
@@ -153,6 +181,7 @@ for migration in "${migrations_after_daily[@]}"; do
 done
 
 echo "Verifying historical Sprint 5 Offering policy fixture"
+legacy_fixture_active=1
 "${psql_cmd[@]}" --file scripts/test-privacy-authorization-legacy-policy.sql
 
 echo "Applying supabase/migrations/202611220023_sprint12_3_private_offering_base_table_access.sql"
@@ -163,6 +192,9 @@ echo "Applying supabase/migrations/202611220024_sprint12_4_private_daily_reflect
 
 echo "Applying supabase/migrations/202611220025_sprint12_5_private_daily_reflection_owner_delete.sql"
 "${psql_cmd[@]}" --file supabase/migrations/202611220025_sprint12_5_private_daily_reflection_owner_delete.sql
+
+echo "Applying supabase/migrations/202611220026_sprint12_6_daily_reflection_restrict_parent_delete.sql"
+"${psql_cmd[@]}" --file supabase/migrations/202611220026_sprint12_6_daily_reflection_restrict_parent_delete.sql
 
 legacy_policy_count="$("${psql_cmd[@]}" -Atqc "
   SELECT count(*)
@@ -266,10 +298,88 @@ if [[ "$daily_reflection_command_counts" != "1:1:1:1" ]]; then
 fi
 echo "Migration 024/025 owner-only Daily reflection policies: PASS"
 
-cleanup_legacy_fixture() {
-  "${psql_cmd[@]}" --file scripts/test-privacy-authorization-legacy-policy-cleanup.sql
-  echo "Historical moderation-note fixture cleanup: PASS"
-}
+daily_reflection_parent_fk_count="$("${psql_cmd[@]}" -Atqc "
+  SELECT count(*)
+  FROM pg_constraint c
+  JOIN pg_attribute a
+    ON a.attrelid = c.conrelid
+   AND a.attnum = c.conkey[1]
+  WHERE c.conrelid = 'public.daily_reflections'::regclass
+    AND c.contype = 'f'
+    AND cardinality(c.conkey) = 1
+    AND (
+      (a.attname = 'daily_post_id'
+        AND c.confrelid = 'public.daily_posts'::regclass)
+      OR
+      (a.attname = 'daily_light_id'
+        AND c.confrelid = 'public.daily_lights'::regclass)
+    );
+")"
+if [[ "$daily_reflection_parent_fk_count" != "2" ]]; then
+  echo "Daily reflections must retain exactly the two expected parent foreign keys." >&2
+  exit 1
+fi
+
+daily_reflection_parent_restrict_fk_count="$("${psql_cmd[@]}" -Atqc "
+  SELECT count(*)
+  FROM pg_constraint c
+  JOIN pg_attribute a
+    ON a.attrelid = c.conrelid
+   AND a.attnum = c.conkey[1]
+  WHERE c.conrelid = 'public.daily_reflections'::regclass
+    AND c.contype = 'f'
+    AND cardinality(c.conkey) = 1
+    AND c.confdeltype = 'r'
+    AND (
+      (a.attname = 'daily_post_id'
+        AND c.confrelid = 'public.daily_posts'::regclass)
+      OR
+      (a.attname = 'daily_light_id'
+        AND c.confrelid = 'public.daily_lights'::regclass)
+    );
+")"
+if [[ "$daily_reflection_parent_restrict_fk_count" != "2" ]]; then
+  echo "Migration 026 did not install both restrictive Daily reflection parent foreign keys." >&2
+  exit 1
+fi
+
+daily_reflection_parent_cascade_fk_count="$("${psql_cmd[@]}" -Atqc "
+  SELECT count(*)
+  FROM pg_constraint c
+  JOIN pg_attribute a
+    ON a.attrelid = c.conrelid
+   AND a.attnum = c.conkey[1]
+  WHERE c.conrelid = 'public.daily_reflections'::regclass
+    AND c.contype = 'f'
+    AND cardinality(c.conkey) = 1
+    AND c.confdeltype = 'c'
+    AND (
+      (a.attname = 'daily_post_id'
+        AND c.confrelid = 'public.daily_posts'::regclass)
+      OR
+      (a.attname = 'daily_light_id'
+        AND c.confrelid = 'public.daily_lights'::regclass)
+    );
+")"
+if [[ "$daily_reflection_parent_cascade_fk_count" != "0" ]]; then
+  echo "Migration 026 left a cascading Daily reflection parent foreign key." >&2
+  exit 1
+fi
+
+daily_reflection_account_erasure_fk_count="$("${psql_cmd[@]}" -Atqc "
+  SELECT count(*)
+  FROM pg_constraint
+  WHERE conrelid = 'public.daily_reflections'::regclass
+    AND contype = 'f'
+    AND conname = 'daily_reflections_user_id_fkey'
+    AND confrelid = 'auth.users'::regclass
+    AND confdeltype = 'c';
+")"
+if [[ "$daily_reflection_account_erasure_fk_count" != "1" ]]; then
+  echo "Migration 026 changed the auth.users account-erasure cascade." >&2
+  exit 1
+fi
+
 
 cleanup_check() {
   local phase="$1"
@@ -284,6 +394,7 @@ cleanup_check() {
           '00000000-0000-4000-8000-000000000102',
           '00000000-0000-4000-8000-000000000103',
           '00000000-0000-4000-8000-000000000104',
+          '00000000-0000-4000-8000-000000000105',
           '00000000-0000-4000-8000-000000000109',
           '00000000-0000-4000-8000-000000000110',
           '00000000-0000-4000-8000-000000000111'
@@ -296,6 +407,7 @@ cleanup_check() {
           '00000000-0000-4000-8000-000000000102',
           '00000000-0000-4000-8000-000000000103',
           '00000000-0000-4000-8000-000000000104',
+          '00000000-0000-4000-8000-000000000105',
           '00000000-0000-4000-8000-000000000109',
           '00000000-0000-4000-8000-000000000110',
           '00000000-0000-4000-8000-000000000111'
@@ -332,7 +444,8 @@ cleanup_check() {
         SELECT 1 FROM public.daily_lights
         WHERE id IN (
           '00000000-0000-4000-8000-000000000206',
-          '00000000-0000-4000-8000-000000000207'
+          '00000000-0000-4000-8000-000000000207',
+          '00000000-0000-4000-8000-000000000208'
         )
       )
       AND NOT EXISTS (
@@ -378,7 +491,8 @@ cleanup_check() {
           'C300_PRIVATE_DAILY_REFLECTION_OWNER_UPDATE_SENTINEL',
           'C300_PRIVATE_DAILY_REFLECTION_OWNER_INSERT_SENTINEL',
           'C302_ADMIN_CROSS_MEMBER_REFLECTION_INSERT_SHOULD_FAIL',
-          'C302_ADMIN_CROSS_MEMBER_REFLECTION_UPDATE_SHOULD_FAIL'
+          'C302_ADMIN_CROSS_MEMBER_REFLECTION_UPDATE_SHOULD_FAIL',
+          'C304_ACCOUNT_ERASURE_REFLECTION_SENTINEL'
         )
           OR reflection IN (
             'C300_PRIVATE_DAILY_REFLECTION_OWNER_UPDATE_BODY_SENTINEL'
@@ -388,7 +502,8 @@ cleanup_check() {
         SELECT 1 FROM public.daily_posts
         WHERE slug IN (
           'c296-privacy-test-daily-post',
-          'c300-privacy-test-owner-write-daily-post'
+          'c300-privacy-test-owner-write-daily-post',
+          'c304-privacy-test-unreferenced-daily-post'
         )
       )
       THEN 'privacy_fixture_cleanup=pass'

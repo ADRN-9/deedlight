@@ -7,6 +7,13 @@ if [[ ! -x "$runner" ]]; then
   exit 1
 fi
 
+if ! grep -Fq 'trap cleanup_on_exit EXIT' "$runner" ||
+   ! grep -Fq 'legacy_fixture_active=1' "$runner" ||
+   ! grep -Fq 'if [[ "$legacy_fixture_active" == "1" ]]; then' "$runner"; then
+  echo "Privacy database runner is missing its historical-fixture EXIT cleanup guard." >&2
+  exit 1
+fi
+
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
 mkdir -p "$tmpdir/bin"
