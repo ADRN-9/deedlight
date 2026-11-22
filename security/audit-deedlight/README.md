@@ -39,3 +39,10 @@ The checker validates every evidence record against `audited/audit_record.schema
 Independent Reviewer must confirm workflow run ID, exact audit branch commit, PostgreSQL version, all twelve fixture results and sanitized logs. Unexpected SQL errors, missing JSON records, missing constraints or permission checks, unreviewed SQL edits, different source SHA, wrong project identity, or any uncertain target must STOP. The project has an outstanding Cycle 12 authorization-provenance discrepancy and an earlier HOLD accounting discrepancy; neither is closed by this test package.
 
 The production migration history is historically unreconciled. No Production `supabase db push`, history repair, privileged connection, Worker deploy, Cron activation, outbound delivery, PR #10 merge or issue closure is authorized by this audit tooling.
+
+
+## C260 cleanup-failure regression
+
+The lifecycle regression now creates a marked, run-owned disposable database and temporarily places a deliberately failing `dropdb` shim first on `PATH`. The test requires run-scoped cleanup to return nonzero, confirms the shim ran, and verifies that the database and its exact ownership marker remain intact. It restores the original `PATH`, verifies that the real `dropdb` executable resolves again, retries cleanup, and proves the database is absent. The final catalog assertion requires zero databases for the current workflow run and attempt.
+
+CI emits explicit evidence for the injected failure, successful real-`dropdb` retry, successful run cleanup, and zero remaining run-scoped databases. This protects against a cleanup implementation that reports success after a failed deletion or discards ownership evidence before deletion has actually succeeded. The test remains confined to the job-scoped PostgreSQL 16.16 disposable service; TERM handling, parallel isolation, foreign-marker rejection, and A–L fixtures remain covered.

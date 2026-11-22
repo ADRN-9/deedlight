@@ -89,3 +89,10 @@ The first audit attempt `44984901933` stopped at the PostgreSQL client/version p
 - [Push PR Validation #811](https://github.com/ADRN-9/deedlight/actions/runs/44985572674) — PASS, 5/5 jobs.
 - [PR Validation #812](https://github.com/ADRN-9/deedlight/actions/runs/44985576902) — PASS, 5/5 jobs.
 - Sanitized artifact: `deedlight-catalog-audit-pg16`, ID `14740000188`, 44,071 bytes; expires 2026-12-06.
+
+
+## C260 cleanup-failure regression
+
+The lifecycle regression now creates a marked, run-owned disposable database and temporarily places a deliberately failing `dropdb` shim first on `PATH`. The test requires run-scoped cleanup to return nonzero, confirms the shim ran, and verifies that the database and its exact ownership marker remain intact. It restores the original `PATH`, verifies that the real `dropdb` executable resolves again, retries cleanup, and proves the database is absent. The final catalog assertion requires zero databases for the current workflow run and attempt.
+
+CI emits explicit evidence for the injected failure, successful real-`dropdb` retry, successful run cleanup, and zero remaining run-scoped databases. This protects against a cleanup implementation that reports success after a failed deletion or discards ownership evidence before deletion has actually succeeded. The test remains confined to the job-scoped PostgreSQL 16.16 disposable service; TERM handling, parallel isolation, foreign-marker rejection, and A–L fixtures remain covered.

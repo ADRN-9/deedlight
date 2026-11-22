@@ -165,6 +165,46 @@ assert_state "$FOREIGN_DB" "$FOREIGN_MARKER" owned
 dropdb --force --if-exists --host 127.0.0.1 --port 5432 --username postgres "$FOREIGN_DB"
 assert_state "$FOREIGN_DB" "$FOREIGN_MARKER" ""
 
-deedlight_fixture_cleanup_run
+# A failed dropdb must fail closed without losing the database's ownership evidence.
+DROP_FAILURE_PID="$BASHPID"
+DROP_FAILURE_NONCE="$(deedlight_fixture_nonce)"
+DROP_FAILURE_DB="$(deedlight_fixture_database_name F "$DROP_FAILURE_PID" "$DROP_FAILURE_NONCE")"
+DROP_FAILURE_MARKER="$(deedlight_fixture_database_marker F "$DROP_FAILURE_PID" "$DROP_FAILURE_NONCE")"
+deedlight_fixture_create_database "$DROP_FAILURE_DB" "$DROP_FAILURE_MARKER"
+REAL_DROPDB="$(command -v dropdb)"
+[[ -x "$REAL_DROPDB" ]] || fail "Could not resolve the real dropdb executable"
+mkdir -p "$TMP/failing-bin"
+cat > "$TMP/failing-bin/dropdb" <<'SH'
+#!/usr/bin/env bash
+printf 'invoked\n' > "$DEEDLIGHT_DROPDB_FAILURE_MARKER"
+echo "Injected dropdb failure for disposable cleanup" >&2
+exit 42
+SH
+chmod 0755 "$TMP/failing-bin/dropdb"
+export DEEDLIGHT_DROPDB_FAILURE_MARKER="$TMP/dropdb-failure-invoked"
+SAVED_PATH="$PATH"
+PATH="$TMP/failing-bin:$PATH"
+hash -r
+if deedlight_fixture_cleanup_run; then
+  PATH="$SAVED_PATH"
+  hash -r
+  fail "Run cleanup succeeded even though injected dropdb returned nonzero"
+else
+  DROP_FAILURE_STATUS=$?
+fi
+PATH="$SAVED_PATH"
+hash -r
+[[ "$DROP_FAILURE_STATUS" -ne 0 ]] || fail "Injected dropdb failure was not propagated"
+[[ -s "$DEEDLIGHT_DROPDB_FAILURE_MARKER" ]] || fail "Injected dropdb executable was not invoked"
+[[ "$(command -v dropdb)" == "$REAL_DROPDB" ]] || fail "Real dropdb was not restored after failure injection"
+assert_state "$DROP_FAILURE_DB" "$DROP_FAILURE_MARKER" owned
+echo "Injected dropdb failure: cleanup returned nonzero and ownership marker remained intact: PASS"
+
+# Restore the real executable and prove a normal retry removes the same database.
+deedlight_fixture_cleanup_run || fail "Cleanup retry with the real dropdb executable failed"
+assert_state "$DROP_FAILURE_DB" "$DROP_FAILURE_MARKER" ""
+echo "Cleanup retry with the real dropdb executable: PASS"
 deedlight_fixture_assert_no_run_databases
+echo "Remaining run-scoped disposable PostgreSQL databases: 0"
+echo "C260 cleanup-failure recovery regression: PASS"
 echo "C249 disposable PostgreSQL lifecycle, ownership, parallel isolation and cleanup regression: PASS"

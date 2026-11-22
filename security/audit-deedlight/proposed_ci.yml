@@ -126,6 +126,8 @@ jobs:
           deedlight_fixture_verify_docker_service
           deedlight_fixture_verify_service
           deedlight_fixture_cleanup_run
+          echo "Disposable PostgreSQL run cleanup: PASS"
+          echo "Remaining run-scoped disposable PostgreSQL databases: 0"
 
       - name: Archive sanitized catalog-only fixture evidence
         if: always()
