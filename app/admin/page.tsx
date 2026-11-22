@@ -11,27 +11,12 @@ type CountQuery = {
   error: { message?: string } | null;
 };
 
-async function exactCount(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  table: string,
-  configure?: (query: any) => any,
-) {
+async function exactCount<T extends CountQuery>(
+  query: PromiseLike<T>,
+): Promise<number | null> {
   try {
-    let query = (supabase as any)
-      .from(table)
-      .select("id", { count: "exact", head: true });
-
-    if (configure) {
-      query = configure(query);
-    }
-
-    const result = (await query) as CountQuery;
-
-    if (result.error) {
-      return null;
-    }
-
-    return result.count ?? 0;
+    const result = await query;
+    return result.error ? null : result.count ?? 0;
   } catch {
     return null;
   }
@@ -72,20 +57,16 @@ export default async function AdminHomePage({
     totalMembers,
     suspendedMembers,
   ] = await Promise.all([
-    exactCount(supabase, "offerings", (query) => query.eq("status", "pending")),
-    exactCount(supabase, "reports", (query) => query.in("status", ["open", "pending"])),
-    exactCount(supabase, "daily_lights", (query) => query.eq("status", "published")),
-    exactCount(supabase, "daily_lights", (query) =>
-      query.eq("short_video_public", true).not("youtube_url", "is", null),
-    ),
-    exactCount(supabase, "daily_lights", (query) =>
-      query.in("video_status", ["planned", "scripted", "recorded"]),
-    ),
+    exactCount(supabase.from("offerings").select("id", { count: "exact", head: true }).eq("status", "pending")),
+    exactCount(supabase.from("reports").select("id", { count: "exact", head: true }).in("status", ["open", "pending"])),
+    exactCount(supabase.from("daily_lights").select("id", { count: "exact", head: true }).eq("status", "published")),
+    exactCount(supabase.from("daily_lights").select("id", { count: "exact", head: true }).eq("short_video_public", true).not("youtube_url", "is", null)),
+    exactCount(supabase.from("daily_lights").select("id", { count: "exact", head: true }).in("video_status", ["planned", "scripted", "recorded"])),
     isDatabaseAdmin
-      ? exactCount(supabase, "profiles")
+      ? exactCount(supabase.from("profiles").select("id", { count: "exact", head: true }))
       : Promise.resolve(null),
     isDatabaseAdmin
-      ? exactCount(supabase, "profiles", (query) => query.eq("is_suspended", true))
+      ? exactCount(supabase.from("profiles").select("id", { count: "exact", head: true }).eq("is_suspended", true))
       : Promise.resolve(null),
   ]);
 
