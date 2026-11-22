@@ -32,7 +32,7 @@ function requireAbsent(name, text, pattern) {
 const migration = read(files.migration);
 const leaseMigration = read("supabase/migrations/202611210028_delivery_claim_lock_expiry.sql");
 const idempotencyMigration = read("supabase/migrations/202611210030_delivery_idempotency_receipt_guard.sql");
-const finalConsentMigration = read("supabase/migrations/202611220031_delivery_final_consent_authorization.sql");
+const finalConsentMigration = read("supabase/migrations/202611210031_delivery_final_consent_authorization.sql");
 const idempotencyTests = read("scripts/test-delivery-idempotency-guard.sql");
 const migrationOrderTest = read("scripts/test-delivery-migration-order.sh");
 const deliveryRunner = read("lib/delivery/run-delivery.ts");
