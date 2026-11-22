@@ -78,7 +78,7 @@ test("rejects malformed cache paths instead of silently staging them", () => {
 
 test("normalizes Windows and POSIX paths through OpenNext's actual helper", () => {
   assert.equal(
-    normalizePath(String.raw`C:\\project\\.next\\server\\chunk.js`),
+    normalizePath(String.raw`C:\project\.next\server\chunk.js`),
     "C:/project/.next/server/chunk.js",
   );
   assert.equal(normalizePath("/project/.next/server/chunk.js"), "/project/.next/server/chunk.js");
