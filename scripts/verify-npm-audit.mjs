@@ -16,6 +16,9 @@ function assertCount(value, field) {
 
 export function validateNpmAuditReport(report) {
   if (!isRecord(report)) throw new Error("npm audit report must be a JSON object.");
+  if (report.auditReportVersion !== 2) {
+    throw new Error("npm audit report has an unsupported or missing auditReportVersion; expected version 2.");
+  }
 
   const counts = report.metadata?.vulnerabilities;
   if (!isRecord(counts)) throw new Error("npm audit report is incomplete: metadata.vulnerabilities is missing.");
@@ -115,10 +118,19 @@ export function parseNpmAuditJson(text) {
 
 function main() {
   const reportPath = process.argv[2];
-  const auditExitCode = Number(process.argv[3] ?? 0);
+  const rawAuditExitCode = process.argv[3];
 
-  if (!reportPath || !Number.isSafeInteger(auditExitCode) || auditExitCode < 0) {
+  if (
+    !reportPath ||
+    rawAuditExitCode === undefined ||
+    !/^(0|[1-9]\\d*)$/.test(rawAuditExitCode)
+  ) {
     throw new Error("Usage: node scripts/verify-npm-audit.mjs <report.json> <npm-audit-exit-code>");
+  }
+
+  const auditExitCode = Number(rawAuditExitCode);
+  if (!Number.isSafeInteger(auditExitCode)) {
+    throw new Error("npm audit exit status must be a non-negative safe integer.");
   }
 
   const report = parseNpmAuditJson(readFileSync(reportPath, "utf8"));
