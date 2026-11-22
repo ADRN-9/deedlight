@@ -84,6 +84,15 @@ for (const file of new Set(inspectFiles)) {
   }
 }
 
+const unresolvedApplicationReferences = unresolvedSourceMapReferences.filter(
+  ({ file }) => !file.includes("/node_modules/"),
+);
+assert.equal(
+  unresolvedApplicationReferences.length,
+  0,
+  `application-owned source map references must resolve: ${unresolvedApplicationReferences.map(({ file, reference }) => `${file} -> ${reference}`).join(", ")}`,
+);
+
 const publicSourceMaps = assetFiles.filter((path) => extname(path) === ".map");
 assert.equal(publicSourceMaps.length, 0, "source maps must not be published through the public ASSETS directory");
 
@@ -107,6 +116,8 @@ console.log(JSON.stringify({
     files: [...new Set([...sourceMapFiles, ...mapFiles.map((path) => relative(root, path))])].sort(),
     references: sourceMapReferences,
     unresolvedReferences: unresolvedSourceMapReferences,
+    unresolvedDependencyReferenceCount: unresolvedSourceMapReferences.length,
+    unresolvedApplicationReferenceCount: unresolvedApplicationReferences.length,
     publicAssetsContainingSourceMaps: publicSourceMaps.map((path) => relative(root, path)),
   },
 }, null, 2));
