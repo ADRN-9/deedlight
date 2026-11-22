@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { AUDIT_SEVERITIES, parseNpmAuditJson, validateNpmAuditReport } from "./verify-npm-audit.mjs";
@@ -120,6 +123,33 @@ test("rejects malformed package entries and missing dependency paths", () => {
   assert.throws(() => validateNpmAuditReport(missingDirect), /isDirect must be boolean/);
 });
 
+
+test("includes package names, dependency paths, and advisory URLs in failure diagnostics", () => {
+  const report = reportWithFinding("high");
+  const finding = report.vulnerabilities.fixture;
+  finding.name = "@deedlight/fixture-package";
+  finding.nodes = [
+    "node_modules/@deedlight/fixture-package",
+    "node_modules/@deedlight/fixture-package/node_modules/transitive-fixture",
+  ];
+  finding.via = [{
+    source: 123,
+    name: "GHSA-example",
+    title: "Fixture advisory",
+    url: "https://github.com/advisories/GHSA-example",
+    severity: "high",
+    range: "<1.0.0",
+  }];
+
+  assert.throws(() => validateNpmAuditReport(report), (error) => {
+    assert.ok(error.message.includes("@deedlight/fixture-package"));
+    assert.ok(error.message.includes("node_modules/@deedlight/fixture-package"));
+    assert.ok(error.message.includes("node_modules/@deedlight/fixture-package/node_modules/transitive-fixture"));
+    assert.ok(error.message.includes("https://github.com/advisories/GHSA-example"));
+    return true;
+  });
+});
+
 test("parses JSON text and preserves a clean report summary", () => {
   const parsed = parseNpmAuditJson(JSON.stringify(cleanReport()));
   assert.equal(parsed.counts.total, 0);
@@ -138,6 +168,29 @@ test("rejects missing and unsupported npm audit report versions", () => {
       () => validateNpmAuditReport(report),
       /unsupported or missing auditReportVersion/,
     );
+  }
+});
+
+
+test("rejects a valid zero-vulnerability report when npm audit exits nonzero", () => {
+  const scriptPath = fileURLToPath(new URL("./verify-npm-audit.mjs", import.meta.url));
+  const directory = mkdtempSync(join(tmpdir(), "deedlight-npm-audit-"));
+
+  try {
+    const reportPath = join(directory, "audit.json");
+    writeFileSync(reportPath, JSON.stringify(cleanReport()), "utf8");
+
+    const result = spawnSync(process.execPath, [scriptPath, reportPath, "1"], {
+      encoding: "utf8",
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.match(
+      result.stderr,
+      /npm audit exited with status 1 despite a zero-finding report/,
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
 });
 

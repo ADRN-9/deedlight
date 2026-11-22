@@ -14,6 +14,53 @@ function assertCount(value, field) {
   }
 }
 
+
+function diagnosticText(value) {
+  return String(value).replace(/[\x00-\x1f\x7f]/g, " ").trim();
+}
+
+function formatAuditFindings(vulnerabilities) {
+  return Object.entries(vulnerabilities).map(([packageKey, item]) => {
+    const packageName =
+      typeof item.name === "string" && item.name.trim()
+        ? item.name
+        : packageKey;
+    const packageLabel = packageName === packageKey
+      ? diagnosticText(packageName)
+      : diagnosticText(packageName) + " [audit key: " + diagnosticText(packageKey) + "]";
+
+    const advisories = item.via.map((reference) => {
+      if (typeof reference === "string") {
+        return "dependency reference " + diagnosticText(reference);
+      }
+
+      const label =
+        typeof reference.title === "string" && reference.title.trim()
+          ? reference.title
+          : typeof reference.name === "string" && reference.name.trim()
+            ? reference.name
+            : Number.isSafeInteger(reference.source)
+              ? "advisory " + reference.source
+              : "advisory";
+      const severity = diagnosticText(reference.severity);
+      const url =
+        typeof reference.url === "string" && reference.url.trim()
+          ? " — " + diagnosticText(reference.url)
+          : "";
+
+      return diagnosticText(label) + " [" + severity + "]" + url;
+    });
+
+    return [
+      "  - " + packageLabel + " (" + diagnosticText(item.severity) + ", range " + diagnosticText(item.range) + ", " + (item.isDirect ? "direct" : "transitive") + ")",
+      "    dependency paths:",
+      ...item.nodes.map((path) => "      - " + diagnosticText(path)),
+      "    advisories:",
+      ...advisories.map((advisory) => "      - " + advisory),
+    ].join("\n");
+  }).join("\n");
+}
+
 export function validateNpmAuditReport(report) {
   if (!isRecord(report)) throw new Error("npm audit report must be a JSON object.");
   if (report.auditReportVersion !== 2) {
@@ -95,7 +142,7 @@ export function validateNpmAuditReport(report) {
 
   if (counts.total !== 0) {
     const summary = AUDIT_SEVERITIES.map((severity) => `${severity}=${counts[severity]}`).join(", ");
-    throw new Error(`Dependency audit must be clean across every severity; found total=${counts.total} (${summary}).`);
+    throw new Error(`Dependency audit must be clean across every severity; found total=${counts.total} (${summary}).\nAffected packages and advisories:\n${formatAuditFindings(vulnerabilities)}`);
   }
 
   return { counts: { ...counts }, packages };
