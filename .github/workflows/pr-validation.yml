@@ -74,6 +74,9 @@ jobs:
       - name: npm audit parser regression tests
         run: node --test scripts/test-npm-audit-report.mjs
 
+      - name: OpenNext glob compatibility regression tests
+        run: node --test scripts/test-opennext-glob-compat.mjs
+
       # Fail closed on every severity and on malformed or inconsistent audit JSON.
       - name: Dependency audit
         shell: bash
