@@ -26,23 +26,24 @@ Create `.dev.vars` from `.dev.vars.example` for Cloudflare preview.
 cp .dev.vars.example .dev.vars
 ```
 
-## 3. Push database migrations
+## 3. Run database migrations locally
 
-Install and log into Supabase CLI if needed.
-
-```bash
-npx supabase login
-npx supabase link --project-ref YOUR_PROJECT_REF
-npx supabase db push
-```
-
-Optionally seed local development database:
+Install Supabase CLI 3.2.0 using the official Supabase CLI installation instructions and verify `supabase --version` reports `3.2.0`. Start the local stack and apply migrations locally:
 
 ```bash
-npx supabase db reset
+supabase start
+npm run supabase:push
 ```
 
-For a remote-only first setup, you can run the content of `supabase/seed.sql` in the Supabase SQL editor after `db push`.
+To discard local database changes and rebuild from local migrations:
+
+```bash
+npm run supabase:reset
+```
+
+Both generic npm commands are local-only wrappers. `supabase:reset` rejects all forwarded arguments, including `--remote` and `--yes`.
+
+For an explicitly approved non-Production hosted project, follow [Supabase CLI target security](./SUPABASE_CLI_TARGET_SECURITY.md). The repository allowlist is intentionally empty until the project owner supplies authoritative non-Production project references. Remote migration commands therefore fail closed in the current configuration.
 
 ## 4. Run locally
 
@@ -100,24 +101,8 @@ npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
 
 In Cloudflare Workers dashboard, connect the deployed Worker to the custom domain `deedlight.com`. Also add `www.deedlight.com` if you want it.
 
-## Optional GitHub Actions deployment
+## Production migration warning
 
-This starter includes two optional workflows:
+Do not use `.github/workflows/supabase-migrations.yml`. It is a legacy manually dispatchable workflow and is not an approved Production authorization boundary. It remains in the current `main` tree pending the separate emergency-removal change. This remediation does not restore, dispatch, or modify that workflow.
 
-- `.github/workflows/deploy-cloudflare.yml`
-- `.github/workflows/supabase-migrations.yml`
-
-Add these GitHub repository secrets before using them:
-
-```text
-CLOUDFLARE_API_TOKEN
-CLOUDFLARE_ACCOUNT_ID
-NEXT_PUBLIC_SUPABASE_URL
-NEXT_PUBLIC_SUPABASE_ANON_KEY
-SUPABASE_SERVICE_ROLE_KEY
-SUPABASE_ACCESS_TOKEN
-SUPABASE_DB_PASSWORD
-SUPABASE_PROJECT_REF
-```
-
-Run Supabase migrations manually first until you are comfortable. Use the migration workflow only after confirming the schema locally or in staging.
+Production migrations remain blocked until the historical Supabase migration-management discrepancy is reconciled and the required GitHub Environment, credential-scope, and approval protections are independently verified.
