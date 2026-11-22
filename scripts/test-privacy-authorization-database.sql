@@ -710,7 +710,7 @@ BEGIN
   v_denied := false;
   BEGIN
     UPDATE public.daily_reflections
-    SET user_id = '00000000-0000-4000-8000-000000000102'
+    SET user_id = '00000000-0000-4000-8000-000000000103'
     WHERE user_id = auth.uid()
       AND reflection_text = 'C300_PRIVATE_DAILY_REFLECTION_OWNER_UPDATE_SENTINEL';
   EXCEPTION WHEN insufficient_privilege THEN
