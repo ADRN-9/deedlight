@@ -23,6 +23,7 @@ The only short shell sleeps are polling intervals. No `pg_sleep` SQL barriers ar
 | Weekly consent, both lock orderings | First lock holder wins; revocation-first cancels, authorization-first commits before revocation |
 | Profile suspension, both lock orderings | First lock holder wins the serialization boundary |
 | Auth email change, both lock orderings | Stale recipient is cancelled; later change waits |
+| Auth email-confirmation revocation, both lock orderings | Unconfirmed identity is cancelled when revocation wins; later revocation waits for authorization commit |
 | Weekly curation removal, both lock orderings | Removal and authorization serialize |
 | Provider complaint suppression, both lock orderings | Shared recipient advisory lock serializes the RPCs |
 | Claim expires during Auth-row lock wait | RPC fails closed; claim remains unmodified and expired |
@@ -35,7 +36,7 @@ The only short shell sleeps are polling intervals. No `pg_sleep` SQL barriers ar
 | Same-recipient concurrent claims | Advisory wait is observed; deadlock counter does not increase |
 | Duplicate attempts for one logical delivery | Ledger-row serialization; both authorizations retain the same stable provider idempotency key |
 
-Every scenario asserts the delivery-ledger state, exact claim token, and exact expiry value (including intentionally expired leases). A test-only provider-attempt probe records whether the Worker would proceed after authorization; denied outcomes must have zero probe rows. The probe never calls Resend or any external transport.
+Every scenario asserts the delivery-ledger state, exact claim token, and exact expiry value (including intentionally expired leases). Cancellation assertions also verify the original live claim token and expiry snapshot, cleared claim token/expiry, cancellation timestamp, and authorization-revoked terminal code. A test-only provider-attempt probe records whether the Worker would proceed after authorization; denied outcomes must have zero probe rows. The probe never calls Resend or any external transport.
 
 For authorized-first cases, the probe is written only after the authorization transaction commits and the later mutation completes. This deliberately demonstrates the documented post-commit boundary: a later revocation cannot recall an already-authorized attempt. No database transaction is held open across HTTP.
 
@@ -43,7 +44,7 @@ For authorized-first cases, the probe is written only after the authorization tr
 
 The C253 job provisions its own GitHub Actions `postgres:16` service and a dedicated `deedlight_migration_order_test` database. The harness requires the exact repository, a push or pull-request event, the C253 CI-only acknowledgement, `DELIVERY_ENABLED=false`, the expected local service identity, and exactly one running `postgres:16` container. It refuses libpq routing overrides and Production credential/configuration variables. The database is ephemeral with the CI service; the script does not drop a fixed database or delete unrelated fixtures.
 
-The job establishes the reviewed migration sequence through 031 in that isolated service before running the matrix.
+The job establishes the reviewed migration sequence through 031 in that isolated service before running the matrix. The Auth email-confirmation cases mutate only disposable Auth fixture rows: revocation-first must wait on the Auth row, observe the committed null confirmation timestamp, cancel and invalidate the claim with zero provider-attempt probes; authorization-first must hold the Auth share lock while revocation is observed waiting, then commit authorization before the revocation proceeds.
 
 ## Explicit non-claims
 

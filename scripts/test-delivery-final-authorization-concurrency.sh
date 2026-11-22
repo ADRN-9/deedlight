@@ -183,10 +183,10 @@ claim_token() { printf '40000000-0000-0000-0000-%012d' "$1"; }
 recipient_email() { printf 'c253-%04d@example.test' "$1"; }
 
 assert_cancelled() {
-  local id="$1"
+  local id="$1" token="$2"
   local result
-  result="$(psql_scalar "select state = 'cancelled' and claim_token is null and claim_expires_at is null and transport_started_at is not null from public.delivery_ledger where id='$id'")"
-  [[ "$result" == "t" ]] || fail "Denied authorization did not cancel and invalidate claim $id."
+  result="$(psql_scalar "select dl.state = 'cancelled' and dl.cancelled_at is not null and dl.claim_token is null and dl.claim_expires_at is null and dl.next_attempt_at is null and dl.error_code = 'authorization_revoked' and dl.transport_started_at is not null and expected.expected_token = '$token' and expected.expected_expires_at > clock_timestamp() from public.delivery_ledger dl join public.c253_expected_claims expected on expected.job_id = dl.id where dl.id='$id'")"
+  [[ "$result" == "t" ]] || fail "Denied authorization did not cancel and invalidate the original live claim $id."
 }
 
 assert_claimed() {
@@ -257,7 +257,7 @@ run_row_lock_first() {
 
   result="$(grep -E '^(authorized|cancelled|expired)$' "$waiter_log" | tail -n 1 || true)"
   [[ "$result" == "cancelled" ]] || { cat "$waiter_log" >&2; fail "$name expected cancelled, got $result."; }
-  assert_cancelled "$id"
+  assert_cancelled "$id" "$token"
   assert_mutation "$mutation_check" "$name"
   assert_no_provider_attempt "$id"
   echo "C253 $name: observed lock wait, cancelled, claim invalidated, zero provider attempts: PASS"
@@ -340,7 +340,9 @@ with fixtures(n, kind, week_start) as (
     (2518, 'daily_reminder', null::date),
     (2519, 'daily_reminder', null::date),
     (2520, 'daily_reminder', null::date),
-    (2521, 'weekly_newsletter', date '2027-08-09')
+    (2521, 'weekly_newsletter', date '2027-08-09'),
+    (2522, 'daily_reminder', null::date),
+    (2523, 'daily_reminder', null::date)
 )
 insert into auth.users(id, email, email_confirmed_at)
 select
@@ -351,7 +353,7 @@ from fixtures;
 
 with fixtures(n) as (
   values (2501),(2502),(2503),(2504),(2505),(2506),(2507),(2508),(2509),(2510),
-         (2511),(2512),(2513),(2514),(2515),(2516),(2517),(2518),(2519),(2520),(2521)
+         (2511),(2512),(2513),(2514),(2515),(2516),(2517),(2518),(2519),(2520),(2521),(2522),(2523)
 )
 insert into public.profiles(user_id, is_suspended)
 select ('50000000-0000-0000-0000-' || lpad(n::text, 12, '0'))::uuid, false
@@ -372,7 +374,8 @@ with fixtures(n, kind, week_start) as (
     (2514, 'daily_reminder', null::date),(2515, 'daily_reminder', null::date),
     (2516, 'daily_reminder', null::date),(2517, 'daily_reminder', null::date),
     (2518, 'daily_reminder', null::date),(2519, 'daily_reminder', null::date),
-    (2520, 'daily_reminder', null::date)
+    (2520, 'daily_reminder', null::date),
+    (2522, 'daily_reminder', null::date),(2523, 'daily_reminder', null::date)
 )
 insert into public.daily_reminder_preferences(user_id, daily_enabled, reminder_time, timezone)
 select ('50000000-0000-0000-0000-' || lpad(n::text, 12, '0'))::uuid, true, time '00:00', 'UTC'
@@ -413,7 +416,9 @@ with fixtures(n, kind, week_start) as (
     (2516, 'daily_reminder', null::date),(2517, 'daily_reminder', null::date),
     (2518, 'daily_reminder', null::date),(2519, 'daily_reminder', null::date),
     (2520, 'daily_reminder', null::date),
-    (2521, 'weekly_newsletter', date '2027-08-09')
+    (2521, 'weekly_newsletter', date '2027-08-09'),
+    (2522, 'daily_reminder', null::date),
+    (2523, 'daily_reminder', null::date)
 )
 insert into public.delivery_ledger(
   id, user_id, kind, delivery_key, state, scheduled_for,
@@ -489,6 +494,14 @@ run_row_lock_first "auth-email-change-first" 2505 \
 run_auth_lock_first "auth-email-change-auth-first" 2506 \
   "UPDATE auth.users SET email = 'changed-2506@example.test' WHERE id = '$(user_id 2506)';" \
   "select email = 'changed-2506@example.test' from auth.users where id = '$(user_id 2506)'"
+
+run_row_lock_first "auth-email-confirmation-revocation-first" 2522 \
+  "UPDATE auth.users SET email_confirmed_at = NULL WHERE id = '$(user_id 2522)';" \
+  "select email_confirmed_at IS NULL from auth.users where id = '$(user_id 2522)'"
+
+run_auth_lock_first "auth-email-confirmation-auth-first" 2523 \
+  "UPDATE auth.users SET email_confirmed_at = NULL WHERE id = '$(user_id 2523)';" \
+  "select email_confirmed_at IS NULL from auth.users where id = '$(user_id 2523)'"
 
 run_row_lock_first "weekly-curation-removal-first" 2508 \
   "DELETE FROM public.weekly_goodness_features WHERE week_start = date '2027-07-12';" \
