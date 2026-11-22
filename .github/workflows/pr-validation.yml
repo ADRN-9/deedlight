@@ -71,8 +71,44 @@ jobs:
       - name: Gentle delivery transport behavior
         run: node --test scripts/test-delivery-transport.mjs
 
+      # Preserve complete advisory metadata and vulnerable dependency paths in CI logs.
       - name: Fail closed on high or critical dependency advisories
-        run: npm audit --audit-level=high
+        shell: bash
+        run: |
+          set +e
+          npm audit --json > "$RUNNER_TEMP/npm-audit.json"
+          audit_status=$?
+          set -e
+
+          node - "$RUNNER_TEMP/npm-audit.json" <<'NODE'
+          const fs = require("node:fs");
+          const report = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          const counts = report.metadata?.vulnerabilities;
+
+          if (!counts || !report.vulnerabilities) {
+            throw new Error("npm audit did not return a complete vulnerability report.");
+          }
+
+          const packages = Object.entries(report.vulnerabilities).map(([name, item]) => ({
+            name,
+            severity: item.severity,
+            direct: item.isDirect,
+            range: item.range,
+            paths: item.nodes,
+            fixAvailable: item.fixAvailable,
+            advisories: item.via
+              .filter((entry) => typeof entry === "object")
+              .map(({ source, name: title, url, severity, range }) => ({
+                source, title, url, severity, range,
+              })),
+          }));
+
+          console.log(JSON.stringify({ counts, packages }, null, 2));
+
+          if ((counts.high ?? 0) + (counts.critical ?? 0) > 0) {
+            process.exitCode = 1;
+          }
+          NODE
 
       - name: TypeScript check
         run: npx tsc --noEmit
