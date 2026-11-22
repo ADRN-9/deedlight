@@ -105,7 +105,7 @@ This section supersedes earlier snapshot metadata in this document where branch 
 |---|---|---|---|
 | #10 — delivery consent and Production migration workflow | `9072f3b8824ec9618849def1c0832000cd130474` | OPEN / DRAFT | main |
 | #11 — metadata audit and disposable PostgreSQL fixtures | `f5ed62e4417921c8bee1a376fed8bac35897e809` | OPEN / DRAFT | main |
-| #13 — disable legacy Production migration workflow | `ae04e009c4242abd5db1d66d41e65a003e8f73c2` | OPEN / READY | main |
+| #13 — disable legacy Production migration workflow | `cff11e6e19b3e1d360b8f38fafbf8a26b3782504` (pre-C277 HEAD; tree `3e91c407e20525f9c380575f18e6b336dd525a49`) | OPEN / READY | main |
 | #15 — Supabase CLI target security | `1ce6213d1077a64d2a04d49949bb8302e243902a` | OPEN / READY | main |
 
 All four PRs report mergeable. Preserve their existing branches and bases; this investigation does not retarget, merge, close, or rewrite any PR.
@@ -181,7 +181,7 @@ The PR #15 wrappers are intentionally Non-Production-only and explicitly reject 
 
 ### Migration-history acceptance preflight
 
-Production migration history remains **UNKNOWN**. The current repository inventory contains 31 migration files and 30 version prefixes, including two distinct files with version prefix `202607260007`. The existing reconciliation record reports that all 31 files remain unclassified against Production; no Production `supabase_migrations.schema_migrations` rows or catalog evidence were retrieved because the connected Supabase accounts lacked permission for project `xaipiovflxomcbfwtwmu`. The CI duplicate-007 tests and partial dependency-order tests are not a complete 31-file replay and do not prove Production state.
+Production migration history remains **UNKNOWN**. The 31-file / 30-prefix inventory is a **PR #10 candidate inventory**, pinned to PR #10 source HEAD `9072f3b8824ec9618849def1c0832000cd130474` and its exact tree `e911e1b806e08fc80954526917c7a44796b741ba`; it is not the current `main` or PR #13 inventory. The live `main` HEAD `ce82b3fdf1a73510de70e3729a487d4ae00e66e3` (tree `f7ada8719e9e9f4212f3bc53ae9ebb6b012554cc`) and live pre-C277 PR #13 HEAD `cff11e6e19b3e1d360b8f38fafbf8a26b3782504` (tree `3e91c407e20525f9c380575f18e6b336dd525a49`) each contain 23 migration files and 22 distinct version prefixes. The eight later files `202611120023` through `202611210030` are present in the PR #10 candidate tree but absent from current `main` and PR #13. The 31-row inventory table is in `docs/PRODUCTION_MIGRATION_RECONCILIATION.md` at the PR #10 source commit (blob `9152f79c3bf6466ef443f0c72ad79c126b348284`); its file list and blob SHAs match that candidate tree. The two distinct candidate files sharing prefix `202607260007` remain a reconciliation hazard. None of these repository inventories is evidence of Production application state. The PR #10 reconciliation record reports that its 31 candidate files remain unclassified against Production; no Production `supabase_migrations.schema_migrations` rows or catalog evidence were retrieved because the connected Supabase accounts lacked permission for project `xaipiovflxomcbfwtwmu`. CI duplicate-007 tests and partial dependency-order tests are not a complete 31-file replay and do not prove Production state.
 
 Before any Production push, the Supabase owner/admin must grant a project-scoped **read-only** identity permission to list migration history and perform SELECT-only catalog inspection, or supply equivalent independently verifiable evidence. Capture:
 
@@ -234,3 +234,79 @@ No Production database was queried or changed during C275. No workflow was dispa
 ### C275 documentation rollback
 
 This C275 change is documentation-only on the existing PR #13 branch. If its wording is incorrect, revert only the C275 addendum in a new commit on that branch. Do not reset or force-push, do not restore the legacy migration workflow, and do not change database, credentials, Environment, or deployment state.
+
+## C277 — Governance review corrections (2026-11-22)
+
+This correction supersedes the stale PR #13 metadata and the inventory wording in C275. It records repository evidence and governance requirements only; it does not authorize a Production migration or any administrator operation.
+
+### Exact revision and migration-inventory provenance
+
+The live refs were re-read before this change:
+
+| Ref | Exact commit | Exact tree | SQL migration files | Distinct filename version prefixes |
+|---|---|---|---:|---:|
+| PR #10 candidate source | `9072f3b8824ec9618849def1c0832000cd130474` | `e911e1b806e08fc80954526917c7a44796b741ba` | 31 | 30 |
+| `main` | `ce82b3fdf1a73510de70e3729a487d4ae00e66e3` | `f7ada8719e9e9f4212f3bc53ae9ebb6b012554cc` | 23 | 22 |
+| PR #13 before C277 | `cff11e6e19b3e1d360b8f38fafbf8a26b3782504` | `3e91c407e20525f9c380575f18e6b336dd525a49` | 23 | 22 |
+
+All three recursive Git tree responses were complete (`truncated: false`). PR #13's current pre-change tree has the same 23 migration paths and file blobs as `main`. The PR #10 candidate tree adds the eight later migrations `202611120023` through `202611210030`, which are absent from both current `main` and PR #13. Its 31 SQL files include two different files with version prefix `202607260007`.
+
+The 31-row table in `docs/PRODUCTION_MIGRATION_RECONCILIATION.md` is present at PR #10 source commit `9072f3b8824ec9618849def1c0832000cd130474` (tree `e911e1b806e08fc80954526917c7a44796b741ba`; document blob `9152f79c3bf6466ef443f0c72ad79c126b348284`). Its 31 paths and Git blob SHAs match that exact candidate tree. The document's C247 test-source metadata is historical provenance for earlier test work; it does not replace the exact PR #10 commit/tree pin for this candidate inventory.
+
+Do not describe the 31-file candidate inventory as current `main` or PR #13. The current default-branch and PR #13 inventory is 23 files / 22 prefixes. Neither inventory proves which migrations are present in Production. All Production migration status remains UNKNOWN until independently authorized read-only Production evidence is collected and classified.
+
+### Independent review: CODEOWNERS and team membership
+
+The earlier C275 proposal for two approvals plus CODEOWNERS review is necessary but **does not guarantee one database-team approval and one security-team approval**. Native CODEOWNERS approval is an owner-review requirement, not a per-team approval quorum. Two required approvals can both come from members of the same team; requested team reviewers do not prove that the actual approving users belong to distinct required teams.
+
+Before a Production-sensitive PR can merge, add an independently enforced required check using either a GitHub App/ruleset integration or a trusted base-branch workflow that reads only GitHub PR/review/team-membership metadata. If using `pull_request_target`, it must not check out, execute, import, or otherwise trust PR-head code; use least-privilege read-only permissions and fail closed when reviewer/team membership cannot be verified. Bind the required check to the trusted GitHub Actions/App source.
+
+The check must verify all of the following against the current PR head and latest push:
+
+1. Two distinct, current approving users other than the PR author.
+2. At least one approver is a current member of the designated database/migration review team.
+3. A different approver is a current member of the designated security review team.
+4. Neither approval was invalidated by a later commit, dismissal, or changed review state.
+5. Team membership and reviewer identity are read successfully; API errors, inaccessible teams, ambiguous membership, or missing evidence fail the check.
+
+Keep the two-review requirement, CODEOWNERS requirement, stale-review dismissal, latest-push approval, and resolved-conversation requirement. Do not claim that those native settings alone enforce the database/security split.
+
+### Production Environment: exact branch and author exclusion
+
+Configure the `production` Environment deployment branch policy as **Selected branches and tags**, with the one exact allowed branch name `main`. Do not choose the broader **Protected branches only** policy: it would allow any branch that happens to be protected, not only `main`. Do not add wildcards, tags, release branches, or feature branches. Retain the workflow's defense-in-depth checks for `GITHUB_REF=refs/heads/main` and `GITHUB_REF_PROTECTED=true`; they do not replace the server-side Environment policy.
+
+The native Environment **Prevent self-review** setting prevents the person who initiated a deployment from approving that same deployment. It does **not** guarantee that the PR/change author is excluded if a different person initiated the workflow. Therefore explicitly require the change author to be different from the Production deployment approver. Enforce this with a trusted deployment protection rule/check that reads the deployment's originating PR/commit author and approval identity and fails closed if they match or cannot be established. Keep Environment approval before any Production secret is exposed to the job. Native required reviewers still provide an at-least-one-reviewer gate, not a two-reviewer quorum.
+
+### Supabase PAT scope does not constrain database-password privileges
+
+A project-scoped Supabase Personal Access Token (PAT) limits the Supabase Management API operations available to that token. It does **not** narrow the PostgreSQL privileges of the database role authenticated by `SUPABASE_DB_PASSWORD`. The CLI's PAT and the database password are separate credentials and separate authorization planes.
+
+Before any future Production migration executor is approved, independently identify the PostgreSQL role authenticated by the password and inspect its role memberships, superuser/bypass-RLS attributes, object ownership, schema/database privileges, and ability to create/alter/drop objects. Do not infer database least privilege from a PAT's project scope. Prefer a dedicated migration principal with the minimum DDL and migration-history privileges actually required. If the CLI or migration contents require a broad owner/postgres role, document that privilege explicitly, restrict credential availability to the approved protected Environment and approved workflow, and obtain a separate risk acceptance; if the effective DB privileges cannot be established, fail closed and do not migrate. Never place either credential in PR jobs or expose it to untrusted checkouts.
+
+### Pending administrator actions — no completion evidence yet
+
+The following are explicitly **PENDING**, not completed:
+
+| Action | Current evidence | Status |
+|---|---|---|
+| Retire the legacy migration workflow from the default branch | `main` still contains `.github/workflows/supabase-migrations.yml` (blob `c47dfc061bb25ea4d9266e7e110ffdb2bb9665e3`). PR #13 deletes it, but PR #13 remains open and unmerged. | PENDING |
+| Inspect repository and organization secret names/scopes | The connected GitHub integration does not expose secret-administration APIs; no administrator evidence was supplied. No secret values were read. | PENDING |
+| Rotate/revoke legacy credentials after scope inspection | No credential was read, rotated, revoked, or replaced in this task. No administrator evidence of rotation exists. | PENDING |
+
+The PR #13 branch's removal of the workflow is a proposed repository change only. It has not disabled the workflow on `main`; do not describe legacy workflow retirement as complete until the deletion is merged through the required review/CI process and the resulting default-branch state is verified. Repository/organization secret scope inspection and any required credential rotation must be performed by an authorized administrator, with evidence limited to secret names, scopes, timestamps, and rotation confirmation—not values. If scopes cannot be established, rotate through the authorized secret owner rather than assuming the credentials were Environment-scoped.
+
+No repository/organization secret was inspected or changed in C277. No credential was rotated or revoked. No branch protection or Environment setting was changed.
+
+### Existing migration, backup, restore, and rollback safeguards retained
+
+C277 changes documentation only. It does not alter or waive the C275 requirements for a complete read-only Production history/catalog evidence set, file/effect-level classifications, duplicate-007 resolution, independently reviewed baseline, disposable full replay, explicit remote-target verification, pre-migration backup and restore testing, Storage object backup where applicable, RPO/RTO, or a migration-specific forward-fix/restore plan. Ambiguous, partial, unparseable, or unverified Production state continues to block migration. No blind `migration repair`, `--include-all`, `db reset`, fallback target, or automatic rollback is authorized.
+
+### C277 execution boundary
+
+- Existing PR #13 base remains `main`; no branch recreation, retarget, force-push, merge, or approval was performed.
+- PR #10 remains a separate open draft and is used only as the pinned candidate inventory source described above.
+- No Production database access, SQL, migration execution, deployment, Cron activation, delivery activation, or outbound send occurred.
+- No GitHub administrator settings or credentials were changed.
+- Production remains **NO-GO**.
+
+C277 rollback is documentation-only: revert the C277 documentation commit or remove only this C277 section and its two C277 corrections in a new commit on the existing PR #13 branch. Do not reset/force-push, restore the legacy workflow, change administrator settings, or alter Production.
