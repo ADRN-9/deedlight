@@ -645,7 +645,7 @@ RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-000000000102', true);
 
-DO $
+DO $$
 DECLARE
   v_count integer;
   v_rows bigint;
