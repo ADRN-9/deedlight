@@ -324,3 +324,60 @@ jobs:
             --username postgres \
             --dbname deedlight_auth_test \
             --file scripts/test-auth-pgcrypto-schema-qualification.sql
+
+  commit_dependency_lockfile:
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/security/dependency-advisory-remediation-stacked' }}
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout dependency branch without persisted credentials
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref_name }}
+          persist-credentials: false
+
+      - name: Download CI-generated dependency lockfile
+        uses: actions/download-artifact@v8
+        with:
+          name: dependency-lockfile-${{ github.sha }}
+          path: .
+
+      - name: Validate and commit dependency lockfile
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          node <<'NODE'
+          const fs = require("node:fs");
+          const manifest = JSON.parse(fs.readFileSync("package.json", "utf8"));
+          const lock = JSON.parse(fs.readFileSync("package-lock.json", "utf8"));
+          const root = lock.packages?.[""];
+
+          if (lock.lockfileVersion !== 3 || !root) {
+            throw new Error("Generated lockfile must use npm lockfile version 3.");
+          }
+
+          for (const section of ["dependencies", "devDependencies"]) {
+            for (const [name, version] of Object.entries(manifest[section] ?? {})) {
+              if (root[section]?.[name] !== version) {
+                throw new Error(`Lockfile root mismatch for ${section} ${name}.`);
+              }
+            }
+          }
+          NODE
+
+          git diff --check
+          if git diff --quiet -- package-lock.json; then
+            echo "Committed lockfile already matches generated lockfile."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          git commit -m "chore(deps): commit CI-generated patched lockfile"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${GITHUB_REF_NAME}"
