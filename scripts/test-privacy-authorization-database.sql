@@ -48,7 +48,7 @@ VALUES
     '00000000-0000-4000-8000-000000000101',
     'good_deed', 'Anonymous good deed',
     'Synthetic anonymous Offering used only by the database regression suite.',
-    true, 'approved', now(), 'C296_INTERNAL_MODERATION_NOTE_SENTINEL'
+    true, 'approved', now(), null
   ),
   (
     '00000000-0000-4000-8000-000000000202',
@@ -62,7 +62,7 @@ VALUES
     '00000000-0000-4000-8000-000000000101',
     'good_deed', 'Rejected good deed',
     'Synthetic rejected Offering used only by the database regression suite.',
-    false, 'rejected', null, 'C296_REJECTED_MODERATION_SENTINEL'
+    false, 'rejected', null, 'C296_REJECTED_MODERATION_SENTINEL C296_INTERNAL_MODERATION_NOTE_SENTINEL'
   ),
   (
     '00000000-0000-4000-8000-000000000204',
