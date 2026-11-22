@@ -109,6 +109,10 @@ test("rejects malformed package entries and missing dependency paths", () => {
   missingVia.vulnerabilities.fixture.via = [];
   assert.throws(() => validateNpmAuditReport(missingVia), /via must contain advisory/);
 
+  const invalidAdvisorySeverity = reportWithFinding("moderate");
+  invalidAdvisorySeverity.vulnerabilities.fixture.via[0].severity = "urgent";
+  assert.throws(() => validateNpmAuditReport(invalidAdvisorySeverity), /invalid advisory severity/);
+
   const missingDirect = reportWithFinding("moderate");
   delete missingDirect.vulnerabilities.fixture.isDirect;
   assert.throws(() => validateNpmAuditReport(missingDirect), /isDirect must be boolean/);
