@@ -6,10 +6,8 @@ import { join, relative } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 const root = process.cwd();
-const nextConfigPath = join(root, "next.config.ts");
 const wranglerConfigPath = join(root, "wrangler.jsonc");
 const smokeWranglerConfigPath = join(root, "wrangler.runtime-smoke.jsonc");
-const originalNextConfig = readFileSync(nextConfigPath, "utf8");
 const originalWranglerConfig = JSON.parse(readFileSync(wranglerConfigPath, "utf8"));
 const authCalls = { total: 0, valid: 0 };
 const memberId = "00000000-0000-4000-8000-000000000001";
@@ -34,11 +32,6 @@ const profile = {
   show_contribution_stats: false,
   default_offering_anonymous: true,
 };
-const png = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=",
-  "base64",
-);
-
 function json(response, status, value) {
   response.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
   response.end(JSON.stringify(value));
@@ -93,16 +86,6 @@ function createSupabaseMock() {
         return json(response, 401, { message: "Unauthorized" });
       }
       return json(response, 200, []);
-    }
-
-    if (url.pathname === "/storage/v1/object/public/smoke/avatar.png") {
-      response.writeHead(200, {
-        "content-type": "image/png",
-        "content-length": png.length,
-        "cache-control": "public, max-age=3600",
-      });
-      response.end(png);
-      return;
     }
 
     json(response, 404, { message: "Not found", path: url.pathname });
@@ -213,20 +196,6 @@ async function main() {
     assert.equal(process.env[name], undefined, `${name} must not be present in runtime smoke`);
   }
 
-  const patternAnchor = 'hostname: "*.supabase.co"';
-  assert.ok(originalNextConfig.includes(patternAnchor), "production config must allow HTTPS Supabase Storage hosts");
-  const smokeNextConfig = originalNextConfig.replace(
-    patternAnchor,
-    `hostname: "*.supabase.co"
-      },
-      {
-        protocol: "http",
-        hostname: "auth.supabase.co",
-        port: "54321",
-        pathname: "/storage/v1/object/public/**"`,
-  );
-  assert.notEqual(smokeNextConfig, originalNextConfig, "local image fixture pattern must be added only for this test");
-
   const smokeWranglerConfig = {
     ...originalWranglerConfig,
     compatibility_flags: originalWranglerConfig.compatibility_flags.filter((flag) => flag !== "global_fetch_strictly_public"),
@@ -235,7 +204,6 @@ async function main() {
   let mockServer;
   let worker;
   try {
-    writeFileSync(nextConfigPath, smokeNextConfig);
     writeFileSync(smokeWranglerConfigPath, JSON.stringify(smokeWranglerConfig, null, 2) + "\n");
 
     const buildEnv = {
@@ -322,7 +290,8 @@ async function main() {
     await staticResponse.arrayBuffer();
     assert.equal(authCalls.total, beforeStatic, "_next/static exclusion must bypass Supabase middleware");
 
-    const imageUrl = "http://auth.supabase.co:54321/storage/v1/object/public/smoke/avatar.png";
+    // Public image asset used by Supabase-owned examples; production HTTPS wildcard permits this host.
+    const imageUrl = "https://obuldanrptloktxcffvn.supabase.co/storage/v1/object/public/images/lw6/lw6_ticket_regular.png";
     const imageRequestUrl = `${baseUrl}/_next/image?url=${encodeURIComponent(imageUrl)}&w=64&q=75`;
     const beforeImage = authCalls.total;
     const optimizedImage = await fetchWithTimeout(imageRequestUrl, { headers: { cookie, accept: "image/webp,image/*,*/*;q=0.8" } }, 30_000);
@@ -368,7 +337,6 @@ async function main() {
       mockServer.closeAllConnections();
       await new Promise((resolveClose) => mockServer.close(resolveClose));
     }
-    writeFileSync(nextConfigPath, originalNextConfig);
     if (existsSync(smokeWranglerConfigPath)) rmSync(smokeWranglerConfigPath);
   }
 }
