@@ -1248,7 +1248,7 @@ RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-000000000104', true);
 
-DO $$
+DO $c304admin$
 DECLARE
   v_context jsonb;
   v_denied boolean;
@@ -1381,7 +1381,7 @@ BEGIN
     RAISE EXCEPTION 'Admin unexpectedly bypassed the narrow moderation-context RPC.';
   END IF;
 END
-$;
+$c304admin$;
 
 RESET ROLE;
 
