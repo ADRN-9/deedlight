@@ -60,6 +60,13 @@ function run(command, args, env) {
   if (result.status !== 0) throw new Error(`${command} ${args.join(" ")} failed with status ${result.status}`);
 }
 
+async function fetchWithTimeout(url, init = {}, timeoutMs = 15_000) {
+  return fetch(url, {
+    ...init,
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+}
+
 function createSupabaseMock() {
   return createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://auth.supabase.co:54321");
@@ -122,7 +129,7 @@ async function waitForWorker(worker) {
       throw new Error(`Wrangler Worker exited early (${worker.child.exitCode}).\n${worker.output}`);
     }
     try {
-      const response = await fetch("http://127.0.0.1:8787/api/health");
+      const response = await fetchWithTimeout("http://127.0.0.1:8787/api/health", {}, 5_000);
       if (response.ok) return;
     } catch (error) {
       lastError = error;
@@ -225,28 +232,28 @@ async function main() {
     const baseUrl = "http://127.0.0.1:8787";
     const cookie = createSessionCookie();
 
-    const health = await fetch(`${baseUrl}/api/health`);
+    const health = await fetchWithTimeout(`${baseUrl}/api/health`);
     assert.equal(health.status, 200, "public health route must be served by the generated Worker");
     const healthBody = await health.json();
     assert.equal(healthBody.ok, true);
     assert.equal(healthBody.runtime, "cloudflare-workers-opennext");
     assert.equal(healthBody.serviceRoleKeySet, false, "runtime must not expose a service-role key");
 
-    const about = await fetch(`${baseUrl}/about`);
+    const about = await fetchWithTimeout(`${baseUrl}/about`);
     assert.equal(about.status, 200, "public page must render in the Worker runtime");
 
-    const unauthenticatedProfile = await fetch(`${baseUrl}/settings/profile`, { redirect: "manual" });
+    const unauthenticatedProfile = await fetchWithTimeout(`${baseUrl}/settings/profile`, { redirect: "manual" });
     assert.ok([302, 303, 307, 308].includes(unauthenticatedProfile.status),
       "private profile settings must redirect without an authenticated session");
     assert.match(unauthenticatedProfile.headers.get("location") ?? "", /\/login\?next=/);
 
     const beforeMatchedRequest = authCalls.total;
-    const matchedPublicPage = await fetch(`${baseUrl}/about`, { headers: { cookie } });
+    const matchedPublicPage = await fetchWithTimeout(`${baseUrl}/about`, { headers: { cookie } });
     assert.equal(matchedPublicPage.status, 200);
     assert.ok(authCalls.total > beforeMatchedRequest,
       "cookie-bearing public route must execute Supabase session middleware");
 
-    const authenticatedProfile = await fetch(`${baseUrl}/settings/profile`, { headers: { cookie } });
+    const authenticatedProfile = await fetchWithTimeout(`${baseUrl}/settings/profile`, { headers: { cookie } });
     assert.equal(authenticatedProfile.status, 200, "authenticated private route must render");
     const profileHtml = await authenticatedProfile.text();
     assert.match(profileHtml, /Choose how your light appears/);
@@ -256,7 +263,7 @@ async function main() {
     const iconPath = join(root, ".open-next", "assets", "icons", "deedlight-192.png");
     assert.ok(existsSync(iconPath), "public icon fixture must exist in OpenNext assets");
     const beforeIcon = authCalls.total;
-    const icon = await fetch(`${baseUrl}/icons/deedlight-192.png`, { headers: { cookie } });
+    const icon = await fetchWithTimeout(`${baseUrl}/icons/deedlight-192.png`, { headers: { cookie } });
     assert.equal(icon.status, 200, "public icon must be served");
     assert.equal(authCalls.total, beforeIcon, "icons exclusion must bypass Supabase middleware");
 
@@ -266,7 +273,7 @@ async function main() {
       ["/og/deedlight-og.png", 200],
     ]) {
       const beforeRequest = authCalls.total;
-      const response = await fetch(`${baseUrl}${path}`, { headers: { cookie } });
+      const response = await fetchWithTimeout(`${baseUrl}${path}`, { headers: { cookie } });
       assert.equal(response.status, expectedStatus, `${path} must be served with its expected static response`);
       assert.equal(authCalls.total, beforeRequest, `${path} exclusion must bypass Supabase middleware`);
     }
@@ -276,20 +283,20 @@ async function main() {
     assert.ok(staticFile, "generated Next static assets must exist");
     const staticUrl = "/" + relative(join(root, ".open-next", "assets"), staticFile).split("\\").join("/");
     const beforeStatic = authCalls.total;
-    const staticResponse = await fetch(`${baseUrl}${staticUrl}`, { headers: { cookie } });
+    const staticResponse = await fetchWithTimeout(`${baseUrl}${staticUrl}`, { headers: { cookie } });
     assert.equal(staticResponse.status, 200, "generated Next static asset must be served");
     assert.equal(authCalls.total, beforeStatic, "_next/static exclusion must bypass Supabase middleware");
 
     const imageUrl = "http://auth.supabase.co:54321/storage/v1/object/public/smoke/avatar.png";
     const imageRequestUrl = `${baseUrl}/_next/image?url=${encodeURIComponent(imageUrl)}&w=64&q=75`;
     const beforeImage = authCalls.total;
-    const optimizedImage = await fetch(imageRequestUrl, { headers: { cookie, accept: "image/webp,image/*,*/*;q=0.8" } });
+    const optimizedImage = await fetchWithTimeout(imageRequestUrl, { headers: { cookie, accept: "image/webp,image/*,*/*;q=0.8" } }, 30_000);
     assert.equal(optimizedImage.status, 200, "permitted Supabase Storage image must pass through Worker image optimization");
     assert.match(optimizedImage.headers.get("content-type") ?? "", /^image\//);
     assert.ok((await optimizedImage.arrayBuffer()).byteLength > 0);
     assert.equal(authCalls.total, beforeImage, "_next/image exclusion must bypass Supabase middleware");
 
-    const disallowedImage = await fetch(
+    const disallowedImage = await fetchWithTimeout(
       `${baseUrl}/_next/image?url=${encodeURIComponent("https://images.example.invalid/avatar.png")}&w=64&q=75`,
     );
     assert.equal(disallowedImage.status, 400, "unlisted image hosts must remain rejected");
