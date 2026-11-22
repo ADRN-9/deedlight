@@ -171,7 +171,7 @@ function evalManifest(path) {
     assert.deepEqual(JSON.parse(JSON.stringify(loader.loadManifest("/app/.next/prefetch-hints.json"))), { hints: ["home"] });
     assert.deepEqual(JSON.parse(JSON.stringify(loader.loadManifest("/app/.next/server/preview-props.json"))), { preview: true });
     assert.equal(loader.loadManifest("/app/.next/BUILD_ID"), "deedlight-smoke-build");
-    assert.deepEqual(JSON.parse(loader.loadManifest("/app/.next/dynamic-css-manifest")), {});
+    assert.deepEqual(JSON.parse(JSON.stringify(loader.loadManifest("/app/.next/dynamic-css-manifest"))), {});
     assert.throws(() => loader.loadManifest("/app/.next/unknown-required-manifest.json"), /Unexpected loadManifest/);
 
     const clientResult = loader.evalManifest("/app/.next/server/app/page_client-reference-manifest.js");
