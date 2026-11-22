@@ -118,7 +118,7 @@ Rollback is operational and fail-closed: disable new outbound work, remove futur
 - Human-only GitHub governance and all Production rollout gates remain open. Production remains NO-GO.
 
 
-## C240 — Supabase Production migration-history reconciliation
+## C240 — Historical baseline (archival evidence; not current branch HEAD)
 
 - Inspected branch HEAD 02468dd809a1f5922e354c654f2db186fe8e8ca4, tree 356f750ce7c116b72829ba28578701a1b4e24771; PR #10 remains OPEN / DRAFT / UNMERGED.
 - The Production project ref in the repository guard is xaipiovflxomcbfwtwmu. Both connected Supabase account project inventories omitted this ref. Read-only get_project through both accounts and list_migrations through the GiftPary supabase connection returned permission denied. No Production history or schema data was obtained.
@@ -179,3 +179,17 @@ Rollback is operational and fail-closed: disable new outbound work, remove futur
 - Production status remains UNKNOWN for all 31 files and all effect groups. Existing Production project access remains unauthorized; repository SQL, migration headers and the aggregate SQL bundle are not evidence of live Production execution.
 - No migration SQL, migration history, Production schema, credentials, deployment, scheduler, Cron, delivery setting, or Supabase configuration was changed. No history repair, push, reset, remote SQL, approval or merge occurred.
 - Next independent review focus: duplicate 007 mapping and effect-level reconciliation; prove both 007 order permutations and the 008/012/013 dependency path on a disposable PostgreSQL database before considering any later migration plan. Production remains NO-GO.
+
+## C247 — duplicate 007 executable regression and reconciliation correction
+
+- Test source commit: 56785783f6fd00421a05586d4132274b3345dbad (tree f815740d7ee35a65d56af65251dad6e2aa9701a8). Added scripts/test-duplicate-migration-007.sh and extended the existing PostgreSQL 16 migration-order CI job. Both historical migration files remain unchanged.
+- Supabase CLI 3.2.0 was executed against isolated PostgreSQL 16.16 databases. Sprint 6 → Sprint 7 applies both SQL bodies, then fails inserting the second 202607260007 history row with SQLSTATE 23505 at statement 53 (schema_migrations primary-key collision). The first history row identifies Sprint 6, while both bodies' DDL remains present because Sprint 7's explicit COMMIT precedes the CLI history insert.
+- Sprint 7 → Sprint 6 fails with SQLSTATE 42703 at statement 37: create index if not exists daily_reflections_post_idx on public.daily_reflections (daily_post_id). The CLI's implicit transaction rolls the entire failed Sprint 6 file back. Only Sprint 7's state and history row remain.
+- The reverse-order state has no daily_post_id, Sprint 6 reflection fields, Sprint 6 unique user/post constraint, reflection indexes, update trigger, or Sprint 6 policies. Sprint 7 user_id and daily_light_id remain nullable. Even a one-column manual repair would not make Sprint 6 enforce user_id NOT NULL.
+- PostgreSQL 16.16 sequence Sprint 6 007 → Sprint 7 007 → 008 → 012 → 013 passed. A second sequence 008 → 013 → 012 also passed, proving migration 013 has no SQL dependency on 012. Its SQL dependencies are saved_lights from 001 and daily_lights from Sprint 7; its gentle-rhythm relationship to private completions is application-level. Migration 012 requires daily_deed_completions from 001 and both Sprint 6 daily_post_id and Sprint 7 daily_light_id reflection/Daily Light effects.
+- **Branch-push #774:** run 44965336520 — SUCCESS, 7/7 jobs, Validate exact checkout 56785783f6fd00421a05586d4132274b3345dbad.
+- **PR integration #775:** run 44965340590 — SUCCESS, 7/7 jobs, Validate synthetic merge checkout 2a67ee7a686a6397925e85a9ccdc65dafcd49ac6, tree f815740d7ee35a65d56af65251dad6e2aa9701a8, parents ce82b3fdf1a73510de70e3729a487d4ae00e66e3 and 56785783f6fd00421a05586d4132274b3345dbad.
+- Each run completed the same seven jobs: validate, delivery_provider_webhook_database_behavior, delivery_migration_order_database_behavior, auth_pgcrypto_database_behavior, delivery_reliability_database_behavior, sprint12_2_database_behavior, gentle_delivery_transport_database_behavior. All passed. The regression is a step in the existing migration-order job, not an eighth job.
+- Initial test attempt #772 failed before migration execution because the temporary CLI config set an unsupported local major_version=16. The config was corrected; #774/#775 then passed. This was a harness configuration issue, not a migration result.
+- C247 evidence is repository/isolated-runner evidence only. Production migration history and live schema remain unobserved. No Production SQL, migration-history repair, credential/configuration change, deploy, Cron, scheduler, or delivery mutation occurred. Production remains NO-GO.
+- Independent review focus: inspect the two 007 files and the new regression assertions; verify the explicit transaction boundary on Sprint 7, default CLI transaction on Sprint 6, and the missing NOT NULL/unique/index/trigger/policy contracts in the Sprint 7-first state. Production reconciliation still requires authorized read-only history, full catalog definitions, and retained manual-execution/audit evidence.

@@ -1,10 +1,12 @@
 # DeedLight Production migration-history reconciliation
 
-**Investigation:** C240  
+**Historical investigation baseline:** C240 (archival record; not the current branch HEAD)  
 **Repository:** ADRN-9/deedlight  
 **Branch:** security/delivery-transport-consent-gates  
-**Inspected source HEAD:** 02468dd809a1f5922e354c654f2db186fe8e8ca4  
-**Inspected source tree:** 356f750ce7c116b72829ba28578701a1b4e24771  
+**Historical C240 source HEAD (archival):** 02468dd809a1f5922e354c654f2db186fe8e8ca4  
+**Historical C240 source tree (archival):** 356f750ce7c116b72829ba28578701a1b4e24771
+**C247 verified test-source HEAD:** 56785783f6fd00421a05586d4132274b3345dbad
+**C247 verified test-source tree:** f815740d7ee35a65d56af65251dad6e2aa9701a8  
 **PR:** #10 — OPEN / DRAFT / UNMERGED  
 **Date:** 2026-11-21  
 **Disposition:** INCOMPLETE — Production read-only access not authorized
@@ -64,8 +66,8 @@ The inspected tree contains 31 SQL migration files and 30 unique filename versio
 | 202608060009 | 202608060009_sprint9_profiles_privacy.sql | Depends on profiles and offerings from 001; changes opt-in public identity, profile policies, and public projections. | 6594ce6daa0183944fcc548885d6514e8adb9436 | Ambiguous — no live evidence |
 | 202608100010 | 202608100010_sprint9_2_community_identity_consistency.sql | Depends on 009 public identity projections and Auth profile bootstrap; replaces handle_new_user and community views. | 774708b7705d88a5a1e0da97e72a9d1b47c8884c | Ambiguous — no live evidence |
 | 202608100011 | 202608100011_sprint9_3_moderation_aware_members.sql | Depends on profiles, offerings, and reflection policies; adds member_moderation_events and suspension-aware controls. | 1d1b7b844b88077351d2658af4be2b2db92eda97 | Ambiguous — no live evidence |
-| 202608110012 | 202608110012_sprint10_1_daily_deed_completion.sql | Depends on daily_deed_completions from 001 and Daily Lights from 007; bridges completion counts and private reflection state. | 0973f72e39ce07b41e053a20f1b781c394578877 | Ambiguous — no live evidence |
-| 202608110013 | 202608110013_sprint10_2_saved_lights_gentle_rhythm.sql | Depends on saved_lights from 001, Daily Lights from 007, and completion behavior from 012; changes private saves and derived rhythm. | 5fd2f4a796a8a1dfd6237ccf36d1ab62c1dc1714 | Ambiguous — no live evidence |
+| 202608110012 | 202608110012_sprint10_1_daily_deed_completion.sql | SQL dependencies: daily_deed_completions from 001, daily_reflections.daily_post_id from Sprint 6 007, and daily_lights/daily_reflections.daily_light_id from Sprint 7 007. Both 007 bodies are required. | 0973f72e39ce07b41e053a20f1b781c394578877 | Ambiguous — no live evidence |
+| 202608110013 | 202608110013_sprint10_2_saved_lights_gentle_rhythm.sql | SQL dependencies: saved_lights from 001 and daily_lights from Sprint 7 007. No SQL dependency on 012; the app-level gentle-rhythm experience consumes private completion records from 012. | 5fd2f4a796a8a1dfd6237ccf36d1ab62c1dc1714 | Ambiguous — no live evidence |
 | 202608120014 | 202608120014_sprint10_3_gentle_reminder_preferences.sql | Depends on auth.users and profiles; creates private opt-in daily_reminder_preferences. | 2af1a6a2aa5cffc6ef6d08849b6f71fab44a54d0 | Ambiguous — no live evidence |
 | 202608130015 | 202608130015_sprint11_2_weekly_goodness.sql | Depends on reactions and profiles; adds weekly_goodness_features and curated Weekly Goodness functions. | 394c774032d8206c0b7a373640859c2a331667a9 | Ambiguous — no live evidence |
 | 202608130016 | 202608130016_sprint11_3_invitations_newsletter_foundation.sql | Depends on auth.users, profiles, and pgcrypto; creates private invitation attribution and newsletter_preferences. | 8d68ed19859e1a820af52a43c110a38b6a460d48 | Ambiguous — no live evidence |
@@ -428,7 +430,7 @@ Every entry is a separate migration file. Tables, columns, indexes, constraints,
 - **Tables and columns:** adds saved_lights.daily_light_id referencing daily_lights.
 - **Indexes and constraints:** replaces legacy saved_lights_check/exactly-one-source with saved_lights_exactly_one_source across offering_id/daily_post_id/daily_light_id; adds saved_lights_unique_daily_light and saved_lights_user_created_idx.
 - **Functions, triggers, policies, grants:** replaces broad saved_lights_own_all with saved_lights_select_own, saved_lights_insert_own_published_daily_light, saved_lights_delete_own; authenticated gets SELECT/INSERT/DELETE only, no UPDATE. No new function/trigger.
-- **Data and dependencies:** no migration-time row backfill. Depends on saved_lights from 001 and Daily Lights from Sprint 7. Saves remain private and immutable.
+- **Data and dependencies:** no migration-time row backfill. Direct SQL dependencies are saved_lights from 001 and daily_lights from Sprint 7 007. Migration 013 does not reference daily_deed_completions or objects created by 012, so 012 is not a SQL prerequisite. The product-level gentle-rhythm/Journey experience is related to the private completion records created/extended by 012; that is an application/data relationship, not a DDL dependency. Saves remain private and immutable.
 - **Rollback implications:** dropping daily_light_id or reverting the XOR check can orphan/delete saved Daily Lights or permit malformed multi-source saves.
 
 #### 202608120014 — 202608120014_sprint10_3_gentle_reminder_preferences.sql
@@ -570,7 +572,7 @@ Every entry is a separate migration file. Tables, columns, indexes, constraints,
 3. **008 depends on Sprint 7 daily_lights.** Migration 012 depends on both Daily Post and Daily Light source columns and the relevant tables. Migration 013 depends on saved_lights plus daily_lights. These are not safely replayable by treating the aggregate SQL bundle as canonical.
 4. **The existing supabase/run_in_sql_editor_all.sql is not a full migration replay.** Prior source comparison found exact file content only for 001, 002 and 009–030; 003–008 are not byte-identically represented. It omits Sprint 6 additions/indexes, Sprint 7 daily_lights DDL and Sprint 8 video columns/indexes while later aggregate statements reference daily_lights. This is repository-source evidence only and says nothing about live Production presence/absence.
 5. **Later guarded migrations have exact prerequisites:** 018 needs 017 and zero owner-removed rows; 020 rejects live claimed jobs; 023 needs the 019–021 baseline; 024 checks exact 023 comments/source hashes/security metadata; 025 needs recipient-bound 024 transport; 026 needs 025; 027 needs 025/026; 028 replaces 020 functions; 029 pins exact 027 function source/metadata and pgcrypto; 030 needs 021/024/028 state. A successful migration filename/history row alone does not prove these schema contracts.
-6. **Existing automated migration-order coverage is narrower than a complete historical replay.** scripts/test-delivery-migration-order.sh exercises the 021→023→024 consent attestation path, 025→027→029 source-identity guard, and 030 idempotency behavior on non-Production PostgreSQL. It does not prove either ordering permutation of the duplicate 007 files or a complete replay of all 31 migrations. Add a disposable-database 007/008/012/013 order test before any claim of clean historical replay.
+6. **Automated migration-order coverage is not a complete historical replay.** The existing scripts/test-delivery-migration-order.sh covers the 021→023→024 consent attestation path, 025→027→029 source-identity guard, and 030 idempotency behavior. C247 adds scripts/test-duplicate-migration-007.sh, which executes both 007 orders through Supabase CLI 3.2.0 on disposable PostgreSQL 16, then verifies 008/012/013 dependencies. It does not prove a clean replay of all 31 migrations or any Production state.
 7. **CREATE TABLE IF NOT EXISTS is not a schema attestation.** It can silently skip creation when a same-named table exists with a different column/constraint shape. Reconciliation must compare each effect and definition, not just object existence.
 
 ### Production classification and evidence required
@@ -587,3 +589,64 @@ Every entry is a separate migration file. Tables, columns, indexes, constraints,
 - Added per-file object/data/dependency/rollback notes and explicit 007/008/012/013 clean-replay hazards. No SQL migration, Supabase configuration, workflow, credential or Production resource was changed.
 - The independent review should specifically verify the two 007 bodies and blob SHAs, the daily_reflections CREATE TABLE IF NOT EXISTS order hazard, the required 012 daily_post_id dependency, and the proposed disposable-database test matrix. Do not use Production to resolve replay ambiguity.
 - This is repository-source documentation only. Production migration reconciliation remains BLOCKED pending authorized read-only access and independent evidence review. Production remains NO-GO.
+
+## C247 — duplicate 007 execution-order and Supabase CLI verification
+
+### Isolated runner and scope
+
+- Source/test branch HEAD before this documentation update: 56785783f6fd00421a05586d4132274b3345dbad; tree f815740d7ee35a65d56af65251dad6e2aa9701a8. The branch was independently rechecked before edits.
+- Added scripts/test-duplicate-migration-007.sh and extended the existing delivery_migration_order_database_behavior job. The job provisions an isolated PostgreSQL 16 service (observed server version 16.16) and installs Supabase CLI 3.2.0 with supabase/setup-cli@v1.
+- The script copies both historical SQL bodies verbatim into temporary CLI projects. The reverse-order test uses temporary harness-only suffixes to force the reverse tie order; neither repository migration filename nor SQL content is renamed, reordered, or edited.
+- Each CLI test uses its own disposable database and a minimal Auth/profile/Offering fixture. The test does not link a Supabase project, use a Production URL, or touch Production migration history.
+
+### Actual Supabase CLI 3.2.0 results
+
+**Sprint 6 007 → Sprint 7 007**
+
+- CLI logs show it applying both files in order: 202607260007_sprint6_daily_deedlight.sql, then 202607260007_sprint7_pwa_daily_engagement.sql. The CLI does not reject the duplicate local version before executing the bodies.
+- Both SQL bodies complete. The subsequent migration-history insert for the second file fails:
+  - SQLSTATE: 23505 (unique_violation).
+  - Constraint: schema_migrations_pkey.
+  - Key: version 202607260007 already exists.
+  - CLI statement number: 53.
+  - Exact failing statement: INSERT INTO supabase_migrations.schema_migrations(version, name, statements) VALUES($1, $2, $3).
+- Resulting database state: exactly one history row remains for 202607260007, with name sprint6_daily_deedlight; both Sprint 6 and Sprint 7 schema effects are present. The test asserts all 12 expected daily_reflections columns, both unique constraints, both Sprint 6 reflection indexes, both Sprint 6 update triggers, and all seven combined Sprint 6/Sprint 7 reflection policies.
+- This is not an all-or-nothing rollback of the second file. Sprint 7 contains explicit BEGIN/COMMIT. Supabase CLI 3.2.0 executes a migration containing authored transaction control sequentially and records history only after the authored statements succeed. Sprint 7 commits before the CLI attempts the duplicate history insert, so its complete SQL body remains applied even though db push exits non-zero.
+
+**Sprint 7 007 → Sprint 6 007**
+
+- CLI logs show it applying the Sprint 7 body first and then attempting Sprint 6.
+- Sprint 6 fails at the first use of the absent legacy source column:
+  - SQLSTATE: 42703 (undefined_column).
+  - CLI statement number: 37.
+  - Exact failing statement: create index if not exists daily_reflections_post_idx on public.daily_reflections (daily_post_id).
+  - PostgreSQL error: column "daily_post_id" does not exist.
+- Resulting database state: exactly one history row remains for 202607260007, with the Sprint 7 harness filename as its name. The entire failed Sprint 6 migration is rolled back by the CLI's implicit per-file transaction. The test verifies that daily_posts and set_updated_at() do not remain, and that no Sprint 6 reflection columns, unique constraint, indexes, trigger, or policies survive.
+- The surviving Sprint 7 daily_reflections table has id, daily_light_id, user_id, reflection, intention, created_at, updated_at; the daily_light/user unique constraint; and three Sprint 7 reflection policies. Both user_id and daily_light_id remain nullable. daily_post_id, reflection_text, did_today_deed, mood_label and is_private are absent.
+- The source of the failure is the interaction of CREATE TABLE IF NOT EXISTS with the incompatible table shape. Sprint 7 creates daily_reflections without daily_post_id. Sprint 6's CREATE TABLE IF NOT EXISTS is skipped; its subsequent ALTER statements do not add daily_post_id and do not issue ALTER COLUMN user_id SET NOT NULL. The index statement therefore fails immediately, and the CLI rolls back all preceding Sprint 6 DDL.
+- The missing Sprint 6 contract is broader than the one missing column: daily_reflections_unique_user_post, daily_reflections_post_idx, daily_reflections_user_idx, set_daily_reflections_updated_at, and the four Sprint 6 reflection policies are absent. The surviving Sprint 7 unique constraint does not restore Sprint 6's non-null user_id contract; PostgreSQL unique constraints permit multiple rows with NULL key values. Even a manual addition of daily_post_id alone would not make Sprint 6 enforce user_id NOT NULL, because that migration has no later nullability alteration for user_id.
+- Migration 012 later requires daily_reflections.daily_post_id to exist before it can drop NOT NULL and add daily_reflections_has_daily_source. A Sprint 7-only state therefore cannot satisfy migration 012's SQL prerequisites.
+
+### 008, 012, and 013 dependency tests
+
+- PostgreSQL 16.16 positive sequence passed: Sprint 6 007 → Sprint 7 007 → 008 → 012 → 013.
+- The test verifies Sprint 8's nine video-planning columns, status constraint and three indexes on daily_lights.
+- It verifies migration 012's completion daily_light_id, nullable daily_post_id, source constraint, three indexes, three RLS policies and daily_deed_completion_counts view. It also verifies the daily_reflections source constraint, nullable daily_post_id, combined Sprint 6/Sprint 7 columns, constraints, indexes, update trigger and seven policies.
+- It verifies migration 013's saved_lights.daily_light_id, exactly-one-source constraint, unique/index definitions, three RLS policies, and absence of authenticated UPDATE privilege.
+- A second isolated replay applies 008, then 013, then 012. Migration 013 succeeds before 012; 012 subsequently installs the completion-source contract. This confirms that 013's direct SQL dependencies are saved_lights (001) and daily_lights (Sprint 7 007), not daily_deed_completions or migration 012. The phrase "gentle rhythm" describes an application-level relationship to private completion records; it is not a migration dependency.
+- Migration 012, by contrast, has direct SQL dependencies on daily_deed_completions from 001, daily_reflections.daily_post_id from Sprint 6 007, and daily_lights plus daily_reflections.daily_light_id from Sprint 7 007. Both duplicate 007 bodies are prerequisites for 012. Migration 008 requires daily_lights from Sprint 7; it does not require Sprint 6's reflection table.
+
+### CI evidence and limitations
+
+- Branch-push validation #774: run 44965336520, SUCCESS, 7/7 jobs. Validate checked out exact branch HEAD 56785783f6fd00421a05586d4132274b3345dbad.
+- PR integration validation #775: run 44965340590, SUCCESS, 7/7 jobs. Validate checked out synthetic merge commit 2a67ee7a686a6397925e85a9ccdc65dafcd49ac6, tree f815740d7ee35a65d56af65251dad6e2aa9701a8, parents ce82b3fdf1a73510de70e3729a487d4ae00e66e3 and 56785783f6fd00421a05586d4132274b3345dbad.
+- The seven jobs in each run are validate, delivery_provider_webhook_database_behavior, delivery_migration_order_database_behavior, auth_pgcrypto_database_behavior, delivery_reliability_database_behavior, sprint12_2_database_behavior, and gentle_delivery_transport_database_behavior. All seven passed in both runs. The new duplicate-007 regression executes inside the existing migration-order job; the workflow remains seven jobs.
+- The first harness attempt used db.major_version=16 in the temporary CLI config; CLI 3.2.0 rejected that config before running migrations. The harness config was corrected to target the external disposable PostgreSQL URL without setting a local-stack major_version. The subsequent #774/#775 runs passed. No Production SQL was run in either attempt.
+- These results establish repository SQL behavior and the pinned CLI runner behavior only. They do not establish which migration body was executed in Production, the live schema shape, or the content of Production migration history.
+
+### C247 handoff and Production disposition
+
+- Do not rename or reorder the historical 007 files, mark either version applied/reverted, or use the isolated test result as evidence of Production execution.
+- Next independent review should verify the new script and CI logs, especially the asymmetric transaction behavior (Sprint 7 commits before duplicate history insertion; Sprint 6 rolls back on SQLSTATE 42703) and the nullability/constraint gaps in the Sprint 7-first state.
+- Production migration classification remains UNKNOWN for every file and effect group. Authorized read-only Production migration history, live catalog definitions, and retained SQL Editor/audit/deployment evidence are still required to determine which 007 body or bodies were actually applied.
+- No Production migration history, schema, credentials, deployment configuration, scheduler, Cron, delivery setting, or external provider was changed. Production remains NO-GO.
