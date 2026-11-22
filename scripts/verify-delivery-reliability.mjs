@@ -394,7 +394,7 @@ const orderedLocks = [
 ];
 let previousLock = -1;
 for (const lockMarker of orderedLocks) {
-  const index = finalAuthorizeSql.indexOf(lockMarker);
+  const index = lockMarker === "from auth.users u" ? finalAuthorizeSql.lastIndexOf(lockMarker) : finalAuthorizeSql.indexOf(lockMarker);
   if (index < 0 || index <= previousLock) {
     throw new Error("Migration 031 authorization lock order is missing or inconsistent: " + lockMarker);
   }

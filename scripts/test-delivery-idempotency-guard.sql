@@ -261,13 +261,29 @@ update public.profiles set is_suspended = true
 where user_id = '00000000-0000-0000-0000-000000000002';
 set role service_role;
 do $c252_profile$
+declare
+  v_result text;
+  v_suspended boolean;
+  v_state text;
+  v_error text;
 begin
-  if public.authorize_delivery_idempotency_window(
-      '00000000-0000-0000-0000-00000000c910',
-      '00000000-0000-0000-0000-00000000d910',
-      'two@example.test') is distinct from 'cancelled'
+  select is_suspended into v_suspended
+  from public.profiles
+  where user_id = '00000000-0000-0000-0000-000000000002';
+  v_result := public.authorize_delivery_idempotency_window(
+    '00000000-0000-0000-0000-00000000c910',
+    '00000000-0000-0000-0000-00000000d910',
+    'two@example.test'
+  );
+  select state,error_code into v_state,v_error
+  from public.delivery_ledger
+  where id = '00000000-0000-0000-0000-00000000c910';
+  raise notice 'C252 profile gate: suspended %, result %, state %, error %',v_suspended,v_result,v_state,v_error;
+  if v_suspended is distinct from true
+    or v_result is distinct from 'cancelled'
+    or v_state is distinct from 'cancelled'
     or not exists (select 1 from public.delivery_ledger where id='00000000-0000-0000-0000-00000000c910'
-      and state='cancelled' and claim_token is null and claim_expires_at is null) then
+      and claim_token is null and claim_expires_at is null) then
     raise exception 'Final provider gate did not cancel a suspended member.';
   end if;
 end;
