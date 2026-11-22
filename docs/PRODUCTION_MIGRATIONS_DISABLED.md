@@ -310,3 +310,16 @@ C277 changes documentation only. It does not alter or waive the C275 requirement
 - Production remains **NO-GO**.
 
 C277 rollback is documentation-only: revert the C277 documentation commit or remove only this C277 section and its two C277 corrections in a new commit on the existing PR #13 branch. Do not reset/force-push, restore the legacy workflow, change administrator settings, or alter Production.
+
+
+### C277 exact-head CI evidence
+
+The governance correction content commit was `ee38e78ce674ce9c4b0bd86f44bd521fa4e3c5a4`, tree `045d34b3b66119f3865f90216ef0386dd9889aef`, parent `cff11e6e19b3e1d360b8f38fafbf8a26b3782504`. Its only changed file was `docs/PRODUCTION_MIGRATIONS_DISABLED.md`; no SQL, workflow, application code, package manifest, or lockfile was changed by this commit.
+
+Fresh exact-head runs against that commit:
+- Push run #839 (`45006550188`): **FAILURE, 3/5 jobs passed**.
+- Pull-request run #840 (`45006554626`): **FAILURE, 3/5 jobs passed**.
+
+Both runs checked out exact HEAD `ee38e78ce674ce9c4b0bd86f44bd521fa4e3c5a4`. In each run, `sprint12_2_database_behavior`, `delivery_reliability_database_behavior`, and `auth_pgcrypto_database_behavior` passed. `gentle_delivery_transport_database_behavior` failed at `scripts/test-gentle-delivery-transport.sql:96` with `Delivery claim is not authorized.`. `validate` failed `npm audit --audit-level=high` with 21 findings (12 moderate, 7 high, 2 critical); TypeScript, Next.js production build, and Cloudflare packaging did not run after the audit gate failed.
+
+These are inherited blockers, not regressions introduced by the documentation change: parent-HEAD C275 runs #837 (`45004272339`) and #838 (`45004278926`) on `cff11e6e19b3e1d360b8f38fafbf8a26b3782504` failed the same two jobs with the same audit counts and the same SQL authorization error. Do not report TypeScript, Next.js build, or Cloudflare packaging as passing; those checks were skipped. Exact-head CI is **not green**.
