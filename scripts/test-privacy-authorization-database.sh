@@ -7,6 +7,48 @@ export PGUSER="${PGUSER:-postgres}"
 export PGPASSWORD="${PGPASSWORD:-postgres}"
 export PGDATABASE="${PGDATABASE:-deedlight_privacy_test}"
 
+validate_connection_target() {
+  case "$PGHOST" in
+    127.0.0.1|localhost|::1) ;;
+    *)
+      echo "Refusing unsafe PostgreSQL destination: PGHOST must be loopback." >&2
+      return 1
+      ;;
+  esac
+  if [[ "$PGPORT" != "5432" ]]; then
+    echo "Refusing unsafe PostgreSQL destination: PGPORT must be 5432." >&2
+    return 1
+  fi
+  if [[ "$PGUSER" != "postgres" ]]; then
+    echo "Refusing unsafe PostgreSQL destination: PGUSER must be postgres." >&2
+    return 1
+  fi
+  if [[ "$PGDATABASE" != "deedlight_privacy_test" ]]; then
+    echo "Refusing unsafe PostgreSQL destination: PGDATABASE must be deedlight_privacy_test." >&2
+    return 1
+  fi
+  if [[ -n "${PGHOSTADDR:-}" || -n "${PGSERVICE:-}" || -n "${PGSERVICEFILE:-}" || -n "${PGOPTIONS:-}" ]]; then
+    echo "Refusing unsafe PostgreSQL destination: PGHOSTADDR, PGSERVICE, PGSERVICEFILE and PGOPTIONS must be unset." >&2
+    return 1
+  fi
+}
+
+if ! validate_connection_target; then
+  exit 64
+fi
+if [[ "${1:-}" == "--validate-config-only" ]]; then
+  if [[ "$#" -ne 1 ]]; then
+    echo "Usage: $0 [--validate-config-only]" >&2
+    exit 64
+  fi
+  echo "Privacy runner destination validation PASS"
+  exit 0
+fi
+if [[ "$#" -ne 0 ]]; then
+  echo "Usage: $0 [--validate-config-only]" >&2
+  exit 64
+fi
+
 psql_cmd=(psql -X -v ON_ERROR_STOP=1)
 
 # Minimal Supabase-compatible auth/storage boundary for a disposable database.
@@ -98,16 +140,36 @@ migrations_after_daily=(
   supabase/migrations/202608060009_sprint9_profiles_privacy.sql
   supabase/migrations/202608100010_sprint9_2_community_identity_consistency.sql
   supabase/migrations/202608100011_sprint9_3_moderation_aware_members.sql
+  supabase/migrations/202608110012_sprint10_1_daily_deed_completion.sql
   supabase/migrations/202608110013_sprint10_2_saved_lights_gentle_rhythm.sql
+  supabase/migrations/202608130015_sprint11_2_weekly_goodness.sql
   supabase/migrations/202608130017_sprint12_1_offering_ownership_engagement.sql
   supabase/migrations/202608140018_sprint12_1_owner_removal_guard_hotfix.sql
-  supabase/migrations/202611220023_sprint12_3_private_offering_base_table_access.sql
 )
 
 for migration in "${migrations_after_daily[@]}"; do
   echo "Applying ${migration}"
   "${psql_cmd[@]}" --file "$migration"
 done
+
+echo "Verifying historical Sprint 5 Offering policy fixture"
+"${psql_cmd[@]}" --file scripts/test-privacy-authorization-legacy-policy.sql
+
+echo "Applying supabase/migrations/202611220023_sprint12_3_private_offering_base_table_access.sql"
+"${psql_cmd[@]}" --file supabase/migrations/202611220023_sprint12_3_private_offering_base_table_access.sql
+
+legacy_policy_count="$("${psql_cmd[@]}" -Atqc "
+  SELECT count(*)
+  FROM pg_policies
+  WHERE schemaname = 'public'
+    AND tablename = 'offerings'
+    AND policyname = 'offerings_select_public_or_own';
+")"
+if [[ "$legacy_policy_count" != "0" ]]; then
+  echo "Migration 023 did not remove offerings_select_public_or_own." >&2
+  exit 1
+fi
+echo "Migration 023 legacy Offering policy removal: PASS"
 
 cleanup_check() {
   local phase="$1"
@@ -122,7 +184,9 @@ cleanup_check() {
           '00000000-0000-4000-8000-000000000102',
           '00000000-0000-4000-8000-000000000103',
           '00000000-0000-4000-8000-000000000104',
-          '00000000-0000-4000-8000-000000000109'
+          '00000000-0000-4000-8000-000000000109',
+          '00000000-0000-4000-8000-000000000110',
+          '00000000-0000-4000-8000-000000000111'
         )
       )
       AND NOT EXISTS (
@@ -132,7 +196,9 @@ cleanup_check() {
           '00000000-0000-4000-8000-000000000102',
           '00000000-0000-4000-8000-000000000103',
           '00000000-0000-4000-8000-000000000104',
-          '00000000-0000-4000-8000-000000000109'
+          '00000000-0000-4000-8000-000000000109',
+          '00000000-0000-4000-8000-000000000110',
+          '00000000-0000-4000-8000-000000000111'
         )
       )
       AND NOT EXISTS (
@@ -140,6 +206,13 @@ cleanup_check() {
         WHERE id BETWEEN
           '00000000-0000-4000-8000-000000000201'::uuid
           AND '00000000-0000-4000-8000-000000000205'::uuid
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM public.offerings
+        WHERE id IN (
+          '00000000-0000-4000-8000-000000000210',
+          '00000000-0000-4000-8000-000000000211'
+        )
       )
       AND NOT EXISTS (
         SELECT 1 FROM public.saved_lights
@@ -156,6 +229,22 @@ cleanup_check() {
           AND '00000000-0000-4000-8000-000000000310'::uuid
       )
       AND NOT EXISTS (
+        SELECT 1 FROM public.daily_lights
+        WHERE id = '00000000-0000-4000-8000-000000000206'
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM public.daily_deed_completions
+        WHERE id IN (
+          '00000000-0000-4000-8000-000000000311',
+          '00000000-0000-4000-8000-000000000312'
+        )
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM public.weekly_goodness_features
+        WHERE offering_id = '00000000-0000-4000-8000-000000000201'
+          AND selected_by = '00000000-0000-4000-8000-000000000104'
+      )
+      AND NOT EXISTS (
         SELECT 1 FROM public.reports
         WHERE id = '00000000-0000-4000-8000-000000000304'
       )
@@ -169,7 +258,14 @@ cleanup_check() {
       )
       AND NOT EXISTS (
         SELECT 1 FROM public.daily_reflections
-        WHERE reflection_text = 'C296_PRIVATE_DAILY_REFLECTION_SENTINEL'
+        WHERE reflection_text IN (
+          'C296_PRIVATE_DAILY_REFLECTION_SENTINEL',
+          'C298_PRIVATE_DAILY_REFLECTION_MEMBER_B_SENTINEL'
+        )
+          OR reflection IN (
+            'C298_PRIVATE_DAILY_LIGHT_REFLECTION_MEMBER_A_SENTINEL',
+            'C298_PRIVATE_DAILY_LIGHT_REFLECTION_MEMBER_B_SENTINEL'
+          )
       )
       AND NOT EXISTS (
         SELECT 1 FROM public.daily_posts

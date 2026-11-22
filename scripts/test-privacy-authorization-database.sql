@@ -158,6 +158,67 @@ SELECT
 FROM public.daily_posts dp
 WHERE dp.slug = 'c296-privacy-test-daily-post';
 
+INSERT INTO public.daily_lights (
+  id, scheduled_date, status, title, summary, small_deed, reflection_prompt
+)
+VALUES (
+  '00000000-0000-4000-8000-000000000206',
+  current_date + 365,
+  'published',
+  'C298 privacy Journey fixture',
+  'Synthetic Daily Light used only by the privacy database regression suite.',
+  'No action; this row exists only inside the test transaction.',
+  'What mattered today?'
+);
+
+UPDATE public.daily_reflections
+SET daily_light_id = '00000000-0000-4000-8000-000000000206',
+    reflection = 'C298_PRIVATE_DAILY_LIGHT_REFLECTION_MEMBER_A_SENTINEL',
+    intention = 'C298_PRIVATE_DAILY_INTENTION_MEMBER_A_SENTINEL'
+WHERE user_id = '00000000-0000-4000-8000-000000000101'
+  AND reflection_text = 'C296_PRIVATE_DAILY_REFLECTION_SENTINEL';
+
+INSERT INTO public.daily_reflections (
+  user_id, daily_post_id, daily_light_id, reflection_text,
+  reflection, intention, is_private
+)
+SELECT
+  '00000000-0000-4000-8000-000000000102',
+  dp.id,
+  '00000000-0000-4000-8000-000000000206',
+  'C298_PRIVATE_DAILY_REFLECTION_MEMBER_B_SENTINEL',
+  'C298_PRIVATE_DAILY_LIGHT_REFLECTION_MEMBER_B_SENTINEL',
+  'C298_PRIVATE_DAILY_INTENTION_MEMBER_B_SENTINEL',
+  true
+FROM public.daily_posts dp
+WHERE dp.slug = 'c296-privacy-test-daily-post';
+
+INSERT INTO public.daily_deed_completions (
+  id, user_id, daily_light_id, status
+)
+VALUES
+  (
+    '00000000-0000-4000-8000-000000000311',
+    '00000000-0000-4000-8000-000000000101',
+    '00000000-0000-4000-8000-000000000206',
+    'completed'
+  ),
+  (
+    '00000000-0000-4000-8000-000000000312',
+    '00000000-0000-4000-8000-000000000102',
+    '00000000-0000-4000-8000-000000000206',
+    'completed'
+  );
+
+INSERT INTO public.weekly_goodness_features (
+  week_start, offering_id, selected_by
+)
+VALUES (
+  date_trunc('week', timezone('UTC', now()))::date,
+  '00000000-0000-4000-8000-000000000201',
+  '00000000-0000-4000-8000-000000000104'
+);
+
 DO $$
 BEGIN
   IF (SELECT count(*) FROM auth.users WHERE id IN (
@@ -173,8 +234,34 @@ BEGIN
     SELECT 1 FROM public.daily_reflections
     WHERE user_id = '00000000-0000-4000-8000-000000000101'
       AND reflection_text = 'C296_PRIVATE_DAILY_REFLECTION_SENTINEL'
+      AND reflection = 'C298_PRIVATE_DAILY_LIGHT_REFLECTION_MEMBER_A_SENTINEL'
   ) THEN
     RAISE EXCEPTION 'Private Daily reflection fixture was not created.';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.daily_reflections
+    WHERE user_id = '00000000-0000-4000-8000-000000000102'
+      AND reflection_text = 'C298_PRIVATE_DAILY_REFLECTION_MEMBER_B_SENTINEL'
+      AND reflection = 'C298_PRIVATE_DAILY_LIGHT_REFLECTION_MEMBER_B_SENTINEL'
+  ) THEN
+    RAISE EXCEPTION 'Member B private Daily reflection fixture was not created.';
+  END IF;
+
+  IF (SELECT count(*) FROM public.daily_deed_completions
+      WHERE id IN (
+        '00000000-0000-4000-8000-000000000311',
+        '00000000-0000-4000-8000-000000000312'
+      )) <> 2 THEN
+    RAISE EXCEPTION 'Two-member private Journey fixtures were not created.';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.weekly_goodness_features
+    WHERE offering_id = '00000000-0000-4000-8000-000000000201'
+      AND week_start = date_trunc('week', timezone('UTC', now()))::date
+  ) THEN
+    RAISE EXCEPTION 'Current Weekly Goodness feature fixture was not created.';
   END IF;
 END
 $$;
@@ -288,6 +375,79 @@ BEGIN
     RAISE EXCEPTION 'Private or suspended profile escaped public-profile filtering.';
   END IF;
 
+  SELECT to_jsonb(weekly)
+  INTO v_row
+  FROM public.get_weekly_goodness(24) weekly
+  WHERE weekly.id = '00000000-0000-4000-8000-000000000201';
+
+  IF v_row IS NULL
+     OR v_row ? 'user_id'
+     OR v_row->>'author_name' IS NOT NULL
+     OR v_row->>'author_username' IS NOT NULL
+     OR position('00000000-0000-4000-8000-000000000101' in v_row::text) > 0
+     OR position('00000000-0000-4000-8000-000000000102' in v_row::text) > 0
+     OR position('00000000-0000-4000-8000-000000000103' in v_row::text) > 0
+     OR position('00000000-0000-4000-8000-000000000104' in v_row::text) > 0 THEN
+    RAISE EXCEPTION 'get_weekly_goodness exposed anonymous Offering identity or an account UUID: %', v_row;
+  END IF;
+
+  SELECT to_jsonb(feature)
+  INTO v_row
+  FROM public.get_current_weekly_goodness_feature() feature
+  WHERE feature.id = '00000000-0000-4000-8000-000000000201';
+
+  IF v_row IS NULL
+     OR v_row ? 'user_id'
+     OR v_row->>'author_name' IS NOT NULL
+     OR v_row->>'author_username' IS NOT NULL
+     OR position('00000000-0000-4000-8000-000000000101' in v_row::text) > 0
+     OR position('00000000-0000-4000-8000-000000000102' in v_row::text) > 0
+     OR position('00000000-0000-4000-8000-000000000103' in v_row::text) > 0
+     OR position('00000000-0000-4000-8000-000000000104' in v_row::text) > 0 THEN
+    RAISE EXCEPTION 'get_current_weekly_goodness_feature exposed anonymous Offering identity or an account UUID: %', v_row;
+  END IF;
+
+  SELECT to_jsonb(completions)
+  INTO v_row
+  FROM public.daily_deed_completion_counts completions
+  WHERE completions.daily_light_id = '00000000-0000-4000-8000-000000000206';
+
+  IF v_row IS NULL
+     OR v_row ? 'user_id'
+     OR v_row->>'completion_count' <> '2' THEN
+    RAISE EXCEPTION 'Public Journey aggregate exposed private completion rows or lost its aggregate: %', v_row;
+  END IF;
+
+  v_denied := false;
+  BEGIN
+    PERFORM 1 FROM public.daily_reflections LIMIT 1;
+  EXCEPTION WHEN insufficient_privilege THEN
+    v_denied := true;
+  END;
+  IF NOT v_denied THEN
+    RAISE EXCEPTION 'anon unexpectedly has direct access to private Daily reflections.';
+  END IF;
+
+  v_denied := false;
+  BEGIN
+    PERFORM 1 FROM public.daily_deed_completions LIMIT 1;
+  EXCEPTION WHEN insufficient_privilege THEN
+    v_denied := true;
+  END;
+  IF NOT v_denied THEN
+    RAISE EXCEPTION 'anon unexpectedly has direct access to private Journey records.';
+  END IF;
+
+  v_denied := false;
+  BEGIN
+    PERFORM 1 FROM public.weekly_goodness_features LIMIT 1;
+  EXCEPTION WHEN insufficient_privilege THEN
+    v_denied := true;
+  END;
+  IF NOT v_denied THEN
+    RAISE EXCEPTION 'anon unexpectedly has direct access to private Weekly Goodness curation.';
+  END IF;
+
   v_denied := false;
   BEGIN
     PERFORM 1 FROM public.offerings LIMIT 1;
@@ -346,6 +506,37 @@ BEGIN
   IF current_user <> 'authenticated'
      OR auth.uid() <> '00000000-0000-4000-8000-000000000102'::uuid THEN
     RAISE EXCEPTION 'Member B assertions are not running under the expected identity.';
+  END IF;
+
+  SELECT count(*) INTO v_count FROM public.daily_reflections;
+  IF v_count <> 1 OR EXISTS (
+    SELECT 1 FROM public.daily_reflections WHERE user_id <> auth.uid()
+  ) OR NOT EXISTS (
+    SELECT 1 FROM public.daily_reflections
+    WHERE user_id = auth.uid()
+      AND reflection_text = 'C298_PRIVATE_DAILY_REFLECTION_MEMBER_B_SENTINEL'
+      AND reflection = 'C298_PRIVATE_DAILY_LIGHT_REFLECTION_MEMBER_B_SENTINEL'
+      AND is_private = true
+  ) THEN
+    RAISE EXCEPTION 'Member B cannot read only their own private Daily reflection.';
+  END IF;
+
+  SELECT count(*) INTO v_count FROM public.daily_deed_completions;
+  IF v_count <> 1 OR EXISTS (
+    SELECT 1 FROM public.daily_deed_completions WHERE user_id <> auth.uid()
+  ) OR NOT EXISTS (
+    SELECT 1 FROM public.daily_deed_completions
+    WHERE id = '00000000-0000-4000-8000-000000000312'
+      AND user_id = auth.uid()
+  ) THEN
+    RAISE EXCEPTION 'Member B cannot read only their own private Journey record.';
+  END IF;
+
+  DELETE FROM public.daily_deed_completions
+  WHERE id = '00000000-0000-4000-8000-000000000311';
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows <> 0 THEN
+    RAISE EXCEPTION 'Member B deleted Member A''s private Journey record.';
   END IF;
 
   SELECT count(*) INTO v_count FROM public.saved_lights;
@@ -414,6 +605,45 @@ BEGIN
     WHERE user_id <> auth.uid()
   ) THEN
     RAISE EXCEPTION 'Authenticated member can read another member''s private profile row.';
+  END IF;
+
+  SELECT count(*) INTO v_count FROM public.daily_reflections;
+  IF v_count <> 1 OR EXISTS (
+    SELECT 1 FROM public.daily_reflections WHERE user_id <> auth.uid()
+  ) OR NOT EXISTS (
+    SELECT 1 FROM public.daily_reflections
+    WHERE user_id = auth.uid()
+      AND reflection_text = 'C296_PRIVATE_DAILY_REFLECTION_SENTINEL'
+      AND reflection = 'C298_PRIVATE_DAILY_LIGHT_REFLECTION_MEMBER_A_SENTINEL'
+      AND is_private = true
+  ) THEN
+    RAISE EXCEPTION 'Member A cannot read only their own private Daily reflection.';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM public.daily_reflections
+    WHERE reflection_text = 'C298_PRIVATE_DAILY_REFLECTION_MEMBER_B_SENTINEL'
+       OR reflection = 'C298_PRIVATE_DAILY_LIGHT_REFLECTION_MEMBER_B_SENTINEL'
+  ) THEN
+    RAISE EXCEPTION 'Member A can read Member B''s private Daily reflection.';
+  END IF;
+
+  SELECT count(*) INTO v_count FROM public.daily_deed_completions;
+  IF v_count <> 1 OR EXISTS (
+    SELECT 1 FROM public.daily_deed_completions WHERE user_id <> auth.uid()
+  ) OR NOT EXISTS (
+    SELECT 1 FROM public.daily_deed_completions
+    WHERE id = '00000000-0000-4000-8000-000000000311'
+      AND user_id = auth.uid()
+  ) THEN
+    RAISE EXCEPTION 'Member A cannot read only their own private Journey record.';
+  END IF;
+
+  DELETE FROM public.daily_deed_completions
+  WHERE id = '00000000-0000-4000-8000-000000000312';
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows <> 0 THEN
+    RAISE EXCEPTION 'Member A deleted Member B''s private Journey record.';
   END IF;
 
   SELECT count(*) INTO v_count FROM public.saved_lights;
@@ -805,7 +1035,10 @@ BEGIN
   END IF;
 
   IF position('C296_PRIVATE_OFFERING_REFLECTION_SENTINEL' in v_context::text) > 0
-     OR position('C296_PRIVATE_DAILY_REFLECTION_SENTINEL' in v_context::text) > 0 THEN
+     OR position('C296_PRIVATE_DAILY_REFLECTION_SENTINEL' in v_context::text) > 0
+     OR position('C298_PRIVATE_DAILY_LIGHT_REFLECTION_MEMBER_A_SENTINEL' in v_context::text) > 0
+     OR position('C298_PRIVATE_DAILY_REFLECTION_MEMBER_B_SENTINEL' in v_context::text) > 0
+     OR position('C298_PRIVATE_DAILY_LIGHT_REFLECTION_MEMBER_B_SENTINEL' in v_context::text) > 0 THEN
     RAISE EXCEPTION 'Admin moderation context exposed private reflection text.';
   END IF;
 

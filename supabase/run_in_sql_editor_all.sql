@@ -4470,3 +4470,15 @@ end;
 $$;
 
 commit;
+
+-- Sprint 12.3 — Keep private Offering rows behind owner/admin RLS.
+-- Public approved content is served by offerings_public / offerings_rising.
+-- Remove the historical Sprint 5 broad-read policy from the complete SQL bundle.
+begin;
+
+drop policy if exists "offerings_select_public_or_own"
+on public.offerings;
+
+notify pgrst, 'reload schema';
+
+commit;

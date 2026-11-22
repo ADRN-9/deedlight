@@ -344,5 +344,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y postgresql-client
 
+      - name: Verify disposable privacy runner rejects unsafe database targets
+        run: bash scripts/test-privacy-authorization-runner-safety.sh
+
       - name: Apply real privacy migrations and run behavioral assertions
         run: bash scripts/test-privacy-authorization-database.sh
