@@ -385,12 +385,16 @@ where id = '00000000-0000-0000-0000-000000000002';
 set role service_role;
 do $c252_suppression$
 begin
-  if public.record_delivery_provider_event(
+  if public.record_delivery_provider_lifecycle_event(
     'evt_c252_suppression_after_transport',
     'email.complained',
     'resend-c252-suppression',
     'two@example.test',
-    null
+    clock_timestamp(),
+    null,
+    null,
+    null,
+    repeat('a', 64)
   ) is not true then
     raise exception 'C252 provider suppression fixture was not recorded.';
   end if;
