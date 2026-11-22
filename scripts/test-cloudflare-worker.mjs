@@ -260,6 +260,17 @@ async function main() {
     assert.equal(icon.status, 200, "public icon must be served");
     assert.equal(authCalls.total, beforeIcon, "icons exclusion must bypass Supabase middleware");
 
+    for (const [path, expectedStatus] of [
+      ["/favicon.ico", 404],
+      ["/manifest.webmanifest", 200],
+      ["/og/deedlight-og.png", 200],
+    ]) {
+      const beforeRequest = authCalls.total;
+      const response = await fetch(`${baseUrl}${path}`, { headers: { cookie } });
+      assert.equal(response.status, expectedStatus, `${path} must be served with its expected static response`);
+      assert.equal(authCalls.total, beforeRequest, `${path} exclusion must bypass Supabase middleware`);
+    }
+
     const staticRoot = join(root, ".open-next", "assets", "_next", "static");
     const staticFile = walk(staticRoot).find((file) => /\.(?:js|css)$/.test(file));
     assert.ok(staticFile, "generated Next static assets must exist");
@@ -294,6 +305,9 @@ async function main() {
       middleware: {
         cookieBearingMatchedRouteAuthCalls: authCalls.total,
         iconExclusion: "PASS",
+        faviconExclusion: "PASS",
+        manifestExclusion: "PASS",
+        publicImageExtensionExclusion: "PASS",
         nextStaticExclusion: "PASS",
         nextImageExclusion: "PASS",
       },
