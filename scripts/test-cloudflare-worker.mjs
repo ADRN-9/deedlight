@@ -326,7 +326,8 @@ async function main() {
     const imageRequestUrl = `${baseUrl}/_next/image?url=${encodeURIComponent(imageUrl)}&w=64&q=75`;
     const beforeImage = authCalls.total;
     const optimizedImage = await fetchWithTimeout(imageRequestUrl, { headers: { cookie, accept: "image/webp,image/*,*/*;q=0.8" } }, 30_000);
-    assert.equal(optimizedImage.status, 200, "permitted Supabase Storage image must pass through Worker image optimization");
+    const optimizedImageDiagnostic = await optimizedImage.clone().text();
+    assert.equal(optimizedImage.status, 200, `permitted Supabase Storage image must pass through Worker image optimization (received ${optimizedImage.status}: ${optimizedImageDiagnostic.slice(0, 500)})`);
     assert.match(optimizedImage.headers.get("content-type") ?? "", /^image\//);
     assert.ok((await optimizedImage.arrayBuffer()).byteLength > 0);
     assert.equal(authCalls.total, beforeImage, "_next/image exclusion must bypass Supabase middleware");
