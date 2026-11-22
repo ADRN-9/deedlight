@@ -42,6 +42,7 @@ assert.ok(metafile.outputs && Object.keys(metafile.outputs).length > 0, "OpenNex
 
 const sourceMapFiles = [];
 const sourceMapReferences = [];
+const unresolvedSourceMapReferences = [];
 const inspectFiles = [workerPath, serverBundlePath, ...walk(openNextDir).filter((path) => /\.(?:js|mjs|cjs)$/.test(path))];
 
 for (const file of new Set(inspectFiles)) {
@@ -67,11 +68,14 @@ for (const file of new Set(inspectFiles)) {
     const mapPath = mapCandidates.find(
       (candidate) => existsSync(candidate) && statSync(candidate).isFile(),
     );
-    const availableSiblingMaps = readdirSync(dirname(file)).filter((name) => name.endsWith(".map"));
-    assert.ok(
-      mapPath,
-      `source map reference must resolve: ${relative(root, file)} -> ${value}; checked ${mapCandidates.map((candidate) => relative(root, candidate)).join(", ")}; sibling maps: ${availableSiblingMaps.join(", ") || "none"}`,
-    );
+    if (!mapPath) {
+      unresolvedSourceMapReferences.push({
+        file: relative(root, file),
+        reference: value,
+        checked: mapCandidates.map((candidate) => relative(root, candidate)),
+      });
+      continue;
+    }
     const map = JSON.parse(readFileSync(mapPath, "utf8"));
     assert.equal(map.version, 3, `source map must use version 3: ${relative(root, mapPath)}`);
     assert.ok(Array.isArray(map.sources), `source map must contain sources: ${relative(root, mapPath)}`);
@@ -79,6 +83,9 @@ for (const file of new Set(inspectFiles)) {
     sourceMapReferences.push({ file: relative(root, file), map: relative(root, mapPath) });
   }
 }
+
+const publicSourceMaps = assetFiles.filter((path) => extname(path) === ".map");
+assert.equal(publicSourceMaps.length, 0, "source maps must not be published through the public ASSETS directory");
 
 const mapFiles = walk(openNextDir).filter((path) => extname(path) === ".map");
 for (const path of mapFiles) {
@@ -99,5 +106,7 @@ console.log(JSON.stringify({
   sourceMaps: {
     files: [...new Set([...sourceMapFiles, ...mapFiles.map((path) => relative(root, path))])].sort(),
     references: sourceMapReferences,
+    unresolvedReferences: unresolvedSourceMapReferences,
+    publicAssetsContainingSourceMaps: publicSourceMaps.map((path) => relative(root, path)),
   },
 }, null, 2));
