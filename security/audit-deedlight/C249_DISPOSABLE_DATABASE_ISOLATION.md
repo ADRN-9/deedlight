@@ -60,6 +60,21 @@ The exact GitHub Actions cancellation path is not force-cancelled as part of the
 
 Only PR #11 audit-fixture tooling and its documentation are changed. No migration, application runtime, dependency graph, C165 advisory work, PR #17, PR #18, Production resource, secret, deployment, Cron or outbound delivery is modified.
 
-Rollback is a normal fast-forward revert of the C249 commit on the existing PR #11 branch. It restores the previous runner/workflow/docs but does not touch database contents outside the ephemeral CI service. No force push or merge is required or authorized.
+C249 is appended as four commits. If rollback is required, use ordinary `git revert` in reverse order: `83599a6c4fbc2dc288e737d1e867b5fb463d21ef`, `03b44f3672aa30fe1595c61b320ea46e6e913707`, `c70d812edd3053f6ae78de42d94517c74554a6ae`, then `2d6ce1aba773ef034304ce4eee8b719cf91e0d1a`. This restores the pre-C249 runner/workflow/docs while preserving all prior PR #11 history. No force push or merge is required or authorized.
 
 Production remains NO-GO.
+
+
+## Validated implementation evidence
+
+**Implementation code head:** `83599a6c4fbc2dc288e737d1e867b5fb463d21ef`  
+**Implementation tree:** `45ceb47b2576dd0df7c1b04548b325829e44c006`
+
+- [Disposable PostgreSQL 16.16 audit run #44](https://github.com/ADRN-9/deedlight/actions/runs/44985347442) — PASS, 1/1 job; job `137094597361`.
+- [Push PR Validation #809](https://github.com/ADRN-9/deedlight/actions/runs/44985347425) — PASS, 5/5 jobs.
+- [PR Validation #810](https://github.com/ADRN-9/deedlight/actions/runs/44985349229) — PASS, 5/5 jobs.
+- The audit job verified the SHA-256 manifest, passed Bash/parser and Python assurance tests, passed the lifecycle regression, passed all twelve fixtures A–L, completed the run-scoped cleanup assertion, archived sanitized evidence, and stopped its PostgreSQL service container.
+- Sanitized artifact: `deedlight-catalog-audit-pg16`, ID `14738474877`, 44,066 bytes; expires 2026-12-06.
+- The lifecycle test log contains `C249 disposable PostgreSQL lifecycle, ownership, parallel isolation and cleanup regression: PASS`.
+
+Two earlier exact-head audit attempts were diagnostic failures and are retained in GitHub Actions history: run `44984901933` exposed a too-strict server-version string comparison; run `44985192012` exposed psql variable interpolation being incorrectly used with `-c`. The runner now checks `server_version_num=160016` and feeds variable-bearing SQL through stdin. The final run above passes.
