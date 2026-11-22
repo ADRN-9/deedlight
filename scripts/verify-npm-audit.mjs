@@ -59,6 +59,12 @@ export function validateNpmAuditReport(report) {
     if (!Array.isArray(item.via) || item.via.length === 0) {
       throw new Error(`npm audit report is incomplete: ${name}.via must contain advisory or dependency references.`);
     }
+    for (const reference of item.via) {
+      if (typeof reference === "string" && reference.length > 0) continue;
+      if (!isRecord(reference) || !AUDIT_SEVERITIES.includes(reference.severity)) {
+        throw new Error(`npm audit report contains an invalid advisory severity for ${name}.`);
+      }
+    }
     if (!(typeof item.fixAvailable === "boolean" || isRecord(item.fixAvailable))) {
       throw new Error(`npm audit report is incomplete: ${name}.fixAvailable must be boolean or an object.`);
     }
