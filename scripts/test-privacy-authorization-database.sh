@@ -161,6 +161,9 @@ echo "Applying supabase/migrations/202611220023_sprint12_3_private_offering_base
 echo "Applying supabase/migrations/202611220024_sprint12_4_private_daily_reflection_owner_access.sql"
 "${psql_cmd[@]}" --file supabase/migrations/202611220024_sprint12_4_private_daily_reflection_owner_access.sql
 
+echo "Applying supabase/migrations/202611220025_sprint12_5_private_daily_reflection_owner_delete.sql"
+"${psql_cmd[@]}" --file supabase/migrations/202611220025_sprint12_5_private_daily_reflection_owner_delete.sql
+
 legacy_policy_count="$("${psql_cmd[@]}" -Atqc "
   SELECT count(*)
   FROM pg_policies
@@ -181,11 +184,40 @@ daily_reflection_legacy_policy_count="$("${psql_cmd[@]}" -Atqc "
     AND tablename = 'daily_reflections'
     AND policyname IN (
       'daily_reflections_select_own_or_admin',
-      'daily reflections select own or admin'
+      'daily reflections select own or admin',
+      'daily_reflections_update_own_or_admin',
+      'daily reflections update own or admin',
+      'daily_reflections_delete_admin',
+      'daily reflections delete admin'
     );
 ")"
 if [[ "$daily_reflection_legacy_policy_count" != "0" ]]; then
-  echo "Migration 024 left the historical administrator-inclusive SELECT policy." >&2
+  echo "Migration 024/025 left a historical administrator-inclusive Daily reflection policy." >&2
+  exit 1
+fi
+
+daily_reflection_policy_count="$("${psql_cmd[@]}" -Atqc "
+  SELECT count(*)
+  FROM pg_policies
+  WHERE schemaname = 'public'
+    AND tablename = 'daily_reflections';
+")"
+if [[ "$daily_reflection_policy_count" != "4" ]]; then
+  echo "Daily reflections have unexpected additional RLS policies." >&2
+  exit 1
+fi
+
+daily_reflection_admin_policy_count="$("${psql_cmd[@]}" -Atqc "
+  SELECT count(*)
+  FROM pg_policies
+  WHERE schemaname = 'public'
+    AND tablename = 'daily_reflections'
+    AND (
+      coalesce(qual, '') || ' ' || coalesce(with_check, '')
+    ) ILIKE '%is_admin%';
+")"
+if [[ "$daily_reflection_admin_policy_count" != "0" ]]; then
+  echo "Daily reflection RLS still contains an administrator-inclusive policy." >&2
   exit 1
 fi
 
@@ -207,48 +239,32 @@ daily_reflection_owner_policy_count="$("${psql_cmd[@]}" -Atqc "
         AND cmd = 'UPDATE'
         AND coalesce(qual, '') LIKE '%user_id = auth.uid()%'
         AND coalesce(with_check, '') LIKE '%user_id = auth.uid()%')
+      OR
+      (policyname = 'daily_reflections_delete_own'
+        AND cmd = 'DELETE'
+        AND coalesce(qual, '') LIKE '%user_id = auth.uid()%')
     );
 ")"
-if [[ "$daily_reflection_owner_policy_count" != "3" ]]; then
-  echo "Migration 024 did not install all three owner-only Daily reflection policies." >&2
+if [[ "$daily_reflection_owner_policy_count" != "4" ]]; then
+  echo "Migration 024/025 did not install all four owner-only Daily reflection policies." >&2
   exit 1
 fi
 
-daily_reflection_select_policy_count="$("${psql_cmd[@]}" -Atqc "
-  SELECT count(*)
+daily_reflection_command_counts="$("${psql_cmd[@]}" -Atqc "
+  SELECT
+    count(*) FILTER (WHERE cmd = 'SELECT') || ':' ||
+    count(*) FILTER (WHERE cmd = 'INSERT') || ':' ||
+    count(*) FILTER (WHERE cmd = 'UPDATE') || ':' ||
+    count(*) FILTER (WHERE cmd = 'DELETE')
   FROM pg_policies
   WHERE schemaname = 'public'
-    AND tablename = 'daily_reflections'
-    AND cmd = 'SELECT';
+    AND tablename = 'daily_reflections';
 ")"
-if [[ "$daily_reflection_select_policy_count" != "1" ]]; then
-  echo "Daily reflection SELECT has an unexpected additional policy." >&2
+if [[ "$daily_reflection_command_counts" != "1:1:1:1" ]]; then
+  echo "Daily reflection RLS must have exactly one policy per CRUD operation." >&2
   exit 1
 fi
-daily_reflection_insert_policy_count="$("${psql_cmd[@]}" -Atqc "
-  SELECT count(*)
-  FROM pg_policies
-  WHERE schemaname = 'public'
-    AND tablename = 'daily_reflections'
-    AND cmd = 'INSERT';
-")"
-if [[ "$daily_reflection_insert_policy_count" != "1" ]]; then
-  echo "Daily reflection INSERT has an unexpected additional policy." >&2
-  exit 1
-fi
-
-daily_reflection_update_policy_count="$("${psql_cmd[@]}" -Atqc "
-  SELECT count(*)
-  FROM pg_policies
-  WHERE schemaname = 'public'
-    AND tablename = 'daily_reflections'
-    AND cmd = 'UPDATE';
-")"
-if [[ "$daily_reflection_update_policy_count" != "1" ]]; then
-  echo "Daily reflection UPDATE has an unexpected additional policy." >&2
-  exit 1
-fi
-echo "Migration 024 owner-only Daily reflection policies: PASS"
+echo "Migration 024/025 owner-only Daily reflection policies: PASS"
 
 cleanup_legacy_fixture() {
   "${psql_cmd[@]}" --file scripts/test-privacy-authorization-legacy-policy-cleanup.sql
@@ -360,7 +376,9 @@ cleanup_check() {
         SELECT 1 FROM public.daily_reflections
         WHERE reflection_text IN (
           'C300_PRIVATE_DAILY_REFLECTION_OWNER_UPDATE_SENTINEL',
-          'C300_PRIVATE_DAILY_REFLECTION_OWNER_INSERT_SENTINEL'
+          'C300_PRIVATE_DAILY_REFLECTION_OWNER_INSERT_SENTINEL',
+          'C302_ADMIN_CROSS_MEMBER_REFLECTION_INSERT_SHOULD_FAIL',
+          'C302_ADMIN_CROSS_MEMBER_REFLECTION_UPDATE_SHOULD_FAIL'
         )
           OR reflection IN (
             'C300_PRIVATE_DAILY_REFLECTION_OWNER_UPDATE_BODY_SENTINEL'

@@ -757,6 +757,26 @@ BEGIN
     RAISE EXCEPTION 'Member A could not insert their own private Daily reflection.';
   END IF;
 
+  DELETE FROM public.daily_reflections
+  WHERE user_id = '00000000-0000-4000-8000-000000000102'
+    AND reflection_text = 'C298_PRIVATE_DAILY_REFLECTION_MEMBER_B_SENTINEL';
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows <> 0 THEN
+    RAISE EXCEPTION 'Member A deleted another member''s private Daily reflection.';
+  END IF;
+
+  DELETE FROM public.daily_reflections
+  WHERE user_id = auth.uid()
+    AND reflection_text = 'C300_PRIVATE_DAILY_REFLECTION_OWNER_INSERT_SENTINEL';
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows <> 1 OR EXISTS (
+    SELECT 1 FROM public.daily_reflections
+    WHERE user_id = auth.uid()
+      AND reflection_text = 'C300_PRIVATE_DAILY_REFLECTION_OWNER_INSERT_SENTINEL'
+  ) THEN
+    RAISE EXCEPTION 'Member A could not delete their own eligible private Daily reflection.';
+  END IF;
+
   SELECT count(*) INTO v_count FROM public.daily_deed_completions;
   IF v_count <> 1 OR EXISTS (
     SELECT 1 FROM public.daily_deed_completions WHERE user_id <> auth.uid()
@@ -1181,6 +1201,8 @@ DO $$
 DECLARE
   v_context jsonb;
   v_denied boolean;
+  v_count integer;
+  v_rows bigint;
 BEGIN
   IF NOT public.is_admin() THEN
     RAISE EXCEPTION 'Active database admin fixture was not recognized as admin.';
@@ -1219,8 +1241,46 @@ BEGIN
     RAISE EXCEPTION 'Admin moderation context exposed private reflection text.';
   END IF;
 
-  IF EXISTS (SELECT 1 FROM public.daily_reflections) THEN
+  SELECT count(*) INTO v_count
+  FROM public.daily_reflections
+  WHERE user_id = '00000000-0000-4000-8000-000000000101';
+  IF v_count <> 0 OR EXISTS (SELECT 1 FROM public.daily_reflections) THEN
     RAISE EXCEPTION 'Active database administrator directly read another member''s private Daily reflections.';
+  END IF;
+
+  v_denied := false;
+  BEGIN
+    INSERT INTO public.daily_reflections (
+      user_id, daily_post_id, reflection_text, is_private
+    )
+    VALUES (
+      '00000000-0000-4000-8000-000000000101',
+      (SELECT id FROM public.daily_posts WHERE slug = 'c300-privacy-test-owner-write-daily-post'),
+      'C302_ADMIN_CROSS_MEMBER_REFLECTION_INSERT_SHOULD_FAIL',
+      true
+    );
+  EXCEPTION WHEN insufficient_privilege THEN
+    v_denied := true;
+  END;
+  IF NOT v_denied THEN
+    RAISE EXCEPTION 'Active database administrator inserted a Daily reflection for another member.';
+  END IF;
+
+  UPDATE public.daily_reflections
+  SET reflection_text = 'C302_ADMIN_CROSS_MEMBER_REFLECTION_UPDATE_SHOULD_FAIL'
+  WHERE user_id = '00000000-0000-4000-8000-000000000101'
+    AND reflection_text = 'C300_PRIVATE_DAILY_REFLECTION_OWNER_UPDATE_SENTINEL';
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows <> 0 THEN
+    RAISE EXCEPTION 'Active database administrator updated another member''s Daily reflection.';
+  END IF;
+
+  DELETE FROM public.daily_reflections
+  WHERE user_id = '00000000-0000-4000-8000-000000000101'
+    AND reflection_text = 'C300_PRIVATE_DAILY_REFLECTION_OWNER_UPDATE_SENTINEL';
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows <> 0 THEN
+    RAISE EXCEPTION 'Active database administrator deleted another member''s Daily reflection.';
   END IF;
 
   v_denied := false;
