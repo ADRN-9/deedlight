@@ -13,7 +13,7 @@ type DeliveryExecutionContext = {
   waitUntil(promise: Promise<unknown>): void;
 };
 
-export default {
+const worker = {
   fetch: handler.fetch,
 
   async scheduled(
@@ -29,6 +29,8 @@ export default {
     await work;
   },
 };
+
+export default worker;
 
 // Required by OpenNext when these cache handlers are generated.
 // @ts-expect-error OpenNext generates this module during packaging
