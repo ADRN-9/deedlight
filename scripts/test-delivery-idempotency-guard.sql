@@ -330,13 +330,28 @@ where id = '00000000-0000-0000-0000-000000000002';
 delete from public.weekly_goodness_features where week_start = '2027-05-24';
 set role service_role;
 do $c252_feature$
+declare
+  v_result text;
+  v_feature_exists boolean;
+  v_state text;
+  v_error text;
 begin
-  if public.authorize_delivery_idempotency_window(
-      '00000000-0000-0000-0000-00000000c912',
-      '00000000-0000-0000-0000-00000000d912',
-      'two@example.test') is distinct from 'cancelled'
+  select exists (select 1 from public.weekly_goodness_features where week_start='2027-05-24')
+  into v_feature_exists;
+  v_result := public.authorize_delivery_idempotency_window(
+    '00000000-0000-0000-0000-00000000c912',
+    '00000000-0000-0000-0000-00000000d912',
+    'two@example.test'
+  );
+  select state,error_code into v_state,v_error
+  from public.delivery_ledger
+  where id='00000000-0000-0000-0000-00000000c912';
+  raise notice 'C252 Weekly feature gate: feature %, result %, state %, error %',v_feature_exists,v_result,v_state,v_error;
+  if v_feature_exists is distinct from false
+    or v_result is distinct from 'cancelled'
+    or v_state is distinct from 'cancelled'
     or not exists (select 1 from public.delivery_ledger where id='00000000-0000-0000-0000-00000000c912'
-      and state='cancelled' and claim_token is null and claim_expires_at is null) then
+      and claim_token is null and claim_expires_at is null) then
     raise exception 'Final provider gate did not cancel a removed Weekly curation record.';
   end if;
 end;
