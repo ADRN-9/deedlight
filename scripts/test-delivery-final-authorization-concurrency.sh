@@ -192,15 +192,15 @@ assert_cancelled() {
 assert_claimed() {
   local id="$1" token="$2"
   local result
-  result="$(psql_scalar "select state = 'claimed' and claim_token = '$token' and claim_expires_at > clock_timestamp() and transport_started_at is not null from public.delivery_ledger where id='$id'")"
-  [[ "$result" == "t" ]] || fail "Authorization-first or rollback path changed live claim $id."
+  result="$(psql_scalar "select dl.state = 'claimed' and dl.claim_token = '$token' and dl.claim_token = expected.expected_token and dl.claim_expires_at = expected.expected_expires_at and dl.claim_expires_at > clock_timestamp() and dl.transport_started_at is not null from public.delivery_ledger dl join public.c253_expected_claims expected on expected.job_id = dl.id where dl.id='$id'")"
+  [[ "$result" == "t" ]] || fail "Authorization-first or rollback path changed claim state, token, or exact expiry for $id."
 }
 
 assert_expired_claimed() {
   local id="$1" token="$2"
   local result
-  result="$(psql_scalar "select state = 'claimed' and claim_token = '$token' and claim_expires_at <= clock_timestamp() from public.delivery_ledger where id='$id'")"
-  [[ "$result" == "t" ]] || fail "Expired lock-wait claim $id was mutated or retained a live lease."
+  result="$(psql_scalar "select dl.state = 'claimed' and dl.claim_token = '$token' and dl.claim_token = expected.expected_token and dl.claim_expires_at = expected.expected_expires_at and dl.claim_expires_at <= clock_timestamp() from public.delivery_ledger dl join public.c253_expected_claims expected on expected.job_id = dl.id where dl.id='$id'")"
+  [[ "$result" == "t" ]] || fail "Expired lock-wait claim $id changed its state, token, or exact expiry."
 }
 
 assert_no_provider_attempt() {
@@ -310,6 +310,12 @@ create table public.c253_provider_attempts (
   idempotency_key text not null,
   attempted_at timestamptz not null default clock_timestamp(),
   primary key (job_id, attempt_label)
+);
+
+create table public.c253_expected_claims (
+  job_id uuid primary key,
+  expected_token uuid not null,
+  expected_expires_at timestamptz not null
 );
 
 with fixtures(n, kind, week_start) as (
@@ -443,6 +449,12 @@ values (
   clock_timestamp(), clock_timestamp() + interval '10 minutes', 1,
   clock_timestamp(), clock_timestamp() - interval '1 minute'
 );
+
+insert into public.c253_expected_claims(job_id, expected_token, expected_expires_at)
+select dl.id, dl.claim_token, dl.claim_expires_at
+from public.delivery_ledger dl
+join auth.users u on u.id = dl.user_id
+where u.email like 'c253-%@example.test';
 SQL
 
 # Consent and member-state mutations win first; the real final RPC must wait, then cancel.
@@ -511,6 +523,7 @@ row_holder_log="$tmp/row-expiry-holder.log"
 row_waiter_log="$tmp/row-expiry-waiter.log"
 row_fifo="$tmp/row-expiry-holder.fifo"
 psql_scalar "update public.delivery_ledger set claim_expires_at = clock_timestamp() + interval '4 seconds' where id='$row_expiry_id'" >/dev/null
+psql_scalar "update public.c253_expected_claims e set expected_expires_at = dl.claim_expires_at from public.delivery_ledger dl where dl.id=e.job_id and dl.id='$row_expiry_id'" >/dev/null
 start_fifo_session "$row_fifo" "$row_holder_log"
 row_holder_pid="$SESSION_PID" row_holder_fd="$SESSION_FD"
 send_fd "$row_holder_fd" "BEGIN;"
@@ -543,6 +556,7 @@ advisory_holder_log="$tmp/advisory-expiry-holder.log"
 advisory_waiter_log="$tmp/advisory-expiry-waiter.log"
 advisory_fifo="$tmp/advisory-expiry-holder.fifo"
 psql_scalar "update public.delivery_ledger set claim_expires_at = clock_timestamp() + interval '4 seconds' where id='$advisory_expiry_id'" >/dev/null
+psql_scalar "update public.c253_expected_claims e set expected_expires_at = dl.claim_expires_at from public.delivery_ledger dl where dl.id=e.job_id and dl.id='$advisory_expiry_id'" >/dev/null
 start_fifo_session "$advisory_fifo" "$advisory_holder_log"
 advisory_holder_pid="$SESSION_PID" advisory_holder_fd="$SESSION_FD"
 send_fd "$advisory_holder_fd" "BEGIN;"

@@ -35,7 +35,7 @@ The only short shell sleeps are polling intervals. No `pg_sleep` SQL barriers ar
 | Same-recipient concurrent claims | Advisory wait is observed; deadlock counter does not increase |
 | Duplicate attempts for one logical delivery | Ledger-row serialization; both authorizations retain the same stable provider idempotency key |
 
-Every denied case asserts the delivery-ledger state and claim token/expiry. A test-only provider-attempt probe records whether the Worker would proceed after authorization; denied outcomes must have zero probe rows. The probe never calls Resend or any external transport.
+Every scenario asserts the delivery-ledger state, exact claim token, and exact expiry value (including intentionally expired leases). A test-only provider-attempt probe records whether the Worker would proceed after authorization; denied outcomes must have zero probe rows. The probe never calls Resend or any external transport.
 
 For authorized-first cases, the probe is written only after the authorization transaction commits and the later mutation completes. This deliberately demonstrates the documented post-commit boundary: a later revocation cannot recall an already-authorized attempt. No database transaction is held open across HTTP.
 
