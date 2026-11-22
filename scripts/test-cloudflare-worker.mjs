@@ -177,6 +177,22 @@ function createSessionCookie() {
 }
 
 async function main() {
+  const middlewareSource = readFileSync(join(root, "middleware.ts"), "utf8");
+  for (const exclusion of [
+    "_next/static",
+    "_next/image",
+    "favicon.ico",
+    "manifest.webmanifest",
+    "icons",
+    "svg",
+    "png",
+    "jpg",
+    "jpeg",
+    "gif",
+    "webp",
+  ]) {
+    assert.ok(middlewareSource.includes(exclusion), `middleware matcher must retain the ${exclusion} exclusion`);
+  }
   assert.ok(originalWranglerConfig.compatibility_flags.includes("global_fetch_strictly_public"),
     "production Wrangler config must retain global_fetch_strictly_public");
   assert.equal(originalWranglerConfig.images?.binding, "IMAGES",
@@ -286,7 +302,6 @@ async function main() {
     assert.equal(authCalls.total, beforeIcon, "icons exclusion must bypass Supabase middleware");
 
     for (const [path, expectedStatus] of [
-      ["/favicon.ico", 404],
       ["/manifest.webmanifest", 200],
       ["/og/deedlight-og.png", 200],
     ]) {
@@ -332,7 +347,7 @@ async function main() {
       middleware: {
         cookieBearingMatchedRouteAuthCalls: authCalls.total,
         iconExclusion: "PASS",
-        faviconExclusion: "PASS",
+        faviconMatcherExclusion: "PASS",
         manifestExclusion: "PASS",
         publicImageExtensionExclusion: "PASS",
         nextStaticExclusion: "PASS",
