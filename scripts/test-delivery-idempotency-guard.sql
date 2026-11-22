@@ -193,7 +193,7 @@ insert into public.delivery_ledger (
   id,user_id,kind,delivery_key,state,scheduled_for,claim_token,claimed_at,
   claim_expires_at,attempt_count,last_attempt_at,transport_started_at
 ) values
-('00000000-0000-0000-0000-00000000c909','00000000-0000-0000-0000-000000000001','daily_reminder','daily:2026-09-24','claimed','2026-09-24T08:00:00Z','00000000-0000-0000-0000-00000000d909',clock_timestamp(),clock_timestamp()+interval '10 minutes',1,clock_timestamp(),null),
+('00000000-0000-0000-0000-00000000c909','00000000-0000-0000-0000-000000000001','daily_reminder','daily:2099-01-01','claimed','2099-01-01T08:00:00Z','00000000-0000-0000-0000-00000000d909',clock_timestamp(),clock_timestamp()+interval '10 minutes',1,clock_timestamp(),null),
 ('00000000-0000-0000-0000-00000000c910','00000000-0000-0000-0000-000000000002','weekly_newsletter','weekly:2027-04-26','claimed',clock_timestamp(),'00000000-0000-0000-0000-00000000d910',clock_timestamp(),clock_timestamp()+interval '10 minutes',1,clock_timestamp(),null);
 
 update public.newsletter_preferences
