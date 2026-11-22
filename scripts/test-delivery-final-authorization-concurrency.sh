@@ -58,7 +58,9 @@ db_role="$(psql_scalar "select current_user")"
 pg_major="$(psql_scalar "select current_setting('server_version_num')::integer / 10000")"
 [[ "$db_name" == "deedlight_migration_order_test" && "$db_role" == "postgres" && "$pg_major" == "16" ]] \
   || fail "Connected database identity is not the expected disposable PostgreSQL 16 fixture."
-if grep -Fq 'pg_sleep(' "$0"; then
+sql_sleep_pattern='pg_'
+sql_sleep_pattern+='sleep('
+if grep -Fq "$sql_sleep_pattern" "$0"; then
   fail "Fixed SQL sleep barriers are prohibited; wait for observed PostgreSQL lock state instead."
 fi
 
