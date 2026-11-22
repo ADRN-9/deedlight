@@ -33,10 +33,10 @@ case "${0##*/}" in
     [[ "$5" == '{{.Id}}|{{.Config.Image}}|{{.State.Running}}|{{len .NetworkSettings.Networks}}|{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' ]] || exit 96
     [[ "$6" == "${POSTGRES_SERVICE_CONTAINER_ID:-}" ]] || exit 96
     if [[ "${DEEDLIGHT_TEST_DOCKER_INSPECT_EXIT_CODE:-0}" != "0" ]]; then
-      printf 'mock docker inspect failed\\n' >&2
+      printf 'mock docker inspect failed\n' >&2
       exit "${DEEDLIGHT_TEST_DOCKER_INSPECT_EXIT_CODE}"
     fi
-    printf '%s\\n' "${DEEDLIGHT_TEST_DOCKER_INSPECT_OUTPUT-}"
+    printf '%s\n' "${DEEDLIGHT_TEST_DOCKER_INSPECT_OUTPUT-}"
     exit 0
     ;;
   psql)
@@ -128,7 +128,7 @@ run_rejected_docker_inspect_failure() {
     cat "$CALL_LOG" >&2
     fail "Docker inspect failure invoked PostgreSQL, Supabase CLI, dropdb, createdb, or another command."
   }
-  printf 'Docker inspect nonzero exit rejected before PostgreSQL, Supabase CLI, dropdb, or createdb: PASS\\n'
+  printf 'Docker inspect nonzero exit rejected before PostgreSQL, Supabase CLI, dropdb, or createdb: PASS\n'
 }
 
 run_rejected_docker_metadata() {
@@ -223,7 +223,15 @@ run_rejected_docker_metadata "$TEST_CONTAINER_ID|postgres:16.16|true|1|" missing
 run_rejected_docker_metadata "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff|postgres:16.16|true|1|172.18.0.2" unexpected_container_id
 run_rejected_docker_metadata "$TEST_CONTAINER_ID|postgres:16.16|true|1|300.18.0.2" malformed_network_address
 run_rejected_docker_metadata "" empty_output
-run_rejected_docker_metadata "$TEST_CONTAINER_ID|postgres:16.16|true|1|172.18.0.2"
+multiline_metadata="$(printf '%s\n%s' "$TEST_CONTAINER_ID|postgres:16.16|true|1|172.18.0.2" "unexpected-second-line")"
+run_rejected_docker_metadata "$multiline_metadata" multiline_output
+carriage_return_metadata="$(printf '%s\r' "$TEST_CONTAINER_ID|postgres:16.16|true|1|172.18.0.2")"
+run_rejected_docker_metadata "$carriage_return_metadata" carriage_return
+run_rejected_docker_metadata "$TEST_CONTAINER_ID|postgres:16.16|true|1|172.18.0.2|unexpected" extra_delimiter
+run_rejected_docker_metadata "$TEST_CONTAINER_ID|postgres:16.16|true|1|172.18.0.2|extra|field" extra_fields
+run_rejected_docker_metadata "$TEST_CONTAINER_ID||true|1|172.18.0.2" missing_image
+run_rejected_docker_metadata "$TEST_CONTAINER_ID|postgres:16.16||1|172.18.0.2" missing_running_state
+run_rejected_docker_metadata "$TEST_CONTAINER_ID|postgres:16.16|true||172.18.0.2" missing_network_count
 
 # The documented local CI values pass the environment guard. Fake commands prevent database mutation.
 : > "$CALL_LOG"
