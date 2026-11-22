@@ -158,6 +158,9 @@ echo "Verifying historical Sprint 5 Offering policy fixture"
 echo "Applying supabase/migrations/202611220023_sprint12_3_private_offering_base_table_access.sql"
 "${psql_cmd[@]}" --file supabase/migrations/202611220023_sprint12_3_private_offering_base_table_access.sql
 
+echo "Applying supabase/migrations/202611220024_sprint12_4_private_daily_reflection_owner_access.sql"
+"${psql_cmd[@]}" --file supabase/migrations/202611220024_sprint12_4_private_daily_reflection_owner_access.sql
+
 legacy_policy_count="$("${psql_cmd[@]}" -Atqc "
   SELECT count(*)
   FROM pg_policies
@@ -170,6 +173,61 @@ if [[ "$legacy_policy_count" != "0" ]]; then
   exit 1
 fi
 echo "Migration 023 legacy Offering policy removal: PASS"
+
+daily_reflection_legacy_policy_count="$("${psql_cmd[@]}" -Atqc "
+  SELECT count(*)
+  FROM pg_policies
+  WHERE schemaname = 'public'
+    AND tablename = 'daily_reflections'
+    AND policyname = 'daily_reflections_select_own_or_admin';
+")"
+if [[ "$daily_reflection_legacy_policy_count" != "0" ]]; then
+  echo "Migration 024 left the historical administrator-inclusive SELECT policy." >&2
+  exit 1
+fi
+
+daily_reflection_owner_policy_count="$("${psql_cmd[@]}" -Atqc "
+  SELECT count(*)
+  FROM pg_policies
+  WHERE schemaname = 'public'
+    AND tablename = 'daily_reflections'
+    AND (
+      (policyname = 'daily_reflections_select_own'
+        AND cmd = 'SELECT'
+        AND coalesce(qual, '') LIKE '%user_id = auth.uid()%')
+      OR
+      (policyname = 'daily_reflections_insert_own'
+        AND cmd = 'INSERT'
+        AND coalesce(with_check, '') LIKE '%user_id = auth.uid()%')
+      OR
+      (policyname = 'daily_reflections_update_own'
+        AND cmd = 'UPDATE'
+        AND coalesce(qual, '') LIKE '%user_id = auth.uid()%'
+        AND coalesce(with_check, '') LIKE '%user_id = auth.uid()%')
+    );
+")"
+if [[ "$daily_reflection_owner_policy_count" != "3" ]]; then
+  echo "Migration 024 did not install all three owner-only Daily reflection policies." >&2
+  exit 1
+fi
+
+daily_reflection_select_policy_count="$("${psql_cmd[@]}" -Atqc "
+  SELECT count(*)
+  FROM pg_policies
+  WHERE schemaname = 'public'
+    AND tablename = 'daily_reflections'
+    AND cmd = 'SELECT';
+")"
+if [[ "$daily_reflection_select_policy_count" != "1" ]]; then
+  echo "Daily reflection SELECT has an unexpected additional policy." >&2
+  exit 1
+fi
+echo "Migration 024 owner-only Daily reflection policies: PASS"
+
+cleanup_legacy_fixture() {
+  "${psql_cmd[@]}" --file scripts/test-privacy-authorization-legacy-policy-cleanup.sql
+  echo "Historical moderation-note fixture cleanup: PASS"
+}
 
 cleanup_check() {
   local phase="$1"
@@ -230,13 +288,18 @@ cleanup_check() {
       )
       AND NOT EXISTS (
         SELECT 1 FROM public.daily_lights
-        WHERE id = '00000000-0000-4000-8000-000000000206'
+        WHERE id IN (
+          '00000000-0000-4000-8000-000000000206',
+          '00000000-0000-4000-8000-000000000207'
+        )
       )
       AND NOT EXISTS (
         SELECT 1 FROM public.daily_deed_completions
         WHERE id IN (
           '00000000-0000-4000-8000-000000000311',
-          '00000000-0000-4000-8000-000000000312'
+          '00000000-0000-4000-8000-000000000312',
+          '00000000-0000-4000-8000-000000000313',
+          '00000000-0000-4000-8000-000000000314'
         )
       )
       AND NOT EXISTS (
@@ -268,8 +331,21 @@ cleanup_check() {
           )
       )
       AND NOT EXISTS (
+        SELECT 1 FROM public.daily_reflections
+        WHERE reflection_text IN (
+          'C300_PRIVATE_DAILY_REFLECTION_OWNER_UPDATE_SENTINEL',
+          'C300_PRIVATE_DAILY_REFLECTION_OWNER_INSERT_SENTINEL'
+        )
+          OR reflection IN (
+            'C300_PRIVATE_DAILY_REFLECTION_OWNER_UPDATE_BODY_SENTINEL'
+          )
+      )
+      AND NOT EXISTS (
         SELECT 1 FROM public.daily_posts
-        WHERE slug = 'c296-privacy-test-daily-post'
+        WHERE slug IN (
+          'c296-privacy-test-daily-post',
+          'c300-privacy-test-owner-write-daily-post'
+        )
       )
       THEN 'privacy_fixture_cleanup=pass'
       ELSE 'privacy_fixture_cleanup=FAIL'
@@ -291,6 +367,7 @@ set +e
 behavior_status=$?
 set -e
 
+cleanup_legacy_fixture
 cleanup_check "behavior suite"
 
 if [[ "$behavior_status" -ne 0 ]]; then
@@ -317,6 +394,7 @@ if ! grep -Fq "C296 intentional cleanup probe failure" "$failure_log"; then
   exit 1
 fi
 
+cleanup_legacy_fixture
 cleanup_check "forced failure probe"
 
 echo "Privacy and authorization database behavior PASS"

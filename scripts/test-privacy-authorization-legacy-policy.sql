@@ -20,11 +20,32 @@ VALUES
   ('00000000-0000-4000-8000-000000000111', 'legacy-policy-reader@privacy-test.invalid', '{"display_name":"Legacy Policy Reader"}'::jsonb);
 
 INSERT INTO public.offerings (
-  id, user_id, offering_type, title, body, is_anonymous, status, published_at
+  id, user_id, offering_type, title, body, is_anonymous, status,
+  published_at, moderation_note
 )
 VALUES
-  ('00000000-0000-4000-8000-000000000210', '00000000-0000-4000-8000-000000000110', 'good_deed', 'Legacy policy owner Offering', 'Synthetic owner Offering used only to prove the historical broad-read policy.', false, 'approved', now()),
-  ('00000000-0000-4000-8000-000000000211', '00000000-0000-4000-8000-000000000111', 'good_deed', 'Legacy policy cross-member Offering', 'Synthetic other-member Offering used only to prove the historical broad-read policy.', false, 'approved', now());
+  (
+    '00000000-0000-4000-8000-000000000210',
+    '00000000-0000-4000-8000-000000000110',
+    'good_deed',
+    'Legacy policy owner Offering',
+    'Synthetic owner Offering used only to prove the historical broad-read policy.',
+    false,
+    'approved',
+    now(),
+    null
+  ),
+  (
+    '00000000-0000-4000-8000-000000000211',
+    '00000000-0000-4000-8000-000000000111',
+    'good_deed',
+    'Legacy policy cross-member Offering',
+    'Synthetic other-member Offering used only to prove the historical broad-read policy.',
+    false,
+    'approved',
+    now(),
+    'C300_LEGACY_MODERATION_NOTE_SENTINEL'
+  );
 
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-000000000110', true);
@@ -39,13 +60,14 @@ BEGIN
     SELECT 1 FROM public.offerings
     WHERE id = '00000000-0000-4000-8000-000000000211'
       AND user_id = '00000000-0000-4000-8000-000000000111'
+      AND moderation_note = 'C300_LEGACY_MODERATION_NOTE_SENTINEL'
   ) THEN
-    RAISE EXCEPTION 'Historical Sprint 5 policy did not reproduce cross-member approved Offering access.';
+    RAISE EXCEPTION 'Historical Sprint 5 policy did not expose the cross-member moderation-note sentinel.';
   END IF;
 END
 $$;
 
 RESET ROLE;
-ROLLBACK;
+COMMIT;
 
-\echo 'Historical Sprint 5 broad Offering policy fixture: PASS'
+\echo 'Historical Sprint 5 broad Offering policy and moderation-note fixture: PASS'

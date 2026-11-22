@@ -2,6 +2,41 @@
 
 BEGIN;
 
+-- Migration 023 must have removed the historical broad-read policy. The
+-- synthetic owner can still read their own Offering, but not the other
+-- member's approved row or its internal moderation note.
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-000000000110', true);
+
+DO $$
+DECLARE
+  v_count integer;
+BEGIN
+  IF current_user <> 'authenticated'
+     OR auth.uid() <> '00000000-0000-4000-8000-000000000110'::uuid THEN
+    RAISE EXCEPTION 'Post-migration legacy policy assertions have the wrong caller.';
+  END IF;
+
+  SELECT count(*) INTO v_count
+  FROM public.offerings
+  WHERE id = '00000000-0000-4000-8000-000000000210';
+  IF v_count <> 1 THEN
+    RAISE EXCEPTION 'Migration 023 removed legitimate owner access to the legacy Offering.';
+  END IF;
+
+  SELECT count(*) INTO v_count
+  FROM public.offerings
+  WHERE id = '00000000-0000-4000-8000-000000000211'
+     OR moderation_note = 'C300_LEGACY_MODERATION_NOTE_SENTINEL';
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'Migration 023 left cross-member access to the legacy Offering or moderation note.';
+  END IF;
+END
+$$;
+
+RESET ROLE;
+SELECT set_config('request.jwt.claim.sub', '', true);
+
 -- Synthetic identities only. The auth.users trigger creates matching profiles.
 INSERT INTO auth.users (id, email, raw_user_meta_data)
 VALUES
@@ -147,6 +182,19 @@ VALUES (
   now()
 );
 
+INSERT INTO public.daily_posts (
+  date, slug, title, reflection, daily_action, status, published_at
+)
+VALUES (
+  current_date + 1,
+  'c300-privacy-test-owner-write-daily-post',
+  'C300 private reflection owner-write fixture',
+  'Synthetic Daily post used only to test owner-authorized reflection writes.',
+  'No action; this fixture exists only inside the test transaction.',
+  'published',
+  now()
+);
+
 INSERT INTO public.daily_reflections (
   user_id, daily_post_id, reflection_text, is_private
 )
@@ -168,6 +216,19 @@ VALUES (
   'C298 privacy Journey fixture',
   'Synthetic Daily Light used only by the privacy database regression suite.',
   'No action; this row exists only inside the test transaction.',
+  'What mattered today?'
+);
+
+INSERT INTO public.daily_lights (
+  id, scheduled_date, status, title, summary, small_deed, reflection_prompt
+)
+VALUES (
+  '00000000-0000-4000-8000-000000000207',
+  current_date + 366,
+  'published',
+  'C300 Journey owner-write fixture',
+  'Synthetic Daily Light used only by the privacy database regression suite.',
+  'No action; this fixture exists only inside the test transaction.',
   'What mattered today?'
 );
 
@@ -628,6 +689,74 @@ BEGIN
     RAISE EXCEPTION 'Member A can read Member B''s private Daily reflection.';
   END IF;
 
+  UPDATE public.daily_reflections
+  SET reflection_text = 'C300_PRIVATE_DAILY_REFLECTION_OWNER_UPDATE_SENTINEL',
+      reflection = 'C300_PRIVATE_DAILY_REFLECTION_OWNER_UPDATE_BODY_SENTINEL'
+  WHERE user_id = auth.uid()
+    AND reflection_text = 'C296_PRIVATE_DAILY_REFLECTION_SENTINEL';
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows <> 1 THEN
+    RAISE EXCEPTION 'Member A could not update their own private Daily reflection.';
+  END IF;
+
+  UPDATE public.daily_reflections
+  SET reflection_text = 'C300_CROSS_MEMBER_REFLECTION_UPDATE_SHOULD_FAIL'
+  WHERE reflection_text = 'C298_PRIVATE_DAILY_REFLECTION_MEMBER_B_SENTINEL';
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows <> 0 THEN
+    RAISE EXCEPTION 'Member A updated another member''s private Daily reflection.';
+  END IF;
+
+  v_denied := false;
+  BEGIN
+    UPDATE public.daily_reflections
+    SET user_id = '00000000-0000-4000-8000-000000000102'
+    WHERE user_id = auth.uid()
+      AND reflection_text = 'C300_PRIVATE_DAILY_REFLECTION_OWNER_UPDATE_SENTINEL';
+  EXCEPTION WHEN insufficient_privilege THEN
+    v_denied := true;
+  END;
+  IF NOT v_denied THEN
+    RAISE EXCEPTION 'Member A changed the owner of an existing private Daily reflection.';
+  END IF;
+
+  v_denied := false;
+  BEGIN
+    INSERT INTO public.daily_reflections (
+      user_id, daily_post_id, reflection_text, is_private
+    )
+    VALUES (
+      '00000000-0000-4000-8000-000000000102',
+      (SELECT id FROM public.daily_posts WHERE slug = 'c300-privacy-test-owner-write-daily-post'),
+      'C300_CROSS_MEMBER_REFLECTION_INSERT_SHOULD_FAIL',
+      true
+    );
+  EXCEPTION WHEN insufficient_privilege THEN
+    v_denied := true;
+  END;
+  IF NOT v_denied THEN
+    RAISE EXCEPTION 'Member A inserted a private Daily reflection under Member B''s identity.';
+  END IF;
+
+  INSERT INTO public.daily_reflections (
+    user_id, daily_post_id, reflection_text, is_private
+  )
+  VALUES (
+    auth.uid(),
+    (SELECT id FROM public.daily_posts WHERE slug = 'c300-privacy-test-owner-write-daily-post'),
+    'C300_PRIVATE_DAILY_REFLECTION_OWNER_INSERT_SENTINEL',
+    true
+  );
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows <> 1 OR NOT EXISTS (
+    SELECT 1 FROM public.daily_reflections
+    WHERE user_id = auth.uid()
+      AND reflection_text = 'C300_PRIVATE_DAILY_REFLECTION_OWNER_INSERT_SENTINEL'
+      AND is_private = true
+  ) THEN
+    RAISE EXCEPTION 'Member A could not insert their own private Daily reflection.';
+  END IF;
+
   SELECT count(*) INTO v_count FROM public.daily_deed_completions;
   IF v_count <> 1 OR EXISTS (
     SELECT 1 FROM public.daily_deed_completions WHERE user_id <> auth.uid()
@@ -644,6 +773,51 @@ BEGIN
   GET DIAGNOSTICS v_rows = ROW_COUNT;
   IF v_rows <> 0 THEN
     RAISE EXCEPTION 'Member A deleted Member B''s private Journey record.';
+  END IF;
+
+  v_denied := false;
+  BEGIN
+    INSERT INTO public.daily_deed_completions (
+      id, user_id, daily_light_id, status
+    )
+    VALUES (
+      '00000000-0000-4000-8000-000000000313',
+      '00000000-0000-4000-8000-000000000102',
+      '00000000-0000-4000-8000-000000000207',
+      'completed'
+    );
+  EXCEPTION WHEN insufficient_privilege THEN
+    v_denied := true;
+  END;
+  IF NOT v_denied THEN
+    RAISE EXCEPTION 'Member A inserted a Journey record under Member B''s identity.';
+  END IF;
+
+  INSERT INTO public.daily_deed_completions (
+    id, user_id, daily_light_id, status
+  )
+  VALUES (
+    '00000000-0000-4000-8000-000000000314',
+    auth.uid(),
+    '00000000-0000-4000-8000-000000000207',
+    'completed'
+  );
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows <> 1 THEN
+    RAISE EXCEPTION 'Member A could not insert their own Journey record.';
+  END IF;
+
+  DELETE FROM public.daily_deed_completions
+  WHERE id = '00000000-0000-4000-8000-000000000314';
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows <> 1 THEN
+    RAISE EXCEPTION 'Member A could not delete their own Journey record.';
+  END IF;
+
+  SELECT count(*) INTO v_count FROM public.daily_deed_completions
+  WHERE id = '00000000-0000-4000-8000-000000000314';
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'Member A''s deleted Journey record remains visible.';
   END IF;
 
   SELECT count(*) INTO v_count FROM public.saved_lights;
@@ -1038,8 +1212,15 @@ BEGIN
      OR position('C296_PRIVATE_DAILY_REFLECTION_SENTINEL' in v_context::text) > 0
      OR position('C298_PRIVATE_DAILY_LIGHT_REFLECTION_MEMBER_A_SENTINEL' in v_context::text) > 0
      OR position('C298_PRIVATE_DAILY_REFLECTION_MEMBER_B_SENTINEL' in v_context::text) > 0
-     OR position('C298_PRIVATE_DAILY_LIGHT_REFLECTION_MEMBER_B_SENTINEL' in v_context::text) > 0 THEN
+     OR position('C298_PRIVATE_DAILY_LIGHT_REFLECTION_MEMBER_B_SENTINEL' in v_context::text) > 0
+     OR position('C300_PRIVATE_DAILY_REFLECTION_OWNER_UPDATE_SENTINEL' in v_context::text) > 0
+     OR position('C300_PRIVATE_DAILY_REFLECTION_OWNER_UPDATE_BODY_SENTINEL' in v_context::text) > 0
+     OR position('C300_PRIVATE_DAILY_REFLECTION_OWNER_INSERT_SENTINEL' in v_context::text) > 0 THEN
     RAISE EXCEPTION 'Admin moderation context exposed private reflection text.';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM public.daily_reflections) THEN
+    RAISE EXCEPTION 'Active database administrator directly read another member''s private Daily reflections.';
   END IF;
 
   v_denied := false;
