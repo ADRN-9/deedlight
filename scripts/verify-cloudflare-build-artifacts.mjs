@@ -46,7 +46,7 @@ const inspectFiles = [workerPath, serverBundlePath, ...walk(openNextDir).filter(
 
 for (const file of new Set(inspectFiles)) {
   const source = readFileSync(file, "utf8");
-  const references = [...source.matchAll(/(?:\/\/#|\/\*)[#@]\s*sourceMappingURL=([^\s*]+)/g)];
+  const references = [...source.matchAll(/(?:\\/\\/|\\/\\*)[#@]\\s*sourceMappingURL=([^\\s*]+)/g)];
   for (const match of references) {
     const value = match[1];
     if (value.startsWith("data:")) continue;
