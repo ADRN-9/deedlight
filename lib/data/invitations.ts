@@ -63,3 +63,16 @@ export async function getMyInvitationLinks(
 
   return (data || []) as InvitationLink[];
 }
+
+export function getActiveInvitationLink(
+  links: InvitationLink[],
+): InvitationLink | null {
+  const now = Date.now();
+  return (
+    links.find(
+      (item) =>
+        !item.revoked_at &&
+        new Date(item.expires_at).getTime() > now,
+    ) ?? null
+  );
+}

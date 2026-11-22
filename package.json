@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "lint": "next lint",
+    "lint": "eslint .",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "upload": "opennextjs-cloudflare build && opennextjs-cloudflare upload",
@@ -15,24 +15,31 @@
     "supabase:reset": "supabase db reset"
   },
   "dependencies": {
-    "@supabase/ssr": "latest",
-    "@supabase/supabase-js": "latest",
-    "lucide-react": "latest",
-    "next": "16.3.6",
-    "react": "latest",
-    "react-dom": "latest",
-    "zod": "latest"
+    "@supabase/ssr": "0.12.3",
+    "@supabase/supabase-js": "2.110.8",
+    "lucide-react": "1.25.0",
+    "next": "16.4.6",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "zod": "4.6.7"
   },
   "devDependencies": {
-    "@opennextjs/cloudflare": "latest",
-    "@tailwindcss/postcss": "latest",
-    "@types/node": "latest",
-    "@types/react": "latest",
-    "@types/react-dom": "latest",
-    "eslint": "latest",
-    "eslint-config-next": "latest",
-    "tailwindcss": "latest",
-    "typescript": "latest",
-    "wrangler": "latest"
+    "@opennextjs/cloudflare": "1.20.18",
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/node": "26.1.1",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.4.6",
+    "tailwindcss": "4.3.3",
+    "typescript": "6.0.3",
+    "wrangler": "4.166.0"
+  },
+  "overrides": {
+    "@opennextjs/cloudflare": {
+      "glob": "14.0.2"
+    },
+    "source-map-js": "1.2.4",
+    "typescript-eslint": "8.73.0"
   }
 }

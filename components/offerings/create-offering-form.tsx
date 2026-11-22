@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
@@ -81,11 +81,6 @@ export function CreateOfferingForm({
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [success, setSuccess] = useState<string | null>(null);
-
-  const validationErrors = useMemo(
-    () => validateDraft({ offeringType, title, body, takeaway, mediaUrl }),
-    [offeringType, title, body, takeaway, mediaUrl]
-  );
 
   function nextFromType() {
     setErrors([]);

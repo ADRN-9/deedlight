@@ -5,8 +5,6 @@ import { createClient } from "@/lib/supabase/server";
 import { hasAdminAccess } from "@/lib/auth/admin-access";
 import type { DailyPost, DailyReflection, DailyStatus, FeaturedOffering } from "@/lib/types-daily";
 
-type SupabaseLike = Awaited<ReturnType<typeof createClient>>;
-
 const TODAY_FALLBACK: DailyPost = {
   id: "fallback-today",
   slug: "a-new-light-can-begin-today",
