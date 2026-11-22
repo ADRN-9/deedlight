@@ -34,5 +34,12 @@
     "tailwindcss": "4.3.3",
     "typescript": "6.0.3",
     "wrangler": "4.166.0"
+  },
+  "overrides": {
+    "@opennextjs/cloudflare": {
+      "glob": "14.0.2"
+    },
+    "source-map-js": "1.2.4",
+    "typescript-eslint": "8.73.0"
   }
 }
