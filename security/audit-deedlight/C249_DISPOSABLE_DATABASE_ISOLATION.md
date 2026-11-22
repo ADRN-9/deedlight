@@ -60,7 +60,30 @@ The exact GitHub Actions cancellation path is not force-cancelled as part of the
 
 Only PR #11 audit-fixture tooling and its documentation are changed. No migration, application runtime, dependency graph, C165 advisory work, PR #17, PR #18, Production resource, secret, deployment, Cron or outbound delivery is modified.
 
-C249 is appended as four commits. If rollback is required, use ordinary `git revert` in reverse order: `83599a6c4fbc2dc288e737d1e867b5fb463d21ef`, `03b44f3672aa30fe1595c61b320ea46e6e913707`, `c70d812edd3053f6ae78de42d94517c74554a6ae`, then `2d6ce1aba773ef034304ce4eee8b719cf91e0d1a`. This restores the pre-C249 runner/workflow/docs while preserving all prior PR #11 history. No force push or merge is required or authorized.
+The C249 remediation workstream consists of the following six linear commits, in chronological order. The first four contain lifecycle implementation and CI diagnostic corrections; the final two record and correct C249 evidence/documentation:
+
+1. `2d6ce1aba773ef034304ce4eee8b719cf91e0d1a` — `test(audit): isolate disposable PostgreSQL fixture lifecycles` (initial run-scoped database/output isolation, lifecycle cleanup and ownership checks).
+2. `c70d812edd3053f6ae78de42d94517c74554a6ae` — `fix(audit): expose disposable PostgreSQL preflight failures` (make disposable-service preflight failures explicit).
+3. `03b44f3672aa30fe1595c61b320ea46e6e913707` — `fix(audit): verify PostgreSQL patch version numerically` (verify PostgreSQL 16.16 using `server_version_num=160016` rather than brittle version-string equality).
+4. `83599a6c4fbc2dc288e737d1e867b5fb463d21ef` — `fix(audit): apply psql variables through stdin` (execute variable-bearing psql scripts through stdin).
+5. `7bc940a7b3a11ef1e62df31508dc5599b4923b02` — `docs(audit): record C249 evidence and rollback plan` (record exact-head validation and evidence).
+6. `ac5d47455cca9fa0f8b2afcbdaa75668a7a6959a` — `docs(audit): correct C249 CI diagnostics and evidence` (correct the recorded CI diagnostics/evidence).
+
+The subsequent C260 cleanup-failure regression is a separate seventh commit, not part of C249: `c04c237d937bc754e410083c010f9bc88af7d7b4` — `test(audit): prove disposable cleanup failure recovery`. It adds the injected failing-`dropdb` and successful-retry assertions documented below.
+
+For a complete rollback of both C260 and C249, use ordinary, non-force `git revert` in reverse dependency order: revert C260 first, then the six C249 commits from newest to oldest. Run each command separately and inspect/resolve any conflict before proceeding:
+
+```sh
+git revert --no-edit c04c237d937bc754e410083c010f9bc88af7d7b4
+git revert --no-edit ac5d47455cca9fa0f8b2afcbdaa75668a7a6959a
+git revert --no-edit 7bc940a7b3a11ef1e62df31508dc5599b4923b02
+git revert --no-edit 83599a6c4fbc2dc288e737d1e867b5fb463d21ef
+git revert --no-edit 03b44f3672aa30fe1595c61b320ea46e6e913707
+git revert --no-edit c70d812edd3053f6ae78de42d94517c74554a6ae
+git revert --no-edit 2d6ce1aba773ef034304ce4eee8b719cf91e0d1a
+```
+
+Reverting C260 alone requires only the first command and leaves C249 intact. Do not revert C249 while retaining C260's test, because the C260 regression relies on the C249 disposable-database lifecycle helper. This procedure preserves the earlier PR #11 history; no force push or merge is required or authorized.
 
 Production remains NO-GO.
 
@@ -91,7 +114,7 @@ The first audit attempt `44984901933` stopped at the PostgreSQL client/version p
 - Sanitized artifact: `deedlight-catalog-audit-pg16`, ID `14740000188`, 44,071 bytes; expires 2026-12-06.
 
 
-## C260 cleanup-failure regression
+## C260 cleanup-failure regression (separate follow-up commit)
 
 The lifecycle regression now creates a marked, run-owned disposable database and temporarily places a deliberately failing `dropdb` shim first on `PATH`. The test requires run-scoped cleanup to return nonzero, confirms the shim ran, and verifies that the database and its exact ownership marker remain intact. It restores the original `PATH`, verifies that the real `dropdb` executable resolves again, retries cleanup, and proves the database is absent. The final catalog assertion requires zero databases for the current workflow run and attempt.
 
