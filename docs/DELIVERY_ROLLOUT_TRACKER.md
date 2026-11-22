@@ -240,3 +240,8 @@ The exact C269 review artifact was not found in accessible PR #10 review/comment
 - Migration-order evidence: Docker service address and `host(inet_server_addr())` both `172.18.0.2`; PostgreSQL 16.16 / `server_version_num=160016`; Supabase CLI 3.2.0; all Docker identity and mismatch tests passed; duplicate 007 outcomes remained expected 23505/42703.
 - Rollback to C270 baseline: restore the three code/workflow files from commit `efb343b1d246e30d8c5156e9214d5ff94a1c02a0`, remove C271 sections from both docs, and commit the restoration. Do not revert only `4ef19b722bff8ef6d8d2047d0f12108713b57fcc`, whose parent is the failed intermediate commit `1428a4a17ad83c75a54a230f30c933ef2f35a6bc`. If PR #19 is still unmerged, closing it is sufficient; no database rollback applies.
 - A final branch-push run is required after this documentation evidence commit. PR #19 remains Draft/unmerged; Production remains NO-GO.
+### C271 final comparison-evidence head
+
+- Commit `6cdbee3b7b5a6fa1cfa61002e4b12c543f38afb1`, tree `76daf4da5f291b1955341342e3a3c60604bf7a6d`, passed exact branch-push [run #831](https://github.com/ADRN-9/deedlight/actions/runs/44997358656): **7/7 jobs**. Migration-order `137131176027`, validate `137131175912`, provider webhook `137131175900`, delivery reliability `137131175720`, gentle transport `137131176008`, Sprint 12.2 `137131175866`, auth pgcrypto `137131175917` all passed.
+- At that HEAD the PR base comparison was `ahead 12 / behind 0`, merge base still PR #10's `9072f3b8824ec9618849def1c0832000cd130474`; PR #19 remained mergeable. Existing stack bases/heads remain unchanged.
+- A final exact-head branch-push run follows this documentation commit.
