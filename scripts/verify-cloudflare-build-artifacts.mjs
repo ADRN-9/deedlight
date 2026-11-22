@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { extname, join, relative, resolve } from "node:path";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { dirname, extname, join, relative, resolve } from "node:path";
 
 const root = process.cwd();
 const openNextDir = join(root, ".open-next");
@@ -21,7 +21,7 @@ function walk(directory) {
 }
 
 function assertFile(path, label) {
-  assert.ok(statSync(path).isFile(), `${label} must exist: ${relative(root, path)}`);
+  assert.ok(existsSync(path) && statSync(path).isFile(), `${label} must exist: ${relative(root, path)}`);
   assert.ok(statSync(path).size > 0, `${label} must not be empty: ${relative(root, path)}`);
 }
 
@@ -50,8 +50,8 @@ for (const file of new Set(inspectFiles)) {
   for (const match of references) {
     const value = match[1];
     if (value.startsWith("data:")) continue;
-    const mapPath = resolve(file.substring(0, file.lastIndexOf("/")), value);
-    assert.ok(statSync(mapPath).isFile(), `source map reference must resolve: ${relative(root, file)} -> ${value}`);
+    const mapPath = resolve(dirname(file), value);
+    assert.ok(existsSync(mapPath) && statSync(mapPath).isFile(), `source map reference must resolve: ${relative(root, file)} -> ${value}`);
     const map = JSON.parse(readFileSync(mapPath, "utf8"));
     assert.equal(map.version, 3, `source map must use version 3: ${relative(root, mapPath)}`);
     assert.ok(Array.isArray(map.sources), `source map must contain sources: ${relative(root, mapPath)}`);
