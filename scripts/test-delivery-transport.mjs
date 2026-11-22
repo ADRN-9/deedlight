@@ -64,7 +64,7 @@ function fakeGateway(options = {}) {
         if (options.expectedRecipient && recipient.email !== options.expectedRecipient) return null;
         return options.transportDenied ? null : options.firstTransportAt ?? new Date(fixedNow);
       },
-      async authorizeProviderIdempotencyWindow() {
+      async authorizeProviderIdempotencyWindow(_job, _recipient) {
         events.push("idempotency-window");
         return options.idempotencyWindowResult ?? "authorized";
       },
@@ -567,7 +567,7 @@ test("provider idempotency RPC validates exact status union and fails closed", a
         return { data: status, error: null };
       },
     });
-    assert.equal(await runtime.authorizeProviderIdempotencyWindow(job), status);
+    assert.equal(await runtime.authorizeProviderIdempotencyWindow(job, { email: "a@b.com" }), status);
   }
 
   for (const invalidStatus of [true, false, null, undefined, "", "pending", { status: "authorized" }]) {
@@ -577,7 +577,7 @@ test("provider idempotency RPC validates exact status union and fails closed", a
       },
     });
     await assert.rejects(
-      runtime.authorizeProviderIdempotencyWindow(job),
+      runtime.authorizeProviderIdempotencyWindow(job, { email: "a@b.com" }),
       /Delivery database operation failed: authorize provider idempotency window/,
     );
   }
@@ -588,7 +588,7 @@ test("provider idempotency RPC validates exact status union and fails closed", a
     },
   });
   await assert.rejects(
-    erroredRuntime.authorizeProviderIdempotencyWindow(job),
+    erroredRuntime.authorizeProviderIdempotencyWindow(job, { email: "a@b.com" }),
     /Delivery database operation failed: authorize provider idempotency window/,
   );
 });
@@ -643,10 +643,10 @@ test("retry and provider-window RPCs never trust a Worker timestamp", async () =
       return { data: name === "authorize_delivery_idempotency_window" ? "authorized" : true, error: null };
     },
   });
-  assert.equal(await runtime.authorizeProviderIdempotencyWindow(job), "authorized");
+  assert.equal(await runtime.authorizeProviderIdempotencyWindow(job, { email: "a@b.com" }), "authorized");
   assert.equal(await runtime.retry(job, "provider_timeout"), true);
   assert.deepEqual(calls, [
-    { name: "authorize_delivery_idempotency_window", params: { p_job_id: job.jobId, p_claim_token: job.claimToken } },
+    { name: "authorize_delivery_idempotency_window", params: { p_job_id: job.jobId, p_claim_token: job.claimToken, p_expected_email: "a@b.com" } },
     { name: "retry_delivery_job", params: { p_job_id: job.jobId, p_claim_token: job.claimToken, p_error_code: "provider_timeout" } },
   ]);
   assert.equal("p_retry_at" in calls[1].params, false);

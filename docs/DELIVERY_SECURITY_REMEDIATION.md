@@ -176,3 +176,52 @@ C226 exact-head CI is required before considering these findings remediated. An 
 The responsible administrator is the ADRN-9 repository owner or a delegated GitHub administrator with repository and Environment permissions. The repository's read-only branch API currently reports `main.protected=false`, and the repository rulesets API returns an empty list. Production Environment protections and secret scopes remain unverified.
 
 The administrator must enforce main branch protection, allow Production deployments only from protected main, require independent Environment approval, enable Prevent self-review, and ensure Production credentials exist only at Environment scope (removing repository/organization duplicates). Closeout evidence must include branch/ruleset API output, Production Environment protection settings, and a redacted secret-name/scope inventory. Secret values must never be included.
+
+
+## C252 — final consent and recipient authorization serialization
+
+Migration 031 is additive after 030; historical migrations remain unchanged.
+It replaces the recipient-bound `begin_delivery_transport` authorization with
+explicit single-row locks and replaces `authorize_delivery_job` with the same
+deterministic order. The order is delivery ledger, per-address provider-event
+advisory lock, Daily reminder or newsletter preference, member profile, Auth
+user, and (for Weekly Goodness) the curated feature row. The provider webhook
+uses the same per-address advisory key, so a committed bounce/complaint
+suppression that wins first is observed by the final authorization.
+
+The final `authorize_delivery_idempotency_window` RPC now requires the
+server-resolved expected email. It calls the locked authorization function,
+then compares that expected address with the still-locked Auth user row.
+A changed or missing identity cancels the claim, clears its token and lease,
+and returns `cancelled`. The old two-argument RPC is dropped; the new
+three-argument RPC is service-role-only. The email is not stored in the ledger
+or any new table.
+
+Both authorization functions require READ COMMITTED and set a five-second
+lock timeout. Claim expiry is rechecked with `clock_timestamp()` after all
+potential lock waits and in terminal claim updates. Missing preferences,
+profile, Auth identity, or curated Weekly feature fail closed. A lock timeout
+or unsupported transaction isolation raises a database error and cannot
+authorize provider transport. Existing provider idempotency horizon, retry
+limits, stable provider idempotency key, and Resend receipt validation remain
+unchanged.
+
+**External handoff boundary:** the successful commit of the final
+`authorize_delivery_idempotency_window` RPC is the authorization boundary
+immediately before the Worker calls the provider. If a revocation already
+holds a protected row lock, authorization waits and then cancels. If final
+authorization obtains the locks first, revocation waits until the RPC
+commits. Once that commit occurs, a later revocation cannot recall an
+already-authorized external request. The Worker makes the HTTP request
+immediately after the RPC; no database transaction is held open across
+provider IO. Any subsequent retry performs a new current-consent authorization
+and reuses the stable logical-delivery idempotency key. This is an explicit
+distributed-side-effect limitation, not a claim of atomic DB/HTTP delivery.
+
+The focused PostgreSQL regression covers Daily and Weekly consent revocation,
+profile suspension, unconfirmed Auth identity, removed Weekly curation,
+changed recipient identity, provider suppression after transport start, and
+claim invalidation. The existing synchronized two-session race matrix remains
+separate C253 work; C252 does not claim that matrix is complete. Do not run the
+historical standalone consent-concurrency script outside its verified
+disposable PostgreSQL boundary.

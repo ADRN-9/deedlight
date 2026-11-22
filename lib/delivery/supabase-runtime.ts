@@ -143,10 +143,11 @@ export class SupabaseDeliveryRuntime implements DeliveryGateway, DeliveryRecipie
     return startedAt;
   }
 
-  async authorizeProviderIdempotencyWindow(job: ClaimedDeliveryJob): Promise<"authorized" | "cancelled" | "expired"> {
+  async authorizeProviderIdempotencyWindow(job: ClaimedDeliveryJob, recipient: { email: string }): Promise<"authorized" | "cancelled" | "expired"> {
     const { data, error } = await this.client.rpc("authorize_delivery_idempotency_window", {
       p_job_id: job.jobId,
       p_claim_token: job.claimToken,
+      p_expected_email: recipient.email,
     });
     if (error || (data !== "authorized" && data !== "cancelled" && data !== "expired")) {
       fail("authorize provider idempotency window");

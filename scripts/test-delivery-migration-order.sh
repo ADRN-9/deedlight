@@ -248,7 +248,8 @@ SQL
 echo "Migration 029 source identity drift rejection, atomic rollback and legacy replay compatibility: PASS"
 
 "${psql_cmd[@]}" --file supabase/migrations/202611210030_delivery_idempotency_receipt_guard.sql >"$tmp/m030.log"
+"${psql_cmd[@]}" --file supabase/migrations/202611220031_delivery_final_consent_authorization.sql >"$tmp/m031.log"
 "${psql_cmd[@]}" --file scripts/test-delivery-idempotency-guard.sql >"$tmp/idempotency-guard.log"
 cat "$tmp/idempotency-guard.log"
-echo "Migration 030 DB-authoritative idempotency horizon and provider receipt validation: PASS"
+echo "Migration 030 idempotency/receipt and migration 031 final authorization PostgreSQL regressions: PASS"
 
