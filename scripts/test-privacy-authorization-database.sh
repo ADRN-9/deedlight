@@ -74,6 +74,7 @@ migrations=(
   supabase/migrations/202608110013_sprint10_2_saved_lights_gentle_rhythm.sql
   supabase/migrations/202608130017_sprint12_1_offering_ownership_engagement.sql
   supabase/migrations/202608140018_sprint12_1_owner_removal_guard_hotfix.sql
+  supabase/migrations/202611220023_sprint12_3_private_offering_base_table_access.sql
 )
 
 for migration in "${migrations[@]}"; do
