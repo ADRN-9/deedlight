@@ -211,6 +211,7 @@ async function main() {
 
     run("npm", ["run", "build"], buildEnv);
     run("npx", ["opennextjs-cloudflare", "build"], buildEnv);
+    run("node", ["scripts/verify-cloudflare-build-artifacts.mjs"], buildEnv);
 
     mockServer = createSupabaseMock();
     await new Promise((resolveListen, reject) => {
