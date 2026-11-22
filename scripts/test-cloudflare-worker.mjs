@@ -255,15 +255,18 @@ async function main() {
 
     const about = await fetchWithTimeout(`${baseUrl}/about`);
     assert.equal(about.status, 200, "public page must render in the Worker runtime");
+    await about.text();
 
     const unauthenticatedProfile = await fetchWithTimeout(`${baseUrl}/settings/profile`, { redirect: "manual" });
     assert.ok([302, 303, 307, 308].includes(unauthenticatedProfile.status),
       "private profile settings must redirect without an authenticated session");
     assert.match(unauthenticatedProfile.headers.get("location") ?? "", /\/login\?next=/);
+    await unauthenticatedProfile.text();
 
     const beforeMatchedRequest = authCalls.total;
     const matchedPublicPage = await fetchWithTimeout(`${baseUrl}/about`, { headers: { cookie } });
     assert.equal(matchedPublicPage.status, 200);
+    await matchedPublicPage.text();
     assert.ok(authCalls.total > beforeMatchedRequest,
       "cookie-bearing public route must execute Supabase session middleware");
 
@@ -279,6 +282,7 @@ async function main() {
     const beforeIcon = authCalls.total;
     const icon = await fetchWithTimeout(`${baseUrl}/icons/deedlight-192.png`, { headers: { cookie } });
     assert.equal(icon.status, 200, "public icon must be served");
+    await icon.arrayBuffer();
     assert.equal(authCalls.total, beforeIcon, "icons exclusion must bypass Supabase middleware");
 
     for (const [path, expectedStatus] of [
@@ -289,7 +293,8 @@ async function main() {
       const beforeRequest = authCalls.total;
       const response = await fetchWithTimeout(`${baseUrl}${path}`, { headers: { cookie } });
       assert.equal(response.status, expectedStatus, `${path} must be served with its expected static response`);
-      assert.equal(authCalls.total, beforeRequest, `${path} exclusion must bypass Supabase middleware`);
+      await response.arrayBuffer();
+      assert.equal(authCalls.total, beforeRequest, `${path} exclusion must bypass Supabase middleware (observed ${authCalls.total - beforeRequest} auth calls)`);
     }
 
     const staticRoot = join(root, ".open-next", "assets", "_next", "static");
@@ -299,6 +304,7 @@ async function main() {
     const beforeStatic = authCalls.total;
     const staticResponse = await fetchWithTimeout(`${baseUrl}${staticUrl}`, { headers: { cookie } });
     assert.equal(staticResponse.status, 200, "generated Next static asset must be served");
+    await staticResponse.arrayBuffer();
     assert.equal(authCalls.total, beforeStatic, "_next/static exclusion must bypass Supabase middleware");
 
     const imageUrl = "http://auth.supabase.co:54321/storage/v1/object/public/smoke/avatar.png";
