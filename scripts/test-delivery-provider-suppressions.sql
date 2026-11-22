@@ -203,19 +203,32 @@ begin
     'suppression-out-of-order@example.test','manual',null,
     '2026-11-22T12:00:00Z','2026-11-22T13:05:00Z',repeat('8',64)
   );
-  if exists (
+end;
+$out_of_order_remove_first$;
+reset role;
+
+do $out_of_order_remove_assert$
+begin
+  if not exists (
     select 1 from public.delivery_provider_suppressions
     where recipient_email='suppression-out-of-order@example.test'
+      and reason='provider_suppressed'
   ) then
     raise exception 'A removal without its matching add cleared an existing provider suppression.';
   end if;
+end;
+$out_of_order_remove_assert$;
+
+set role service_role;
+do $out_of_order_add_after_remove$
+begin
   perform public.record_delivery_provider_suppression_event(
     'evt_sup_out_of_order_add','suppression.added','sup_out_of_order',
     'suppression-out-of-order@example.test','manual',null,
     '2026-11-22T12:00:00Z','2026-11-22T13:01:00Z',repeat('9',64)
   );
 end;
-$out_of_order_remove_first$;
+$out_of_order_add_after_remove$;
 
 do $out_of_order_add_first$
 begin

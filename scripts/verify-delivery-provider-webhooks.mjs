@@ -177,7 +177,7 @@ assert(route.includes("p_provider_created_at"));
 assert(route.includes("p_failure_class"));
 assert(route.includes("p_suppression_reason"));
 assert(route.includes("p_payload_fingerprint"));
-assert(route.includes("data !== true && data !== false"));
+assert(route.includes("persisted.data !== true && persisted.data !== false"));
 assert(parser.includes("fingerprintResendWebhookPayload"));
 assert(parser.includes("data.created_at"));
 assert(parser.includes("data.from"));
