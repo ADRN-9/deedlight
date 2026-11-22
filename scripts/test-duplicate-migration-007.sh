@@ -110,13 +110,13 @@ verify_postgres_target() {
   expected_server_addr="$DOCKER_SERVICE_IP"
   if ! observed="$(psql -X -A -t -F '|' -v ON_ERROR_STOP=1 \
     --host "$DB_HOST" --port "$DB_PORT" --username "$DB_USER" --dbname "$CONTROL_DB" \
-    --command "select coalesce(inet_server_addr()::text, ''), inet_server_port(), current_database(), current_user, current_setting('server_version_num'), current_setting('server_version')")"; then
+    --command "select coalesce(host(inet_server_addr()), ''), inet_server_port(), current_database(), current_user, current_setting('server_version_num'), current_setting('server_version')")"; then
     die "Could not verify the isolated PostgreSQL service before database operations."
   fi
 
   IFS='|' read -r server_addr server_port database username server_version_num server_version <<< "$observed"
   [[ -n "$server_addr" ]] || die "Refusing PostgreSQL target: the server did not report a TCP address."
-  [[ "$server_addr" == "$expected_server_addr" ]] || die "Refusing PostgreSQL target: backend address does not match Docker service container address ($expected_server_addr)."
+  [[ "$server_addr" == "$expected_server_addr" ]] || die "Refusing PostgreSQL target: backend address does not match Docker service container address ($expected_server_addr); PostgreSQL reported ($server_addr)."
   [[ "$server_port" == "$DB_PORT" ]] || die "Refusing PostgreSQL target: server port is not 5432."
   [[ "$database" == "$CONTROL_DB" ]] || die "Refusing PostgreSQL target: unexpected control database."
   [[ "$username" == "$DB_USER" ]] || die "Refusing PostgreSQL target: unexpected database user."
