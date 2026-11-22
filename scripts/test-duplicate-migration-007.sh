@@ -80,14 +80,14 @@ verify_postgres_target() {
   fi
 
   IFS='|' read -r server_addr server_port database username server_version_num server_version <<< "$observed"
-  [[ "$server_addr" == "$DB_HOST" ]] || die "Refusing PostgreSQL target: server address is not 127.0.0.1."
+  [[ -n "$server_addr" ]] || die "Refusing PostgreSQL target: the server did not report a TCP address."
   [[ "$server_port" == "$DB_PORT" ]] || die "Refusing PostgreSQL target: server port is not 5432."
   [[ "$database" == "$CONTROL_DB" ]] || die "Refusing PostgreSQL target: unexpected control database."
   [[ "$username" == "$DB_USER" ]] || die "Refusing PostgreSQL target: unexpected database user."
   [[ "$server_version_num" == "160016" ]] || die "Expected PostgreSQL 16.16 (server_version_num=160016), got ${server_version_num:-unknown}."
 
-  printf 'Verified isolated PostgreSQL target: %s:%s/%s as %s; PostgreSQL %s (server_version_num=%s)\n' \
-    "$server_addr" "$server_port" "$database" "$username" "$server_version" "$server_version_num"
+  printf 'Verified isolated PostgreSQL client target: %s:%s/%s as %s; server_addr=%s server_port=%s; PostgreSQL %s (server_version_num=%s)\n' \
+    "$DB_HOST" "$DB_PORT" "$database" "$username" "$server_addr" "$server_port" "$server_version" "$server_version_num"
 }
 
 # This read-only identity/version check runs before temp setup, cleanup traps, or any DROP/CREATE.

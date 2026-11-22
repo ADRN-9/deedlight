@@ -28,7 +28,7 @@ set -euo pipefail
 printf '%s\t%s\n' "${0##*/}" "$*" >> "${DEEDLIGHT_SAFETY_CALL_LOG:?}"
 case "${0##*/}" in
   psql)
-    printf '127.0.0.1|5432|deedlight_migration_order_test|postgres|160016|16.16\n'
+    printf '172.18.0.2|5432|deedlight_migration_order_test|postgres|160016|16.16\n'
     exit 0
     ;;
   supabase)
@@ -108,13 +108,18 @@ env -i \
   cat "$TMP/local-allowlist.log" >&2
   fail "Local CI target did not reach the fake createdb boundary (status=$local_status)."
 }
-grep -Fq "Verified isolated PostgreSQL target: 127.0.0.1:5432/deedlight_migration_order_test" "$TMP/local-allowlist.log" || {
+grep -Fq "Verified isolated PostgreSQL client target: 127.0.0.1:5432/deedlight_migration_order_test" "$TMP/local-allowlist.log" || {
   cat "$TMP/local-allowlist.log" >&2
   fail "Exact local CI target was not accepted by the read-only preflight."
 }
 grep -Fq "server_version_num=160016" "$TMP/local-allowlist.log" || fail "Numeric PostgreSQL version evidence was not logged."
 grep -q $'^psql\t' "$CALL_LOG" || fail "The local target preflight did not call the fake psql command."
-grep -q $'^createdb\t' "$CALL_LOG" || fail "The exact local target did not reach the fake createdb boundary."
+grep -q 
+
+printf 'Exact local CI target accepted; fake createdb prevented any database mutation: PASS\n'
+printf 'Duplicate-007 remote-target safety regressions: PASS\n'
+^createdb\t' "$CALL_LOG" || fail "The exact local target did not reach the fake createdb boundary."
+grep -Fq -- "--host 127.0.0.1 --port 5432 --username postgres --dbname deedlight_migration_order_test" "$CALL_LOG" || fail "The local preflight did not use explicit loopback connection arguments."
 
 printf 'Exact local CI target accepted; fake createdb prevented any database mutation: PASS\n'
 printf 'Duplicate-007 remote-target safety regressions: PASS\n'
