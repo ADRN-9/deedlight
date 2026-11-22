@@ -123,7 +123,7 @@ function main() {
   if (
     !reportPath ||
     rawAuditExitCode === undefined ||
-    !/^(0|[1-9]\\d*)$/.test(rawAuditExitCode)
+    !/^(0|[1-9]\d*)$/.test(rawAuditExitCode)
   ) {
     throw new Error("Usage: node scripts/verify-npm-audit.mjs <report.json> <npm-audit-exit-code>");
   }
