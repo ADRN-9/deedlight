@@ -214,6 +214,41 @@ BEGIN
     RAISE EXCEPTION 'Public Offering projection exposes an internal member UUID.';
   END IF;
 
+  SELECT to_jsonb(op)
+  INTO v_row
+  FROM public.offerings_public op
+  WHERE op.id = '00000000-0000-4000-8000-000000000202';
+
+  IF v_row IS NULL
+     OR v_row->>'user_id' IS NOT NULL
+     OR v_row->>'author_name' <> 'Public Member'
+     OR v_row->>'author_username' <> 'public-member' THEN
+    RAISE EXCEPTION 'Non-anonymous public Offering attribution is missing or exposes an internal UUID: %', v_row;
+  END IF;
+
+  SELECT to_jsonb(rising)
+  INTO v_row
+  FROM public.offerings_rising rising
+  WHERE rising.id = '00000000-0000-4000-8000-000000000201';
+
+  IF v_row IS NULL
+     OR v_row->>'user_id' IS NOT NULL
+     OR v_row->>'author_name' IS NOT NULL
+     OR v_row->>'author_username' IS NOT NULL THEN
+    RAISE EXCEPTION 'Rising Offering projection did not preserve anonymous identity masking: %', v_row;
+  END IF;
+
+  SELECT coalesce(jsonb_agg(to_jsonb(rising))::text, '')
+  INTO v_payload
+  FROM public.offerings_rising rising;
+
+  IF position('00000000-0000-4000-8000-000000000101' in v_payload) > 0
+     OR position('00000000-0000-4000-8000-000000000102' in v_payload) > 0
+     OR position('00000000-0000-4000-8000-000000000103' in v_payload) > 0
+     OR position('00000000-0000-4000-8000-000000000104' in v_payload) > 0 THEN
+    RAISE EXCEPTION 'Public Rising Offering projection contains an internal account UUID.';
+  END IF;
+
   SELECT coalesce(jsonb_agg(to_jsonb(op))::text, '')
   INTO v_payload
   FROM public.offerings_public op;
