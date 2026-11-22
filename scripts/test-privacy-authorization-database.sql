@@ -1385,7 +1385,7 @@ $;
 
 RESET ROLE;
 
-DO $
+DO $c304$
 DECLARE
   v_count integer;
   v_rows bigint;
@@ -1469,7 +1469,7 @@ BEGIN
     RAISE EXCEPTION 'Account erasure unexpectedly removed shared Daily content.';
   END IF;
 END
-$;
+$c304$;
 
 ROLLBACK;
 
