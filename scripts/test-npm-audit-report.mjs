@@ -75,8 +75,9 @@ test("rejects a total that does not equal the severity sum", () => {
 });
 
 test("rejects a package count that does not match total", () => {
-  const report = cleanReport();
-  report.vulnerabilities.fixture = {};
+  const report = reportWithFinding("low");
+  report.metadata.vulnerabilities.low = 0;
+  report.metadata.vulnerabilities.total = 0;
   assert.throws(() => validateNpmAuditReport(report), /package entries do not match total/);
 });
 
