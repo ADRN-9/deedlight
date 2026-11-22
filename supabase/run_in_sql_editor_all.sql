@@ -7604,6 +7604,12 @@ begin
   where u.id = v_job.user_id
   for share;
 
+  v_now := clock_timestamp();
+  if v_job.claim_expires_at <= v_now then
+    raise exception 'Delivery claim expired during final provider authorization.'
+      using errcode = '42501';
+  end if;
+
   if not found or v_current_email is distinct from v_expected_email then
     update public.delivery_ledger
     set state = 'cancelled',
