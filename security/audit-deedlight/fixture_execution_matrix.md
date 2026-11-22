@@ -21,7 +21,7 @@ All scenario setup SQL is fixture-only and MUST NOT be applied to Production. Ca
 
 ## Guardrails and operator preflight
 
-- The mutating runner is restricted to the dedicated GitHub Actions branch workflow and verifies a single local Docker `postgres:16` container actually publishing port 5432; it refuses local manual execution and libpq override variables. A compromised workflow can still defeat safeguards; do not repurpose the runner or use a tunneled/server-shared database.
+- The mutating runner is restricted to the dedicated GitHub Actions branch workflow and verifies a single local Docker `postgres:16.16` container actually publishing port 5432; it refuses local manual execution and libpq override variables. A compromised workflow can still defeat safeguards; do not repurpose the runner or use a tunneled/server-shared database.
 - Prepare a clean Git checkout at the exact reviewed PR head. Verify source files by SHA before use. Do not borrow another project's credentials or fixture data.
 - Ensure environment contains no `DATABASE_URL`, `SUPABASE_*` secrets or provider keys. Use only test-time `PGPASSWORD` for the disposable server. `PGHOST=127.0.0.1 PGPORT=5432 PGUSER=postgres` are required.
 - Read the scripts and explicitly acknowledge destructive temporary database setup; the runner uses `createdb` and `dropdb` on per-case synthetic databases.
@@ -43,3 +43,14 @@ The actual `assert_fixture_result.py` CLI is invoked by unit tests using synthet
 ## C164 additional invariants
 
 The audit checks the CLI history table's catalog shape only: relation kind, `version` type/nullability and single-column primary-key membership. It never queries `supabase_migrations.schema_migrations` rows. The checker enforces `migration_history:recorded_versions=UNKNOWN` and `actual.queried=false` for all twelve cases. A valid metadata shape is not evidence that any migration version was applied or that the live schema matches migration history.
+
+
+## C249 — disposable database lifecycle and parallel isolation regression
+
+Before the twelve catalog fixtures, CI runs `test_disposable_postgres_lifecycle.sh` against the same dedicated PostgreSQL 16.16 service. It starts two concurrent invocations for the same fixture case and proves that their run/attempt/case/PID/nonce-derived database names and output directories differ. It releases one process normally and confirms the sibling database remains intact; it then sends TERM to the other process and confirms its own database is removed. A separate child exits with status 23 and must also leave no database behind.
+
+The test creates an orphaned marked database and an unmarked database simulating interruption between database creation and comment recording; the run-scoped fallback sweep removes both only when the owner and full run/attempt/case/PID/nonce identity match. It also supplies a deliberately mismatched marker and proves direct cleanup refuses to drop that database. The test removes that synthetic foreign-marker fixture explicitly after verifying the refusal. Final run cleanup asserts that the current workflow run/attempt has zero remaining database names.
+
+The runner uses a database comment marker containing the exact workflow run ID, attempt, fixture case, process ID and fresh nonce. Cleanup verifies both the postgres owner and marker before using `dropdb --force`. If comment recording is interrupted, an unmarked database is removable only when its complete name exactly matches the same run/attempt/case/PID/nonce identity; no prefix-only drop is allowed. EXIT, INT, TERM and HUP handlers are installed before `createdb`, so the former gap between successful creation and setting a cleanup flag no longer exists. Result directories use the same invocation namespace to prevent concurrent same-case log overwrites.
+
+The workflow's PostgreSQL service is job-scoped, not a shared service across CI jobs. Its image and runtime are pinned to `postgres:16.16`. An `if: always()` final sweep handles ordinary failures and cancellations when the runner remains available; if the runner is lost or forcibly terminated before that step can execute, GitHub Actions removes the job-scoped service container. No shared/self-hosted PostgreSQL target is supported by this runner.

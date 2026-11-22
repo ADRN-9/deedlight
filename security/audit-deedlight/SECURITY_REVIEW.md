@@ -62,3 +62,12 @@ The Cycle 16 corrections were committed on PR #11 and exercised in the Cycle 18 
 - No audit suppression, threshold weakening, forced downgrade or Production action is authorized.
 
 - Final PR Validation `44503112404` and disposable PostgreSQL 16 audit `44503099485` both passed on exact head `63e2eefca7578074bee7e5744a91845aff4c501e`. The moderate-or-higher npm audit reports zero vulnerabilities; the dependency resolution guard passes. The audit workflow verified 25 manifest entries, 22 Python tests and all 12 PostgreSQL fixtures.
+
+
+## C249 disposable PostgreSQL lifecycle and isolation
+
+The CI service is pinned to PostgreSQL 16.16, matching the observed PostgreSQL 16.16 runtime in the previous exact-head audit run. Each GitHub Actions job receives its own service container. Within a job, every fixture database and result directory is further namespaced by workflow run ID, run attempt, case, process ID and fresh nonce.
+
+Every created database receives a comment marker. If interruption occurs after database creation but before that comment is recorded, cleanup accepts an unmarked database only when its owner is `postgres` and its complete run/attempt/case/PID/nonce database name exactly matches the marker identity. A mismatched or unknown resource is left untouched and causes failure. Owned databases are dropped with PostgreSQL 16's `dropdb --force`, then queried again to prove absence. The runner installs EXIT, INT, TERM and HUP cleanup handling before database creation, eliminating the prior `createdb`/boolean-flag race.
+
+A final `if: always()` cleanup step removes only databases matching the current workflow run/attempt namespace and exact per-database marker or the exact unmarked-create identity, then asserts zero remain. A hard runner/VM loss cannot execute shell traps; the job-scoped service container teardown is the final cleanup boundary. The C249 lifecycle regression exercises concurrent same-case invocations, sibling database survival, normal exit cleanup, nonzero exit cleanup, TERM cleanup, marked and unmarked orphan sweeps, and refusal to drop a mismatched marker. These tests execute only against the disposable PostgreSQL 16.16 CI service.

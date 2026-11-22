@@ -7,7 +7,7 @@ SRC="${DEEDLIGHT_SOURCE_REPO:-}"
 SHA="c983e2ed8b93c935139c935343261570ecea6978"
 CASE="${1:-}"
 if [[ ! "$CASE" =~ ^(A|B|C|D|E|F|G|H|I|J|K|L)$ ]]; then
-  echo 'Specify one fixture case A-J' >&2; exit 2
+  echo 'Specify one fixture case A-L' >&2; exit 2
 fi
 if [[ "${DEEDLIGHT_DISPOSABLE_ACK:-}" != 'I_ACCEPT_DISPOSABLE_DATABASE_DELETION' ]]; then
   echo 'Missing explicit synthetic database deletion acknowledgement' >&2; exit 2
@@ -15,60 +15,35 @@ fi
 if [[ -z "$SRC" ]] || [[ "$(git -C "$SRC" rev-parse HEAD 2>/dev/null || true)" != "$SHA" ]]; then
   echo "Fixture source must be the exact reviewed commit $SHA" >&2; exit 2
 fi
-# GitHub-hosted disposable postgres:16 service only. Localhost tunnels are not proof.
+# GitHub-hosted disposable postgres:16.16 service only. Localhost tunnels are not proof.
 if [[ "${GITHUB_ACTIONS:-}" != true || "${GITHUB_REPOSITORY:-}" != ADRN-9/deedlight
    || "${GITHUB_REF:-}" != refs/heads/security/deedlight-audit-fixtures-c18
    || "${DEEDLIGHT_AUDIT_CI_ONLY:-}" != true ]]; then
   echo 'Fixtures require the approved GitHub Actions disposable workflow' >&2
   exit 2
 fi
-# libpq environment variables can override or redirect explicit host flags.
-for envname in PGHOSTADDR PGSERVICE PGSERVICEFILE PGSYSCONFDIR PGPASSFILE PGOPTIONS PGDATABASE \
-  PGSSLMODE PGSSLCERT PGSSLKEY PGSSLROOTCERT PGSSLCRL PGREQUIRESSL PGGSSENCMODE \
-  PGTARGETSESSIONATTRS PGCONNECT_TIMEOUT PGCHANNELBINDING PGAPPNAME; do
-  if [[ -n "${!envname:-}" ]]; then echo "Refusing libpq override $envname" >&2; exit 2; fi
-done
-if [[ "${PGPASSWORD:-}" != postgres ]]; then
-  echo 'Synthetic service password identity mismatch' >&2; exit 2
-fi
-for binary in docker grep; do
-  command -v "$binary" >/dev/null || { echo "Missing $binary: no disposable service proof" >&2; exit 2; }
-done
-mapfile -t disposable_containers < <(docker ps --filter ancestor=postgres:16 --format '{{.ID}}')
-if [[ "${#disposable_containers[@]}" -ne 1 ]]; then
-  echo 'Exactly one running local postgres:16 service container is required' >&2; exit 2
-fi
-if ! docker port "${disposable_containers[0]}" 5432/tcp | grep -Eq '(^|:)5432$'; then
-  echo 'Docker disposable PostgreSQL service is not publishing port 5432' >&2; exit 2
-fi
-if [[ "${PGHOST:-127.0.0.1}" != 127.0.0.1 || "${PGPORT:-5432}" != 5432 || "${PGUSER:-postgres}" != postgres ]]; then
-  echo 'Fixture host/port/user mismatch' >&2; exit 2
-fi
-for envname in DATABASE_URL SUPABASE_URL SUPABASE_PROJECT_REF SUPABASE_SERVICE_ROLE_KEY SUPABASE_DB_PASSWORD SUPABASE_ACCESS_TOKEN RESEND_API_KEY; do
-  if [[ -n "${!envname:-}" ]]; then echo "Refusing $envname in fixture environment" >&2; exit 2; fi
-done
+source "$ROOT/disposable_postgres.sh"
+deedlight_fixture_require_run_scope
 for binary in git psql createdb dropdb python3; do
   command -v "$binary" >/dev/null || { echo "Missing $binary" >&2; exit 2; }
 done
+deedlight_fixture_verify_docker_service
+deedlight_fixture_verify_service
+
 PSQL=(psql -X -At -v ON_ERROR_STOP=1 --host 127.0.0.1 --port 5432 --username postgres)
-DB="deedlight_audit20_${CASE,,}_$BASHPID"
-OUT="${DEEDLIGHT_AUDIT_OUTPUT_DIR:-$ROOT/results/$CASE}"
-mkdir -p "$OUT"
-DB_CREATED=false
-cleanup() {
-  local rc=$?
-  trap - EXIT
-  if [[ "$DB_CREATED" == true ]]; then
-    if ! dropdb --if-exists --host 127.0.0.1 --port 5432 --username postgres "$DB" >/dev/null 2>&1; then
-      echo "ERROR: disposable cleanup failed; investigation required" >&2
-      rc=1
-    fi
-  fi
-  exit "$rc"
-}
-trap cleanup EXIT
-createdb --host 127.0.0.1 --port 5432 --username postgres "$DB"
-DB_CREATED=true
+FIXTURE_PID="$BASHPID"
+FIXTURE_NONCE="$(deedlight_fixture_nonce)"
+DB="$(deedlight_fixture_database_name "$CASE" "$FIXTURE_PID" "$FIXTURE_NONCE")"
+DB_MARKER="$(deedlight_fixture_database_marker "$CASE" "$FIXTURE_PID" "$FIXTURE_NONCE")"
+OUT_ROOT="${DEEDLIGHT_AUDIT_OUTPUT_DIR:-$ROOT/results}"
+OUT="$(deedlight_fixture_output_path "$OUT_ROOT" "$CASE" "$FIXTURE_PID" "$FIXTURE_NONCE")"
+mkdir -p "$OUT_ROOT"
+mkdir "$OUT"
+export DEEDLIGHT_FIXTURE_DB_NAME="$DB"
+export DEEDLIGHT_FIXTURE_DB_MARKER="$DB_MARKER"
+deedlight_fixture_install_cleanup_traps
+deedlight_fixture_create_database "$DB" "$DB_MARKER"
+printf 'Disposable database: %s\nFixture output: %s\n' "$DB" "$OUT"
 psql_db() { "${PSQL[@]}" --dbname "$DB" "$@"; }
 psql_db --file "$SRC/scripts/test-gentle-delivery-transport.sql" >"$OUT/fixture-setup.log"
 # Synthetic fixture adapter only: source auth fixture predates migration 022's columns.

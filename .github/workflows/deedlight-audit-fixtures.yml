@@ -1,4 +1,4 @@
-name: DeedLight catalog audit - disposable PostgreSQL 16
+name: DeedLight catalog audit - disposable PostgreSQL 16.16
 
 on:
   push:
@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 25
     services:
       postgres:
-        image: postgres:16
+        image: postgres:16.16
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
@@ -53,12 +53,15 @@ jobs:
           test "${PGUSER}" = "postgres"
 
       - name: Install PostgreSQL client
+        id: postgres_service
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update -q
           sudo apt-get install -y postgresql-client
-          psql -X -At --host 127.0.0.1 --port 5432 --username postgres --dbname postgres -c 'show server_version;'
+          server_version="$(psql -X -At --host 127.0.0.1 --port 5432 --username postgres --dbname postgres -c 'show server_version;')"
+          test "$server_version" = "16.16"
+          printf 'Disposable PostgreSQL server version: %s\n' "$server_version"
 
       - name: Check out reviewed delivery-security source
         shell: bash
@@ -84,6 +87,14 @@ jobs:
           python3 -m unittest discover -s security/audit-deedlight/tests -v
           python3 -m json.tool security/audit-deedlight/invariant_inventory.json >/dev/null
           bash -n security/audit-deedlight/run_disposable_fixture.sh
+          bash -n security/audit-deedlight/disposable_postgres.sh
+          bash -n security/audit-deedlight/test_disposable_postgres_lifecycle.sh
+
+      - name: Test concurrent disposable fixture isolation and lifecycle cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash security/audit-deedlight/test_disposable_postgres_lifecycle.sh
 
       - name: Execute twelve isolated PostgreSQL fixtures and strict evidence checks
         shell: bash
@@ -92,6 +103,17 @@ jobs:
           for case in A B C D E F G H I J K L; do
             bash security/audit-deedlight/run_disposable_fixture.sh "$case"
           done
+
+      - name: Clean up and verify this run's disposable databases
+        if: always() && steps.postgres_service.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          source security/audit-deedlight/disposable_postgres.sh
+          deedlight_fixture_require_run_scope
+          deedlight_fixture_verify_docker_service
+          deedlight_fixture_verify_service
+          deedlight_fixture_cleanup_run
 
       - name: Archive sanitized catalog-only fixture evidence
         if: always()
