@@ -519,18 +519,6 @@ BEGIN
 
   v_denied := false;
   BEGIN
-    PERFORM public.remove_own_offering(
-      '00000000-0000-4000-8000-000000000204'
-    );
-  EXCEPTION WHEN insufficient_privilege THEN
-    v_denied := true;
-  END;
-  IF NOT v_denied THEN
-    RAISE EXCEPTION 'Owner removal changed a moderator-hidden Offering.';
-  END IF;
-
-  v_denied := false;
-  BEGIN
     DELETE FROM public.offerings
     WHERE id = '00000000-0000-4000-8000-000000000201';
   EXCEPTION WHEN insufficient_privilege THEN
@@ -645,12 +633,13 @@ RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-000000000102', true);
 
-DO $$
+DO $
 DECLARE
   v_count integer;
   v_rows bigint;
   v_status text;
   v_removed_at timestamptz;
+  v_denied boolean;
 BEGIN
   SELECT count(*) INTO v_count FROM public.saved_lights;
   IF v_count <> 1 OR EXISTS (
@@ -658,6 +647,30 @@ BEGIN
     WHERE user_id = '00000000-0000-4000-8000-000000000101'
   ) THEN
     RAISE EXCEPTION 'Member B Saved Lights isolation changed after Member A removal.';
+  END IF;
+
+  v_denied := false;
+  BEGIN
+    PERFORM public.remove_own_offering(
+      '00000000-0000-4000-8000-000000000204'
+    );
+  EXCEPTION WHEN insufficient_privilege THEN
+    v_denied := true;
+  END;
+  IF NOT v_denied THEN
+    RAISE EXCEPTION 'Owner removal changed a moderator-hidden Offering.';
+  END IF;
+
+  v_denied := false;
+  BEGIN
+    PERFORM public.restore_own_offering(
+      '00000000-0000-4000-8000-000000000204'
+    );
+  EXCEPTION WHEN insufficient_privilege THEN
+    v_denied := true;
+  END;
+  IF NOT v_denied THEN
+    RAISE EXCEPTION 'Owner restore bypassed a moderator-hidden Offering.';
   END IF;
 
   PERFORM public.remove_own_offering(
