@@ -113,7 +113,7 @@ function startWorker(env) {
   const child = spawn(
     "npx",
     ["wrangler", "dev", "--local", "--ip", "127.0.0.1", "--port", "8787", "--config", "wrangler.runtime-smoke.jsonc", "--log-level", "error"],
-    { cwd: root, env, stdio: ["ignore", "pipe", "pipe"] },
+    { cwd: root, env, stdio: ["ignore", "pipe", "pipe"], detached: process.platform !== "win32" },
   );
   let output = "";
   child.stdout.on("data", (chunk) => { output = (output + chunk.toString()).slice(-12000); });
@@ -139,14 +139,28 @@ async function waitForWorker(worker) {
   throw new Error(`Wrangler Worker did not become ready: ${String(lastError)}\n${worker.output}`);
 }
 
+function signalWorker(worker, signal) {
+  if (process.platform !== "win32" && worker.child.pid) {
+    try {
+      process.kill(-worker.child.pid, signal);
+      return;
+    } catch {
+      // Fall back to the direct child if the process group is already gone.
+    }
+  }
+  worker.child.kill(signal);
+}
+
 async function stopWorker(worker) {
-  if (worker.child.exitCode !== null) return;
-  worker.child.kill("SIGTERM");
+  if (worker.child.exitCode !== null || worker.child.signalCode !== null) return;
+  signalWorker(worker, "SIGTERM");
   await Promise.race([
     new Promise((resolveExit) => worker.child.once("exit", resolveExit)),
     delay(10_000),
   ]);
-  if (worker.child.exitCode === null) worker.child.kill("SIGKILL");
+  if (worker.child.exitCode === null && worker.child.signalCode === null) {
+    signalWorker(worker, "SIGKILL");
+  }
 }
 
 function createSessionCookie() {
@@ -328,7 +342,10 @@ async function main() {
     }, null, 2));
   } finally {
     if (worker) await stopWorker(worker);
-    if (mockServer) await new Promise((resolveClose) => mockServer.close(resolveClose));
+    if (mockServer) {
+      mockServer.closeAllConnections();
+      await new Promise((resolveClose) => mockServer.close(resolveClose));
+    }
     writeFileSync(nextConfigPath, originalNextConfig);
     if (existsSync(smokeWranglerConfigPath)) rmSync(smokeWranglerConfigPath);
   }
