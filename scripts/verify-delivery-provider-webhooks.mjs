@@ -7,6 +7,8 @@ const migration = read("supabase/migrations/202611190025_delivery_provider_webho
 const lifecycleMigration = read("supabase/migrations/202611190026_delivery_provider_lifecycle.sql");
 const integrityMigration = read("supabase/migrations/202611200027_delivery_provider_integrity.sql");
 const legacyGuardMigration = read("supabase/migrations/202611210029_delivery_legacy_replay_guard.sql");
+const suppressionSyncMigration = read("supabase/migrations/202611220032_resend_suppression_list_sync.sql");
+const suppressionTests = read("scripts/test-delivery-provider-suppressions.sql");
 const migrationOrderTest = read("scripts/test-delivery-migration-order.sh");
 const aggregate = read("supabase/run_in_sql_editor_all.sql");
 const route = read("app/api/webhooks/resend/route.ts");
@@ -43,6 +45,11 @@ assert(databaseTests.includes("create extension if not exists pgcrypto"), "Migra
 assert(migrationOrderTest.includes("C226 deliberate source drift"));
 assert(migrationOrderTest.includes("Migration 029 source identity drift rejection, atomic rollback and legacy replay compatibility: PASS"));
 assert(aggregate.includes(legacyGuardMigration.trim()), "Migration 029 must be mirrored verbatim in the SQL Editor aggregate");
+assert(aggregate.includes(suppressionSyncMigration.trim()), "Migration 032 must be mirrored verbatim in the SQL Editor aggregate");
+assert(migrationOrderTest.includes("202611220032_resend_suppression_list_sync.sql"));
+assert(migrationOrderTest.includes("scripts/test-delivery-provider-suppressions.sql"));
+assert(databaseTests.includes("202611220032_resend_suppression_list_sync.sql"));
+assert(databaseTests.includes("test-delivery-provider-suppressions.sql"));
 assert(/alter function public\.record_delivery_provider_lifecycle_event\([\s\S]*?rename to _record_delivery_provider_lifecycle_event_fingerprinted_impl/i.test(legacyGuardMigration));
 for (const signature of [
   "record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)",
@@ -85,10 +92,31 @@ const eventTypes = [
   "email.suppressed",
   "email.failed",
 ];
+const suppressionEventTypes = ["suppression.added", "suppression.removed"];
 for (const type of eventTypes) {
   assert(lifecycleMigration.includes(type), "Missing lifecycle event type: " + type);
   assert(parser.includes('"' + type + '"'), "Parser missing lifecycle event type: " + type);
 }
+for (const type of suppressionEventTypes) {
+  assert(suppressionSyncMigration.includes(type), "Migration 032 missing suppression event type: " + type);
+  assert(parser.includes('"' + type + '"'), "Parser missing suppression event type: " + type);
+}
+assert(/provider_email_id drop not null/i.test(suppressionSyncMigration));
+assert(/provider_suppression_id text/i.test(suppressionSyncMigration));
+assert(/create table public\.delivery_provider_suppression_state/i.test(suppressionSyncMigration));
+assert(/create function public\.record_delivery_provider_suppression_event/i.test(suppressionSyncMigration));
+assert(suppressionSyncMigration.includes("pg_advisory_xact_lock(20261119, hashtext(v_email))"));
+assert(suppressionSyncMigration.includes("pg_advisory_xact_lock(20261127, hashtext(p_provider_suppression_id))"));
+assert(suppressionSyncMigration.includes("e.provider_suppression_id = p_provider_suppression_id"));
+assert(suppressionSyncMigration.includes("e.recipient_email <> v_email"));
+assert(suppressionSyncMigration.includes("p_provider_created_at > v_state.provider_created_at"));
+assert(suppressionSyncMigration.includes("suppression_event_timestamp_conflict"));
+assert(suppressionSyncMigration.includes("is_active = true"));
+assert(suppressionSyncMigration.includes("added.event_type = 'suppression.added'"));
+assert(suppressionSyncMigration.includes("added.suppression_origin = 'manual'"));
+assert(suppressionSyncMigration.includes("reason = 'provider_suppressed'"));
+assert(suppressionSyncMigration.includes("p_suppression_origin in ('bounce', 'complaint')"));
+assert(suppressionSyncMigration.includes("when v_state.origin = 'complaint' then v_state.event_id"));
 assert(/add column provider_created_at timestamptz/i.test(lifecycleMigration));
 assert(/add column failure_class text/i.test(lifecycleMigration));
 assert(/create table public\.delivery_provider_lifecycle/i.test(lifecycleMigration));
@@ -179,6 +207,12 @@ for (const value of [
   "email.complained",
   "email.suppressed",
   "email.failed",
+  "suppression.added",
+  "suppression.removed",
+  "providerSuppressionId",
+  "suppressionOrigin",
+  "suppressionSourceId",
+  "suppressionCreatedAt",
   "providerCreatedAt",
   "normalizeFailureClass",
   "suppressionReason",
@@ -204,11 +238,21 @@ assert(tests.includes("rejects malformed diagnostic codes even for unknown provi
 assert(tests.includes("accepts Resend's documented suppression shape without optional diagnostics or reason"));
 assert(routeTests.includes("accepts Resend's documented bounce shape without diagnosticCode"));
 assert(routeTests.includes("accepts Resend's documented suppression shape without optional diagnostics or reason"));
+assert(route.includes("record_delivery_provider_suppression_event"));
+assert(route.includes("p_provider_suppression_id"));
+assert(route.includes("p_suppression_origin"));
+assert(routeTests.includes("persists suppression.added and suppression.removed through the dedicated private RPC"));
+assert(routeTests.includes("rejects malformed signed suppression events before database persistence"));
+assert(routeTests.includes("returns 503 when suppression event persistence reports an integrity conflict"));
 assert(parser.includes('"provider_suppressed"'));
 assert(parser.includes('"Suppressed"'));
 assert(tests.includes("rejects missing or malformed bounce and suppression objects"));
 assert(tests.includes("computes a stable SHA-256 fingerprint"));
 assert(tests.includes("rejects missing common event data"));
+assert(tests.includes("parses official suppression.added and suppression.removed payloads without email tags"));
+assert(tests.includes("accepts documented suppression origins and nullable source IDs"));
+assert(tests.includes("rejects malformed suppression-list schemas and timestamps"));
+assert(tests.includes("ignores unknown provider event types without accepting them as suppression events"));
 assert(tests.includes("normalizes failed-event reasons without retaining provider diagnostics"));
 assert(tests.includes("rejects missing or malformed provider event timestamps"));
 assert(databaseTests.includes("Conflicting duplicate event ID was not recorded as an integrity anomaly."));
@@ -256,6 +300,20 @@ assert(databaseTests.includes("Transient bounce incorrectly suppressed"));
 assert(databaseTests.includes("Suppressed daily recipient reached transport"));
 assert(databaseTests.includes("Complained weekly recipient reached transport"));
 assert(databaseTests.includes("Complaint did not take precedence over a permanent bounce."));
+for (const value of [
+  "Manual provider suppression was not cleared after its matching removal.",
+  "suppression.removed cleared a complaint-origin hold.",
+  "suppression.removed cleared a bounce-origin hold.",
+  "Manual suppression removal cleared an independent complaint.",
+  "Manual suppression removal cleared an independent permanent bounce.",
+  "A removal without its matching add cleared an existing provider suppression.",
+  "Older suppression.added regressed a later removal.",
+  "Older suppression.removed regressed a later addition.",
+  "Equal-time contradictory suppression events did not fail closed.",
+  "Cross-recipient suppression ID reuse was accepted.",
+]) assert(suppressionTests.includes(value), "Missing suppression-list SQL behavior assertion: " + value);
+assert(suppressionTests.includes("'suppression_add_remove_manual_sync','pass'"));
+assert(suppressionTests.includes("'cross_recipient_suppression_id_binding','pass'"));
 assert(databaseTests.includes("Out-of-order event regressed delivered lifecycle evidence."));
 assert(databaseTests.includes("Lifecycle webhook mutated delivery queue, claim or retry state."));
 assert(databaseTests.includes("Provider webhook and integrity tables are directly readable."));
@@ -284,6 +342,9 @@ assert(concurrencyTests.includes("Concurrent contradictory terminal outcomes in 
 assert(concurrencyTests.includes("Concurrent out-of-order lifecycle monotonicity"));
 assert(concurrencyTests.includes("Shared suppression-first transport authorization"));
 assert(concurrencyTests.includes("Shared transport-first suppression ordering"));
+assert(concurrencyTests.includes("Concurrent exact duplicate suppression event: PASS"));
+assert(concurrencyTests.includes("Concurrent conflicting duplicate suppression event: PASS"));
+assert(concurrencyTests.includes("Concurrent cross-recipient suppression ID collision: PASS"));
 assert(pkg.scripts["test:delivery-webhook"] === "node --test scripts/test-delivery-webhook.mjs scripts/test-delivery-webhook-route.mjs");
 assert(workflow.includes("node scripts/verify-delivery-provider-webhooks.mjs"));
 assert(workflow.includes("npm run test:delivery-webhook"));
@@ -292,4 +353,4 @@ assert(workflow.includes("scripts/test-delivery-provider-webhooks.sql"));
 assert(workflow.includes("scripts/test-delivery-provider-webhook-concurrency.sh"));
 assert(workflow.includes('test -z "' + "$" + '{RESEND_WEBHOOK_SECRET:-}"'));
 
-console.log("Resend webhook authenticity, seven-event lifecycle, ordering, suppression and privacy assertions: PASS");
+console.log("Resend webhook authenticity, nine-event lifecycle, suppression ordering, independent holds and privacy assertions: PASS");

@@ -153,3 +153,14 @@ The obsolete two-argument RPC is dropped so it cannot bypass recipient binding. 
 PostgreSQL behavior fixtures prove that a complaint arriving after transport-start authorization and an Auth email change after transport start both cancel the claim before the provider adapter is invoked. These are isolated CI tests, not Production verification.
 
 The final database authorization transaction is the linearization point: a suppression or preference change committed before that gate is observed; changes waiting behind its row/advisory locks proceed after the gate transaction completes. A database transaction cannot recall an external request once its authorization boundary has committed, so each later retry must pass this gate again.
+
+
+## C318 — Resend suppression-list synchronization
+
+Migration `202611220032_resend_suppression_list_sync.sql` adds the official Resend `suppression.added` and `suppression.removed` webhook events as a distinct event family. These events identify provider suppression records, not email deliveries; the Worker routes them to a dedicated RPC and never fabricates an email lifecycle provider ID.
+
+The new private projection is keyed by normalized recipient and ordered by the signed provider event timestamp. Event IDs and payload fingerprints remain globally idempotent across both event families. A suppression-record ID is locked and permanently bound to one recipient. Equal-time contradictory state fails closed as active suppression.
+
+Provider removal clears only a generic manual provider hold after the matching add event has been observed. Bounce and complaint origins remain DeedLight holds after provider removal, and manual removal cannot delete an independently recorded complaint or permanent bounce. A removal received without a matching prior add does not clear a hold.
+
+The provider account must be dedicated to Deedlight because Resend suppression-list events are account/team-wide and do not carry the application tag used by Deedlight email lifecycle events. Production subscription configuration and real provider event delivery remain unverified.

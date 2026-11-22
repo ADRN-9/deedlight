@@ -25,7 +25,10 @@ export type ResendFailureClass =
   | "content_rejected"
   | "unknown";
 
-export type ResendProviderEvent = {
+export type ResendSuppressionEventType = "suppression.added" | "suppression.removed";
+
+export type ResendLifecycleProviderEvent = {
+  kind: "lifecycle";
   eventId: string;
   eventType: ResendLifecycleEventType;
   providerEmailId: string;
@@ -35,6 +38,22 @@ export type ResendProviderEvent = {
   failureClass: ResendFailureClass | null;
   suppressionReason: ResendSuppressionReason | null;
 };
+
+export type ResendSuppressionProviderEvent = {
+  kind: "suppression";
+  eventId: string;
+  eventType: ResendSuppressionEventType;
+  providerSuppressionId: string;
+  recipientEmail: string;
+  suppressionOrigin: "bounce" | "complaint" | "manual";
+  suppressionSourceId: string | null;
+  suppressionCreatedAt: string;
+  providerCreatedAt: string;
+};
+
+export type ResendProviderEvent =
+  | ResendLifecycleProviderEvent
+  | ResendSuppressionProviderEvent;
 
 export type ResendWebhookParseResult =
   | { status: "ignored" }
@@ -207,6 +226,11 @@ const LIFECYCLE_EVENT_TYPES = new Set<ResendLifecycleEventType>([
   "email.failed",
 ]);
 
+const SUPPRESSION_EVENT_TYPES = new Set<ResendSuppressionEventType>([
+  "suppression.added",
+  "suppression.removed",
+]);
+
 export function parseResendProviderEvent(
   value: unknown,
   eventId: string,
@@ -214,6 +238,52 @@ export function parseResendProviderEvent(
   const envelope = recordObject(value);
   if (!envelope || typeof envelope.type !== "string") {
     throw new Error("Invalid Resend webhook payload.");
+  }
+
+  if (SUPPRESSION_EVENT_TYPES.has(envelope.type as ResendSuppressionEventType)) {
+    const data = recordObject(envelope.data);
+    if (!data
+      || typeof data.id !== "string"
+      || data.id.length < 1
+      || data.id.length > MAX_PROVIDER_ID_LENGTH
+      || !/^[\x21-\x7e]+$/.test(data.id)
+      || !Object.hasOwn(data, "source_id")
+      || (data.source_id !== null
+        && (typeof data.source_id !== "string"
+          || data.source_id.length < 1
+          || data.source_id.length > MAX_PROVIDER_ID_LENGTH
+          || !/^[\x21-\x7e]+$/.test(data.source_id)))
+      || typeof data.created_at !== "string") {
+      throw new Error("Invalid Resend suppression-list event.");
+    }
+
+    const recipientEmail = normalizedEmail(data.email);
+    if (!recipientEmail) throw new Error("Invalid Resend suppression recipient.");
+
+    if (data.origin !== "bounce" && data.origin !== "complaint" && data.origin !== "manual") {
+      throw new Error("Invalid Resend suppression origin.");
+    }
+
+    const suppressionCreatedAt = normalizedProviderTimestamp(data.created_at);
+    const providerCreatedAt = normalizedProviderTimestamp(envelope.created_at);
+    if (!suppressionCreatedAt || !providerCreatedAt) {
+      throw new Error("Invalid Resend suppression timestamp.");
+    }
+
+    return {
+      status: "accepted",
+      event: {
+        kind: "suppression",
+        eventId,
+        eventType: envelope.type as ResendSuppressionEventType,
+        providerSuppressionId: data.id,
+        recipientEmail,
+        suppressionOrigin: data.origin,
+        suppressionSourceId: data.source_id as string | null,
+        suppressionCreatedAt,
+        providerCreatedAt,
+      },
+    };
   }
 
   if (!LIFECYCLE_EVENT_TYPES.has(envelope.type as ResendLifecycleEventType)) {
@@ -297,6 +367,7 @@ export function parseResendProviderEvent(
   return {
     status: "accepted",
     event: {
+      kind: "lifecycle",
       eventId,
       eventType: envelope.type as ResendLifecycleEventType,
       providerEmailId: data.email_id,

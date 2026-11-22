@@ -131,19 +131,33 @@ export async function POST(request: Request): Promise<Response> {
       },
     });
 
-    const { data, error } = await client.rpc("record_delivery_provider_lifecycle_event", {
-      p_event_id: result.event.eventId,
-      p_event_type: result.event.eventType,
-      p_provider_email_id: result.event.providerEmailId,
-      p_recipient_email: result.event.recipientEmail,
-      p_provider_created_at: result.event.providerCreatedAt,
-      p_bounce_type: result.event.bounceType,
-      p_failure_class: result.event.failureClass,
-      p_suppression_reason: result.event.suppressionReason,
-      p_payload_fingerprint: payloadFingerprint,
-    });
+    const persisted = result.event.kind === "suppression"
+      ? await client.rpc("record_delivery_provider_suppression_event", {
+        p_event_id: result.event.eventId,
+        p_event_type: result.event.eventType,
+        p_provider_suppression_id: result.event.providerSuppressionId,
+        p_recipient_email: result.event.recipientEmail,
+        p_suppression_origin: result.event.suppressionOrigin,
+        p_suppression_source_id: result.event.suppressionSourceId,
+        p_suppression_created_at: result.event.suppressionCreatedAt,
+        p_provider_created_at: result.event.providerCreatedAt,
+        p_payload_fingerprint: payloadFingerprint,
+      })
+      : await client.rpc("record_delivery_provider_lifecycle_event", {
+        p_event_id: result.event.eventId,
+        p_event_type: result.event.eventType,
+        p_provider_email_id: result.event.providerEmailId,
+        p_recipient_email: result.event.recipientEmail,
+        p_provider_created_at: result.event.providerCreatedAt,
+        p_bounce_type: result.event.bounceType,
+        p_failure_class: result.event.failureClass,
+        p_suppression_reason: result.event.suppressionReason,
+        p_payload_fingerprint: payloadFingerprint,
+      });
 
-    if (error || (data !== true && data !== false)) return response(503);
+    if (persisted.error || (persisted.data !== true && persisted.data !== false)) {
+      return response(503);
+    }
   } catch {
     // Database transport failures must remain retryable and must not leak details.
     return response(503);

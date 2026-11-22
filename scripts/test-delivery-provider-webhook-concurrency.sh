@@ -431,3 +431,113 @@ grep -qx 't' "$tmp/suppression-after-result"
 result="$(psql_scalar "select (transport_started_at is not null)::text || ':' || (select count(*)::text from public.delivery_provider_suppressions where recipient_email='transport-race@example.test') from public.delivery_ledger where user_id='00000000-0000-0000-0000-000000020007'")"
 [[ "$result" == "true:1" ]]
 echo "Shared transport-first suppression ordering: PASS"
+
+
+# Suppression-list exact duplicates serialize on the recipient lock and remain no-ops.
+"${psql_cmd[@]}" >"$tmp/suppression-duplicate-first.log" 2>&1 <<'SQL' &
+begin;
+set role service_role;
+select public.record_delivery_provider_suppression_event(
+  'evt_concurrent_suppression_duplicate','suppression.added','sup_concurrent_duplicate',
+  'concurrent-suppression-duplicate@example.test','manual',null,
+  '2026-11-22T17:00:00Z','2026-11-22T17:01:00Z',repeat('a',64)
+);
+\echo SUPPRESSION_DUPLICATE_LOCK_HELD
+select pg_sleep(2);
+commit;
+reset role;
+SQL
+suppression_duplicate_pid=$!
+wait_for_marker "$suppression_duplicate_pid" "$tmp/suppression-duplicate-first.log" "SUPPRESSION_DUPLICATE_LOCK_HELD"
+suppression_duplicate_result="$(psql_service_scalar "select public.record_delivery_provider_suppression_event(
+  'evt_concurrent_suppression_duplicate','suppression.added','sup_concurrent_duplicate',
+  'concurrent-suppression-duplicate@example.test','manual',null,
+  '2026-11-22T17:00:00Z','2026-11-22T17:01:00Z',repeat('a',64)
+)")"
+wait "$suppression_duplicate_pid"
+[[ "$suppression_duplicate_result" == "f" ]]
+suppression_duplicate_count="$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_concurrent_suppression_duplicate'")"
+suppression_duplicate_state="$(psql_scalar "select is_active::text from public.delivery_provider_suppression_state where recipient_email='concurrent-suppression-duplicate@example.test'")"
+[[ "$suppression_duplicate_count" == "1" ]]
+[[ "$suppression_duplicate_state" == "true" ]]
+echo "Concurrent exact duplicate suppression event: PASS"
+
+# A conflicting duplicate suppression event ID is retained as an integrity anomaly.
+"${psql_cmd[@]}" >"$tmp/suppression-conflict-first.log" 2>&1 <<'SQL' &
+begin;
+set role service_role;
+select public.record_delivery_provider_suppression_event(
+  'evt_concurrent_suppression_conflict','suppression.added','sup_concurrent_conflict',
+  'concurrent-suppression-conflict@example.test','manual',null,
+  '2026-11-22T18:00:00Z','2026-11-22T18:01:00Z',repeat('b',64)
+);
+\echo SUPPRESSION_CONFLICT_LOCK_HELD
+select pg_sleep(2);
+commit;
+reset role;
+SQL
+suppression_conflict_pid=$!
+wait_for_marker "$suppression_conflict_pid" "$tmp/suppression-conflict-first.log" "SUPPRESSION_CONFLICT_LOCK_HELD"
+suppression_conflict_result="$(psql_service_scalar "select public.record_delivery_provider_suppression_event(
+  'evt_concurrent_suppression_conflict','suppression.removed','sup_concurrent_conflict',
+  'concurrent-suppression-conflict@example.test','manual',null,
+  '2026-11-22T18:00:00Z','2026-11-22T18:02:00Z',repeat('c',64)
+)")"
+wait "$suppression_conflict_pid"
+[[ "$suppression_conflict_result" == "__NULL__" ]]
+suppression_conflict_anomaly="$(psql_scalar "select count(*) from public.delivery_provider_integrity_anomalies where event_id='evt_concurrent_suppression_conflict' and anomaly_type='duplicate_event_id_conflict'")"
+suppression_conflict_state="$(psql_scalar "select is_active::text from public.delivery_provider_suppression_state where recipient_email='concurrent-suppression-conflict@example.test'")"
+[[ "$suppression_conflict_anomaly" == "1" ]]
+[[ "$suppression_conflict_state" == "true" ]]
+echo "Concurrent conflicting duplicate suppression event: PASS"
+
+# The same provider suppression ID cannot be rebound to another recipient concurrently.
+"${psql_cmd[@]}" >"$tmp/suppression-cross-first.log" 2>&1 <<'SQL' &
+begin;
+set role service_role;
+select public.record_delivery_provider_suppression_event(
+  'evt_concurrent_suppression_cross_first','suppression.added','sup_concurrent_cross',
+  'concurrent-suppression-first@example.test','manual',null,
+  '2026-11-22T19:00:00Z','2026-11-22T19:01:00Z',repeat('d',64)
+);
+\echo SUPPRESSION_CROSS_ID_LOCK_HELD
+select pg_sleep(2);
+commit;
+reset role;
+SQL
+suppression_cross_first_pid=$!
+wait_for_marker "$suppression_cross_first_pid" "$tmp/suppression-cross-first.log" "SUPPRESSION_CROSS_ID_LOCK_HELD"
+"${psql_cmd[@]}" >"$tmp/suppression-cross-second.log" 2>&1 <<'SQL' &
+set role service_role;
+select public.record_delivery_provider_suppression_event(
+  'evt_concurrent_suppression_cross_second','suppression.removed','sup_concurrent_cross',
+  'concurrent-suppression-second@example.test','manual',null,
+  '2026-11-22T19:00:00Z','2026-11-22T19:02:00Z',repeat('e',64)
+);
+reset role;
+SQL
+suppression_cross_second_pid=$!
+cross_id_waiting="0"
+for _ in {1..100}; do
+  cross_id_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%sup_concurrent_cross%'")"
+  if [[ "$cross_id_waiting" == "1" ]]; then break; fi
+  sleep 0.05
+done
+if [[ "$cross_id_waiting" != "1" ]]; then
+  cat "$tmp/suppression-cross-second.log"
+  echo "Cross-recipient suppression callback did not wait on the suppression-ID advisory lock." >&2
+  exit 1
+fi
+wait "$suppression_cross_first_pid"
+if wait "$suppression_cross_second_pid"; then
+  echo "Cross-recipient suppression ID collision was accepted." >&2
+  exit 1
+fi
+grep -q "Provider suppression correlation does not match." "$tmp/suppression-cross-second.log"
+suppression_cross_events="$(psql_scalar "select count(*) from public.delivery_provider_events where provider_suppression_id='sup_concurrent_cross'")"
+suppression_cross_first="$(psql_scalar "select count(*) from public.delivery_provider_suppression_state where recipient_email='concurrent-suppression-first@example.test' and is_active")"
+suppression_cross_second="$(psql_scalar "select count(*) from public.delivery_provider_suppression_state where recipient_email='concurrent-suppression-second@example.test'")"
+[[ "$suppression_cross_events" == "1" ]]
+[[ "$suppression_cross_first" == "1" ]]
+[[ "$suppression_cross_second" == "0" ]]
+echo "Concurrent cross-recipient suppression ID collision: PASS"

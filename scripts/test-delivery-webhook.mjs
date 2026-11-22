@@ -65,6 +65,21 @@ function event(type, data = {}) {
   };
 }
 
+function suppressionEvent(type, data = {}) {
+  return {
+    type,
+    created_at: "2026-11-22T10:05:00.000Z",
+    data: {
+      id: "resend_suppression_fixture_01",
+      email: "Member@Example.test",
+      origin: "manual",
+      source_id: null,
+      created_at: "2026-11-22T10:00:00.000Z",
+      ...data,
+    },
+  };
+}
+
 test("verifies the raw Svix HMAC signature", async () => {
   const payload = JSON.stringify(event("email.bounced", { bounce: { diagnosticCode: [], message: "Rejected by recipient server.", subType: "General", type: "Permanent" } }));
   assert.equal(await verifyResendWebhookSignature({
@@ -483,4 +498,73 @@ test("rejects missing common event data required by Resend", () => {
   ]) {
     assert.throws(() => parseResendProviderEvent(payload, id));
   }
+});
+
+
+test("parses official suppression.added and suppression.removed payloads without email tags", () => {
+  for (const type of ["suppression.added", "suppression.removed"]) {
+    const parsed = parseResendProviderEvent(suppressionEvent(type), id);
+    assert.equal(parsed.status, "accepted", type);
+    if (parsed.status === "accepted") {
+      assert.equal(parsed.event.kind, "suppression");
+      assert.equal(parsed.event.eventId, id);
+      assert.equal(parsed.event.eventType, type);
+      assert.equal(parsed.event.providerSuppressionId, "resend_suppression_fixture_01");
+      assert.equal(parsed.event.recipientEmail, "member@example.test");
+      assert.equal(parsed.event.suppressionOrigin, "manual");
+      assert.equal(parsed.event.suppressionSourceId, null);
+      assert.equal(parsed.event.suppressionCreatedAt, "2026-11-22T10:00:00.000Z");
+      assert.equal(parsed.event.providerCreatedAt, "2026-11-22T10:05:00.000Z");
+      assert.equal("providerEmailId" in parsed.event, false);
+    }
+  }
+});
+
+test("accepts documented suppression origins and nullable source IDs", () => {
+  for (const [origin, sourceId] of [
+    ["bounce", "resend_email_bounce_01"],
+    ["complaint", "resend_email_complaint_01"],
+    ["manual", null],
+  ]) {
+    const parsed = parseResendProviderEvent(suppressionEvent("suppression.added", {
+      origin,
+      source_id: sourceId,
+    }), id);
+    assert.equal(parsed.status, "accepted", origin);
+    if (parsed.status === "accepted") {
+      assert.equal(parsed.event.kind, "suppression");
+      assert.equal(parsed.event.suppressionOrigin, origin);
+      assert.equal(parsed.event.suppressionSourceId, sourceId);
+    }
+  }
+});
+
+test("rejects malformed suppression-list schemas and timestamps", () => {
+  const invalidPayloads = [
+    suppressionEvent("suppression.added", { id: undefined }),
+    suppressionEvent("suppression.added", { email: "not-an-email" }),
+    suppressionEvent("suppression.added", { origin: "unknown" }),
+    suppressionEvent("suppression.added", { source_id: undefined }),
+    suppressionEvent("suppression.added", { source_id: 42 }),
+    suppressionEvent("suppression.added", { source_id: " " }),
+    suppressionEvent("suppression.added", { created_at: "2026-02-30T00:00:00Z" }),
+    suppressionEvent("suppression.added", { created_at: undefined }),
+    suppressionEvent("suppression.added", { id: "x".repeat(256) }),
+    { type: "suppression.removed", created_at: "2026-11-22T10:05:00Z", data: null },
+    { type: "suppression.removed", created_at: "invalid", data: suppressionEvent("suppression.removed").data },
+  ];
+  for (const payload of invalidPayloads) {
+    assert.throws(() => parseResendProviderEvent(payload, id));
+  }
+});
+
+test("ignores unknown provider event types without accepting them as suppression events", () => {
+  assert.deepEqual(
+    parseResendProviderEvent({
+      type: "suppression.updated",
+      created_at: "2026-11-22T10:05:00.000Z",
+      data: suppressionEvent("suppression.added").data,
+    }, id),
+    { status: "ignored" },
+  );
 });

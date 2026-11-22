@@ -54,6 +54,21 @@ function lifecyclePayload(type) {
   return JSON.stringify(payload);
 }
 
+function suppressionPayload(type, overrides = {}) {
+  return JSON.stringify({
+    type,
+    created_at: "2026-11-22T10:05:00.000Z",
+    data: {
+      id: "resend_suppression_route_fixture",
+      email: "Member@Example.test",
+      origin: "manual",
+      source_id: null,
+      created_at: "2026-11-22T10:00:00.000Z",
+      ...overrides,
+    },
+  });
+}
+
 function signedHeaders(payload, eventId = "msg_route_fixture_01") {
   const timestamp = String(Math.floor(Date.now() / 1000));
   const signature = createHmac("sha256", secretBytes)
@@ -281,4 +296,44 @@ test("returns 503 for a persisted integrity anomaly instead of acknowledging it 
   });
   assert.equal(response.status, 503);
   assert.equal(calls.length, 1);
+});
+
+
+test("persists suppression.added and suppression.removed through the dedicated private RPC", async () => {
+  for (const type of ["suppression.added", "suppression.removed"]) {
+    const eventId = "msg_route_" + type.replaceAll(".", "_");
+    const { response, calls } = await invoke(suppressionPayload(type), { eventId });
+    assert.equal(response.status, 204, type);
+    assert.equal(calls.length, 1, type);
+    assert.ok(calls[0].url.endsWith("/rest/v1/rpc/record_delivery_provider_suppression_event"));
+    assert.equal(calls[0].url.includes("/record_delivery_provider_lifecycle_event"), false);
+
+    const body = JSON.parse(calls[0].body);
+    assert.equal(body.p_event_id, eventId);
+    assert.equal(body.p_event_type, type);
+    assert.equal(body.p_provider_suppression_id, "resend_suppression_route_fixture");
+    assert.equal(body.p_recipient_email, "member@example.test");
+    assert.equal(body.p_suppression_origin, "manual");
+    assert.equal(body.p_suppression_source_id, null);
+    assert.equal(body.p_suppression_created_at, "2026-11-22T10:00:00.000Z");
+    assert.equal(body.p_provider_created_at, "2026-11-22T10:05:00.000Z");
+    assert.match(body.p_payload_fingerprint, /^[a-f0-9]{64}$/);
+    assert.equal(calls[0].body.includes("providerEmailId"), false);
+  }
+});
+
+test("rejects malformed signed suppression events before database persistence", async () => {
+  const payload = suppressionPayload("suppression.added", { origin: "unknown" });
+  const { response, calls } = await invoke(payload);
+  assert.equal(response.status, 400);
+  assert.equal(calls.length, 0);
+});
+
+test("returns 503 when suppression event persistence reports an integrity conflict", async () => {
+  const { response, calls } = await invoke(suppressionPayload("suppression.removed"), {
+    databaseBody: "null",
+  });
+  assert.equal(response.status, 503);
+  assert.equal(calls.length, 1);
+  assert.ok(calls[0].url.endsWith("/rest/v1/rpc/record_delivery_provider_suppression_event"));
 });

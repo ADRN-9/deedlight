@@ -2,16 +2,16 @@
 
 ## Scope
 
-Migration 025 established authenticated bounce/complaint suppression and the shared suppression/transport lock. Additive migration 026 extends the server-only `POST /api/webhooks/resend` route to persist all seven delivery lifecycle events. Additive migration 027 adds full-payload idempotency fingerprints, private integrity-anomaly recording, and normalized Resend suppression reasons: `email.sent`, `email.delivered`, `email.delivery_delayed`, `email.bounced`, `email.complained`, `email.suppressed`, and `email.failed`. It does not activate outbound delivery, configure a Production webhook, or send messages.
+Migration 025 established authenticated bounce/complaint suppression and the shared suppression/transport lock. Additive migration 026 extends the server-only `POST /api/webhooks/resend` route to persist all seven email lifecycle events. Additive migration 027 adds full-payload idempotency fingerprints, private integrity-anomaly recording, and normalized Resend suppression reasons. Migration 032 adds the separate `suppression.added` / `suppression.removed` contract without treating suppression-record IDs as email IDs. The complete endpoint accepts seven email lifecycle events plus these two suppression-list events. It does not activate outbound delivery, configure a Production webhook, or send messages.
 
 ## Provider configuration (human-only)
 
 Before a Production rollout, an authorized operator must:
 
 1. Create a Resend webhook endpoint targeting `https://deedlight.com/api/webhooks/resend`.
-2. Subscribe to the seven lifecycle events listed above.
+2. Subscribe to the seven email lifecycle events and both `suppression.added` and `suppression.removed` events. Suppression-list events are account/team-wide and do not carry the `application=deedlight` email tag; use a dedicated Resend account for Deedlight rather than sharing this endpoint with unrelated products.
 3. Store the returned `whsec_` signing secret as the server-only Cloudflare secret `RESEND_WEBHOOK_SECRET`.
-4. Confirm the webhook belongs to the Resend account used by Deedlight and that outbound events include the `application=deedlight` tag.
+4. Confirm the webhook belongs to a Resend account dedicated to Deedlight. Email lifecycle events must include the `application=deedlight` tag; suppression-list events are account-wide and intentionally do not require that tag.
 5. Send a deliberately authorized, synthetic/provider-test event only after the Production canary approval and verify webhook, database and provider-dashboard evidence.
 
 Do not put the signing secret in `NEXT_PUBLIC_*`, source control, client configuration, ordinary logs, or chat. Webhook processing also requires server-side `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. The inbound endpoint intentionally remains available while `DELIVERY_ENABLED=false`; the outbound kill switch must not disable safety intake.
@@ -22,7 +22,7 @@ Do not put the signing secret in `NEXT_PUBLIC_*`, source control, client configu
 - HMAC-SHA256 v1 signatures are verified using the base64 key in the `whsec_` secret.
 - Timestamps more than five minutes in the past or future are rejected.
 - The request body is streamed with a 64 KiB maximum.
-- Only sends tagged `application=deedlight` are processed; unrelated Resend events are acknowledged without changing Deedlight data.
+- Email lifecycle events are processed only when tagged `application=deedlight`; suppression-list events are account-wide and are processed without that email-only tag. Other unrelated Resend event types are acknowledged without changing Deedlight data.
 - The provider event ID is the database primary key. Exact signed-body replays are idempotent no-ops, including concurrent duplicate deliveries. A reused event ID with conflicting normalized fields, or different fingerprints when both are present, records an integrity anomaly, preserves the original event and suppression state, and returns a retryable failure.
 - A SHA-256 fingerprint of the exact signed request body supports full-payload comparison for events that have one. Rows created before migration 027 and trusted legacy RPC calls may have no fingerprint (and historical suppression rows may have no normalized suppression reason). For those rows, the RPC compares every field available to the older schema and treats missing new metadata as unknown; it never fabricates a digest or overwrites the original event. Two present, unequal fingerprints remain a conflict. Raw webhook bodies and provider diagnostics are not stored.
 - Provider `created_at` is preserved as `provider_created_at`; `received_at` is assigned by PostgreSQL at receipt.
@@ -63,8 +63,48 @@ The lifecycle RPC does not read or mutate `delivery_ledger`, queue state, claim 
 
 ## Automated evidence
 
-CI exercises parser and route handling for all seven event types, raw-body HMAC authenticity, timestamp validation, malformed payloads, normalized failure classes, event-ID replay, PostgreSQL lifecycle persistence, provider/receipt timestamps, out-of-order and concurrent events, cross-recipient provider-email-ID collision rollback, complaint precedence, shared suppression/transport locking, RLS/table grants, and the no-queue-mutation invariant. Provider calls in CI use fake fetch and synthetic local PostgreSQL fixtures only; no real provider email is sent. The route also maps thrown Supabase client/database transport exceptions to an empty-body 503; a route regression fixture explicitly rejects the database fetch and verifies this retryable response.
+CI exercises parser and route handling for all seven email lifecycle events and both suppression-list events, raw-body HMAC authenticity, timestamp validation, malformed payloads, normalized failure classes, event-ID replay, PostgreSQL lifecycle and suppression-state persistence, provider/receipt timestamps, out-of-order and concurrent events, cross-recipient provider-email-ID and suppression-ID collision rollback, complaint/bounce precedence, shared suppression/transport locking, RLS/table grants, and the no-queue-mutation invariant. Provider calls in CI use fake fetch and synthetic local PostgreSQL fixtures only; no real provider email is sent. The route also maps thrown Supabase client/database transport exceptions to an empty-body 503; a route regression fixture explicitly rejects the database fetch and verifies this retryable response.
 
 ## Production status
 
 The route, migration and CI tests are repository changes only. Production webhook creation, secret configuration, provider event delivery, actual suppression behavior, canary evidence, Cron operation and the Production kill-switch exercise remain unverified and NO-GO.
+
+
+## Managed suppression-list events (migration 032)
+
+Resend's current OpenAPI schema defines both `suppression.added` and `suppression.removed` as the standard webhook envelope (`type`, `created_at`, `data`). The required `data` fields are:
+
+- `id`: provider suppression-record ID (not an email ID)
+- `email`: suppressed recipient address
+- `origin`: exactly `bounce`, `complaint`, or `manual`
+- `source_id`: required but nullable; references the email event for bounce/complaint entries and is null for manual entries
+- `created_at`: creation timestamp of the suppression record
+
+The envelope `created_at` is the event timestamp used for ordering; `data.created_at` is retained separately as the original suppression-record creation time. The parser validates the published fields, normalizes the recipient, rejects malformed known suppression events, and does not require the email-only `application=deedlight` tag. Unknown event types remain ignored.
+
+References: [Resend suppression-list changelog](https://resend.com/changelog/suppression-list-support) and [Resend official OpenAPI webhook schemas](https://github.com/resend/resend-openapi/blob/main/resend.yaml).
+
+### Persistence and ordering
+
+Migration 032 extends the existing private provider-event ledger with nullable `provider_email_id` only for suppression-list events and separate suppression-record ID/origin/source/creation fields. The event ID remains globally unique across email and suppression event types; the exact signed-body SHA-256 fingerprint is mandatory for new suppression events.
+
+A separate private `delivery_provider_suppression_state` projection tracks the latest provider state per normalized recipient. Ingestion acquires the same per-recipient advisory lock as delivery authorization and webhook lifecycle ingestion, then a distinct suppression-ID advisory lock. A suppression ID is permanently bound to one recipient. Provider event time, not webhook receipt order, determines the projection. Older events are retained in history but cannot regress the current state. Equal-time contradictory add/remove or ID/origin states are recorded as integrity anomalies and fail closed as active suppression.
+
+The route uses a dedicated service-role-only `record_delivery_provider_suppression_event` RPC. It never maps a suppression-record ID into `provider_email_id`, never writes a fake email lifecycle projection, and never mutates the delivery queue, claims or retry counters. Private tables remain inaccessible to browser roles and service_role direct table reads.
+
+### Removal policy — independent DeedLight holds are never cleared
+
+- `suppression.added` with origin `manual` establishes a provider-level `provider_suppressed` hold.
+- `suppression.added` with origin `bounce` or `complaint` establishes the corresponding permanent-bounce or complaint hold.
+- `suppression.removed` with origin `manual` may clear only the generic provider-level hold, and only after the matching `suppression.added` record has been observed. A removal received before its add is retained; when the older matching add later arrives, the event-time projection remains removed and the generic provider hold can then be cleared.
+- A removal event without its matching prior manual add is not authority to clear an existing provider hold. This deliberately fails closed if the endpoint was subscribed too late or provider event history is incomplete.
+- A `suppression.removed` event whose origin is `bounce` or `complaint` never clears that protection. Those origins are retained as DeedLight's independent permanent-bounce/complaint holds, including when their event arrives out of order.
+- Existing `email.bounced`, `email.complained`, and reasoned `email.suppressed` protections keep their existing precedence. The removal path deletes only a `provider_suppressed` row; it never deletes `complaint` or `permanent_bounce`.
+
+The policy is intentionally stricter than mirroring Resend's current list blindly: provider removal is not consent to contact someone whose address has independently complained or permanently bounced.
+
+### Production setup and remaining evidence
+
+The authorized Resend operator must subscribe the deployed endpoint to both new suppression events, confirm the endpoint belongs to Deedlight's dedicated provider account, and verify signed test events for manual add/remove, bounce-origin and complaint-origin records. Confirm the provider dashboard list and the private database state agree for each controlled test. Do not manually remove a complaint/bounce hold merely to make the provider and local projections match.
+
+CI uses synthetic PostgreSQL fixtures and signed fake HTTP requests only. It does not prove Production webhook subscriptions, signing-secret correctness, event delivery/retry behavior, account isolation, or actual provider suppression-list synchronization. Those remain Production-only rollout gates.
