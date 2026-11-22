@@ -133,6 +133,19 @@ VALUES (
   'hidden'
 );
 
+INSERT INTO public.daily_posts (
+  date, slug, title, reflection, daily_action, status, published_at
+)
+VALUES (
+  current_date,
+  'c296-privacy-test-daily-post',
+  'C296 privacy test Daily Light',
+  'Synthetic Daily Light row used only by the privacy database test.',
+  'No action; this fixture exists only inside the test transaction.',
+  'published',
+  now()
+);
+
 INSERT INTO public.daily_reflections (
   user_id, daily_post_id, reflection_text, is_private
 )
@@ -142,8 +155,7 @@ SELECT
   'C296_PRIVATE_DAILY_REFLECTION_SENTINEL',
   true
 FROM public.daily_posts dp
-ORDER BY dp.created_at
-LIMIT 1;
+WHERE dp.slug = 'c296-privacy-test-daily-post';
 
 DO $$
 BEGIN
