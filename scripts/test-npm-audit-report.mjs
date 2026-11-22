@@ -92,8 +92,8 @@ test("rejects package severity counts that disagree with metadata", () => {
 
 test("rejects missing or malformed report sections", () => {
   assert.throws(() => validateNpmAuditReport(null), /JSON object/);
-  assert.throws(() => validateNpmAuditReport({ vulnerabilities: {} }), /metadata.vulnerabilities is missing/);
-  assert.throws(() => validateNpmAuditReport({ metadata: { vulnerabilities: cleanReport().metadata.vulnerabilities } }), /vulnerabilities must be an object/);
+  assert.throws(() => validateNpmAuditReport({ auditReportVersion: 2, vulnerabilities: {} }), /metadata.vulnerabilities is missing/);
+  assert.throws(() => validateNpmAuditReport({ auditReportVersion: 2, metadata: { vulnerabilities: cleanReport().metadata.vulnerabilities } }), /vulnerabilities must be an object/);
   assert.throws(() => parseNpmAuditJson(""), /empty report/);
   assert.throws(() => parseNpmAuditJson("{"), /malformed JSON/);
 });
