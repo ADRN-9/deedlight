@@ -171,9 +171,12 @@ db_url() {
 }
 
 reset_db() {
-  local db="$1"
+  local db="$1" database_owner
   dropdb --if-exists --host "$DB_HOST" --port "$DB_PORT" --username "$DB_USER" "$db" >/dev/null 2>&1 || true
-  createdb --host "$DB_HOST" --port "$DB_PORT" --username "$DB_USER" "$db"
+  createdb --host "$DB_HOST" --port "$DB_PORT" --username "$DB_USER" --owner "$DB_USER" "$db"
+  database_owner="$(psql_db "$db" -Atqc "select pg_get_userbyid(datdba) from pg_database where datname = current_database()")"
+  [[ "$database_owner" == "$DB_USER" ]] || die "Disposable database $db has unexpected owner ${database_owner:-unknown}; expected $DB_USER."
+  printf 'Disposable database owner verified: database=%s owner=%s\\n' "$db" "$database_owner"
   psql_db "$db" <<'SQL'
 create extension if not exists pgcrypto;
 do $roles$

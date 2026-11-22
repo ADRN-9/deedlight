@@ -32,7 +32,11 @@ case "${0##*/}" in
     [[ "$#" -eq 6 && "$1" == "inspect" && "$2" == "--type" && "$3" == "container" && "$4" == "--format" ]] || exit 96
     [[ "$5" == '{{.Id}}|{{.Config.Image}}|{{.State.Running}}|{{len .NetworkSettings.Networks}}|{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' ]] || exit 96
     [[ "$6" == "${POSTGRES_SERVICE_CONTAINER_ID:-}" ]] || exit 96
-    printf '%s\n' "${DEEDLIGHT_TEST_DOCKER_INSPECT_OUTPUT:?}"
+    if [[ "${DEEDLIGHT_TEST_DOCKER_INSPECT_EXIT_CODE:-0}" != "0" ]]; then
+      printf 'mock docker inspect failed\\n' >&2
+      exit "${DEEDLIGHT_TEST_DOCKER_INSPECT_EXIT_CODE}"
+    fi
+    printf '%s\\n' "${DEEDLIGHT_TEST_DOCKER_INSPECT_OUTPUT-}"
     exit 0
     ;;
   psql)
@@ -95,6 +99,37 @@ run_rejected_override PGOPTIONS "-c application_name=production" options_overrid
 run_rejected_override PGTARGETSESSIONATTRS "read-write" target_session_override
 run_rejected_override PGPASSFILE "$TMP/production.pgpass" password_file_override
 run_rejected_override PGSSLMODE "require" ssl_mode_override
+
+
+run_rejected_docker_inspect_failure() {
+  local log="$TMP/docker-inspect-failure.log" status=0
+  local -a calls
+  : > "$CALL_LOG"
+  env -i \
+    "PATH=$TEST_PATH" "HOME=$TMP/home" \
+    GITHUB_ACTIONS=true \
+    GITHUB_REPOSITORY=ADRN-9/deedlight \
+    GITHUB_JOB=delivery_migration_order_database_behavior \
+    GITHUB_EVENT_NAME=pull_request \
+    DELIVERY_ENABLED=false \
+    "POSTGRES_SERVICE_CONTAINER_ID=$TEST_CONTAINER_ID" \
+    "DEEDLIGHT_TEST_DOCKER_INSPECT_EXIT_CODE=42" \
+    "DEEDLIGHT_TEST_DOCKER_INSPECT_OUTPUT=$TEST_CONTAINER_ID|postgres:16.16|true|1|172.18.0.2" \
+    "DEEDLIGHT_SAFETY_CALL_LOG=$CALL_LOG" \
+    bash "$TARGET_SCRIPT" > "$log" 2>&1 || status=$?
+
+  [[ "$status" -ne 0 ]] || fail "Docker inspect failure was accepted."
+  grep -Fq "Docker could not inspect the expected PostgreSQL service container" "$log" || {
+    cat "$log" >&2
+    fail "Docker inspect failure did not produce an explicit fail-closed error."
+  }
+  mapfile -t calls < <(cut -f1 "$CALL_LOG")
+  [[ "${#calls[@]}" -eq 1 && "${calls[0]}" == "docker" ]] || {
+    cat "$CALL_LOG" >&2
+    fail "Docker inspect failure invoked PostgreSQL, Supabase CLI, dropdb, createdb, or another command."
+  }
+  printf 'Docker inspect nonzero exit rejected before PostgreSQL, Supabase CLI, dropdb, or createdb: PASS\\n'
+}
 
 run_rejected_docker_metadata() {
   local metadata="$1" label="$2" log="$TMP/$2.log" status=0
@@ -180,12 +215,95 @@ run_rejected_backend_address() {
 }
 
 run_rejected_missing_container_id
+run_rejected_docker_inspect_failure
 run_rejected_docker_metadata "$TEST_CONTAINER_ID|postgres:16.15|true|1|172.18.0.2" wrong_image
 run_rejected_docker_metadata "$TEST_CONTAINER_ID|postgres:16.16|false|1|172.18.0.2" stopped_container
 run_rejected_docker_metadata "$TEST_CONTAINER_ID|postgres:16.16|true|2|172.18.0.2" ambiguous_networks
 run_rejected_docker_metadata "$TEST_CONTAINER_ID|postgres:16.16|true|1|" missing_network_address
 run_rejected_docker_metadata "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff|postgres:16.16|true|1|172.18.0.2" unexpected_container_id
 run_rejected_docker_metadata "$TEST_CONTAINER_ID|postgres:16.16|true|1|300.18.0.2" malformed_network_address
+run_rejected_docker_metadata "" empty_output
+run_rejected_docker_metadata "$TEST_CONTAINER_ID|postgres:16.16|true|1|172.18.0.2"
+
+# The documented local CI values pass the environment guard. Fake commands prevent database mutation.
+: > "$CALL_LOG"
+local_status=0
+env -i \
+  "PATH=$TEST_PATH" "HOME=$TMP/home" \
+  GITHUB_ACTIONS=true \
+  GITHUB_REPOSITORY=ADRN-9/deedlight \
+  GITHUB_JOB=delivery_migration_order_database_behavior \
+  GITHUB_EVENT_NAME=pull_request \
+  DELIVERY_ENABLED=false \
+  PGHOST=127.0.0.1 \
+  PGPORT=5432 \
+  PGUSER=postgres \
+  PGPASSWORD=postgres \
+  "POSTGRES_SERVICE_CONTAINER_ID=$TEST_CONTAINER_ID" \
+  "DEEDLIGHT_TEST_DOCKER_INSPECT_OUTPUT=$TEST_CONTAINER_ID|postgres:16.16|true|1|172.18.0.2" \
+  "DEEDLIGHT_SAFETY_CALL_LOG=$CALL_LOG" \
+  bash "$TARGET_SCRIPT" > "$TMP/local-allowlist.log" 2>&1 || local_status=$?
+
+[[ "$local_status" -eq 97 ]] || {
+  cat "$TMP/local-allowlist.log" >&2
+  fail "Local CI target did not reach the fake createdb boundary (status=$local_status)."
+}
+grep -Fq "Verified isolated PostgreSQL target: client=127.0.0.1:5432/deedlight_migration_order_test user=postgres docker_service_addr=172.18.0.2 server_addr=172.18.0.2" "$TMP/local-allowlist.log" || {
+  cat "$TMP/local-allowlist.log" >&2
+  fail "Exact local CI target was not accepted by the Docker-bound read-only preflight."
+}
+grep -Fq "server_version_num=160016" "$TMP/local-allowlist.log" || fail "Numeric PostgreSQL version evidence was not logged."
+grep -q '^docker' "$CALL_LOG" || fail "The local target preflight did not inspect the expected Docker service container."
+grep -q '^psql' "$CALL_LOG" || fail "The local target preflight did not call the fake psql command."
+grep -q '^createdb' "$CALL_LOG" || fail "The exact local target did not reach the fake createdb boundary."
+grep -Fq -- "--host 127.0.0.1 --port 5432 --username postgres --dbname deedlight_migration_order_test" "$CALL_LOG" || fail "The local preflight did not use explicit loopback connection arguments."
+
+printf 'Exact local CI target accepted; fake createdb prevented any database mutation: PASS\n'
+printf 'Duplicate-007 remote-target safety regressions: PASS\n'
+\n'"unexpected-second-line" multiline_output
+run_rejected_docker_metadata "$TEST_CONTAINER_ID|postgres:16.16|true|1|172.18.0.2"
+
+# The documented local CI values pass the environment guard. Fake commands prevent database mutation.
+: > "$CALL_LOG"
+local_status=0
+env -i \
+  "PATH=$TEST_PATH" "HOME=$TMP/home" \
+  GITHUB_ACTIONS=true \
+  GITHUB_REPOSITORY=ADRN-9/deedlight \
+  GITHUB_JOB=delivery_migration_order_database_behavior \
+  GITHUB_EVENT_NAME=pull_request \
+  DELIVERY_ENABLED=false \
+  PGHOST=127.0.0.1 \
+  PGPORT=5432 \
+  PGUSER=postgres \
+  PGPASSWORD=postgres \
+  "POSTGRES_SERVICE_CONTAINER_ID=$TEST_CONTAINER_ID" \
+  "DEEDLIGHT_TEST_DOCKER_INSPECT_OUTPUT=$TEST_CONTAINER_ID|postgres:16.16|true|1|172.18.0.2" \
+  "DEEDLIGHT_SAFETY_CALL_LOG=$CALL_LOG" \
+  bash "$TARGET_SCRIPT" > "$TMP/local-allowlist.log" 2>&1 || local_status=$?
+
+[[ "$local_status" -eq 97 ]] || {
+  cat "$TMP/local-allowlist.log" >&2
+  fail "Local CI target did not reach the fake createdb boundary (status=$local_status)."
+}
+grep -Fq "Verified isolated PostgreSQL target: client=127.0.0.1:5432/deedlight_migration_order_test user=postgres docker_service_addr=172.18.0.2 server_addr=172.18.0.2" "$TMP/local-allowlist.log" || {
+  cat "$TMP/local-allowlist.log" >&2
+  fail "Exact local CI target was not accepted by the Docker-bound read-only preflight."
+}
+grep -Fq "server_version_num=160016" "$TMP/local-allowlist.log" || fail "Numeric PostgreSQL version evidence was not logged."
+grep -q '^docker' "$CALL_LOG" || fail "The local target preflight did not inspect the expected Docker service container."
+grep -q '^psql' "$CALL_LOG" || fail "The local target preflight did not call the fake psql command."
+grep -q '^createdb' "$CALL_LOG" || fail "The exact local target did not reach the fake createdb boundary."
+grep -Fq -- "--host 127.0.0.1 --port 5432 --username postgres --dbname deedlight_migration_order_test" "$CALL_LOG" || fail "The local preflight did not use explicit loopback connection arguments."
+
+printf 'Exact local CI target accepted; fake createdb prevented any database mutation: PASS\n'
+printf 'Duplicate-007 remote-target safety regressions: PASS\n'
+\r' carriage_return
+run_rejected_docker_metadata "$TEST_CONTAINER_ID|postgres:16.16|true|1|172.18.0.2|unexpected" extra_delimiter
+run_rejected_docker_metadata "$TEST_CONTAINER_ID|postgres:16.16|true|1|172.18.0.2|extra|field" extra_fields
+run_rejected_docker_metadata "$TEST_CONTAINER_ID||true|1|172.18.0.2" missing_image
+run_rejected_docker_metadata "$TEST_CONTAINER_ID|postgres:16.16||1|172.18.0.2" missing_running_state
+run_rejected_docker_metadata "$TEST_CONTAINER_ID|postgres:16.16|true||172.18.0.2" missing_network_count
 run_rejected_backend_address
 
 # The documented local CI values pass the environment guard. Fake commands prevent database mutation.
