@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useOptimistic, useState, useTransition } from "react";
 import { CheckCircle2, Heart, Sparkles, type LucideIcon } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import type { ReactionCounts, ReactionType } from "@/lib/types";
@@ -46,29 +46,26 @@ const REACTIONS: Array<{
 export function ReactionButtons({ offeringId, initialCounts, compact = false }: Props) {
   const pathname = usePathname();
   const router = useRouter();
-  const [counts, setCounts] = useState<ReactionCounts>({
-    bless_count: initialCounts.bless_count ?? 0,
-    inspired_count: initialCounts.inspired_count ?? 0,
-    carried_forward_count: initialCounts.carried_forward_count ?? 0,
-  });
+  const [counts, updateCounts] = useOptimistic<
+    ReactionCounts,
+    { countKey: keyof ReactionCounts; delta: number }
+  >(
+    {
+      bless_count: initialCounts.bless_count ?? 0,
+      inspired_count: initialCounts.inspired_count ?? 0,
+      carried_forward_count: initialCounts.carried_forward_count ?? 0,
+    },
+    (current, update) => ({
+      ...current,
+      [update.countKey]: Math.max(0, current[update.countKey] + update.delta),
+    }),
+  );
   const [active, setActive] = useState<Set<ReactionType>>(new Set());
   const [userId, setUserId] = useState<string | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [pendingType, setPendingType] = useState<ReactionType | null>(null);
   const [isPending, startTransition] = useTransition();
-
-  useEffect(() => {
-    setCounts({
-      bless_count: initialCounts.bless_count ?? 0,
-      inspired_count: initialCounts.inspired_count ?? 0,
-      carried_forward_count: initialCounts.carried_forward_count ?? 0,
-    });
-  }, [
-    initialCounts.bless_count,
-    initialCounts.inspired_count,
-    initialCounts.carried_forward_count,
-  ]);
 
   useEffect(() => {
     let mounted = true;
@@ -145,58 +142,54 @@ export function ReactionButtons({ offeringId, initialCounts, compact = false }: 
     }
 
     const previousActive = new Set(active);
-    const previousCounts = { ...counts };
     const currentlyActive = previousActive.has(reactionType);
     const nextActive = new Set(previousActive);
-    const nextCounts = { ...previousCounts };
 
     if (currentlyActive) {
       nextActive.delete(reactionType);
-      nextCounts[countKey] = Math.max(0, nextCounts[countKey] - 1);
     } else {
       nextActive.add(reactionType);
-      nextCounts[countKey] = nextCounts[countKey] + 1;
     }
 
-    setActive(nextActive);
-    setCounts(nextCounts);
-    setPendingType(reactionType);
+    startTransition(async () => {
+      setPendingType(reactionType);
+      setActive(nextActive);
+      updateCounts({ countKey, delta: currentlyActive ? -1 : 1 });
 
-    try {
-      const supabase = createClient();
-      const response = currentlyActive
-        ? await supabase
-            .from("reactions")
-            .delete()
-            .eq("offering_id", offeringId)
-            .eq("user_id", userId)
-            .eq("reaction_type", reactionType)
-        : await supabase.from("reactions").insert({
-            offering_id: offeringId,
-            user_id: userId,
-            reaction_type: reactionType,
-          });
+      try {
+        const supabase = createClient();
+        const response = currentlyActive
+          ? await supabase
+              .from("reactions")
+              .delete()
+              .eq("offering_id", offeringId)
+              .eq("user_id", userId)
+              .eq("reaction_type", reactionType)
+          : await supabase.from("reactions").insert({
+              offering_id: offeringId,
+              user_id: userId,
+              reaction_type: reactionType,
+            });
 
-      if (response.error) {
-        if (!currentlyActive && response.error.code === "23505") {
-          setActive((current) => new Set([...Array.from(current), reactionType]));
-          setCounts(previousCounts);
-          startTransition(() => router.refresh());
-          return;
+        if (response.error) {
+          if (!currentlyActive && response.error.code === "23505") {
+            setActive((current) => new Set([...current, reactionType]));
+            router.refresh();
+            return;
+          }
+
+          throw response.error;
         }
 
-        throw response.error;
+        router.refresh();
+      } catch (error) {
+        console.error("Reaction update failed", error);
+        setActive(previousActive);
+        setMessage("Sorry, this reaction could not be saved. Please try again.");
+      } finally {
+        setPendingType(null);
       }
-
-      startTransition(() => router.refresh());
-    } catch (error) {
-      console.error("Reaction update failed", error);
-      setActive(previousActive);
-      setCounts(previousCounts);
-      setMessage("Sorry, this reaction could not be saved. Please try again.");
-    } finally {
-      setPendingType(null);
-    }
+    });
   }
 
   const loginHref = `/login?next=${encodeURIComponent(pathname || `/offerings/${offeringId}`)}`;

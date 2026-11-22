@@ -1,5 +1,5 @@
 // OpenNext generates this module at build time.
-// @ts-ignore generated worker module is intentionally absent before packaging
+// @ts-expect-error OpenNext generates this module during packaging
 import handler from "./.open-next/worker.js";
 
 import { runScheduledDelivery } from "./lib/delivery/scheduler.ts";
@@ -13,7 +13,7 @@ type DeliveryExecutionContext = {
   waitUntil(promise: Promise<unknown>): void;
 };
 
-export default {
+const worker = {
   fetch: handler.fetch,
 
   async scheduled(
@@ -30,6 +30,8 @@ export default {
   },
 };
 
+export default worker;
+
 // Required by OpenNext when these cache handlers are generated.
-// @ts-ignore generated worker module is intentionally absent before packaging
+// @ts-expect-error OpenNext generates this module during packaging
 export { DOQueueHandler, DOShardedTagCache } from "./.open-next/worker.js";

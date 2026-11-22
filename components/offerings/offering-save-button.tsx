@@ -1,8 +1,8 @@
 "use client";
 
+import { useOptimistic, useState, useTransition } from "react";
 import { Bookmark, Check } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 type OfferingSaveButtonProps = {
@@ -20,15 +20,11 @@ export function OfferingSaveButton({
 }: OfferingSaveButtonProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const [saved, setSaved] = useState(initialSaved);
-  const [pending, setPending] = useState(false);
+  const [saved, setSaved] = useOptimistic(initialSaved);
+  const [isPending, startTransition] = useTransition();
   const [feedback, setFeedback] = useState<string | null>(null);
 
-  useEffect(() => {
-    setSaved(initialSaved);
-  }, [initialSaved]);
-
-  async function toggleSaved() {
+  function toggleSaved() {
     setFeedback(null);
 
     if (!signedIn) {
@@ -36,52 +32,51 @@ export function OfferingSaveButton({
       return;
     }
 
-    if (pending) return;
+    if (isPending) return;
 
     const previous = saved;
     const next = !previous;
-    setSaved(next);
-    setPending(true);
 
-    try {
-      const supabase = createClient();
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
+    startTransition(async () => {
+      setSaved(next);
 
-      if (userError || !user) {
-        throw userError || new Error("Signed-in member could not be confirmed.");
+      try {
+        const supabase = createClient();
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          throw userError || new Error("Signed-in member could not be confirmed.");
+        }
+
+        const response = previous
+          ? await supabase
+              .from("saved_lights")
+              .delete()
+              .eq("user_id", user.id)
+              .eq("offering_id", offeringId)
+          : await supabase.from("saved_lights").insert({
+              user_id: user.id,
+              offering_id: offeringId,
+            });
+
+        if (response.error && !(response.error.code === "23505" && !previous)) {
+          throw response.error;
+        }
+
+        if (response.error?.code === "23505") {
+          setSaved(true);
+        }
+
+        setFeedback(previous ? "Removed from Saved Lights" : "Saved privately");
+        router.refresh();
+      } catch (error) {
+        console.error("[OfferingSaveButton] save update failed", error);
+        setFeedback("Save could not be updated. Please try again.");
       }
-
-      const response = previous
-        ? await supabase
-            .from("saved_lights")
-            .delete()
-            .eq("user_id", user.id)
-            .eq("offering_id", offeringId)
-        : await supabase.from("saved_lights").insert({
-            user_id: user.id,
-            offering_id: offeringId,
-          });
-
-      if (response.error && !(response.error.code === "23505" && !previous)) {
-        throw response.error;
-      }
-
-      if (response.error?.code === "23505") {
-        setSaved(true);
-      }
-
-      setFeedback(previous ? "Removed from Saved Lights" : "Saved privately");
-      router.refresh();
-    } catch (error) {
-      console.error("[OfferingSaveButton] save update failed", error);
-      setSaved(previous);
-      setFeedback("Save could not be updated. Please try again.");
-    } finally {
-      setPending(false);
-    }
+    });
   }
 
   const Icon = saved ? Check : Bookmark;
@@ -91,9 +86,9 @@ export function OfferingSaveButton({
       <button
         type="button"
         onClick={toggleSaved}
-        disabled={pending}
+        disabled={isPending}
         aria-pressed={saved}
-        aria-busy={pending}
+        aria-busy={isPending}
         className={[
           "focus-ring inline-flex items-center justify-center gap-2 rounded-full border font-extrabold transition active:scale-[0.98] disabled:cursor-wait disabled:opacity-65",
           compact ? "px-3 py-2 text-xs" : "px-5 py-3 text-sm",
@@ -103,7 +98,7 @@ export function OfferingSaveButton({
         ].join(" ")}
       >
         <Icon className="h-4 w-4" />
-        <span>{pending ? "Saving…" : saved ? "Saved" : "Save"}</span>
+        <span>{isPending ? "Saving…" : saved ? "Saved" : "Save"}</span>
       </button>
 
       {feedback ? (
