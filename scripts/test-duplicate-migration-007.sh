@@ -86,7 +86,6 @@ project_id = "deedlight-duplicate-migration-regression"
 [api]
 enabled = false
 [db]
-major_version = 16
 [db.migrations]
 enabled = true
 [db.seed]
