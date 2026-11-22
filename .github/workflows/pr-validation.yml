@@ -71,8 +71,14 @@ jobs:
       - name: Gentle delivery transport behavior
         run: node --test scripts/test-delivery-transport.mjs
 
-      - name: Fail closed on high or critical dependency advisories
-        run: npm audit --audit-level=high
+      - name: Dependency resolution security assertions
+        run: npm run verify:dependency-security
+
+      - name: Dependency verifier prerelease regression tests
+        run: npm run test:dependency-security
+
+      - name: Fail closed on moderate or higher dependency advisories
+        run: npm audit --audit-level=moderate
 
       - name: TypeScript check
         run: npx tsc --noEmit
