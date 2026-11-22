@@ -11,6 +11,7 @@ import { ContentUpdater } from "@opennextjs/aws/plugins/content-updater.js";
 import { build } from "esbuild";
 
 const require = createRequire(import.meta.url);
+const { globSync } = createRequire(join(dirname(require.resolve("@opennextjs/cloudflare/package.json")), "package.json"))("glob");
 const packageJsonPath = require.resolve("@opennextjs/cloudflare/package.json");
 const packageRoot = dirname(packageJsonPath);
 const adapterPackage = JSON.parse(readFileSync(packageJsonPath, "utf8"));
@@ -32,10 +33,50 @@ test("uses the pinned OpenNext release and tests its actual glob call sites", ()
   const loadManifest = readFileSync(join(packageRoot, "dist/cli/build/patches/plugins/load-manifest.js"), "utf8");
 
   assert.match(bundleServer, /globSync\(["']\*\*\/\*\.nft\.json["']/);
+  assert.match(bundleServer, /absolute:\s*true/);
+  assert.match(bundleServer, /windowsPathsNoEscape:\s*true/);
   assert.match(populateCache, /globSync\(path\.join\(opts\.outputDir, ["']cache\/\*\*\/\*["']/);
   assert.match(loadManifest, /await glob\(/);
   assert.match(loadManifest, /windowsPathsNoEscape: true/);
   assert.match(loadManifest, /nodir: true/);
+});
+
+test("matches Next NFT manifests with OpenNext's actual glob package and options", () => {
+  const serverDir = mkdtempSync(join(tmpdir(), "deedlight-opennext-nft-"));
+  try {
+    const expected = [
+      join(serverDir, "app", "[member]", "page.js.nft.json"),
+      join(serverDir, "middleware.js.nft.json"),
+      join(serverDir, "pages", "index.js.nft.json"),
+    ].sort();
+
+    for (const file of expected) {
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, JSON.stringify({ files: ["fixture.js"] }));
+    }
+    writeFileSync(join(serverDir, "app", "page.js.map"), "{}");
+    writeFileSync(join(serverDir, "app", "not-a-trace.json"), "{}");
+
+    const discovered = globSync("**/*.nft.json", {
+      cwd: serverDir,
+      absolute: true,
+      windowsPathsNoEscape: true,
+      ignore: [],
+    }).sort();
+
+    assert.deepEqual(discovered, expected);
+
+    const middlewareExcluded = globSync("**/*.nft.json", {
+      cwd: serverDir,
+      absolute: true,
+      windowsPathsNoEscape: true,
+      ignore: "middleware.js.nft.json",
+    });
+    assert.equal(middlewareExcluded.length, 2);
+    assert.ok(middlewareExcluded.every((file) => !file.endsWith("middleware.js.nft.json")));
+  } finally {
+    rmSync(serverDir, { recursive: true, force: true });
+  }
 });
 
 test("runs OpenNext's real cache-population discovery and path normalization", () => {
