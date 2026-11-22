@@ -125,7 +125,8 @@ test("discovers only real manifests and client manifests through OpenNext's actu
       loaderPath,
       `const _fs = require("node:fs");
 function loadManifest(path) {
-  return JSON.parse((0, _fs.readFileSync)(path, "utf8"));
+  const contents = (0, _fs.readFileSync)(path, "utf8");
+  return path.endsWith("/BUILD_ID") ? contents : JSON.parse(contents);
 }
 function evalManifest(path) {
   return require(path);
