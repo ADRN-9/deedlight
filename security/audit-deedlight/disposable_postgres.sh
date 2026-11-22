@@ -65,8 +65,8 @@ deedlight_fixture_verify_service() {
     return 1
   fi
   identity="$(deedlight_fixture_psql --dbname postgres --command \
-    "SELECT current_database() || '|' || current_user || '|' || current_setting('server_version');")" || return 1
-  if [[ "$identity" != "postgres|postgres|16.16" ]]; then
+    "SELECT current_database() || '|' || current_user || '|' || current_setting('server_version_num');")" || return 1
+  if [[ "$identity" != "postgres|postgres|160016" ]]; then
     echo "Expected the dedicated PostgreSQL 16.16 service; received a different database identity" >&2
     return 1
   fi

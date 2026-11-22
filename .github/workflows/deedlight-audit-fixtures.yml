@@ -65,8 +65,12 @@ jobs:
             printf 'PostgreSQL service version query failed: %s\n' "$server_version" >&2
             exit 1
           fi
-          printf 'Observed disposable PostgreSQL server version: <%s>\n' "$server_version"
-          if [[ "$server_version" != "16.16" ]]; then
+          if ! server_version_num="$(PGCONNECT_TIMEOUT=5 psql --no-password -X -At --host 127.0.0.1 --port 5432 --username postgres --dbname postgres -c "SELECT current_setting('server_version_num');" 2>&1)"; then
+            printf 'PostgreSQL service numeric version query failed: %s\n' "$server_version_num" >&2
+            exit 1
+          fi
+          printf 'Observed disposable PostgreSQL server version: <%s> (server_version_num=%s)\n' "$server_version" "$server_version_num"
+          if [[ "$server_version_num" != "160016" ]]; then
             echo "Expected PostgreSQL 16.16 service" >&2
             exit 1
           fi
