@@ -59,14 +59,41 @@ SQL
 
 # Apply the real migrations needed by the public projections, RLS, reactions,
 # profile privacy, member moderation, Saved Lights, and owner-removal RPCs.
-migrations=(
+migrations_before_daily=(
   supabase/migrations/202607210001_initial_schema.sql
   supabase/migrations/202607210002_rls_policies.sql
   supabase/migrations/202607220003_sprint3_offerings_review.sql
   supabase/migrations/202607260004_sprint4_reactions.sql
   supabase/migrations/202607260005_sprint5_moderation.sql
   supabase/migrations/202607260006_sprint5_admin_edit_hide_hotfix.sql
-  supabase/migrations/202607260007_sprint6_daily_deedlight.sql
+)
+
+for migration in "${migrations_before_daily[@]}"; do
+  echo "Applying ${migration}"
+  "${psql_cmd[@]}" --file "$migration"
+done
+
+# Sprint 6's fallback seed omits the legacy daily_posts.date column, which is
+# NOT NULL in the actual initial schema. A temporary synthetic row keeps that
+# unrelated seed branch from running while the real migration is applied.
+"${psql_cmd[@]}" <<'SQL'
+INSERT INTO public.daily_posts (
+  date, slug, title, reflection, daily_action, status
+)
+VALUES (
+  current_date,
+  'c296-migration-seed-placeholder',
+  'C296 migration placeholder',
+  'Synthetic placeholder used only to exercise the actual Sprint 6 migration.',
+  'No action; this row is removed before the behavior fixtures run.',
+  'published'
+);
+SQL
+
+"${psql_cmd[@]}" --file supabase/migrations/202607260007_sprint6_daily_deedlight.sql
+"${psql_cmd[@]}" -c "DELETE FROM public.daily_posts WHERE slug = 'c296-migration-seed-placeholder';"
+
+migrations_after_daily=(
   supabase/migrations/202607260007_sprint7_pwa_daily_engagement.sql
   supabase/migrations/202608060009_sprint9_profiles_privacy.sql
   supabase/migrations/202608100010_sprint9_2_community_identity_consistency.sql
@@ -77,7 +104,7 @@ migrations=(
   supabase/migrations/202611220023_sprint12_3_private_offering_base_table_access.sql
 )
 
-for migration in "${migrations[@]}"; do
+for migration in "${migrations_after_daily[@]}"; do
   echo "Applying ${migration}"
   "${psql_cmd[@]}" --file "$migration"
 done
