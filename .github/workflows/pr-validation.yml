@@ -349,6 +349,8 @@ jobs:
           version: 3.2.0
 
       - name: Verify duplicate 007 order and CLI migration semantics
+        env:
+          POSTGRES_SERVICE_CONTAINER_ID: ${{ job.services.postgres.id }}
         run: bash scripts/test-duplicate-migration-007.sh
 
   delivery_provider_webhook_database_behavior:
