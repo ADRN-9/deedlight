@@ -105,7 +105,7 @@ deedlight_fixture_create_database() {
 
 deedlight_fixture_database_state() {
   local db="$1" marker="$2"
-  deedlight_fixture_psql --dbname postgres --set=db="$db" --set=marker="$marker" --command="
+  deedlight_fixture_psql --dbname postgres --set=db="$db" --set=marker="$marker" <<'SQL'
 SELECT CASE
   WHEN pg_catalog.pg_get_userbyid(datdba) <> 'postgres' THEN 'foreign'
   WHEN pg_catalog.shobj_description(oid, 'pg_database') = :'marker' THEN 'owned'
@@ -114,7 +114,7 @@ SELECT CASE
   ELSE 'foreign' END
 FROM pg_catalog.pg_database
 WHERE datname = :'db';
-"
+SQL
 }
 
 deedlight_fixture_identity_matches_name() {
@@ -185,11 +185,12 @@ deedlight_fixture_install_cleanup_traps() {
 deedlight_fixture_assert_no_run_databases() {
   local prefix count
   prefix="deedlight_audit20_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}_"
-  count="$(deedlight_fixture_psql --dbname postgres --set=prefix="$prefix" --command="
+  count="$(deedlight_fixture_psql --dbname postgres --set=prefix="$prefix" <<'SQL'
 SELECT count(*)::text
 FROM pg_catalog.pg_database
 WHERE pg_catalog.left(datname, pg_catalog.length(:'prefix')) = :'prefix';
-")" || return 1
+SQL
+)" || return 1
   if [[ "$count" != "0" ]]; then
     echo "Found $count disposable PostgreSQL database(s) left by this workflow run" >&2
     return 1
@@ -197,15 +198,16 @@ WHERE pg_catalog.left(datname, pg_catalog.length(:'prefix')) = :'prefix';
 }
 
 deedlight_fixture_cleanup_run() {
-  local prefix rows db marker case_name pid expected
+  local prefix rows db marker case_name pid nonce expected
   deedlight_fixture_require_run_scope || return 1
   prefix="deedlight_audit20_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}_"
-  rows="$(deedlight_fixture_psql --dbname postgres --field-separator=$'\t' --set=prefix="$prefix" --command="
+  rows="$(deedlight_fixture_psql --dbname postgres --field-separator=$'\t' --set=prefix="$prefix" <<'SQL'
 SELECT datname, COALESCE(pg_catalog.shobj_description(oid, 'pg_database'), '')
 FROM pg_catalog.pg_database
 WHERE pg_catalog.left(datname, pg_catalog.length(:'prefix')) = :'prefix'
 ORDER BY datname;
-")" || return 1
+SQL
+)" || return 1
   if [[ -n "$rows" ]]; then
     while IFS=$'\t' read -r db marker; do
       [[ -n "$db" ]] || continue
