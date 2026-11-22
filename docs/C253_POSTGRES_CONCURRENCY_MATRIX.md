@@ -20,7 +20,7 @@ The only short shell sleeps are polling intervals. No `pg_sleep` SQL barriers ar
 |---|---|
 | Daily consent mutation first | Authorization waits, then cancels |
 | Final authorization first, Daily revocation second | Revocation waits for authorization commit |
-| Weekly consent mutation first | Authorization waits, then cancels |
+| Weekly consent, both lock orderings | First lock holder wins; revocation-first cancels, authorization-first commits before revocation |
 | Profile suspension, both lock orderings | First lock holder wins the serialization boundary |
 | Auth email change, both lock orderings | Stale recipient is cancelled; later change waits |
 | Weekly curation removal, both lock orderings | Removal and authorization serialize |

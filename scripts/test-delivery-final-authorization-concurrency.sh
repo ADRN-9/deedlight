@@ -333,7 +333,8 @@ with fixtures(n, kind, week_start) as (
     (2517, 'daily_reminder', null::date),
     (2518, 'daily_reminder', null::date),
     (2519, 'daily_reminder', null::date),
-    (2520, 'daily_reminder', null::date)
+    (2520, 'daily_reminder', null::date),
+    (2521, 'weekly_newsletter', date '2027-08-09')
 )
 insert into auth.users(id, email, email_confirmed_at)
 select
@@ -344,7 +345,7 @@ from fixtures;
 
 with fixtures(n) as (
   values (2501),(2502),(2503),(2504),(2505),(2506),(2507),(2508),(2509),(2510),
-         (2511),(2512),(2513),(2514),(2515),(2516),(2517),(2518),(2519),(2520)
+         (2511),(2512),(2513),(2514),(2515),(2516),(2517),(2518),(2519),(2520),(2521)
 )
 insert into public.profiles(user_id, is_suspended)
 select ('50000000-0000-0000-0000-' || lpad(n::text, 12, '0'))::uuid, false
@@ -377,7 +378,8 @@ with fixtures(n, kind, week_start) as (
     (2508, 'weekly_newsletter', date '2027-07-12'),
     (2509, 'weekly_newsletter', date '2027-07-19'),
     (2510, 'weekly_newsletter', date '2027-07-26'),
-    (2511, 'weekly_newsletter', date '2027-08-02')
+    (2511, 'weekly_newsletter', date '2027-08-02'),
+    (2521, 'weekly_newsletter', date '2027-08-09')
 )
 insert into public.newsletter_preferences(user_id, weekly_enabled, consented_at, consent_source)
 select
@@ -387,7 +389,7 @@ from fixtures;
 
 insert into public.weekly_goodness_features(week_start)
 values (date '2027-07-05'),(date '2027-07-12'),(date '2027-07-19'),
-       (date '2027-07-26'),(date '2027-08-02')
+       (date '2027-07-26'),(date '2027-08-02'),(date '2027-08-09')
 on conflict (week_start) do nothing;
 
 with fixtures(n, kind, week_start) as (
@@ -404,7 +406,8 @@ with fixtures(n, kind, week_start) as (
     (2514, 'daily_reminder', null::date),(2515, 'daily_reminder', null::date),
     (2516, 'daily_reminder', null::date),(2517, 'daily_reminder', null::date),
     (2518, 'daily_reminder', null::date),(2519, 'daily_reminder', null::date),
-    (2520, 'daily_reminder', null::date)
+    (2520, 'daily_reminder', null::date),
+    (2521, 'weekly_newsletter', date '2027-08-09')
 )
 insert into public.delivery_ledger(
   id, user_id, kind, delivery_key, state, scheduled_for,
@@ -454,6 +457,10 @@ run_auth_lock_first "daily-consent-auth-first" 2502 \
 run_row_lock_first "weekly-consent-first" 2507 \
   "UPDATE public.newsletter_preferences SET weekly_enabled = false, consented_at = null WHERE user_id = '$(user_id 2507)';" \
   "select not weekly_enabled and consented_at is null from public.newsletter_preferences where user_id = '$(user_id 2507)'"
+
+run_auth_lock_first "weekly-consent-auth-first" 2521 \
+  "UPDATE public.newsletter_preferences SET weekly_enabled = false, consented_at = null WHERE user_id = '$(user_id 2521)';" \
+  "select not weekly_enabled and consented_at is null from public.newsletter_preferences where user_id = '$(user_id 2521)'"
 
 run_row_lock_first "profile-suspension-first" 2503 \
   "UPDATE public.profiles SET is_suspended = true WHERE user_id = '$(user_id 2503)';" \
