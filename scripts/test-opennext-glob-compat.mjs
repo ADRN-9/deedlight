@@ -103,7 +103,7 @@ test("discovers only real manifests and client manifests through OpenNext's actu
     writeManifest("required-server-files.json", { version: 1, config: { output: "standalone" } });
     writeManifest("prefetch-hints.json", { hints: ["home"] });
     writeManifest("server/preview-props.json", { preview: true });
-    writeManifest("not-a-manifest.json", { shouldNotAppear: true });
+    writeManifest("not-a-matching-file.json", { shouldNotAppear: true });
 
     const clientManifestPath = join(dotNextDir, "server", "app", "page_client-reference-manifest.js");
     mkdirSync(dirname(clientManifestPath), { recursive: true });
