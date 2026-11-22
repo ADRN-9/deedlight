@@ -296,13 +296,29 @@ update auth.users set email_confirmed_at = null
 where id = '00000000-0000-0000-0000-000000000002';
 set role service_role;
 do $c252_auth$
+declare
+  v_result text;
+  v_confirmed timestamptz;
+  v_state text;
+  v_error text;
 begin
-  if public.authorize_delivery_idempotency_window(
-      '00000000-0000-0000-0000-00000000c911',
-      '00000000-0000-0000-0000-00000000d911',
-      'two@example.test') is distinct from 'cancelled'
+  select email_confirmed_at into v_confirmed
+  from auth.users
+  where id = '00000000-0000-0000-0000-000000000002';
+  v_result := public.authorize_delivery_idempotency_window(
+    '00000000-0000-0000-0000-00000000c911',
+    '00000000-0000-0000-0000-00000000d911',
+    'two@example.test'
+  );
+  select state,error_code into v_state,v_error
+  from public.delivery_ledger
+  where id = '00000000-0000-0000-0000-00000000c911';
+  raise notice 'C252 Auth gate: confirmed %, result %, state %, error %',v_confirmed,v_result,v_state,v_error;
+  if v_confirmed is not null
+    or v_result is distinct from 'cancelled'
+    or v_state is distinct from 'cancelled'
     or not exists (select 1 from public.delivery_ledger where id='00000000-0000-0000-0000-00000000c911'
-      and state='cancelled' and claim_token is null and claim_expires_at is null) then
+      and claim_token is null and claim_expires_at is null) then
     raise exception 'Final provider gate did not cancel an unconfirmed Auth identity.';
   end if;
 end;
