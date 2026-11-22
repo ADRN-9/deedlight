@@ -16,7 +16,7 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     env:
       NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
       NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
@@ -98,6 +98,15 @@ jobs:
 
       - name: Cloudflare packaging build with non-production configuration
         run: npx opennextjs-cloudflare build
+
+      - name: Verify generated Cloudflare artifacts and source maps
+        run: node scripts/verify-cloudflare-build-artifacts.mjs
+
+      - name: Configure loopback Supabase hostname for Worker runtime smoke
+        run: sudo sh -c 'echo "127.0.0.1 auth.supabase.co" >> /etc/hosts'
+
+      - name: Execute generated Worker runtime smoke
+        run: node scripts/test-cloudflare-worker.mjs
 
   sprint12_2_database_behavior:
     runs-on: ubuntu-latest
