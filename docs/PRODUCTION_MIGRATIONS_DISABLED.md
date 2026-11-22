@@ -87,3 +87,150 @@ This PR changes no application runtime, database schema/data, credentials, Envir
 ## Scope and safety
 
 No PR was approved or merged. No workflow was dispatched. No Production database operation, migration, reset, deployment, credential change, repository privilege change, or GitHub Environment change was performed. PR #10 and PR #15 were not modified. Production remains **NO-GO** pending independent acceptance and all required release gates.
+
+
+## C275 — Migration deployment governance investigation (2026-11-22)
+
+This section supersedes earlier snapshot metadata in this document where branch heads, pull-request states, CLI release information, or CI evidence have since changed. It is a governance plan and evidence record, not Production authorization.
+
+### Repository and pull-request snapshot
+
+- Default branch: `main`, exact HEAD `ce82b3fdf1a73510de70e3729a487d4ae00e66e3`, tree `f7ada8719e9e9f4212f3bc53ae9ebb6b012554cc`.
+- GitHub branch metadata reports `protected: false`; the branch protection object reports `enabled: false` and required-check enforcement `off`. The repository rulesets endpoint returns `[]`.
+- The detailed branch-protection read returned HTTP 403 (Resource not accessible by integration). The Environments endpoint is not exposed by the connected GitHub integration. Therefore the saved branch-rule details and Production Environment configuration are **not inspectable here**. No claim is made that a Production Environment is absent or present, or that its reviewers, self-review setting, deployment branches, or secret scopes are configured.
+- Repository metadata reports admin permission for the connected GitHub identity, but the available integration does not expose branch-protection or Environment administration writes. No administrator setting was changed.
+- All requested PRs remain open and unmerged; no submitted GitHub PR reviews were found:
+
+| PR | Current head | State | Base |
+|---|---|---|---|
+| #10 — delivery consent and Production migration workflow | `9072f3b8824ec9618849def1c0832000cd130474` | OPEN / DRAFT | main |
+| #11 — metadata audit and disposable PostgreSQL fixtures | `f5ed62e4417921c8bee1a376fed8bac35897e809` | OPEN / DRAFT | main |
+| #13 — disable legacy Production migration workflow | `ae04e009c4242abd5db1d66d41e65a003e8f73c2` | OPEN / READY | main |
+| #15 — Supabase CLI target security | `1ce6213d1077a64d2a04d49949bb8302e243902a` | OPEN / READY | main |
+
+All four PRs report mergeable. Preserve their existing branches and bases; this investigation does not retarget, merge, close, or rewrite any PR.
+
+### Migration workflow and CLI findings
+
+The current `main` workflow `.github/workflows/supabase-migrations.yml` is manually dispatched. It installs `supabase/setup-cli@v1` with floating `version: latest`, then runs `supabase link --project-ref "$SUPABASE_PROJECT_REF"` followed by `supabase db push`, using repository secret references `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD`, and `SUPABASE_PROJECT_REF`. It declares no `environment: production`, no Environment approval, no explicit Production target authorization, no migration-history acceptance check, and no backup/restore gate. The actual values and scopes of those secrets are not visible.
+
+The root `package.json` on main does not install Supabase CLI as a package. The migration workflow installs it at runtime using `latest`; therefore the current main workflow has no reproducible CLI version.
+
+The official latest stable Supabase CLI release inspected on 2026-11-22 is **v3.2.0**, published 2026-11-16. PR #15 is the existing candidate pin: it pins `supabase/setup-cli` to action commit `1dedf2c611547ede7232d26866dd3c56ab903bbb`, sets `version: 3.2.0` in `config/supabase-cli.json`, and checks `supabase --version` against that file in CI and its wrappers. PR #15's `config/supabase-projects.json` records Production ref `xaipiovflxomcbfwtwmu` as an explicit deny and leaves `approvedNonProductionProjectRefs` empty. Its hosted wrappers deliberately reject Production and verify a non-Production allowlist, linked identity, CLI version, and CLI-resolved dry-run target. Keep that Production deny and empty non-Production allowlist intact.
+
+**CLI v3 target semantics matter:** database commands now target the local stack by default. A hosted push must use an explicit `--remote=<project-ref>`; the CLI's dry-run prints a `Target:` line and can show the migrations without applying them. Therefore both the legacy main workflow and PR #10's current candidate workflow, which call `supabase db push` without `--remote`, do not express an explicit hosted target under current CLI v3 semantics. Their floating `latest` version makes that behavior non-reproducible as well. Do not treat PR #10's `environment: production`, sentinel variable, pre-link guard, or post-link identity check as a complete migration executor: it still floats the CLI, omits the explicit remote selector, and has no accepted migration-history or backup preflight.
+
+There is also a documented **moderate CLI-binary availability advisory**: the pinned v3.2.0 source resolves bundled `smol-toml@1.8.0`, affected by GHSA-r4xh-jqrq-34v2 (quadratic-time TOML parsing; fixed upstream in 1.9.0). PR #15's own `smol-toml@1.9.1` fixes its wrapper parser, not the separate copy bundled inside the CLI binary. Keep v3.2.0 as the currently verified stable pin rather than guessing a newer release, but treat this as an explicit residual risk: never expose Production credentials to an untrusted PR/checkout, and update the CLI pin only after an official patched CLI release is verified with fresh exact-head CI.
+
+References:
+- Supabase CLI v3 behavior: https://supabase.com/changelog/supabase-cli-v3
+- Supabase CLI v3.2.0 release: https://github.com/supabase/cli/releases/tag/v3.2.0
+- CLI db push and dry-run reference: https://supabase.com/docs/reference/cli/supabase-db-push
+- GHSA-r4xh-jqrq-34v2: https://github.com/squirrelchat/smol-toml/security/advisories/GHSA-r4xh-jqrq-34v2
+
+### Required main-branch rules and independent review
+
+The repository owner/administrator must create an **active ruleset for `main`** (or equivalent branch protection) with no routine bypass actors and the following requirements:
+
+1. Require pull requests; prohibit direct pushes, force-pushes, and branch deletion. Enforce the rules for administrators too.
+2. Require **two independent approving reviews** for changes to `supabase/**`, `.github/workflows/**`, `scripts/supabase-cli*`, `config/supabase-*`, and Production migration/reconciliation documents. At least one reviewer must be the designated database/migration owner and another must be an independent security reviewer. For other main changes, require at least one approval from someone other than the author.
+3. Require Code Owner review for the paths above; add a CODEOWNERS mapping to a maintained database/security reviewer team. The PR author cannot satisfy either approval.
+4. Dismiss stale approvals after new commits, require approval of the latest push, require all review conversations resolved, and require the PR branch to be up to date (or use a merge queue with equivalent guarantees).
+5. Require all current PR Validation job checks from the main workflow, with GitHub Actions as the expected source:
+   - `validate`
+   - `sprint12_2_database_behavior`
+   - `delivery_reliability_database_behavior`
+   - `gentle_delivery_transport_database_behavior`
+   - `auth_pgcrypto_database_behavior`
+
+   The check names above are the current five job IDs in main's `pr-validation.yml`; they are not a claim that they currently pass. Once the provider-webhook and migration-order jobs proposed on PR #10 are merged into the default-branch workflow, require `delivery_provider_webhook_database_behavior` and `delivery_migration_order_database_behavior` too. Before any Production migration workflow can be enabled, add a dedicated required `production_migration_preflight` check that validates the approved Production baseline and exact planned migration set. Do not configure a required check that does not yet exist.
+6. Keep the bypass list empty. Record the saved ruleset ID, enforcement mode, required contexts, review count, CODEOWNERS path, and verification timestamp in the rollout tracker.
+
+For Production migration code, the two PR approvals are separate from the operational deployment approval. Reviewers must inspect the actual SQL, migration order, data-loss/lock risks, target guard, CLI version, backup plan, and rollback plan. A passing CI run is not a review or Production authorization.
+
+### Production Environment and credential boundary
+
+The repository owner/administrator must create or verify GitHub Environment `production` and configure:
+
+- Required reviewer(s) from a maintained database/security reviewer team; no author/self approval.
+- Prevent self-review.
+- Deployment branches restricted to **protected `main` only**; no feature branches, tags, or wildcard refs.
+- Production credentials stored only as Environment secrets, never repository- or organization-wide secrets. Remove/revoke legacy `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD`, and `SUPABASE_PROJECT_REF` copies at repository/org scope; rotate any token/password whose prior scope cannot be established.
+- Use least-privilege, project-scoped Supabase access. Keep `PRODUCTION_MIGRATION_ENVIRONMENT_GUARD` as an Environment-only variable. Keep the target ref Environment-scoped (prefer a variable because the ref is an identifier, not a credential) and independently compare it to the reviewed Production target. Keep only `PRODUCTION_SUPABASE_ACCESS_TOKEN` and `PRODUCTION_SUPABASE_DB_PASSWORD` as secrets if the eventual executor needs them.
+- Capture administrator evidence of the saved reviewer list, self-review prevention, branch restrictions, Environment secret/variable names and scopes, and any bypass settings. Never record secret values.
+
+GitHub's native Environment required-reviewer list allows up to six users/teams, but **only one listed reviewer needs to approve**. Therefore use two independent PR approvals for the code review requirement and a separate Environment approval for the deployment decision. If policy requires two Environment approvals specifically, native required reviewers alone do not provide that quorum; add a custom deployment protection rule or another independently enforced approval gate.
+
+The workflow must bind the job to `environment: production` and assert protected main and the expected Environment sentinel as defense in depth. These YAML checks do not substitute for the server-side Environment settings. Environment approval must occur before the job receives Production credentials.
+
+Reference: https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments
+
+### Production target verification and fail-closed execution contract
+
+No Production executor is approved by this investigation. A future separately reviewed executor must satisfy all of the following before any mutating command:
+
+1. Verify the Production project reference independently with the Supabase project owner/admin using the dashboard or an authorized read-only project lookup. The repository's current candidate ref is `xaipiovflxomcbfwtwmu`; do not treat the file alone as proof of live target identity.
+2. Require `GITHUB_REF=refs/heads/main`, `GITHUB_REF_PROTECTED=true`, the exact `production` Environment, the Environment sentinel, and the Environment-scoped target value. Missing, malformed, conflicting, or unexpected values stop the job.
+3. Install the verified pinned CLI and assert its exact `supabase --version`. Do not use `latest`. Pin the setup action to a full commit SHA.
+4. Use explicit `supabase migration list --remote=<expected-ref>` and `supabase db push --dry-run --remote=<expected-ref>`. Capture stdout and stderr; require the CLI-resolved `Target:` line to match the exact expected project. Compare the dry-run's migration set to the approved manifest. A missing, extra, ambiguous, or unparseable target or migration entry stops execution.
+5. Immediately before mutation, reload the approved target and baseline, recheck the CLI version and environment identity, and run the same explicit target command. The mutation must use the same `--remote=<expected-ref>`; never fall back to the linked project or local default. Do not accept `--db-url`, `--linked`, alternate refs, `--include-all`, `--include-seed`, forwarded arguments, or a mutable local project link as a substitute for the explicit target.
+6. CLI v3 requires `--yes` for non-interactive CI hosted changes. If the final workflow uses it, pass it only as an explicit argument inside the already Environment-approved Production job, after the target and migration preflight succeed. Never use a caller-controlled `SUPABASE_YES` variable, never pass `--yes` from a pull-request job, and never allow it to bypass Environment approval.
+7. If any guard, dry-run, database identity check, or authorization lookup fails or becomes uncertain, do not call the mutating command. Do not retry against a fallback target. Record only redacted evidence; never log access tokens, database passwords, or connection strings.
+
+The PR #15 wrappers are intentionally Non-Production-only and explicitly reject the Production ref. Do not add Production to their allowlist or weaken that policy. A Production executor must be a separate, independently reviewed path with its own protected Environment and baseline gate.
+
+### Migration-history acceptance preflight
+
+Production migration history remains **UNKNOWN**. The current repository inventory contains 31 migration files and 30 version prefixes, including two distinct files with version prefix `202607260007`. The existing reconciliation record reports that all 31 files remain unclassified against Production; no Production `supabase_migrations.schema_migrations` rows or catalog evidence were retrieved because the connected Supabase accounts lacked permission for project `xaipiovflxomcbfwtwmu`. The CI duplicate-007 tests and partial dependency-order tests are not a complete 31-file replay and do not prove Production state.
+
+Before any Production push, the Supabase owner/admin must grant a project-scoped **read-only** identity permission to list migration history and perform SELECT-only catalog inspection, or supply equivalent independently verifiable evidence. Capture:
+
+- Exact project/database identity, project ref, branch/environment, Postgres version, UTC timestamp, read-only principal, and evidence provenance.
+- Every row in `supabase_migrations.schema_migrations` (version, name, statements and timestamps/available metadata), including remote-only versions.
+- A complete relevant catalog inventory: schemas, relations, columns/defaults/nullability, constraints and validation state, indexes/definitions, functions/identity arguments/security/search_path/source hashes, triggers/enabled state, RLS policies, grants/default privileges, extension versions/namespaces, and relevant data counts.
+- Retained SQL Editor/manual-execution records, deployment logs, and prior repair records for migrations 007/008, 018, 022, and the aggregate SQL bundle.
+- A per-file and per-effect comparison of repository migration content (blob SHA and SQL/effect fingerprint) against live schema/history and manual changes.
+
+Create a reviewed, machine-readable Production migration baseline in a separate change. It must bind the exact Production ref, source commit/tree, snapshot timestamp, every migration file/version/blob SHA, each classification (`applied-and-recorded`, `applied-but-unrecorded`, `unapplied`, `partial`, or `ambiguous`), evidence references, and two reviewer identities. CI must fail if the baseline is missing/stale, a file/version/hash changes, a classification is partial/ambiguous, a duplicate version is unresolved, or the live read-only preflight differs from the approved snapshot.
+
+No migration may be silently marked applied or reverted. Use `migration repair` only after the exact migration's live effects and execution history have been independently proven and a separately approved repair plan identifies the exact version. Never use `--include-all`, `db reset`, or blind repair to get past a mismatch. Require a complete clean replay of the accepted migration sequence on a disposable Production-equivalent PostgreSQL/Supabase fixture, including the duplicate-007 resolution and all dependencies, before considering the Production baseline accepted.
+
+Only when every migration/effect is classified, the 007 collision is resolved with evidence, the baseline is independently approved, and the CLI dry-run matches the explicitly approved migration set may a separately authorized Production push be considered.
+
+### Backup, restore, and rollback expectations
+
+Before each approved Production migration window:
+
+- Verify the actual Supabase plan, backup configuration, retention, most recent completed backup, and latest restorable point. Do not assume the project has PITR or a particular retention period. Supabase documents daily backup retention of 7 days on Pro, 14 on Team, and up to 30 on Enterprise; PITR is an add-on and has a different recovery-point model.
+- Where the approved recovery objective requires it, enable/verify PITR through a separate owner-approved operation. Record the latest restorable timestamp and the agreed RPO/RTO.
+- Take a pre-change logical backup of the required database/schema/data to encrypted, access-controlled off-site storage, record its checksum and immutable backup identifier, and test restore into an isolated project before the window. Do not put raw Production dumps in Git, workflow logs, or ordinary GitHub Actions artifacts.
+- Confirm whether the change touches Supabase Storage objects: database backups include Storage metadata but **not** the stored objects. Back up affected object content separately. Daily backups also omit custom-role passwords, which must be reset after a restore.
+- Record the migration commit, exact target, planned migration list, backup/PITR identifier, operator, independent approver, workflow run, start/end timestamps, and redacted result.
+
+Rollback is not an automatic reverse migration. Each migration must document whether it is reversible, forward-fix-only, or requires point-in-time restore; include data-preservation and validation steps. Prefer a reviewed forward corrective migration when safe. If restoration is required, stop further deployments and outbound delivery, preserve current evidence, obtain separate Production-owner approval, and restore to a **new project first** for validation where feasible. Restoring in place can make the project inaccessible during the operation and replaces later state; choose the restore point with explicit data-loss approval. No automatic rollback may run after an ambiguous provider/database outcome.
+
+References:
+- Supabase backups and restore behavior: https://supabase.com/docs/guides/platform/backups
+- Supabase CLI db push dry-run: https://supabase.com/docs/reference/cli/supabase-db-push
+
+### Exact administrator actions and current blockers
+
+Repository owner/administrator (`ADRN-9`) must, in order:
+
+1. Apply and independently verify the `main` ruleset and required checks above; save the ruleset ID and settings evidence.
+2. Create/configure `production` Environment; set reviewer, prevent self-review, restrict deployments to protected `main`, and capture settings evidence.
+3. Inventory repository/org secret names and scopes, remove/revoke legacy copies, rotate credentials with unknown prior scope, and create only the least-privilege Environment-scoped credentials needed by a later approved executor.
+4. Verify the exact Production project ref with the Supabase owner/admin and provide read-only migration-history/catalog access. Do not grant write, service-role, migration-repair, or delivery authority for this evidence step.
+5. Complete the migration baseline, duplicate-007 decision, full replay, backup/restore evidence, and independent reviews.
+6. Only after all prior gates pass, propose a separate replacement migration workflow with explicit `--remote`, target verification, migration-history preflight, backup evidence, protected Environment approval, exact pinned CLI, and rollback plan. Do not resurrect the legacy workflow or merge PR #10 as-is.
+
+CI evidence at this snapshot:
+- PR #13 exact head `ae04e009c4242abd5db1d66d41e65a003e8f73c2`, PR Validation run #631 (`44901634490`): **FAILURE, 3/5 jobs passed**. `validate` failed `npm audit --audit-level=high` with 21 findings (12 moderate, 7 high, 2 critical), so TypeScript, Next.js build, and Cloudflare packaging were skipped. `gentle_delivery_transport_database_behavior` failed at `scripts/test-gentle-delivery-transport.sql:96` with `Delivery claim is not authorized.`; the other three database jobs passed. Branch-push run #630 also failed. Do not describe PR #13 CI as green.
+- PR #15 exact head `1ce6213d1077a64d2a04d49949bb8302e243902a`, PR Validation run #627 (`44899977780`): **SUCCESS, 5/5 jobs passed**. This includes pinned CLI setup/version verification, Supabase CLI target security tests, dependency verification and moderate audit, TypeScript, Next.js build, Cloudflare packaging, and all four database behavior jobs. This is branch-only evidence; PR #15 remains unmerged.
+- No formal submitted GitHub reviews were found for PRs #10, #11, #13, or #15.
+
+No Production database was queried or changed during C275. No workflow was dispatched, no credential was read or changed, no Environment/branch-protection setting was changed, no migration or repair was run, and no PR was approved or merged. Production remains **NO-GO**.
+
+### C275 documentation rollback
+
+This C275 change is documentation-only on the existing PR #13 branch. If its wording is incorrect, revert only the C275 addendum in a new commit on that branch. Do not reset or force-push, do not restore the legacy migration workflow, and do not change database, credentials, Environment, or deployment state.
