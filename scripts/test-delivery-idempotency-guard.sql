@@ -1,6 +1,6 @@
 \set ON_ERROR_STOP on
 
--- Synthetic isolated fixtures for migration 030.
+-- Synthetic isolated fixtures for migrations 030 and 031.
 insert into public.weekly_goodness_features (week_start)
 values ('2027-03-01'),('2027-03-08'),('2027-03-15'),('2027-03-22'),
        ('2027-03-29'),('2027-04-05'),('2027-04-12'),('2027-04-19'),
@@ -12,9 +12,12 @@ begin
   if to_regprocedure('public.authorize_delivery_idempotency_window(uuid,uuid,text)') is null
     or to_regprocedure('public.authorize_delivery_idempotency_window(uuid,uuid)') is not null
     or pg_get_function_result(to_regprocedure('public.authorize_delivery_idempotency_window(uuid,uuid,text)')) is distinct from 'text'
+    or has_function_privilege('anon','public.authorize_delivery_idempotency_window(uuid,uuid,text)','EXECUTE')
+    or has_function_privilege('authenticated','public.authorize_delivery_idempotency_window(uuid,uuid,text)','EXECUTE')
+    or not has_function_privilege('service_role','public.authorize_delivery_idempotency_window(uuid,uuid,text)','EXECUTE')
     or to_regprocedure('public.retry_delivery_job(uuid,uuid,text)') is null
     or to_regprocedure('public.mark_delivery_sent(uuid,uuid,text)') is null then
-    raise exception 'Migration 030 idempotency and receipt RPCs are missing or have an unexpected return type.';
+    raise exception 'Migration 031 final authorization and migration 030 receipt RPCs are missing or have an unexpected return type.';
   end if;
 end;
 $idempotency_guard$;
@@ -37,7 +40,6 @@ insert into public.delivery_ledger (
 ('00000000-0000-0000-0000-00000000c912','00000000-0000-0000-0000-000000000002','weekly_newsletter','weekly:2027-05-24','claimed',clock_timestamp(),'00000000-0000-0000-0000-00000000d912',clock_timestamp(),clock_timestamp()+interval '10 minutes',1,clock_timestamp(),clock_timestamp()),
 ('00000000-0000-0000-0000-00000000c913','00000000-0000-0000-0000-000000000002','weekly_newsletter','weekly:2027-05-31','claimed',clock_timestamp(),'00000000-0000-0000-0000-00000000d913',clock_timestamp(),clock_timestamp()+interval '10 minutes',1,clock_timestamp(),clock_timestamp()),
 ('00000000-0000-0000-0000-00000000c914','00000000-0000-0000-0000-000000000002','weekly_newsletter','weekly:2027-06-07','claimed',clock_timestamp(),'00000000-0000-0000-0000-00000000d914',clock_timestamp(),clock_timestamp()+interval '10 minutes',1,clock_timestamp(),clock_timestamp());
-;
 
 set role service_role;
 do $$

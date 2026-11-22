@@ -295,7 +295,7 @@ if (transportStartIndex < 0 || providerAuthorizationIndex <= transportStartIndex
 requireMatch(
   "Final provider authorization is ordered after persisted transport start and before the external send",
   deliveryRunner,
-  /if \(await gateway\.beginTransport\(job, recipient\) === null\) return "cancelled";[\s\S]*?const idempotencyAuthorization = await gateway\.authorizeProviderIdempotencyWindow\(job\);[\s\S]*?const outcome = await transport\.send\(job, recipient\);/,
+  /if \(await gateway\.beginTransport\(job, recipient\) === null\) return "cancelled";[\s\S]*?const idempotencyAuthorization = await gateway\.authorizeProviderIdempotencyWindow\(job, recipient\);[\s\S]*?const outcome = await transport\.send\(job, recipient\);/,
 );
 requireMatch(
   "Revoked consent at the final provider gate cancels without sending",
@@ -323,7 +323,7 @@ requireMatch(
 requireMatch(
   "Provider idempotency adapter calls the dedicated database RPC with claim identity",
   providerWindowMethod,
-  /rpc\("authorize_delivery_idempotency_window",\s*\{\s*p_job_id: job\.jobId,\s*p_claim_token: job\.claimToken,\s*\}\)/,
+  /rpc\("authorize_delivery_idempotency_window",\s*\{\s*p_job_id: job\.jobId,\s*p_claim_token: job\.claimToken,\s*p_expected_email: recipient\.email,\s*\}\)/,
 );
 requireMatch(
   "Provider idempotency adapter rejects database errors and every unknown status",
