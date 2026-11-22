@@ -4470,3 +4470,203 @@ end;
 $$;
 
 commit;
+
+-- Sprint 12.3 — Keep private Offering rows behind owner/admin RLS.
+-- Public approved content is served by offerings_public / offerings_rising.
+-- The older Sprint 5 policy also exposed approved base-table rows (including
+-- user_id and moderation_note) to every authenticated member. Remove that
+-- broad read path while retaining own-row and database-admin access.
+
+begin;
+
+drop policy if exists "offerings_select_public_or_own"
+on public.offerings;
+
+notify pgrst, 'reload schema';
+
+commit;
+
+-- Sprint 12.4 — Keep Daily reflections private to their owner.
+--
+-- Daily reflection content is personal Journey data, not moderation data.
+-- Administrators continue to use the narrow moderation APIs, which deliberately
+-- exclude Daily reflection content. Ordinary authenticated database access
+-- must never grant an administrator another member's reflection text.
+--
+-- The historical admin DELETE policy is retained as a deletion-only boundary;
+-- it does not grant SELECT or UPDATE access to private reflection content.
+
+begin;
+
+alter table public.daily_reflections enable row level security;
+
+-- Sprint 6 used underscore-separated policy names; Sprint 7 recreated
+-- equivalent policies with spaces. Remove both historical generations.
+drop policy if exists "daily_reflections_select_own_or_admin"
+on public.daily_reflections;
+drop policy if exists "daily reflections select own or admin"
+on public.daily_reflections;
+drop policy if exists "daily_reflections_select_own"
+on public.daily_reflections;
+drop policy if exists "daily reflections select own"
+on public.daily_reflections;
+
+create policy "daily_reflections_select_own"
+on public.daily_reflections
+for select
+to authenticated
+using (user_id = auth.uid());
+
+drop policy if exists "daily_reflections_insert_own"
+on public.daily_reflections;
+drop policy if exists "daily reflections insert own"
+on public.daily_reflections;
+
+create policy "daily_reflections_insert_own"
+on public.daily_reflections
+for insert
+to authenticated
+with check (user_id = auth.uid());
+
+drop policy if exists "daily_reflections_update_own"
+on public.daily_reflections;
+drop policy if exists "daily_reflections_update_own_or_admin"
+on public.daily_reflections;
+drop policy if exists "daily reflections update own or admin"
+on public.daily_reflections;
+
+create policy "daily_reflections_update_own"
+on public.daily_reflections
+for update
+to authenticated
+using (user_id = auth.uid())
+with check (user_id = auth.uid());
+
+-- Preserve the existing administrator deletion policy. It does not expose
+-- reflection content and the SELECT policy above remains owner-only.
+drop policy if exists "daily_reflections_delete_admin"
+on public.daily_reflections;
+
+create policy "daily_reflections_delete_admin"
+on public.daily_reflections
+for delete
+to authenticated
+using (public.is_admin());
+
+revoke all privileges
+on table public.daily_reflections
+from public, anon;
+
+grant select, insert, update, delete
+on table public.daily_reflections
+to authenticated;
+
+grant all
+on table public.daily_reflections
+to service_role;
+
+notify pgrst, 'reload schema';
+
+commit;
+
+-- Sprint 12.5 — Restrict Daily reflection deletion to its owner.
+--
+-- Daily reflections are private Journey data. Members may remove their own
+-- rows through ordinary authenticated database operations, while admins must
+-- not gain cross-member access through a special DELETE policy. Exceptional
+-- legal-erasure or support access belongs in a separately authorized,
+-- auditable server-side mechanism.
+
+begin;
+
+alter table public.daily_reflections enable row level security;
+
+-- Remove the historical administrator-only policy and its space-separated
+-- spelling before installing the owner-only rule.
+drop policy if exists "daily_reflections_delete_admin"
+on public.daily_reflections;
+drop policy if exists "daily reflections delete admin"
+on public.daily_reflections;
+drop policy if exists "daily_reflections_delete_own"
+on public.daily_reflections;
+drop policy if exists "daily reflections delete own"
+on public.daily_reflections;
+
+create policy "daily_reflections_delete_own"
+on public.daily_reflections
+for delete
+to authenticated
+using (user_id = auth.uid());
+
+notify pgrst, 'reload schema';
+
+commit;
+
+-- Sprint 12.6 — Prevent Daily content deletion from cascading into private reflections.
+--
+-- A Daily Post or Daily Light may be removed only when no private reflection
+-- references it. Owner-authorized reflection deletion remains governed by RLS.
+-- The auth.users -> daily_reflections cascade is intentionally preserved for
+-- the existing account-erasure path; exceptional legal erasure remains a
+-- separately authorized and auditable operation.
+
+begin;
+
+alter table public.daily_reflections
+  drop constraint if exists daily_reflections_daily_post_id_fkey,
+  drop constraint if exists daily_reflections_daily_light_id_fkey;
+
+alter table public.daily_reflections
+  add constraint daily_reflections_daily_post_id_fkey
+    foreign key (daily_post_id)
+    references public.daily_posts(id)
+    on delete restrict,
+  add constraint daily_reflections_daily_light_id_fkey
+    foreign key (daily_light_id)
+    references public.daily_lights(id)
+    on delete restrict;
+
+notify pgrst, 'reload schema';
+
+commit;
+
+-- Sprint 12.7 — Prevent Daily content deletion from cascading into private Journey records.
+--
+-- Saved Lights and Daily Deed completions are private member-owned history.
+-- Daily Posts and Daily Lights may be deleted only after these private child
+-- records have been explicitly removed by their owners or through account
+-- erasure. The auth.users -> child-row cascades remain unchanged.
+
+begin;
+
+alter table public.saved_lights
+  drop constraint if exists saved_lights_daily_post_id_fkey,
+  drop constraint if exists saved_lights_daily_light_id_fkey;
+
+alter table public.saved_lights
+  add constraint saved_lights_daily_post_id_fkey
+    foreign key (daily_post_id)
+    references public.daily_posts(id)
+    on delete restrict,
+  add constraint saved_lights_daily_light_id_fkey
+    foreign key (daily_light_id)
+    references public.daily_lights(id)
+    on delete restrict;
+
+alter table public.daily_deed_completions
+  drop constraint if exists daily_deed_completions_daily_post_id_fkey,
+  drop constraint if exists daily_deed_completions_daily_light_id_fkey;
+
+alter table public.daily_deed_completions
+  add constraint daily_deed_completions_daily_post_id_fkey
+    foreign key (daily_post_id)
+    references public.daily_posts(id)
+    on delete restrict,
+  add constraint daily_deed_completions_daily_light_id_fkey
+    foreign key (daily_light_id)
+    references public.daily_lights(id)
+    on delete restrict;
+
+notify pgrst, 'reload schema';
+
+commit;
