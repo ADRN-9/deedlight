@@ -35,7 +35,7 @@ The generated Worker is asked to serve:
 - Public icons and Next static assets, proving their middleware exclusions.
 - A permitted Supabase Storage image through `/_next/image`, and a disallowed host which must be rejected.
 
-The artifact verifier checks the generated Worker, OpenNext server handler, esbuild metafile, static assets, Next NFT traces, and every emitted source-map file. It resolves and validates references whose maps are present, explicitly reports server-bundle references whose map files were not copied, and fails if a source-map file is exposed through public ASSETS. OpenNext can retain sourceMappingURL comments in server chunks even when the corresponding map is not shipped; those omissions are reported rather than mistaken for available maps. The OpenNext regression test separately exercises the pinned adapter's NFT glob, manifest plugin, cache discovery, and path-normalization call sites.
+The artifact verifier checks the generated Worker, OpenNext server handler, esbuild metafile, static assets, Next NFT traces, and every emitted source-map file. It resolves and validates references whose maps are present, permits unresolved references only in vendored `node_modules` files whose maps are not copied into the Worker package, and fails on unresolved application-owned references. It also fails if a source-map file is exposed through public ASSETS. OpenNext can retain upstream `sourceMappingURL` comments in vendored dependency files even when the corresponding map is not shipped; those omissions are reported rather than mistaken for available maps. The OpenNext regression test separately exercises the pinned adapter's NFT glob, manifest plugin, cache discovery, and path-normalization call sites.
 
 ## Limitations
 
