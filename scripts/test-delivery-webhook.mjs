@@ -178,6 +178,7 @@ test("parses permanent bounce and normalizes the recipient", () => {
   assert.deepEqual(parsed, {
     status: "accepted",
     event: {
+      kind: "lifecycle",
       eventId: id,
       eventType: "email.bounced",
       providerEmailId: "resend_email_fixture_01",
