@@ -383,16 +383,9 @@ update auth.users set email = 'two@example.test'
 where id = '00000000-0000-0000-0000-000000000002';
 
 set role service_role;
-do $c252_suppression$
-declare
-  v_inserted boolean;
-  v_suppressed boolean;
-  v_current_email text;
-  v_result text;
-  v_state text;
-  v_error text;
+do $c252_provider_event$
 begin
-  v_inserted := public.record_delivery_provider_lifecycle_event(
+  if public.record_delivery_provider_lifecycle_event(
     'evt_c252_suppression_after_transport',
     'email.complained',
     'resend-c252-suppression',
@@ -402,11 +395,31 @@ begin
     null,
     null,
     repeat('a', 64)
-  );
-  select exists (select 1 from public.delivery_provider_suppressions where recipient_email='two@example.test')
-  into v_suppressed;
-  select lower(btrim(email)) into v_current_email
-  from auth.users where id='00000000-0000-0000-0000-000000000002';
+  ) is not true then
+    raise exception 'C252 provider suppression fixture was not recorded.';
+  end if;
+end;
+$c252_provider_event$;
+reset role;
+
+do $c252_suppression_record$
+begin
+  if not exists (
+    select 1 from public.delivery_provider_suppressions
+    where recipient_email = 'two@example.test' and reason = 'complaint'
+  ) then
+    raise exception 'C252 provider complaint did not persist a suppression record.';
+  end if;
+end;
+$c252_suppression_record$;
+
+set role service_role;
+do $c252_suppression$
+declare
+  v_result text;
+  v_state text;
+  v_error text;
+begin
   v_result := public.authorize_delivery_idempotency_window(
     '00000000-0000-0000-0000-00000000c914',
     '00000000-0000-0000-0000-00000000d914',
@@ -415,12 +428,8 @@ begin
   select state,error_code into v_state,v_error
   from public.delivery_ledger
   where id='00000000-0000-0000-0000-00000000c914';
-  raise notice 'C252 provider suppression gate: inserted %, suppressed %, email %, result %, state %, error %',
-    v_inserted,v_suppressed,v_current_email,v_result,v_state,v_error;
-  if v_inserted is distinct from true
-    or v_suppressed is distinct from true
-    or v_current_email is distinct from 'two@example.test'
-    or v_result is distinct from 'cancelled'
+  raise notice 'C252 provider suppression gate: result %, state %, error %',v_result,v_state,v_error;
+  if v_result is distinct from 'cancelled'
     or v_state is distinct from 'cancelled'
     or not exists (select 1 from public.delivery_ledger where id='00000000-0000-0000-0000-00000000c914'
       and claim_token is null and claim_expires_at is null) then
@@ -428,6 +437,7 @@ begin
   end if;
 end;
 $c252_suppression$;
+reset role;
 reset role;
 
 select jsonb_build_object(
