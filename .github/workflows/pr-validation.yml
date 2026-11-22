@@ -84,6 +84,9 @@ jobs:
           set -e
           node scripts/verify-npm-audit.mjs "$RUNNER_TEMP/npm-audit.json" "$audit_status"
 
+      - name: ESLint
+        run: npm run lint
+
       - name: TypeScript check
         run: npx tsc --noEmit
 
