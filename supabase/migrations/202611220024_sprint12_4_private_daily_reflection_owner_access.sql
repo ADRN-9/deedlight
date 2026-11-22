@@ -12,9 +12,15 @@ begin;
 
 alter table public.daily_reflections enable row level security;
 
+-- Sprint 6 used underscore-separated policy names; Sprint 7 recreated
+-- equivalent policies with spaces. Remove both historical generations.
 drop policy if exists "daily_reflections_select_own_or_admin"
 on public.daily_reflections;
+drop policy if exists "daily reflections select own or admin"
+on public.daily_reflections;
 drop policy if exists "daily_reflections_select_own"
+on public.daily_reflections;
+drop policy if exists "daily reflections select own"
 on public.daily_reflections;
 
 create policy "daily_reflections_select_own"
@@ -25,6 +31,8 @@ using (user_id = auth.uid());
 
 drop policy if exists "daily_reflections_insert_own"
 on public.daily_reflections;
+drop policy if exists "daily reflections insert own"
+on public.daily_reflections;
 
 create policy "daily_reflections_insert_own"
 on public.daily_reflections
@@ -33,6 +41,10 @@ to authenticated
 with check (user_id = auth.uid());
 
 drop policy if exists "daily_reflections_update_own"
+on public.daily_reflections;
+drop policy if exists "daily_reflections_update_own_or_admin"
+on public.daily_reflections;
+drop policy if exists "daily reflections update own or admin"
 on public.daily_reflections;
 
 create policy "daily_reflections_update_own"

@@ -179,7 +179,10 @@ daily_reflection_legacy_policy_count="$("${psql_cmd[@]}" -Atqc "
   FROM pg_policies
   WHERE schemaname = 'public'
     AND tablename = 'daily_reflections'
-    AND policyname = 'daily_reflections_select_own_or_admin';
+    AND policyname IN (
+      'daily_reflections_select_own_or_admin',
+      'daily reflections select own or admin'
+    );
 ")"
 if [[ "$daily_reflection_legacy_policy_count" != "0" ]]; then
   echo "Migration 024 left the historical administrator-inclusive SELECT policy." >&2
@@ -220,6 +223,29 @@ daily_reflection_select_policy_count="$("${psql_cmd[@]}" -Atqc "
 ")"
 if [[ "$daily_reflection_select_policy_count" != "1" ]]; then
   echo "Daily reflection SELECT has an unexpected additional policy." >&2
+  exit 1
+fi
+daily_reflection_insert_policy_count="$("${psql_cmd[@]}" -Atqc "
+  SELECT count(*)
+  FROM pg_policies
+  WHERE schemaname = 'public'
+    AND tablename = 'daily_reflections'
+    AND cmd = 'INSERT';
+")"
+if [[ "$daily_reflection_insert_policy_count" != "1" ]]; then
+  echo "Daily reflection INSERT has an unexpected additional policy." >&2
+  exit 1
+fi
+
+daily_reflection_update_policy_count="$("${psql_cmd[@]}" -Atqc "
+  SELECT count(*)
+  FROM pg_policies
+  WHERE schemaname = 'public'
+    AND tablename = 'daily_reflections'
+    AND cmd = 'UPDATE';
+")"
+if [[ "$daily_reflection_update_policy_count" != "1" ]]; then
+  echo "Daily reflection UPDATE has an unexpected additional policy." >&2
   exit 1
 fi
 echo "Migration 024 owner-only Daily reflection policies: PASS"
