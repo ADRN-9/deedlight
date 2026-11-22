@@ -140,3 +140,16 @@ C208 adds regression coverage for Resend's published payload shapes: bounce \`di
 Before C208, PR #10 exact-head [PR Validation run 44875441190](https://github.com/ADRN-9/deedlight/actions/runs/44875441190) and [push validation run 44875436665](https://github.com/ADRN-9/deedlight/actions/runs/44875436665) passed 7/7 jobs at \`95fb79152243f9581647eae961f3c35cf5d1043b\`. This included provider webhook parser/route tests, PostgreSQL lifecycle and concurrency behavior, consent/transport tests, TypeScript, Next build, Cloudflare packaging, and dependency audit. C208 source/test head `06ca8cf1e21215645bd70dd93f178cd954196929` passed exact-head [PR run 44903895136](https://github.com/ADRN-9/deedlight/actions/runs/44903895136) and [push run 44903890652](https://github.com/ADRN-9/deedlight/actions/runs/44903890652), both 7/7 jobs. The webhook suite reported 34/34 parser/route tests passing; the transport suite reported 25/25 tests passing. PostgreSQL provider-event concurrency and consent/transport race tests passed, as did TypeScript, Next build, Cloudflare packaging, and dependency audit.
 
 No Production migrations, webhook configuration, provider sends, Cron activation, kill-switch changes, or credentials were performed in C208. Production provider lifecycle, current consent revocation behavior, scheduler cycles, and final smoke remain unverified in Production.
+
+
+## C317 — Final recipient and provider-suppression authorization
+
+Migration `202611220031_delivery_final_recipient_suppression_gate.sql` replaces migration 030's two-argument final provider authorization RPC with a three-argument contract that includes the exact Auth recipient resolved by the worker.
+
+Immediately before the Resend request, the final RPC locks the delivery claim, serializes against provider lifecycle suppression using the same per-normalized-address advisory lock as webhook intake, rechecks the current confirmed Auth email against the exact recipient supplied to transport, and rechecks Daily reminder or Weekly newsletter consent, active profile state, the relevant schedule/curated issue, and provider suppression. It takes shared locks on the relevant preference, profile, Auth user and curated issue rows through the authorization transaction, and retains the database-authoritative 23-hour provider idempotency horizon.
+
+The obsolete two-argument RPC is dropped so it cannot bypass recipient binding. The Worker passes the resolved recipient into the final gate and sends only when PostgreSQL returns the exact `authorized` status.
+
+PostgreSQL behavior fixtures prove that a complaint arriving after transport-start authorization and an Auth email change after transport start both cancel the claim before the provider adapter is invoked. These are isolated CI tests, not Production verification.
+
+The final database authorization transaction is the linearization point: a suppression or preference change committed before that gate is observed; changes waiting behind its row/advisory locks proceed after the gate transaction completes. A database transaction cannot recall an external request once its authorization boundary has committed, so each later retry must pass this gate again.

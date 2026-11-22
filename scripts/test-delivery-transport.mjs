@@ -59,13 +59,13 @@ function fakeGateway(options = {}) {
         events.push("authorize");
         return authorizations[authorizeIndex++] ?? authorizations.at(-1) ?? false;
       },
-      async beginTransport(_job, recipient) {
+      async beginTransport() {
         events.push("begin");
-        if (options.expectedRecipient && recipient.email !== options.expectedRecipient) return null;
         return options.transportDenied ? null : options.firstTransportAt ?? new Date(fixedNow);
       },
-      async authorizeProviderIdempotencyWindow() {
+      async authorizeProviderIdempotencyWindow(_job, recipient) {
         events.push("idempotency-window");
+        if (options.expectedRecipient && recipient.email !== options.expectedRecipient) return "cancelled";
         return options.idempotencyWindowResult ?? "authorized";
       },
       async markSent(_job, id) {
@@ -335,7 +335,7 @@ test("changed Auth email invalidates resolved recipient at final gate", async ()
   });
   assert.equal(outcome,"cancelled");
   assert.equal(sends,0);
-  assert.deepEqual(events,["authorize","authorize","begin"]);
+  assert.deepEqual(events,["authorize","authorize","begin","idempotency-window"]);
 });
 
 test("Weekly capacity RPC errors require exact code, message, and source marker", async () => {
@@ -567,7 +567,7 @@ test("provider idempotency RPC validates exact status union and fails closed", a
         return { data: status, error: null };
       },
     });
-    assert.equal(await runtime.authorizeProviderIdempotencyWindow(job), status);
+    assert.equal(await runtime.authorizeProviderIdempotencyWindow(job, { email: "member@example.test" }), status);
   }
 
   for (const invalidStatus of [true, false, null, undefined, "", "pending", { status: "authorized" }]) {
@@ -577,7 +577,7 @@ test("provider idempotency RPC validates exact status union and fails closed", a
       },
     });
     await assert.rejects(
-      runtime.authorizeProviderIdempotencyWindow(job),
+      runtime.authorizeProviderIdempotencyWindow(job, { email: "member@example.test" }),
       /Delivery database operation failed: authorize provider idempotency window/,
     );
   }
@@ -588,7 +588,7 @@ test("provider idempotency RPC validates exact status union and fails closed", a
     },
   });
   await assert.rejects(
-    erroredRuntime.authorizeProviderIdempotencyWindow(job),
+    erroredRuntime.authorizeProviderIdempotencyWindow(job, { email: "member@example.test" }),
     /Delivery database operation failed: authorize provider idempotency window/,
   );
 });
@@ -643,10 +643,10 @@ test("retry and provider-window RPCs never trust a Worker timestamp", async () =
       return { data: name === "authorize_delivery_idempotency_window" ? "authorized" : true, error: null };
     },
   });
-  assert.equal(await runtime.authorizeProviderIdempotencyWindow(job), "authorized");
+  assert.equal(await runtime.authorizeProviderIdempotencyWindow(job, { email: "member@example.test" }), "authorized");
   assert.equal(await runtime.retry(job, "provider_timeout"), true);
   assert.deepEqual(calls, [
-    { name: "authorize_delivery_idempotency_window", params: { p_job_id: job.jobId, p_claim_token: job.claimToken } },
+    { name: "authorize_delivery_idempotency_window", params: { p_job_id: job.jobId, p_claim_token: job.claimToken, p_expected_email: "member@example.test" } },
     { name: "retry_delivery_job", params: { p_job_id: job.jobId, p_claim_token: job.claimToken, p_error_code: "provider_timeout" } },
   ]);
   assert.equal("p_retry_at" in calls[1].params, false);

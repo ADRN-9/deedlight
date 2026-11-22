@@ -43,8 +43,8 @@ export async function processClaimedDelivery(input: {
 
   if (await gateway.beginTransport(job, recipient) === null) return "cancelled";
 
-  // PostgreSQL checks the persisted first transport time against its own clock.
-  const idempotencyAuthorization = await gateway.authorizeProviderIdempotencyWindow(job);
+  // Final DB gate rechecks the exact recipient, consent, suspension, suppression and provider horizon.
+  const idempotencyAuthorization = await gateway.authorizeProviderIdempotencyWindow(job, recipient);
   if (idempotencyAuthorization === "cancelled") return "cancelled";
   if (idempotencyAuthorization === "expired") return "failed";
   if (idempotencyAuthorization !== "authorized") {
