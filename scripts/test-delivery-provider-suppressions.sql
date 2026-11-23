@@ -342,6 +342,16 @@ begin
 end;
 $cross_recipient_assert$;
 
+-- Historical generic suppression with no trustworthy provider timestamp is ambiguous and must remain blocked.
+insert into public.delivery_provider_events (
+  event_id,event_type,provider_email_id,recipient_email,provider_created_at,
+  bounce_type,failure_class,suppression_reason,payload_fingerprint
+) values (
+  'evt_c331_unknown_timestamp_lifecycle','email.suppressed','resend_c331_unknown_timestamp',
+  'cross-stream-unknown-time@example.test',null,null,null,null,null
+);
+insert into public.delivery_provider_suppressions (recipient_email,reason,provider_event_id)
+values ('cross-stream-unknown-time@example.test','provider_suppressed','evt_c331_unknown_timestamp_lifecycle');
 -- Cross-stream lifecycle events must respect the newer manual suppression-list projection.
 set role service_role;
 do $cross_stream_manual_remove$
@@ -392,6 +402,16 @@ begin
     'cross-stream-equal@example.test','2026-11-22T17:11:00Z',null,null,'provider_suppressed',repeat('6',64)
   );
 
+  perform public.record_delivery_provider_suppression_event(
+    'evt_c331_unknown_timestamp_add','suppression.added','sup_c331_unknown_timestamp',
+    'cross-stream-unknown-time@example.test','manual',null,
+    '2026-11-22T23:00:00Z','2026-11-22T23:01:00Z',repeat('7',64)
+  );
+  perform public.record_delivery_provider_suppression_event(
+    'evt_c331_unknown_timestamp_remove','suppression.removed','sup_c331_unknown_timestamp',
+    'cross-stream-unknown-time@example.test','manual',null,
+    '2026-11-22T23:00:00Z','2026-11-22T23:02:00Z',repeat('8',64)
+  );
   -- Reasoned provider events still establish independent DeedLight holds.
   perform public.record_delivery_provider_suppression_event(
     'evt_c323_cross_stream_complaint_add','suppression.added','sup_c323_cross_stream_complaint',
@@ -436,6 +456,10 @@ begin
     raise exception 'Older email.suppressed lifecycle event reinstated a newer manual provider removal.';
   end if;
 
+  if (select reason from public.delivery_provider_suppressions where recipient_email='cross-stream-unknown-time@example.test') is distinct from 'provider_suppressed'
+    or (select is_active from public.delivery_provider_suppression_state where recipient_email='cross-stream-unknown-time@example.test') is not false then
+    raise exception 'Unknown legacy lifecycle timestamp allowed a manual removal to clear provider suppression.';
+  end if;
   if (select reason from public.delivery_provider_suppressions
       where recipient_email='cross-stream-no-add@example.test') is distinct from 'provider_suppressed' then
     raise exception 'Cross-stream lifecycle reconciliation cleared a removal without a matching manual add.';

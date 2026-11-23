@@ -435,4 +435,5 @@ assert(tests.includes("rejects excessive or malformed v1 candidates"));
 assert(tests.includes("rejects oversized Svix signature headers"));
 
 
+assert(suppressionTests.includes("Unknown legacy lifecycle timestamp allowed a manual removal to clear provider suppression."));
 console.log("Resend webhook authenticity, bounded signatures, cross-stream suppression ordering, migration-028 attestation and privacy assertions: PASS");

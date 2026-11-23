@@ -401,6 +401,8 @@ begin
   ) is not true then
     raise exception 'Provider suppression event was not recorded.';
   end if;
+  perform public.record_delivery_provider_suppression_event('evt_c331_manual_add_after_lifecycle_20004','suppression.added','sup_c331_manual_20004','webhook-20004@example.test','manual',null,'2027-03-01T10:00:00Z','2027-03-01T10:01:00Z',repeat('8',64));
+  perform public.record_delivery_provider_suppression_event('evt_c331_old_manual_remove_after_lifecycle_20004','suppression.removed','sup_c331_manual_20004','webhook-20004@example.test','manual',null,'2027-03-01T10:00:00Z','2027-03-01T10:02:00Z',repeat('9',64));
 
   if public.record_delivery_provider_lifecycle_event(
     'evt_suppressed_previous_bounce', 'email.suppressed',
@@ -583,6 +585,17 @@ insert into public.delivery_ledger (
   now(),
   now() + interval '5 minutes',
   1
+),
+(
+  '00000000-0000-0000-0000-000000020004',
+  'daily_reminder',
+  'daily:' || timezone('UTC', now() + interval '3 days')::date::text,
+  'claimed',
+  (timezone('UTC', now() + interval '3 days')::date + time '00:00') at time zone 'UTC',
+  '33333333-3333-3333-3333-333333332004',
+  now(),
+  now() + interval '5 minutes',
+  1
 );
 
 set role service_role;
@@ -607,6 +620,15 @@ begin
   ) is not null then
     raise exception 'Complained weekly recipient reached transport.';
   end if;
+  if (select reason from public.delivery_provider_suppressions where recipient_email='webhook-20004@example.test') is distinct from 'provider_suppressed' then
+    raise exception 'Older manual removal erased newer lifecycle suppression before final authorization.';
+  end if;
+  if public.begin_delivery_transport(
+    (select id from public.delivery_ledger where user_id='00000000-0000-0000-0000-000000020004' and kind='daily_reminder' and state='claimed'),
+    '33333333-3333-3333-3333-333333332004','webhook-20004@example.test'
+  ) is not null then
+    raise exception 'Cross-stream stale manual removal bypassed final transport authorization.';
+  end if;
 end;
 $$;
 reset role;
@@ -622,6 +644,9 @@ begin
       where user_id='00000000-0000-0000-0000-000000020003'
         and kind='weekly_newsletter' and state='claimed') then
     raise exception 'Suppressed weekly job was not cancelled.';
+  end if;
+  if exists (select 1 from public.delivery_ledger where user_id='00000000-0000-0000-0000-000000020004' and kind='daily_reminder' and state='claimed') then
+    raise exception 'Cross-stream stale-removal daily job was not cancelled.';
   end if;
   if has_table_privilege('anon','public.delivery_provider_events','SELECT')
     or has_table_privilege('authenticated','public.delivery_provider_events','SELECT')

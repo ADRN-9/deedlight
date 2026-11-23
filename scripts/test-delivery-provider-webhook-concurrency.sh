@@ -647,3 +647,113 @@ cross_stream_lifecycle_hold="$(psql_scalar "select count(*) from public.delivery
 [[ "$cross_stream_lifecycle_state" == "false" ]]
 [[ "$cross_stream_lifecycle_hold" == "0" ]]
 echo "Concurrent cross-stream lifecycle-first ordering: PASS"
+# Older manual removal processed first, followed by newer lifecycle evidence: the hold must remain.
+"${psql_cmd[@]}" >"$tmp/c331-removal-first.log" 2>&1 <<'SQL' &
+begin;
+set role service_role;
+select public.record_delivery_provider_suppression_event(
+  'evt_c331_concurrent_removal_first_add','suppression.added','sup_c331_concurrent_removal_first',
+  'c331-concurrent-removal-first@example.test','manual',null,
+  '2027-03-02T13:00:00Z','2027-03-02T13:01:00Z',repeat('a',64)
+);
+select public.record_delivery_provider_suppression_event(
+  'evt_c331_concurrent_removal_first_remove','suppression.removed','sup_c331_concurrent_removal_first',
+  'c331-concurrent-removal-first@example.test','manual',null,
+  '2027-03-02T13:00:00Z','2027-03-02T13:02:00Z',repeat('b',64)
+);
+\echo C331_CROSS_STREAM_OLDER_REMOVAL_FIRST_LOCK_HELD
+select pg_sleep(2);
+commit;
+reset role;
+SQL
+c331_removal_first_pid=$!
+wait_for_marker "$c331_removal_first_pid" "$tmp/c331-removal-first.log" "C331_CROSS_STREAM_OLDER_REMOVAL_FIRST_LOCK_HELD"
+"${psql_cmd[@]}" >"$tmp/c331-lifecycle-second.log" 2>&1 <<'SQL' &
+begin;
+set role service_role;
+select public.record_delivery_provider_lifecycle_event(
+  'evt_c331_concurrent_newer_lifecycle_after_removal','email.suppressed','resend_c331_concurrent_newer_after_removal',
+  'c331-concurrent-removal-first@example.test','2027-03-02T13:03:00Z',null,null,
+  'provider_suppressed',repeat('c',64)
+);
+commit;
+reset role;
+SQL
+c331_lifecycle_second_pid=$!
+c331_waiting="0"
+for _ in {1..100}; do
+  c331_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%evt_c331_concurrent_newer_lifecycle_after_removal%'")"
+  if [[ "$c331_waiting" == "1" ]]; then break; fi
+  sleep 0.05
+done
+if [[ "$c331_waiting" != "1" ]]; then
+  cat "$tmp/c331-lifecycle-second.log"
+  echo "Newer lifecycle event did not wait on the recipient advisory lock." >&2
+  exit 1
+fi
+wait "$c331_removal_first_pid"
+if ! wait "$c331_lifecycle_second_pid"; then
+  cat "$tmp/c331-lifecycle-second.log"
+  exit 1
+fi
+c331_removal_first_state="$(psql_scalar "select is_active::text from public.delivery_provider_suppression_state where recipient_email='c331-concurrent-removal-first@example.test'")"
+c331_removal_first_hold="$(psql_scalar "select reason from public.delivery_provider_suppressions where recipient_email='c331-concurrent-removal-first@example.test'")"
+[[ "$c331_removal_first_state" == "false" ]]
+[[ "$c331_removal_first_hold" == "provider_suppressed" ]]
+echo "Concurrent older removal-first timestamp ordering: PASS"
+
+# Newer lifecycle evidence processed first, followed by an older manual removal: the hold must remain.
+"${psql_cmd[@]}" >"$tmp/c331-lifecycle-first.log" 2>&1 <<'SQL' &
+begin;
+set role service_role;
+select public.record_delivery_provider_lifecycle_event(
+  'evt_c331_concurrent_newer_lifecycle_first','email.suppressed','resend_c331_concurrent_newer_first',
+  'c331-concurrent-lifecycle-first@example.test','2027-03-02T14:03:00Z',null,null,
+  'provider_suppressed',repeat('d',64)
+);
+\echo C331_CROSS_STREAM_NEWER_LIFECYCLE_FIRST_LOCK_HELD
+select pg_sleep(2);
+commit;
+reset role;
+SQL
+c331_lifecycle_first_pid=$!
+wait_for_marker "$c331_lifecycle_first_pid" "$tmp/c331-lifecycle-first.log" "C331_CROSS_STREAM_NEWER_LIFECYCLE_FIRST_LOCK_HELD"
+"${psql_cmd[@]}" >"$tmp/c331-removal-second.log" 2>&1 <<'SQL' &
+begin;
+set role service_role;
+select public.record_delivery_provider_suppression_event(
+  'evt_c331_concurrent_old_manual_add','suppression.added','sup_c331_concurrent_old_manual',
+  'c331-concurrent-lifecycle-first@example.test','manual',null,
+  '2027-03-02T14:00:00Z','2027-03-02T14:01:00Z',repeat('e',64)
+);
+select public.record_delivery_provider_suppression_event(
+  'evt_c331_concurrent_old_manual_remove','suppression.removed','sup_c331_concurrent_old_manual',
+  'c331-concurrent-lifecycle-first@example.test','manual',null,
+  '2027-03-02T14:00:00Z','2027-03-02T14:02:00Z',repeat('f',64)
+);
+commit;
+reset role;
+SQL
+c331_removal_second_pid=$!
+c331_waiting="0"
+for _ in {1..100}; do
+  c331_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%evt_c331_concurrent_old_manual_add%'")"
+  if [[ "$c331_waiting" == "1" ]]; then break; fi
+  sleep 0.05
+done
+if [[ "$c331_waiting" != "1" ]]; then
+  cat "$tmp/c331-removal-second.log"
+  echo "Older manual suppression add did not wait on the recipient advisory lock." >&2
+  exit 1
+fi
+wait "$c331_lifecycle_first_pid"
+if ! wait "$c331_removal_second_pid"; then
+  cat "$tmp/c331-removal-second.log"
+  exit 1
+fi
+c331_lifecycle_first_state="$(psql_scalar "select is_active::text from public.delivery_provider_suppression_state where recipient_email='c331-concurrent-lifecycle-first@example.test'")"
+c331_lifecycle_first_hold="$(psql_scalar "select reason from public.delivery_provider_suppressions where recipient_email='c331-concurrent-lifecycle-first@example.test'")"
+[[ "$c331_lifecycle_first_state" == "false" ]]
+[[ "$c331_lifecycle_first_hold" == "provider_suppressed" ]]
+echo "Concurrent newer lifecycle-first timestamp ordering: PASS"
+
