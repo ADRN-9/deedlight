@@ -566,3 +566,26 @@ Stop immediately if the target reference is uncertain, transaction_read_only is 
 - Credentials, role grants, migration history, schema, scheduler, or delivery settings: **not accessed or changed**.
 - Independent security/database acceptance: **not performed**.
 - Production migration classifications: **37 UNKNOWN; Production NO-GO**.
+
+
+## Cycle 342 — read-only access attempt record
+
+**Review date:** 2026-11-23  
+**Reviewed PR #22 HEAD:** c939d4a24293342deb6161eab2f28fb66765a237  
+**Reviewed branch tree:** e321be2b406043b01c4ed4dd4cda003c54dbdd0e
+
+The packet remains a prepared procedure; it was not executed against Production.
+
+The currently connected Supabase integrations were checked for the target project reference `xaipiovflxomcbfwtwmu`:
+
+- `list_projects` through both connected accounts did not return the target project.
+- `get_project`, `list_migrations`, and `list_tables` were each attempted against the exact target project through both accounts. All attempts were denied with `MCP error -32600: You do not have permission to perform this action`.
+- A SELECT-only database identity and migration-history-presence query through `execute_sql` was attempted through both accounts. Both attempts were denied with the same permission error; no SQL ran and no database result was returned.
+
+**Evidence consequence:** no Production database identity was established, and no Production migration-history, schema/constraint, RLS/grant, function/trigger, duplicate-007 execution, or migration-036 application evidence was collected. A permission denial is not evidence of an empty history, absent schema, absent migration, or non-execution.
+
+**Exact missing dependency:** the Production owner/administrator must grant an existing connected identity project-scoped read-only access to project `xaipiovflxomcbfwtwmu`, or provide an approved dedicated read-only PostgreSQL connection after independently verifying the Production project reference. Use the least-privilege role and enforced read-only session defined in Sections 2–3 above. Do not grant service-role, administrator, migration, schema-write, credential-management, or outbound-delivery authority for this audit.
+
+No credentials were requested, transmitted, or modified. No Production connection was established. No query in Sections 4–6 was executed. No Production data, schema, migration history, migration, scheduler, provider, or delivery setting was read or changed.
+
+The previous C404 denial record and the C247 disposable PostgreSQL/Supabase CLI evidence remain historical evidence with their existing scope; this access attempt does not duplicate or upgrade those results to Production evidence.
