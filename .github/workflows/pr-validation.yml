@@ -401,7 +401,7 @@ jobs:
 
       - name: Provider webhook concurrency behavior
         run: bash scripts/test-delivery-provider-webhook-concurrency.sh
-privacy_authorization_database_behavior:
+  privacy_authorization_database_behavior:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
