@@ -589,9 +589,9 @@ Every entry is a separate migration file. Tables, columns, indexes, constraints,
 ## Cycle 342 — Production audit recovery and current-head inventory verification
 
 **Review date:** 2026-11-23  
-**Current PR #22 branch HEAD:** c939d4a24293342deb6161eab2f28fb66765a237  
-**Current branch tree:** e321be2b406043b01c4ed4dd4cda003c54dbdd0e  
-**Current matrix blob:** 7027543f0c8215dbabf804bb6ca235609f9e6f50
+**Implementation HEAD inspected before Cycle 342 documentation-only evidence commits:** c939d4a24293342deb6161eab2f28fb66765a237  
+**Implementation tree inspected:** e321be2b406043b01c4ed4dd4cda003c54dbdd0e  
+**Matrix blob before this addendum:** 7027543f0c8215dbabf804bb6ca235609f9e6f50
 
 ### Current source inventory verification
 
@@ -619,10 +619,10 @@ These denials establish that the currently connected identities do not have the 
 ### Recovered prior evidence — scope and limits
 
 - Historical C404 documentation records earlier denied `get_project`, `list_migrations`, and `list_tables` attempts. The current Cycle 342 checks independently reproduce the permission boundary; they do not replace owner authorization.
-- C247's isolated duplicate-007 verification is retained in CI. Branch-push run [44965336520](https://github.com/ADRN-9/deedlight/actions/runs/44965336520) and PR-validation run [44965340590](https://github.com/ADRN-9/deedlight/actions/runs/44965340590) passed their seven-job workflows. The migration-order jobs [137033022850](https://github.com/ADRN-9/deedlight/actions/runs/44965336520) and [137033014594](https://github.com/ADRN-9/deedlight/actions/runs/44965340590) ran Supabase CLI 3.2.0 against disposable PostgreSQL 16.16. Sprint 6 007 then Sprint 7 007 reached schema execution but failed history insertion with SQLSTATE 23505; Sprint 7 then Sprint 6 failed on missing `daily_post_id` with SQLSTATE 42703; the tested Sprint 6 + Sprint 7 + 008 + 012 + 013 sequence passed. These results establish isolated replay behavior only.
-- Current PR #22 exact-head push run [45185173965](https://github.com/ADRN-9/deedlight/actions/runs/45185173965) passed 8/8 jobs on HEAD `c939d4a24293342deb6161eab2f28fb66765a237`. Its privacy authorization database job (137728788900) applied migration 036 and passed the authorization assertions on disposable PostgreSQL. This is not Production application evidence.
+- C247's isolated duplicate-007 verification is retained in CI. Branch-push run [44965336520](https://github.com/ADRN-9/deedlight/actions/runs/44965336520) and PR-validation run [44965340590](https://github.com/ADRN-9/deedlight/actions/runs/44965340590) passed their seven-job workflows. The migration-order jobs [137033022850](https://github.com/ADRN-9/deedlight/actions/runs/44965336520/job/137033022850) and [137033014594](https://github.com/ADRN-9/deedlight/actions/runs/44965340590/job/137033014594) ran Supabase CLI 3.2.0 against disposable PostgreSQL 16.16. Sprint 6 007 then Sprint 7 007 reached schema execution but failed history insertion with SQLSTATE 23505; Sprint 7 then Sprint 6 failed on missing `daily_post_id` with SQLSTATE 42703; the tested Sprint 6 + Sprint 7 + 008 + 012 + 013 sequence passed. These results establish isolated replay behavior only.
+- PR #22 implementation exact-head push run [45185173965](https://github.com/ADRN-9/deedlight/actions/runs/45185173965) passed 8/8 jobs on HEAD `c939d4a24293342deb6161eab2f28fb66765a237`. Its privacy authorization database job [137728788900](https://github.com/ADRN-9/deedlight/actions/runs/45185173965/job/137728788900) applied migration 036 and passed the authorization assertions on disposable PostgreSQL. This is not Production application evidence.
 
-### Outstanding authorization and evidence requirements
+The two Cycle 342 evidence-document commits were then validated by exact-head push run [45193172482](https://github.com/ADRN-9/deedlight/actions/runs/45193172482), SUCCESS, 8/8 jobs, at documentation-only branch HEAD `45346482af0ffbb5fa8e3ce29feb6bbf5c937f39`. This confirms the documentation update did not break CI; it does not add Production evidence.\n\n### Outstanding authorization and evidence requirements
 
 A Production project owner/administrator must either grant an existing connected identity project-scoped read-only access to the exact project or provide an approved dedicated read-only PostgreSQL connection. Before any catalog query, independently verify the project reference and Production environment. The database role must be enforced read-only and limited to CONNECT, required schema USAGE, SELECT on migration history, and normal catalog visibility. It must not inherit service-role, administrator, migration, schema-write, credential-management, or outbound-delivery authority.
 
