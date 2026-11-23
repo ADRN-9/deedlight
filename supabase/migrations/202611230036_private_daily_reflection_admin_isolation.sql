@@ -7,7 +7,11 @@ begin;
 alter table public.daily_reflections
   enable row level security;
 
+-- Both historical migrations created permissive policies using different names.
 drop policy if exists "daily_reflections_select_own_or_admin"
+on public.daily_reflections;
+
+drop policy if exists "daily reflections select own or admin"
 on public.daily_reflections;
 
 drop policy if exists "daily_reflections_select_own"
@@ -24,6 +28,9 @@ using (
 drop policy if exists "daily_reflections_insert_own"
 on public.daily_reflections;
 
+drop policy if exists "daily reflections insert own"
+on public.daily_reflections;
+
 create policy "daily_reflections_insert_own"
 on public.daily_reflections
 for insert
@@ -33,6 +40,9 @@ with check (
 );
 
 drop policy if exists "daily_reflections_update_own"
+on public.daily_reflections;
+
+drop policy if exists "daily reflections update own or admin"
 on public.daily_reflections;
 
 create policy "daily_reflections_update_own"
@@ -48,6 +58,9 @@ with check (
 
 -- No browser role, including administrators, may delete private reflections.
 drop policy if exists "daily_reflections_delete_admin"
+on public.daily_reflections;
+
+drop policy if exists "daily reflections delete admin"
 on public.daily_reflections;
 
 revoke all privileges
