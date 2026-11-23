@@ -412,6 +412,25 @@ begin
     'cross-stream-unknown-time@example.test','manual',null,
     '2026-11-22T23:00:00Z','2026-11-22T23:02:00Z',repeat('8',64)
   );
+  -- Older manual removal processed before newer lifecycle evidence must not clear it.
+  perform public.record_delivery_provider_suppression_event('evt_c331_removal_first_add','suppression.added','sup_c331_removal_first','cross-stream-removal-first-older@example.test','manual',null,'2026-11-22T19:00:00Z','2026-11-22T19:01:00Z',repeat('a',64));
+  perform public.record_delivery_provider_suppression_event('evt_c331_removal_first_remove','suppression.removed','sup_c331_removal_first','cross-stream-removal-first-older@example.test','manual',null,'2026-11-22T19:00:00Z','2026-11-22T19:02:00Z',repeat('b',64));
+  perform public.record_delivery_provider_lifecycle_event('evt_c331_removal_first_lifecycle','email.suppressed','resend_c331_removal_first','cross-stream-removal-first-older@example.test','2026-11-22T19:03:00Z',null,null,'provider_suppressed',repeat('c',64));
+
+  -- Newer lifecycle evidence first, then an older manual removal.
+  perform public.record_delivery_provider_suppression_event('evt_c331_lifecycle_first_add','suppression.added','sup_c331_lifecycle_first','cross-stream-lifecycle-first-older@example.test','manual',null,'2026-11-22T20:00:00Z','2026-11-22T20:01:00Z',repeat('d',64));
+  perform public.record_delivery_provider_lifecycle_event('evt_c331_lifecycle_first_suppressed','email.suppressed','resend_c331_lifecycle_first','cross-stream-lifecycle-first-older@example.test','2026-11-22T20:03:00Z',null,null,'provider_suppressed',repeat('e',64));
+  perform public.record_delivery_provider_suppression_event('evt_c331_lifecycle_first_old_remove','suppression.removed','sup_c331_lifecycle_first','cross-stream-lifecycle-first-older@example.test','manual',null,'2026-11-22T20:00:00Z','2026-11-22T20:02:00Z',repeat('f',64));
+
+  -- Equal-time evidence is ambiguous and remains blocked when removal arrives second.
+  perform public.record_delivery_provider_suppression_event('evt_c331_equal_lifecycle_first_add','suppression.added','sup_c331_equal_lifecycle_first','cross-stream-equal-lifecycle-first@example.test','manual',null,'2026-11-22T21:00:00Z','2026-11-22T21:01:00Z',repeat('1',64));
+  perform public.record_delivery_provider_lifecycle_event('evt_c331_equal_lifecycle_first_suppressed','email.suppressed','resend_c331_equal_lifecycle_first','cross-stream-equal-lifecycle-first@example.test','2026-11-22T21:02:00Z',null,null,'provider_suppressed',repeat('2',64));
+  perform public.record_delivery_provider_suppression_event('evt_c331_equal_lifecycle_first_remove','suppression.removed','sup_c331_equal_lifecycle_first','cross-stream-equal-lifecycle-first@example.test','manual',null,'2026-11-22T21:00:00Z','2026-11-22T21:02:00Z',repeat('3',64));
+
+  -- A genuinely newer manual removal remains authoritative.
+  perform public.record_delivery_provider_suppression_event('evt_c331_newer_lifecycle_first_add','suppression.added','sup_c331_newer_lifecycle_first','cross-stream-newer-lifecycle-first@example.test','manual',null,'2026-11-22T22:00:00Z','2026-11-22T22:01:00Z',repeat('4',64));
+  perform public.record_delivery_provider_lifecycle_event('evt_c331_newer_lifecycle_first_suppressed','email.suppressed','resend_c331_newer_lifecycle_first','cross-stream-newer-lifecycle-first@example.test','2026-11-22T22:02:00Z',null,null,'provider_suppressed',repeat('5',64));
+  perform public.record_delivery_provider_suppression_event('evt_c331_newer_lifecycle_first_remove','suppression.removed','sup_c331_newer_lifecycle_first','cross-stream-newer-lifecycle-first@example.test','manual',null,'2026-11-22T22:00:00Z','2026-11-22T22:03:00Z',repeat('6',64));
   -- Reasoned provider events still establish independent DeedLight holds.
   perform public.record_delivery_provider_suppression_event(
     'evt_c323_cross_stream_complaint_add','suppression.added','sup_c323_cross_stream_complaint',
@@ -456,6 +475,22 @@ begin
     raise exception 'Older email.suppressed lifecycle event reinstated a newer manual provider removal.';
   end if;
 
+  if (select reason from public.delivery_provider_suppressions where recipient_email='cross-stream-removal-first-older@example.test') is distinct from 'provider_suppressed'
+    or (select is_active from public.delivery_provider_suppression_state where recipient_email='cross-stream-removal-first-older@example.test') is not false then
+    raise exception 'Older manual removal processed first erased newer lifecycle suppression evidence.';
+  end if;
+  if (select reason from public.delivery_provider_suppressions where recipient_email='cross-stream-lifecycle-first-older@example.test') is distinct from 'provider_suppressed'
+    or (select is_active from public.delivery_provider_suppression_state where recipient_email='cross-stream-lifecycle-first-older@example.test') is not false then
+    raise exception 'Older manual removal processed after newer lifecycle evidence cleared the provider hold.';
+  end if;
+  if (select reason from public.delivery_provider_suppressions where recipient_email='cross-stream-equal-lifecycle-first@example.test') is distinct from 'provider_suppressed'
+    or (select is_active from public.delivery_provider_suppression_state where recipient_email='cross-stream-equal-lifecycle-first@example.test') is not false then
+    raise exception 'Equal-time manual removal processed after lifecycle evidence did not fail closed.';
+  end if;
+  if exists (select 1 from public.delivery_provider_suppressions where recipient_email='cross-stream-newer-lifecycle-first@example.test')
+    or (select is_active from public.delivery_provider_suppression_state where recipient_email='cross-stream-newer-lifecycle-first@example.test') is not false then
+    raise exception 'A strictly newer manual removal did not clear the generic provider hold.';
+  end if;
   if (select reason from public.delivery_provider_suppressions where recipient_email='cross-stream-unknown-time@example.test') is distinct from 'provider_suppressed'
     or (select is_active from public.delivery_provider_suppression_state where recipient_email='cross-stream-unknown-time@example.test') is not false then
     raise exception 'Unknown legacy lifecycle timestamp allowed a manual removal to clear provider suppression.';
@@ -487,6 +522,11 @@ $cross_stream_assert$;
 select jsonb_build_object(
   'suppression_add_remove_manual_sync','pass',
   'cross_stream_older_email_suppressed_after_manual_removal','pass',
+  'cross_stream_older_removal_before_newer_lifecycle_keeps_hold','pass',
+  'cross_stream_older_removal_after_newer_lifecycle_keeps_hold','pass',
+  'cross_stream_equal_removal_after_lifecycle_keeps_hold','pass',
+  'cross_stream_newer_removal_after_lifecycle_clears_hold','pass',
+  'cross_stream_unknown_lifecycle_timestamp_fails_closed','pass',
   'cross_stream_equal_timestamp_fails_closed','pass',
   'cross_stream_removal_without_matching_add_keeps_hold','pass',
   'cross_stream_previous_complaint_and_bounce_holds','pass',
