@@ -29,6 +29,7 @@ C331/C332 discussion reports were authored by ADRN-9, the PR author. They are im
 | #10 | OPEN / DRAFT / UNMERGED | security/delivery-transport-consent-gates | cfe05475dbe7822f96be639fd2c777a6062aedc4 | main / ce82b3fdf1a73510de70e3729a487d4ae00e66e3 | Current delivery-security base; PR #22 uses this exact commit as its base. |
 | #11 | OPEN / DRAFT / UNMERGED | security/deedlight-audit-fixtures-c18 | f5ed62e4417921c8bee1a376fed8bac35897e809 | main / ce82b3fdf1a73510de70e3729a487d4ae00e66e3 | Not modified. |
 | #19 | OPEN / DRAFT / UNMERGED | security/deedlight-migration-audit-safety-c270 | 8e14f2ea70cd0c9fc701e017a6b88b4fe83b886e | security/delivery-transport-consent-gates / 9072f3b8824ec9618849def1c0832000cd130474 | Not modified; diverged from current PR #10. |
+| #22 | OPEN / DRAFT / UNMERGED | security/private-daily-journey-admin-isolation-c408 | 6d0e8fcc397a61bb7aaf0c1858b1147c5f81dae1 | security/delivery-transport-consent-gates / cfe05475dbe7822f96be639fd2c777a6062aedc4 | Private Daily reflection authorization correction; no merge performed. |
 
 PR #19 compares 17 commits ahead and 27 behind current PR #10, with merge base 9072f3b8824ec9618849def1c0832000cd130474. Do not merge or rebase it without a separately reviewed integration plan.
 
