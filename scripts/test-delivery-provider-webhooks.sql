@@ -631,7 +631,7 @@ end;
 $$;
 reset role;
 
-do $
+do $$
 begin
   if (select reason from public.delivery_provider_suppressions where recipient_email='webhook-20004@example.test') is distinct from 'provider_suppressed' then
     raise exception 'Older manual removal erased newer lifecycle suppression before final authorization.';
