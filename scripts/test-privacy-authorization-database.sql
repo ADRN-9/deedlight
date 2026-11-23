@@ -884,7 +884,7 @@ BEGIN
   EXCEPTION WHEN insufficient_privilege THEN v_denied := true; END;
   IF NOT v_denied THEN RAISE EXCEPTION 'Ordinary member executed private invitation attribution RPC.'; END IF;
 END
-$;
+$$;
 RESET ROLE;
 
 SET LOCAL ROLE authenticated;
@@ -917,7 +917,7 @@ BEGIN
   EXCEPTION WHEN insufficient_privilege THEN v_denied := true; END;
   IF NOT v_denied THEN RAISE EXCEPTION 'Member A read private invitation attribution.'; END IF;
 END
-$;
+$$;
 RESET ROLE;
 
 -- An active database administrator may use narrow moderation APIs, but not private Journey/preferences/attribution.
@@ -958,7 +958,7 @@ BEGIN
   EXCEPTION WHEN insufficient_privilege THEN v_denied := true; END;
   IF NOT v_denied THEN RAISE EXCEPTION 'Admin read private invitation attribution directly.'; END IF;
 END
-$;
+$$;
 
 ROLLBACK;
 
