@@ -1,0 +1,92 @@
+name: C319 Dependency Lock Refresh (temporary)
+
+on:
+  push:
+    branches:
+      - security/delivery-transport-consent-gates
+    paths:
+      - ".github/workflows/c319-dependency-lock-refresh.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Apply scoped overrides and refresh lockfile
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+
+          const path = "package.json";
+          const manifest = JSON.parse(readFileSync(path, "utf8"));
+          manifest.overrides = {
+            ...(manifest.overrides ?? {}),
+            "@opennextjs/cloudflare": {
+              ...(manifest.overrides?.["@opennextjs/cloudflare"] ?? {}),
+              glob: "14.0.6"
+            },
+            "typescript-eslint": "8.73.0"
+          };
+          writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`);
+          NODE
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+
+      - name: Verify resolved package versions
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+
+          const lock = JSON.parse(readFileSync("package-lock.json", "utf8"));
+          const expected = {
+            "node_modules/glob": "14.0.6",
+            "node_modules/typescript-eslint": "8.73.0",
+            "node_modules/@typescript-eslint/typescript-estree": "8.73.0",
+            "node_modules/@typescript-eslint/parser": "8.73.0",
+            "node_modules/@typescript-eslint/type-utils": "8.73.0",
+            "node_modules/@typescript-eslint/eslint-plugin": "8.73.0",
+            "node_modules/@typescript-eslint/utils": "8.73.0"
+          };
+
+          for (const [path, version] of Object.entries(expected)) {
+            const actual = lock.packages[path]?.version;
+            if (actual !== version) {
+              throw new Error(`${path}: expected ${version}, received ${actual ?? "missing"}`);
+            }
+          }
+
+          const vulnerableMinimatch = Object.entries(lock.packages)
+            .filter(([path]) => path === "node_modules/minimatch" || path.endsWith("/node_modules/minimatch"))
+            .filter(([, pkg]) => {
+              const [major, minor, patch] = pkg.version.split(".").map(Number);
+              return major >= 7 && (major < 11 || (major === 11 && minor === 0 && patch < 1));
+            });
+          if (vulnerableMinimatch.length) {
+            throw new Error(`Affected minimatch versions remain: ${JSON.stringify(vulnerableMinimatch)}`);
+          }
+
+          console.log("Scoped dependency versions and minimatch advisory floor verified.");
+          NODE
+
+      - name: Upload refreshed manifests
+        uses: actions/upload-artifact@v4
+        with:
+          name: c319-dependency-lock-refresh
+          path: |
+            package.json
+            package-lock.json
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Audit refreshed dependency graph
+        run: npm audit --audit-level=moderate
