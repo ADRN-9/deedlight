@@ -35,6 +35,7 @@ reset role;
 \ir ../supabase/migrations/202611210029_delivery_legacy_replay_guard.sql
 \ir ../supabase/migrations/202611220032_resend_suppression_list_sync.sql
 \ir ../supabase/migrations/202611220033_delivery_cross_stream_suppression_order.sql
+\ir ../supabase/migrations/202611230034_delivery_suppression_timestamp_order.sql
 \ir test-delivery-provider-suppressions.sql
 
 -- Replays with a new digest must remain compatible with historical NULL metadata.

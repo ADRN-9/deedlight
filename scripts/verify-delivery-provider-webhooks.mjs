@@ -9,6 +9,7 @@ const integrityMigration = read("supabase/migrations/202611200027_delivery_provi
 const legacyGuardMigration = read("supabase/migrations/202611210029_delivery_legacy_replay_guard.sql");
 const suppressionSyncMigration = read("supabase/migrations/202611220032_resend_suppression_list_sync.sql");
 const crossStreamMigration = read("supabase/migrations/202611220033_delivery_cross_stream_suppression_order.sql");
+const suppressionTimestampMigration = read("supabase/migrations/202611230034_delivery_suppression_timestamp_order.sql");
 const leaseMigration = read("supabase/migrations/202611210028_delivery_claim_lock_expiry.sql");
 const idempotencyMigration = read("supabase/migrations/202611210030_delivery_idempotency_receipt_guard.sql");
 const suppressionTests = read("scripts/test-delivery-provider-suppressions.sql");
@@ -436,4 +437,26 @@ assert(tests.includes("rejects oversized Svix signature headers"));
 
 
 assert(suppressionTests.includes("Unknown legacy lifecycle timestamp allowed a manual removal to clear provider suppression."));
+
+assert(aggregate.includes(suppressionTimestampMigration.trim()), "Migration 034 must be mirrored verbatim in aggregate SQL");
+assert(migrationOrderTest.includes("202611230034_delivery_suppression_timestamp_order.sql"));
+assert(databaseTests.includes("../supabase/migrations/202611230034_delivery_suppression_timestamp_order.sql"));
+for (const value of [
+  "lifecycle.event_type = 'email.suppressed'",
+  "lifecycle.suppression_reason = 'provider_suppressed'",
+  "lifecycle.provider_created_at is null",
+  "lifecycle.provider_created_at >= p_provider_created_at",
+  "deedlight:034:provider-suppression-timestamp-order:v1",
+]) assert(suppressionTimestampMigration.includes(value), "Migration 034 missing fail-closed timestamp guard: " + value);
+for (const value of [
+  "Older manual removal processed first erased newer lifecycle suppression evidence.",
+  "Older manual removal processed after newer lifecycle evidence cleared the provider hold.",
+  "Equal-time manual removal processed after lifecycle evidence did not fail closed.",
+  "A strictly newer manual removal did not clear the generic provider hold.",
+  "Unknown legacy lifecycle timestamp allowed a manual removal to clear provider suppression.",
+]) assert(suppressionTests.includes(value), "Missing timestamp-order regression assertion: " + value);
+assert(suppressionTests.includes("'cross_stream_older_removal_after_newer_lifecycle_keeps_hold','pass'"));
+assert(concurrencyTests.includes("Concurrent older removal-first timestamp ordering: PASS"));
+assert(concurrencyTests.includes("Concurrent newer lifecycle-first timestamp ordering: PASS"));
+assert(databaseTests.includes("Cross-stream stale manual removal bypassed final transport authorization."));
 console.log("Resend webhook authenticity, bounded signatures, cross-stream suppression ordering, migration-028 attestation and privacy assertions: PASS");
