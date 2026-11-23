@@ -987,7 +987,7 @@ RESET ROLE;
 -- An active database administrator may use narrow moderation APIs, but not private Journey/preferences/attribution.
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-000000000104', true);
-DO $
+DO $$
 DECLARE
   v_members bigint;
   v_context jsonb;
