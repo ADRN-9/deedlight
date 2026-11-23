@@ -852,7 +852,7 @@ $$;
 -- C332: verify current Journey and private member-data isolation under real database roles.
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-000000000102', true);
-DO $
+DO $$
 DECLARE v_denied boolean; v_rows bigint;
 BEGIN
   IF (SELECT count(*) FROM public.daily_reflections WHERE daily_light_id='00000000-0000-4000-8000-000000000401') <> 1
