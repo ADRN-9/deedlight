@@ -131,30 +131,49 @@ where p.oid in (
   to_regprocedure('public.mark_delivery_failed(uuid,uuid,text)')
 );
 do $c323$
+declare
+  v_crypto_schema text;
+  v_functions_attested boolean;
 begin
+  select n.nspname into v_crypto_schema
+  from pg_catalog.pg_extension e
+  join pg_catalog.pg_namespace n on n.oid = e.extnamespace
+  where e.extname = 'pgcrypto';
+
+  if v_crypto_schema is null then
+    raise exception 'Migration 028 test requires pgcrypto for source attestation.';
+  end if;
+
+  execute format($attestation$
+    select
+      exists (
+        select 1 from pg_catalog.pg_proc p
+        where p.oid = to_regprocedure('public.authorize_delivery_job(uuid,uuid)')
+          and encode(%I.digest(convert_to(p.prosrc, 'UTF8'), 'sha256'), 'hex') = %L
+          and p.prosecdef
+          and p.proconfig = array['search_path=public, auth, pg_temp']::text[]
+          and not has_function_privilege('anon', p.oid, 'EXECUTE')
+          and not has_function_privilege('authenticated', p.oid, 'EXECUTE')
+          and has_function_privilege('service_role', p.oid, 'EXECUTE')
+      )
+      and exists (
+        select 1 from pg_catalog.pg_proc p
+        where p.oid = to_regprocedure('public.mark_delivery_failed(uuid,uuid,text)')
+          and encode(%I.digest(convert_to(p.prosrc, 'UTF8'), 'sha256'), 'hex') = %L
+          and p.prosecdef
+          and p.proconfig = array['search_path=public, auth, pg_temp']::text[]
+          and not has_function_privilege('anon', p.oid, 'EXECUTE')
+          and not has_function_privilege('authenticated', p.oid, 'EXECUTE')
+          and has_function_privilege('service_role', p.oid, 'EXECUTE')
+      )
+  $attestation$, v_crypto_schema,
+    'dea4d0ecb1518edec6c60f1ec998669af65b2164a547cffe67f5cbdaa8644215',
+    v_crypto_schema,
+    'c7830ca2281fa85e4466fa45c32c1067dba4c9766eeeb26d26dcdb3b46b72b78'
+  ) into v_functions_attested;
+
   if (select count(*) from public.c323_m028_function_snapshot) <> 2
-    or not exists (
-      select 1 from pg_catalog.pg_proc p
-      where p.oid = to_regprocedure('public.authorize_delivery_job(uuid,uuid)')
-        and encode(extensions.digest(convert_to(p.prosrc, 'UTF8'), 'sha256'), 'hex')
-          = 'dea4d0ecb1518edec6c60f1ec998669af65b2164a547cffe67f5cbdaa8644215'
-        and p.prosecdef
-        and p.proconfig = array['search_path=public, auth, pg_temp']::text[]
-        and not has_function_privilege('anon', p.oid, 'EXECUTE')
-        and not has_function_privilege('authenticated', p.oid, 'EXECUTE')
-        and has_function_privilege('service_role', p.oid, 'EXECUTE')
-    )
-    or not exists (
-      select 1 from pg_catalog.pg_proc p
-      where p.oid = to_regprocedure('public.mark_delivery_failed(uuid,uuid,text)')
-        and encode(extensions.digest(convert_to(p.prosrc, 'UTF8'), 'sha256'), 'hex')
-          = 'c7830ca2281fa85e4466fa45c32c1067dba4c9766eeeb26d26dcdb3b46b72b78'
-        and p.prosecdef
-        and p.proconfig = array['search_path=public, auth, pg_temp']::text[]
-        and not has_function_privilege('anon', p.oid, 'EXECUTE')
-        and not has_function_privilege('authenticated', p.oid, 'EXECUTE')
-        and has_function_privilege('service_role', p.oid, 'EXECUTE')
-    ) then
+    or v_functions_attested is distinct from true then
     raise exception 'Migration 028 positive path did not install the attested service-role-only RPCs.';
   end if;
 end;
