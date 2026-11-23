@@ -119,6 +119,8 @@ Current counts: 0 verified applied-and-recorded; 0 verified schema-present/histo
 
 ## Required live evidence before reconciliation
 
+The owner-facing SELECT-only query packet is [PRODUCTION_READ_ONLY_MIGRATION_AUDIT.md](PRODUCTION_READ_ONLY_MIGRATION_AUDIT.md). It verifies target identity, catalog metadata, migration history, the duplicate 007 collision, and migration 036 policy/ACL effects without reading application-member rows. The packet is preparation only; it does not change any Production classification from UNKNOWN.
+
 Obtain a timestamped, read-only evidence package for the exact project reference and database identity:
 
 - Complete rows and schema definition for supabase_migrations.schema_migrations, including all versions, names/statements if present, ordering, timestamps and any duplicate/conflicting records. Preserve raw output and query text.
