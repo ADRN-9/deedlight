@@ -52,6 +52,7 @@ assert(aggregate.includes(suppressionSyncMigration.trim()), "Migration 032 must 
 assert(migrationOrderTest.includes("202611220032_resend_suppression_list_sync.sql"));
 assert(migrationOrderTest.includes("scripts/test-delivery-provider-suppressions.sql"));
 assert(databaseTests.includes("202611220032_resend_suppression_list_sync.sql"));
+assert(databaseTests.includes("202611220033_delivery_cross_stream_suppression_order.sql"));
 assert(databaseTests.includes("test-delivery-provider-suppressions.sql"));
 assert(/alter function public\.record_delivery_provider_lifecycle_event\([\s\S]*?rename to _record_delivery_provider_lifecycle_event_fingerprinted_impl/i.test(legacyGuardMigration));
 for (const signature of [
