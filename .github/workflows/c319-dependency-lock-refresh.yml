@@ -8,7 +8,7 @@ on:
       - ".github/workflows/c319-dependency-lock-refresh.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   refresh:
@@ -78,15 +78,61 @@ jobs:
           console.log("Scoped dependency versions and minimatch advisory floor verified.");
           NODE
 
-      - name: Upload refreshed manifests
-        uses: actions/upload-artifact@v4
-        with:
-          name: c319-dependency-lock-refresh
-          path: |
-            package.json
-            package-lock.json
-          if-no-files-found: error
-          retention-days: 1
-
       - name: Audit refreshed dependency graph
         run: npm audit --audit-level=moderate
+
+      - name: Commit refreshed manifests
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("node:fs");
+            const branch = "security/delivery-transport-consent-gates";
+            if (context.ref !== `refs/heads/${branch}`) {
+              throw new Error(`Refusing to write from unexpected ref: ${context.ref}`);
+            }
+
+            const { owner, repo } = context.repo;
+            const ref = await github.rest.git.getRef({ owner, repo, ref: `heads/${branch}` });
+            if (ref.data.object.sha !== context.sha) {
+              throw new Error("Branch head moved; refusing a non-fast-forward lockfile commit.");
+            }
+
+            const parent = await github.rest.git.getCommit({
+              owner,
+              repo,
+              commit_sha: context.sha
+            });
+            const tree = await github.rest.git.createTree({
+              owner,
+              repo,
+              base_tree: parent.data.tree.sha,
+              tree: [
+                {
+                  path: "package.json",
+                  mode: "100644",
+                  type: "blob",
+                  content: fs.readFileSync("package.json", "utf8")
+                },
+                {
+                  path: "package-lock.json",
+                  mode: "100644",
+                  type: "blob",
+                  content: fs.readFileSync("package-lock.json", "utf8")
+                }
+              ]
+            });
+            const commit = await github.rest.git.createCommit({
+              owner,
+              repo,
+              message: "fix(security): remediate moderate dependency advisories",
+              tree: tree.data.sha,
+              parents: [context.sha]
+            });
+            await github.rest.git.updateRef({
+              owner,
+              repo,
+              ref: `heads/${branch}`,
+              sha: commit.data.sha,
+              force: false
+            });
+            core.info(`Committed refreshed manifests at ${commit.data.sha}`);
