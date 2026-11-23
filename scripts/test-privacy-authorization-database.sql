@@ -946,9 +946,10 @@ BEGIN
   END IF;
   IF (SELECT count(*) FROM public.daily_deed_completions) <> 0
      OR (SELECT count(*) FROM public.daily_reminder_preferences) <> 0
-     OR (SELECT count(*) FROM public.newsletter_preferences) <> 0
+     OR (SELECT count(*) FROM public.newsletter_preferences) <> 1
+     OR NOT EXISTS (SELECT 1 FROM public.newsletter_preferences WHERE user_id=auth.uid())
      OR (SELECT count(*) FROM public.invitation_links) <> 0 THEN
-    RAISE EXCEPTION 'Administrator role bypassed private member-data RLS.';
+    RAISE EXCEPTION 'Administrator role accessed another member''s private Journey, reminder, newsletter, or invitation data.';
   END IF;
   v_denied := false;
   BEGIN PERFORM 1 FROM public.member_moderation_events LIMIT 1;
