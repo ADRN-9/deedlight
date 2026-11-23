@@ -621,9 +621,6 @@ begin
   ) is not null then
     raise exception 'Complained weekly recipient reached transport.';
   end if;
-  if (select reason from public.delivery_provider_suppressions where recipient_email='webhook-20004@example.test') is distinct from 'provider_suppressed' then
-    raise exception 'Older manual removal erased newer lifecycle suppression before final authorization.';
-  end if;
   if public.begin_delivery_transport(
     (select id from public.delivery_ledger where user_id='00000000-0000-0000-0000-000000020004' and kind='daily_reminder' and state='claimed'),
     '33333333-3333-3333-3333-333333332004','webhook-20004@example.test'
@@ -634,8 +631,11 @@ end;
 $$;
 reset role;
 
-do $$
+do $
 begin
+  if (select reason from public.delivery_provider_suppressions where recipient_email='webhook-20004@example.test') is distinct from 'provider_suppressed' then
+    raise exception 'Older manual removal erased newer lifecycle suppression before final authorization.';
+  end if;
   if exists (select 1 from public.delivery_ledger
       where user_id='00000000-0000-0000-0000-000000020001'
         and kind='daily_reminder' and state='claimed') then
