@@ -361,6 +361,21 @@ begin
     'cross-stream-manual@example.test','2026-11-22T17:00:00Z',null,null,'provider_suppressed',repeat('3',64)
   );
 
+  -- A removal without its matching add is not authority to clear a generic block.
+  perform public.record_delivery_provider_lifecycle_event(
+    'evt_c323_cross_stream_no_add_initial','email.suppressed','resend_c323_cross_stream_no_add_initial',
+    'cross-stream-no-add@example.test','2026-11-22T17:18:00Z',null,null,'provider_suppressed',repeat('d',64)
+  );
+  perform public.record_delivery_provider_suppression_event(
+    'evt_c323_cross_stream_no_add_remove','suppression.removed','sup_c323_cross_stream_no_add',
+    'cross-stream-no-add@example.test','manual',null,
+    '2026-11-22T17:18:00Z','2026-11-22T17:19:00Z',repeat('e',64)
+  );
+  perform public.record_delivery_provider_lifecycle_event(
+    'evt_c323_cross_stream_no_add_old_lifecycle','email.suppressed','resend_c323_cross_stream_no_add_old',
+    'cross-stream-no-add@example.test','2026-11-22T17:18:30Z',null,null,'provider_suppressed',repeat('f',64)
+  );
+
   -- Equal timestamps are ambiguous and remain blocked.
   perform public.record_delivery_provider_suppression_event(
     'evt_c323_cross_stream_equal_add','suppression.added','sup_c323_cross_stream_equal',
@@ -422,6 +437,11 @@ begin
   end if;
 
   if (select reason from public.delivery_provider_suppressions
+      where recipient_email='cross-stream-no-add@example.test') is distinct from 'provider_suppressed' then
+    raise exception 'Cross-stream lifecycle reconciliation cleared a removal without a matching manual add.';
+  end if;
+
+  if (select reason from public.delivery_provider_suppressions
       where recipient_email='cross-stream-equal@example.test') is distinct from 'provider_suppressed' then
     raise exception 'Equal-time cross-stream suppression did not fail closed.';
   end if;
@@ -444,6 +464,7 @@ select jsonb_build_object(
   'suppression_add_remove_manual_sync','pass',
   'cross_stream_older_email_suppressed_after_manual_removal','pass',
   'cross_stream_equal_timestamp_fails_closed','pass',
+  'cross_stream_removal_without_matching_add_keeps_hold','pass',
   'cross_stream_previous_complaint_and_bounce_holds','pass',
   'exact_duplicate_suppression_event','pass',
   'conflicting_duplicate_suppression_event','pass',

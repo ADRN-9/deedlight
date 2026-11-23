@@ -412,6 +412,10 @@ for (const value of [
   "Cross-stream stale lifecycle handling cleared a previous_bounce hold.",
 ]) assert(suppressionTests.includes(value), "Missing cross-stream SQL regression assertion: " + value);
 assert(suppressionTests.includes("'cross_stream_older_email_suppressed_after_manual_removal','pass'"));
+assert(suppressionTests.includes("Cross-stream lifecycle reconciliation cleared a removal without a matching manual add."));
+assert(crossStreamMigration.includes("added.event_type = 'suppression.added'"));
+assert(crossStreamMigration.includes("added.provider_suppression_id = s.provider_suppression_id"));
+assert(crossStreamMigration.includes("added.suppression_origin = 'manual'"));
 assert(concurrencyTests.includes("C323_CROSS_STREAM_REMOVAL_FIRST_LOCK_HELD"));
 assert(concurrencyTests.includes("C323_CROSS_STREAM_LIFECYCLE_FIRST_LOCK_HELD"));
 assert(concurrencyTests.includes("Concurrent cross-stream removal-first ordering: PASS"));

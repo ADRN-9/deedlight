@@ -90,6 +90,14 @@ begin
         and s.origin = 'manual'
         and s.is_active = false
         and s.provider_created_at > p_provider_created_at
+        and exists (
+          select 1
+          from public.delivery_provider_events added
+          where added.event_type = 'suppression.added'
+            and added.provider_suppression_id = s.provider_suppression_id
+            and added.recipient_email = v_email
+            and added.suppression_origin = 'manual'
+        )
     ) then
       delete from public.delivery_provider_suppressions
       where recipient_email = v_email
