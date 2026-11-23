@@ -76,7 +76,7 @@ begin
     raise exception 'Live sent fixture was not authorized.';
   end if;
 
-  if public.mark_delivery_sent(v_sent_id, v_sent_token, 'provider-message-123') is not true then
+  if public.mark_delivery_sent(v_sent_id, v_sent_token, '49a3999c-0ce1-4ea6-ab68-afcd6dc2e794') is not true then
     raise exception 'Live claim could not be marked sent.';
   end if;
 
@@ -85,7 +85,7 @@ begin
     from public.delivery_ledger
     where id = v_sent_id
       and state = 'sent'
-      and provider_result_id = 'provider-message-123'
+      and provider_result_id = '49a3999c-0ce1-4ea6-ab68-afcd6dc2e794'
       and sent_at is not null
       and claim_token is null
       and claim_expires_at is null

@@ -3,6 +3,7 @@
 -- Re-prove the complete Sprint 12.2 behavior first, then harden that state.
 \ir test-sprint12-2-delivery.sql
 \ir ../supabase/migrations/202609230020_delivery_reliability_hardening.sql
+\ir ../supabase/migrations/202611210028_delivery_claim_lock_expiry.sql
 
 -- New reliability metadata and RPCs remain service-role only.
 do $$

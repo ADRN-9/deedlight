@@ -105,3 +105,72 @@ Before landing, CI must prove at least:
 A repository migration for this increment must not be applied to Production merely because the migration file exists. Production must first be inspected to prove the expected Sprint 12.2 baseline, then the exact migration must be applied through the existing guarded rollout discipline, followed by schema, privilege, RLS, RPC, and behavioral verification.
 
 Merging to `main` is also a production deployment action because Cloudflare native deployment follows `main`. Production database rollout and `main` landing therefore remain explicit later gates; this branch is non-production work only.
+
+
+## C208 — outbound transport and provider lifecycle verification
+
+The delivery implementation now has a concrete provider boundary and executable lifecycle evidence on the delivery-security branch. This addendum records the contracts that must remain true; it does not authorize Production activation.
+
+### Current-consent authorization
+
+- The worker performs an initial authorization, resolves the current Auth recipient, performs a second authorization, then invokes the service-role-only \`begin_delivery_transport(job, claimToken, expectedEmail)\` database RPC immediately before provider transport.
+- The final RPC locks the ledger claim, current consent/preference row, active profile, current confirmed Auth email, and (for Weekly) the curated issue. It checks the claim token and live lease using \`clock_timestamp()\` after lock waits and again in the final transport-start update.
+- A revoked preference, suspension, changed recipient, unconfirmed email, missing curated issue, expired lease, or stale claim fails closed. A denied RPC returns NULL or an authorization error; the worker makes zero provider calls.
+- A retry re-enters the same authorization path. Queue state and a claim token are concurrency controls, never authorization.
+
+The authorization RPC is the database linearization point. A later revocation cannot recall an already-authorized external request; every subsequent attempt must pass fresh authorization.
+
+### Retry and ambiguous provider outcomes
+
+- Claim lease: five minutes, checked against the database wall clock.
+- Retry delay: five minutes; database attempt ceiling: five attempts.
+- Provider request timeout: 15 seconds by default, hard maximum 30 seconds.
+- Stable Resend idempotency key: \`deedlight/<kind>/<logical-job-uuid>\`, reused across retries.
+- The worker stops retrying before the provider's idempotency safety horizon (23 hours) expires. Timeout, network failure, malformed success body, and in-progress idempotency conflicts are ambiguous/retryable only within that horizon. A mismatched idempotency key is permanent failure.
+- Expired claims are reclaimed only with a fresh token; stale tokens cannot authorize, retry, mark sent, or mark failed. Retry exhaustion becomes terminal failure.
+
+### Provider event intake
+
+Migrations 025–027 and the server-only signed Resend webhook record bounce, complaint, suppression, and all seven lifecycle event types. Event-ID duplicates are idempotent only when compatible; payload fingerprints detect same-ID/different-body conflicts. Provider-email IDs are locked and bound to one recipient. Conflicting terminal outcomes are retained as evidence and project to \`integrity_anomaly\`, never to successful delivery. Permanent/unknown bounces, complaints, and provider suppressions block subsequent sends; transient bounces are recorded without suppression. Complaint suppression wins over bounce suppression.
+
+C208 adds regression coverage for Resend's published payload shapes: bounce \`diagnosticCode\` is optional and \`subType: "Suppressed"\` is accepted; suppression \`diagnosticCode\` and \`reason\` are optional, with missing/unrecognized reasons mapped to the fail-closed generic \`provider_suppressed\` classification. Provider diagnostics and raw payloads remain unpersisted.
+
+### Evidence and limits
+
+Before C208, PR #10 exact-head [PR Validation run 44875441190](https://github.com/ADRN-9/deedlight/actions/runs/44875441190) and [push validation run 44875436665](https://github.com/ADRN-9/deedlight/actions/runs/44875436665) passed 7/7 jobs at \`95fb79152243f9581647eae961f3c35cf5d1043b\`. This included provider webhook parser/route tests, PostgreSQL lifecycle and concurrency behavior, consent/transport tests, TypeScript, Next build, Cloudflare packaging, and dependency audit. C208 source/test head `06ca8cf1e21215645bd70dd93f178cd954196929` passed exact-head [PR run 44903895136](https://github.com/ADRN-9/deedlight/actions/runs/44903895136) and [push run 44903890652](https://github.com/ADRN-9/deedlight/actions/runs/44903890652), both 7/7 jobs. The webhook suite reported 34/34 parser/route tests passing; the transport suite reported 25/25 tests passing. PostgreSQL provider-event concurrency and consent/transport race tests passed, as did TypeScript, Next build, Cloudflare packaging, and dependency audit.
+
+No Production migrations, webhook configuration, provider sends, Cron activation, kill-switch changes, or credentials were performed in C208. Production provider lifecycle, current consent revocation behavior, scheduler cycles, and final smoke remain unverified in Production.
+
+
+## C317 — Final recipient and provider-suppression authorization
+
+Migration `202611220031_delivery_final_recipient_suppression_gate.sql` replaces migration 030's two-argument final provider authorization RPC with a three-argument contract that includes the exact Auth recipient resolved by the worker.
+
+Immediately before the Resend request, the final RPC locks the delivery claim, serializes against provider lifecycle suppression using the same per-normalized-address advisory lock as webhook intake, rechecks the current confirmed Auth email against the exact recipient supplied to transport, and rechecks Daily reminder or Weekly newsletter consent, active profile state, the relevant schedule/curated issue, and provider suppression. It takes shared locks on the relevant preference, profile, Auth user and curated issue rows through the authorization transaction, and retains the database-authoritative 23-hour provider idempotency horizon.
+
+The obsolete two-argument RPC is dropped so it cannot bypass recipient binding. The Worker passes the resolved recipient into the final gate and sends only when PostgreSQL returns the exact `authorized` status.
+
+PostgreSQL behavior fixtures prove that a complaint arriving after transport-start authorization and an Auth email change after transport start both cancel the claim before the provider adapter is invoked. These are isolated CI tests, not Production verification.
+
+The final database authorization transaction is the linearization point: a suppression or preference change committed before that gate is observed; changes waiting behind its row/advisory locks proceed after the gate transaction completes. A database transaction cannot recall an external request once its authorization boundary has committed, so each later retry must pass this gate again.
+
+
+## C318 — Resend suppression-list synchronization
+
+Migration `202611220032_resend_suppression_list_sync.sql` adds the official Resend `suppression.added` and `suppression.removed` webhook events as a distinct event family. These events identify provider suppression records, not email deliveries; the Worker routes them to a dedicated RPC and never fabricates an email lifecycle provider ID.
+
+The new private projection is keyed by normalized recipient and ordered by the signed provider event timestamp. Event IDs and payload fingerprints remain globally idempotent across both event families. A suppression-record ID is locked and permanently bound to one recipient. Equal-time contradictory state fails closed as active suppression.
+
+Provider removal clears only a generic manual provider hold after the matching add event has been observed. Bounce and complaint origins remain DeedLight holds after provider removal, and manual removal cannot delete an independently recorded complaint or permanent bounce. A removal received without a matching prior add does not clear a hold.
+
+The provider account must be dedicated to Deedlight because Resend suppression-list events are account/team-wide and do not carry the application tag used by Deedlight email lifecycle events. Production subscription configuration and real provider event delivery remain unverified.
+
+## C323 — migration-028 prerequisite attestation and webhook hardening
+
+Migration `202611210030_delivery_idempotency_receipt_guard.sql` now verifies the actual `authorize_delivery_job(uuid,uuid)` and `mark_delivery_failed(uuid,uuid,text)` implementations before applying. It checks each PL/pgSQL source SHA-256 against the reviewed migration-028 body, SECURITY DEFINER and constrained search-path metadata, and service-role-only execution privileges. A missing, drifted, or weakened prerequisite aborts the migration before it changes the schema. The migration-order harness applies migration 028 on the positive path and exercises missing-function plus per-function source-drift negative paths.
+
+The Resend verifier also bounds `svix-signature` to 4,096 characters, permits at most five v1 signature candidates, and requires each decoded HMAC-SHA256 value to be exactly 32 bytes. Invalid and excessive candidates fail before HMAC verification.
+
+Migration 033 reconciles cross-stream `email.suppressed` events with the provider suppression-state projection under the shared address lock. A late older generic suppression cannot undo a newer manual provider removal; complaint and permanent-bounce protections remain independent. CI includes PostgreSQL behavior and concurrency checks for both lock orders.
+
+These are repository and CI safeguards only. They do not authorize Production migrations, provider configuration, Cron activation, credentials changes, outbound email, or PR merge. Independent review of the new exact HEAD remains required.

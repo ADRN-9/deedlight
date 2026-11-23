@@ -46,7 +46,13 @@ expect(resend.includes('"Idempotency-Key"'), "provider request must carry an ide
 expect(resend.includes("https://api.resend.com/emails"), "provider endpoint must be explicit");
 expect(resend.includes("AbortSignal.timeout"), "provider call must have a bounded timeout");
 expect(resend.includes("provider_ambiguous_response"), "ambiguous success must fail safely");
-expect(runner.includes("provider_idempotency_window_expired"), "provider idempotency horizon must be enforced");
+expect(
+  runner.includes("authorizeProviderIdempotencyWindow")
+    && runner.indexOf("authorizeProviderIdempotencyWindow") < runner.indexOf("transport.send"),
+  "database-authoritative provider idempotency gate must precede transport",
+);
+expect(runtime.includes("authorize_delivery_idempotency_window"), "provider horizon must be checked using persisted database evidence");
+expect(!runner.includes("PROVIDER_IDEMPOTENCY_SAFETY_MS"), "Worker must not calculate provider idempotency age");
 expect((runner.match(/gateway\.authorize\(job\)/g) ?? []).length >= 2, "authorization must be checked again immediately before transport");
 expect(runtime.includes("auth.admin.getUserById"), "recipient must be resolved from Supabase Auth at send time");
 expect(!runtime.includes("NEXT_PUBLIC_SUPABASE_URL"), "service-role runtime must not use public Supabase config");

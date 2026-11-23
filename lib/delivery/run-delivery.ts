@@ -5,8 +5,6 @@ import type {
   DeliveryTransport,
 } from "./types.ts";
 
-const RETRY_DELAY_MS = 5 * 60 * 1000;
-const PROVIDER_IDEMPOTENCY_SAFETY_MS = 23 * 60 * 60 * 1000;
 
 export type DeliveryProcessingResult =
   | "cancelled"
@@ -19,14 +17,12 @@ export async function processClaimedDelivery(input: {
   gateway: DeliveryGateway;
   recipientResolver: DeliveryRecipientResolver;
   transport: DeliveryTransport;
-  clock?: () => Date;
 }): Promise<DeliveryProcessingResult> {
   const {
     job,
     gateway,
     recipientResolver,
     transport,
-    clock = () => new Date(),
   } = input;
 
   if (!(await gateway.authorize(job))) {
@@ -45,16 +41,14 @@ export async function processClaimedDelivery(input: {
     return "cancelled";
   }
 
-  const firstTransportAt = await gateway.beginTransport(job);
-  const decisionNow = clock();
-  const elapsed = Math.max(
-    0,
-    decisionNow.getTime() - firstTransportAt.getTime(),
-  );
+  if (await gateway.beginTransport(job, recipient) === null) return "cancelled";
 
-  if (elapsed >= PROVIDER_IDEMPOTENCY_SAFETY_MS) {
-    await gateway.markFailed(job, "provider_idempotency_window_expired");
-    return "failed";
+  // Final DB gate rechecks the exact recipient, consent, suspension, suppression and provider horizon.
+  const idempotencyAuthorization = await gateway.authorizeProviderIdempotencyWindow(job, recipient);
+  if (idempotencyAuthorization === "cancelled") return "cancelled";
+  if (idempotencyAuthorization === "expired") return "failed";
+  if (idempotencyAuthorization !== "authorized") {
+    throw new Error("Provider idempotency authorization returned an unsupported result.");
   }
 
   const outcome = await transport.send(job, recipient);
@@ -69,15 +63,6 @@ export async function processClaimedDelivery(input: {
     return "failed";
   }
 
-  const retryAt = new Date(decisionNow.getTime() + RETRY_DELAY_MS);
-  if (
-    retryAt.getTime() >=
-    firstTransportAt.getTime() + PROVIDER_IDEMPOTENCY_SAFETY_MS
-  ) {
-    await gateway.markFailed(job, "provider_idempotency_window_expired");
-    return "failed";
-  }
-
-  await gateway.retry(job, retryAt, outcome.errorCode);
-  return "retried";
+  const requeued = await gateway.retry(job, outcome.errorCode);
+  return requeued ? "retried" : "failed";
 }

@@ -39,6 +39,7 @@ jobs:
           test -z "${SUPABASE_DB_PASSWORD:-}"
           test -z "${SUPABASE_PROJECT_REF:-}"
           test -z "${RESEND_API_KEY:-}"
+          test -z "${RESEND_WEBHOOK_SECRET:-}"
           test -z "${DELIVERY_FROM_EMAIL:-}"
 
       - name: Setup Node
@@ -49,6 +50,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Dependency remediation assertions
+        run: node scripts/verify-dependency-remediation.mjs
 
       - name: Diff integrity
         run: git diff --check
@@ -65,14 +69,28 @@ jobs:
       - name: Gentle delivery transport security assertions
         run: node scripts/verify-gentle-delivery-transport.mjs
 
+      - name: Current-consent and migration-target security assertions
+        run: node scripts/verify-delivery-consent-gates.mjs
+
+      - name: Resend provider webhook security assertions
+        run: node scripts/verify-delivery-provider-webhooks.mjs
+
+      - name: ESLint changed delivery security files
+        run: >-
+          npx eslint
+          lib/delivery/resend-webhook.ts
+          scripts/test-delivery-webhook.mjs
+          scripts/verify-delivery-reliability.mjs
+          scripts/verify-delivery-provider-webhooks.mjs
+
       - name: Auth pgcrypto schema-qualification assertions
         run: node scripts/verify-auth-pgcrypto-schema-qualification.mjs
 
       - name: Gentle delivery transport behavior
         run: node --test scripts/test-delivery-transport.mjs
 
-      - name: Fail closed on high or critical dependency advisories
-        run: npm audit --audit-level=high
+      - name: Resend provider webhook behavior
+        run: npm run test:delivery-webhook
 
       - name: TypeScript check
         run: npx tsc --noEmit
@@ -82,6 +100,9 @@ jobs:
 
       - name: Cloudflare packaging build with non-production configuration
         run: npx opennextjs-cloudflare build
+
+      - name: Fail closed on moderate or higher dependency advisories
+        run: npm audit --audit-level=moderate
 
   sprint12_2_database_behavior:
     runs-on: ubuntu-latest
@@ -179,6 +200,9 @@ jobs:
             --dbname deedlight_reliability_test \
             --file scripts/test-delivery-reliability-terminals.sql
 
+      - name: PostgreSQL lease expiry under row-lock contention
+        run: bash scripts/test-delivery-reliability-concurrency.sh
+
   gentle_delivery_transport_database_behavior:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -225,7 +249,10 @@ jobs:
             --port 5432 \
             --username postgres \
             --dbname deedlight_transport_test \
-            --file scripts/test-gentle-delivery-transport.sql
+            --file scripts/test-delivery-consent-gates.sql
+
+      - name: PostgreSQL synchronized revocation/transport race
+        run: bash scripts/test-delivery-consent-concurrency.sh
 
   auth_pgcrypto_database_behavior:
     runs-on: ubuntu-latest
@@ -274,3 +301,150 @@ jobs:
             --username postgres \
             --dbname deedlight_auth_test \
             --file scripts/test-auth-pgcrypto-schema-qualification.sql
+
+  delivery_migration_order_database_behavior:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: deedlight_migration_order_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d deedlight_migration_order_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGPASSWORD: postgres
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Fail closed on Production configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "${SUPABASE_ACCESS_TOKEN:-}"
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}"
+          test -z "${SUPABASE_PROJECT_REF:-}"
+          test -z "${SUPABASE_DB_PASSWORD:-}"
+          test -z "${RESEND_API_KEY:-}"
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Run migration ordering positive and negative behavior
+        run: bash scripts/test-delivery-migration-order.sh
+
+      - name: Install pinned Supabase CLI for duplicate migration regression
+        uses: supabase/setup-cli@v1
+        with:
+          version: 3.2.0
+
+      - name: Verify duplicate 007 order and CLI migration semantics
+        run: bash scripts/test-duplicate-migration-007.sh
+
+  delivery_provider_webhook_database_behavior:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: deedlight_webhook_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d deedlight_webhook_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGPASSWORD: postgres
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Fail closed on Production configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "${CLOUDFLARE_API_TOKEN:-}"
+          test -z "${CLOUDFLARE_ACCOUNT_ID:-}"
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}"
+          test -z "${SUPABASE_ACCESS_TOKEN:-}"
+          test -z "${SUPABASE_DB_PASSWORD:-}"
+          test -z "${SUPABASE_PROJECT_REF:-}"
+          test -z "${RESEND_API_KEY:-}"
+          test -z "${RESEND_WEBHOOK_SECRET:-}"
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Run provider webhook and suppression database behavior tests
+        run: |
+          psql \
+            --host 127.0.0.1 \
+            --port 5432 \
+            --username postgres \
+            --dbname deedlight_webhook_test \
+            --file scripts/test-delivery-provider-webhooks.sql
+
+      - name: Provider webhook concurrency behavior
+        run: bash scripts/test-delivery-provider-webhook-concurrency.sh
+  privacy_authorization_database_behavior:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: deedlight_privacy_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d deedlight_privacy_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: deedlight_privacy_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Fail closed on Production configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "${CLOUDFLARE_API_TOKEN:-}"
+          test -z "${CLOUDFLARE_ACCOUNT_ID:-}"
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}"
+          test -z "${SUPABASE_ACCESS_TOKEN:-}"
+          test -z "${SUPABASE_DB_PASSWORD:-}"
+          test -z "${SUPABASE_PROJECT_REF:-}"
+          test -z "${RESEND_API_KEY:-}"
+          test -z "${RESEND_WEBHOOK_SECRET:-}"
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Run DeedLight privacy authorization database behavior
+        run: bash scripts/test-privacy-authorization-database.sh
+

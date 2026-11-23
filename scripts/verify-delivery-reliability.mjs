@@ -30,6 +30,17 @@ function requireAbsent(name, text, pattern) {
 }
 
 const migration = read(files.migration);
+const leaseMigration = read("supabase/migrations/202611210028_delivery_claim_lock_expiry.sql");
+const idempotencyMigration = read("supabase/migrations/202611210030_delivery_idempotency_receipt_guard.sql");
+const finalGateMigration = read("supabase/migrations/202611220031_delivery_final_recipient_suppression_gate.sql");
+const idempotencyTests = read("scripts/test-delivery-idempotency-guard.sql");
+const migrationOrderTest = read("scripts/test-delivery-migration-order.sh");
+const deliveryRunner = read("lib/delivery/run-delivery.ts");
+const deliveryRuntime = read("lib/delivery/supabase-runtime.ts");
+const resendTransport = read("lib/delivery/resend-transport.ts");
+const transportTests = read("scripts/test-delivery-transport.mjs");
+const concurrencyTest = read("scripts/test-delivery-reliability-concurrency.sh");
+const workflow = read(".github/workflows/pr-validation.yml");
 const aggregateSql = read(files.aggregateSql);
 const packageJson = read(files.packageJson);
 const wrangler = read(files.wrangler);
@@ -184,5 +195,208 @@ if (!aggregateSql.includes(migration.trim())) {
   );
 }
 console.log("PASS: canonical migration is mirrored verbatim in aggregate SQL");
+
+if (!aggregateSql.includes(leaseMigration.trim())) {
+  throw new Error("Delivery reliability security assertion failed: migration 028 is not mirrored verbatim in aggregate SQL.");
+}
+console.log("PASS: additive lease correction is mirrored verbatim in aggregate SQL");
+for (const fn of ["authorize_delivery_job", "retry_delivery_job", "mark_delivery_sent", "mark_delivery_failed"]) {
+  const start = leaseMigration.indexOf("create or replace function public." + fn + "(");
+  const end = leaseMigration.indexOf("\n$", start);
+  const definition = start < 0 ? "" : leaseMigration.slice(start, end < 0 ? undefined : end);
+  if (!/for update[\s\S]*?clock_timestamp\(\)/i.test(definition)) {
+    throw new Error(fn + " must lock the ledger row before wall-clock lease validation.");
+  }
+  if (/claim_expires_at\s*(?:<=|>)\s*now\(\)/i.test(definition)) {
+    throw new Error(fn + " must not validate lease expiry using transaction-start now().");
+  }
+  if (!/security definer[\s\S]*?set search_path = public, auth, pg_temp/i.test(definition)
+    || !leaseMigration.includes("revoke all privileges on function public." + fn)
+    || !leaseMigration.includes("grant execute on function public." + fn)) {
+    throw new Error(fn + " security-definer or service-role privilege boundary regressed.");
+  }
+  if (!concurrencyTest.includes(fn)) {
+    throw new Error("Missing row-lock expiry concurrency case: " + fn);
+  }
+}
+if (!/retry_delivery_job[\s\S]*?for update[\s\S]*?p_retry_at <= v_now[\s\S]*?p_retry_at > v_now \+ interval '24 hours'/i.test(leaseMigration)) {
+  throw new Error("Retry time must remain bounded against wall-clock time after the row lock.");
+}
+if (!/attempt_count >= 5[\s\S]*?error_code = 'retry_exhausted'/i.test(leaseMigration)) {
+  throw new Error("Fifth-attempt retry exhaustion must remain terminal.");
+}
+if (!/wait_for_row_lock_wait[\s\S]*?wait_event_type='Lock'/i.test(concurrencyTest)) {
+  throw new Error("Concurrency harness must wait for an actual PostgreSQL row-lock wait.");
+}
+if (!workflow.includes("bash scripts/test-delivery-reliability-concurrency.sh")) {
+  throw new Error("PR Validation must run the lease lock-contention test.");
+}
+
+if (!aggregateSql.includes(idempotencyMigration.trim())) {
+  throw new Error("Migration 030 is not mirrored verbatim in the SQL Editor aggregate.");
+}
+console.log("PASS: migration 030 is mirrored verbatim in aggregate SQL");
+
+const retryStart = idempotencyMigration.indexOf("create or replace function public.retry_delivery_job(");
+const retryEnd = idempotencyMigration.indexOf("\n$retry$;", retryStart);
+const authoritativeRetry = idempotencyMigration.slice(retryStart, retryEnd);
+const compactRetry = authoritativeRetry.replace(/\s+/g, "");
+const compactMigration = idempotencyMigration.replace(/\s+/g, "");
+if (retryStart < 0 || retryEnd < 0
+  || compactRetry.includes("p_retry_at")
+  || !compactRetry.includes("v_now:=clock_timestamp()")
+  || !compactRetry.includes("v_retry_at:=v_now+interval'5minutes'")
+  || !compactRetry.includes("transport_started_at+interval'23hours'")) {
+  throw new Error("Migration 030 retry must use PostgreSQL time and persisted transport-start evidence.");
+}
+if (!idempotencyMigration.includes("return public.retry_delivery_job(p_job_id,p_claim_token,p_error_code);")) {
+  throw new Error("Legacy retry overload must ignore its Worker-supplied timestamp.");
+}
+const providerWindowSqlStart = idempotencyMigration.indexOf("create function public.authorize_delivery_idempotency_window(");
+const providerWindowSqlEnd = idempotencyMigration.indexOf("\n$idempotency$;", providerWindowSqlStart);
+const providerWindowSql = providerWindowSqlStart < 0 || providerWindowSqlEnd < 0
+  ? ""
+  : idempotencyMigration.slice(providerWindowSqlStart, providerWindowSqlEnd);
+const consentAuthorizationIndex = providerWindowSql.indexOf("public.authorize_delivery_job(p_job_id,p_claim_token)");
+const lockedLedgerIndex = providerWindowSql.indexOf("for update");
+const databaseClockIndex = providerWindowSql.indexOf("v_now := clock_timestamp()");
+const providerHorizonIndex = providerWindowSql.indexOf("transport_started_at + interval '23 hours'");
+if (!providerWindowSql.includes("returns text")
+  || consentAuthorizationIndex < 0
+  || lockedLedgerIndex <= consentAuthorizationIndex
+  || databaseClockIndex <= lockedLedgerIndex
+  || providerHorizonIndex <= databaseClockIndex
+  || !providerWindowSql.includes("return 'cancelled'")
+  || !providerWindowSql.includes("return 'expired'")
+  || !providerWindowSql.includes("return 'authorized'")
+  || !providerWindowSql.includes("interval '30 seconds'")) {
+  throw new Error("Migration 030 final database authorization must recheck consent, lock the claim, then validate its database-clock provider horizon.");
+}
+console.log("PASS: Migration 030 final database authorization order and text status contract");
+
+const finalGateStart = finalGateMigration.indexOf("create function public.authorize_delivery_idempotency_window(");
+const finalGateEnd = finalGateMigration.indexOf("\n$final_gate$;", finalGateStart);
+const finalGateSql = finalGateStart < 0 || finalGateEnd < 0 ? "" : finalGateMigration.slice(finalGateStart, finalGateEnd);
+if (!finalGateSql.includes("p_expected_email text")
+  || !finalGateSql.includes("pg_advisory_xact_lock(20261119, hashtext(v_email))")
+  || !finalGateSql.includes("lower(btrim(u.email)) = v_email")
+  || !finalGateSql.includes("for share of drp, p, u")
+  || !finalGateSql.includes("for share of np, p, u, f")
+  || finalGateSql.split("delivery_provider_suppressions").length - 1 < 2
+  || !finalGateSql.includes("transport_started_at + interval '23 hours'")
+  || !finalGateSql.includes("return 'cancelled'")
+  || !finalGateSql.includes("return 'expired'")
+  || !finalGateSql.includes("return 'authorized'")
+  || !finalGateMigration.includes("drop function public.authorize_delivery_idempotency_window(uuid, uuid);")) {
+  throw new Error("Migration 031 must bind current recipient, consent, profile and suppression at the final provider gate.");
+}
+if (!aggregateSql.includes(finalGateMigration.trim())) {
+  throw new Error("Migration 031 is not mirrored verbatim in the SQL Editor aggregate.");
+}
+console.log("PASS: Migration 031 final recipient and suppression authorization");
+if (!compactMigration.includes("p_provider_result_idisnull")
+  || !compactMigration.includes("char_length(p_provider_result_id)<>36")
+  || !compactMigration.includes("p_provider_result_id<>btrim(p_provider_result_id)")
+  || !compactMigration.includes("transport_started_atisnull")) {
+  throw new Error("Migration 030 sent transition must require transport evidence and a validated receipt.");
+}
+if (!deliveryRunner.includes("authorizeProviderIdempotencyWindow")
+  || deliveryRunner.includes("PROVIDER_IDEMPOTENCY_SAFETY_MS")
+  || deliveryRunner.includes("RETRY_DELAY_MS")
+  || deliveryRunner.includes("clock?:")) {
+  throw new Error("Worker must delegate provider horizon and retry timing to PostgreSQL.");
+}
+const transportStartIndex = deliveryRunner.indexOf("gateway.beginTransport(job, recipient)");
+const providerAuthorizationIndex = deliveryRunner.indexOf("gateway.authorizeProviderIdempotencyWindow(job, recipient)");
+const providerSendIndex = deliveryRunner.indexOf("transport.send(job, recipient)");
+if (transportStartIndex < 0 || providerAuthorizationIndex <= transportStartIndex || providerSendIndex <= providerAuthorizationIndex) {
+  throw new Error("Final database provider authorization must run after transport start and before the external send.");
+}
+requireMatch(
+  "Final provider authorization is ordered after persisted transport start and before the external send",
+  deliveryRunner,
+  /if \(await gateway\.beginTransport\(job, recipient\) === null\) return "cancelled";[\s\S]*?const idempotencyAuthorization = await gateway\.authorizeProviderIdempotencyWindow\(job, recipient\);[\s\S]*?const outcome = await transport\.send\(job, recipient\);/,
+);
+requireMatch(
+  "Revoked consent at the final provider gate cancels without sending",
+  deliveryRunner,
+  /if \(idempotencyAuthorization === "cancelled"\) return "cancelled";/,
+);
+requireMatch(
+  "Expired provider idempotency authorization fails without sending",
+  deliveryRunner,
+  /if \(idempotencyAuthorization === "expired"\) return "failed";/,
+);
+requireMatch(
+  "Unknown provider authorization results fail closed before sending",
+  deliveryRunner,
+  /if \(idempotencyAuthorization !== "authorized"\) \{\s*throw new Error\("Provider idempotency authorization returned an unsupported result\."\);\s*\}/,
+);
+const providerWindowMethod = deliveryRuntime.match(
+  /async authorizeProviderIdempotencyWindow\([\s\S]*?\n  }\n\n  async markSent/,
+)?.[0] ?? "";
+requireMatch(
+  "Provider idempotency adapter declares the exact three-status return union",
+  providerWindowMethod,
+  /async authorizeProviderIdempotencyWindow[\s\S]*?Promise<"authorized" \| "cancelled" \| "expired">/,
+);
+requireMatch(
+  "Provider idempotency adapter calls the dedicated database RPC with claim identity",
+  providerWindowMethod,
+  /rpc\("authorize_delivery_idempotency_window",\s*\{\s*p_job_id: job\.jobId,\s*p_claim_token: job\.claimToken,\s*p_expected_email: recipient\.email,\s*\}\)/,
+);
+requireMatch(
+  "Provider idempotency adapter rejects database errors and every unknown status",
+  providerWindowMethod,
+  /if \(error \|\| \(data !== "authorized" && data !== "cancelled" && data !== "expired"\)\) \{\s*fail\("authorize provider idempotency window"\);\s*\}/,
+);
+requireMatch(
+  "Provider idempotency adapter returns only the validated database status",
+  providerWindowMethod,
+  /return data;/,
+);
+if (!deliveryRuntime.includes("p_error_code: errorCode") || deliveryRuntime.includes("p_retry_at")) {
+  throw new Error("Supabase runtime must call DB-authoritative retry RPCs without Worker timestamps.");
+}
+if (!resendTransport.includes("RESEND_EMAIL_ID_PATTERN")
+  || !resendTransport.includes("value === value.trim()")) {
+  throw new Error("Resend transport must reject malformed, whitespace and control-character receipt IDs.");
+}
+if (!idempotencyTests.includes("worker_clock_two_hours_behind")
+  || !idempotencyTests.includes("24 hours 1 second")
+  || !idempotencyTests.includes("provider-message-123")
+  || !idempotencyTests.includes("missing transport-start evidence")
+  || !idempotencyTests.includes("v_window text;")
+  || !idempotencyTests.includes("pg_get_function_result(to_regprocedure('public.authorize_delivery_idempotency_window(uuid,uuid,text)')) is distinct from 'text'")
+  || !idempotencyTests.includes("Final provider gate failed to recheck revoked newsletter consent.")
+  || !idempotencyTests.includes("do $consent_transport_start$")
+  || !idempotencyTests.includes("do $consent_revocation$")
+  || !idempotencyTests.includes("C230 consent-revocation gate: result")
+  || !idempotencyTests.includes("Final provider gate did not cancel a newly suppressed recipient.")
+  || !idempotencyTests.includes("Final provider gate accepted an Auth email changed after transport start.")
+  || !migrationOrderTest.includes("202611220031_delivery_final_recipient_suppression_gate.sql")) {
+  throw new Error("Migration 030 PostgreSQL regression coverage is incomplete.");
+}
+if (!migrationOrderTest.includes("C226 deliberate source drift")
+  || !migrationOrderTest.includes("Migration 029 source identity drift rejection")
+  || !migrationOrderTest.includes("scripts/test-delivery-idempotency-guard.sql")) {
+  throw new Error("Migration-order CI must prove migration 029 drift rejection and migration 030 behavior.");
+}
+const consentStartFixture = idempotencyTests.indexOf("do $consent_transport_start$");
+const consentMutation = idempotencyTests.indexOf("update public.newsletter_preferences", consentStartFixture);
+const finalConsentGate = idempotencyTests.indexOf("do $consent_revocation$", consentMutation);
+if (consentStartFixture < 0 || consentMutation <= consentStartFixture || finalConsentGate <= consentMutation) {
+  throw new Error("Consent-revocation PostgreSQL fixture must separate transport start, preference revocation, and final authorization.");
+}
+if (!transportTests.includes("database-authoritative idempotency expiry")
+  || !transportTests.includes("final provider gate cancels when consent is revoked")
+  || !transportTests.includes("provider idempotency RPC validates exact status union and fails closed")
+  || !transportTests.includes("final provider gate fails closed for cancelled and expired authorization")
+  || !transportTests.includes("unsupported provider authorization result fails closed before provider send")
+  || !transportTests.includes("retry and provider-window RPCs never trust a Worker timestamp")
+  || !transportTests.includes("canonical UUIDs")) {
+  throw new Error("Transport tests must cover DB-authoritative timing and Resend receipt validation.");
+}
+console.log("PASS: C226 migration 030 and C317 migration 031 final recipient/suppression assertions");
 
 console.log("Delivery reliability security assertions: PASS");

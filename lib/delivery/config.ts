@@ -74,7 +74,7 @@ export function parseDeliveryRuntimeConfig(
     throw new Error("DELIVERY_FROM_EMAIL is invalid.");
   }
 
-  const rawBatchSize = env.DELIVERY_BATCH_SIZE?.trim() || "25";
+  const rawBatchSize = env.DELIVERY_BATCH_SIZE?.trim() || "5";
   const batchSize = Number.parseInt(rawBatchSize, 10);
   if (!Number.isInteger(batchSize) || String(batchSize) !== rawBatchSize || batchSize < 1 || batchSize > 100) {
     throw new Error("DELIVERY_BATCH_SIZE must be an integer between 1 and 100.");
