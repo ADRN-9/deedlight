@@ -51,6 +51,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Dependency remediation assertions
+        run: node scripts/verify-dependency-remediation.mjs
+
       - name: Diff integrity
         run: git diff --check
 
@@ -98,8 +101,8 @@ jobs:
       - name: Cloudflare packaging build with non-production configuration
         run: npx opennextjs-cloudflare build
 
-      - name: Fail closed on high or critical dependency advisories
-        run: npm audit --audit-level=high
+      - name: Fail closed on moderate or higher dependency advisories
+        run: npm audit --audit-level=moderate
 
   sprint12_2_database_behavior:
     runs-on: ubuntu-latest
