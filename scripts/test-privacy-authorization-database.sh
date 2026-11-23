@@ -104,6 +104,7 @@ migrations_after_daily=(
   supabase/migrations/202608130016_sprint11_3_invitations_newsletter_foundation.sql
   supabase/migrations/202608130017_sprint12_1_offering_ownership_engagement.sql
   supabase/migrations/202608140018_sprint12_1_owner_removal_guard_hotfix.sql
+  supabase/migrations/202611230035_private_offering_base_table_rls.sql
 )
 
 for migration in "${migrations_after_daily[@]}"; do
