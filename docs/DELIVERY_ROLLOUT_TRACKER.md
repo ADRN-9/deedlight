@@ -2,7 +2,62 @@
 
 **Status: PRODUCTION NO-GO.** This tracker separates repository evidence from Production evidence. A green CI run does not prove live consent, provider, scheduler, ledger, or kill-switch behavior.
 
-## Current code and review state
+## C404 — current source, migration reconciliation and rollout status
+
+**Inspection baseline:** PR #10 source HEAD c256a1e959f42d0a66b47ad16b3aef3b4705f11e; tree 3aafe015a5dacadb87d5408a3ba01c5fa7155286.  
+**Repository:** ADRN-9/deedlight. **PR #10:** OPEN / DRAFT / UNMERGED. **Branch:** security/delivery-transport-consent-gates. **Base:** main at ce82b3fdf1a73510de70e3729a487d4ae00e66e3.  
+**Current migration inventory:** 36 files, 35 unique version prefixes. Two distinct files share 202607260007. The authoritative filename/blob/dependency/effect inventory and forward-only reconciliation procedure are in docs/PRODUCTION_MIGRATION_RECONCILIATION.md (Git blob 02e12f345ed83ab07d61c1efb2a909be646a5656 in this C404 commit).
+
+### Assignment and acceptance status
+
+| Work item | Implementation / recovery status | CI / acceptance status | Production status |
+|---|---|---|---|
+| C326 Reviewer | Execution record/report not recovered; assignment state UNKNOWN (not classifiable as active, stalled, failed or completed). Do not duplicate while unresolved. | No attributable review or CI evidence recovered. | No Production acceptance. |
+| C331 Developer | Implementation report recovered; migration 034 and timestamp-ordering regression work recorded at HEAD 7ed18f2687b7856865d3fd7bf81c8641b885ff3f. | Push Validation #45146833961 SUCCESS, 7/7 at exact branch HEAD. PR Validation #45146843245 SUCCESS, 7/7 as PR integration validation. Report: https://github.com/ADRN-9/deedlight/pull/10#issuecomment-7096699838 | Not Production validation. |
+| C332 Developer | Implementation report recovered; privacy PostgreSQL suite and migration 035 recorded at HEAD c256a1e959f42d0a66b47ad16b3aef3b4705f11e. | Push Validation #45152544582 SUCCESS, 8/8 at exact branch HEAD. PR Validation #45152552960 SUCCESS, 8/8 as PR integration validation. Privacy job applied migration 035 to disposable PostgreSQL and passed assertions/fixture cleanup. Report: https://github.com/ADRN-9/deedlight/pull/10#issuecomment-7097489340 | Migration 035 has NOT been applied to Production. |
+| C333 Reviewer | Execution record/report not recovered; assignment state UNKNOWN. Do not duplicate while unresolved. | No attributable review or CI evidence recovered. | No Production acceptance. |
+| C334 Developer/reconciliation | Recovery status UNRECOVERED: no attributable durable report, commit, branch or CI artifact found. Whether an execution occurred remains UNKNOWN. | No attributable independent acceptance. | Production reconciliation remains incomplete. |
+
+C331/C332 discussion reports were authored by ADRN-9, the PR author. They are implementation handoffs, not independent review. Current PR #10 formal GitHub review endpoint returns zero submitted reviews. No independent reviewer identity or formal approval for current HEAD c256a1e959f42d0a66b47ad16b3aef3b4705f11e is established. Historical C231/C241 narrative entries are not substitutes for a current formal review.
+
+### Current PR metadata
+
+| PR | State | Source branch | Exact source HEAD | Base / base SHA | Notes |
+|---|---|---|---|---|---|
+| #10 | OPEN / DRAFT / UNMERGED | security/delivery-transport-consent-gates | c256a1e959f42d0a66b47ad16b3aef3b4705f11e | main / ce82b3fdf1a73510de70e3729a487d4ae00e66e3 | C404 documentation changes are a fast-forward child of this inspected baseline. |
+| #11 | OPEN / DRAFT / UNMERGED | security/deedlight-audit-fixtures-c18 | f5ed62e4417921c8bee1a376fed8bac35897e809 | main / ce82b3fdf1a73510de70e3729a487d4ae00e66e3 | Not modified. |
+| #19 | OPEN / DRAFT / UNMERGED | security/deedlight-migration-audit-safety-c270 | 8e14f2ea70cd0c9fc701e017a6b88b4fe83b886e | security/delivery-transport-consent-gates / 9072f3b8824ec9618849def1c0832000cd130474 | Not modified; diverged from current PR #10. |
+
+PR #19 compares 17 commits ahead and 26 behind current PR #10, with merge base 9072f3b8824ec9618849def1c0832000cd130474. Do not merge or rebase it without a separately reviewed integration plan.
+
+### Production migration reconciliation dependency
+
+Production project reference: xaipiovflxomcbfwtwmu. The connected Supabase identities could not list the project or read its migration history/catalog; read-only get_project/list_migrations/list_tables attempts were denied. All 36 source migration files and every independently identifiable schema effect remain Production UNKNOWN. The duplicate 007 body collision remains unresolved for Production.
+
+**Human-only prerequisite:** a Production owner/administrator must grant scoped read-only access to an existing connected identity or provide an approved read-only database connection. It must allow SELECT of supabase_migrations.schema_migrations and relevant PostgreSQL catalogs only. No service-role credential is required or requested. No migration repair or db push is authorized until full history/schema/audit evidence is captured, mapped, backed up and independently reviewed.
+
+### Independent acceptance versus implementation and CI
+
+- Implementation reports establish claimed source changes and their handoff details.
+- Branch-push CI establishes automated behavior at the exact branch source HEAD.
+- PR validation establishes integration against the PR merge ref; it is not a second direct checkout of the branch HEAD.
+- Independent acceptance requires an attributable reviewer identity and substantive independent review. Current formal PR #10 review submissions: zero.
+- Production validation requires live authorized runtime, database, provider, scheduler and deployment evidence. None is established by C331/C332 CI.
+
+### Outstanding rollout gates
+
+- C326/C333 Reviewer execution status recovery; C334 report/artifact recovery.
+- Independent security review of current PR #10 HEAD and formal review identity.
+- Authorized read-only Production migration history/schema/audit evidence and duplicate-007 resolution.
+- Provider failure, bounce and complaint operational evidence.
+- Staged Daily Cron, multiple healthy Daily cycles, Production kill-switch exercise and safe re-enablement.
+- Curated Weekly Cron only after Daily acceptance.
+- Authenticated Production regressions, authorized deploy and final Production smoke.
+- Main-branch protection and Production Environment/secret-scope governance verification.
+
+**C404 safety disposition:** documentation-only. No Production SQL, migration, credential, configuration, deployment, provider, email, Cron, scheduler, branch protection, PR approval or merge action. PR #11 and PR #19 remain untouched. Production remains NO-GO.
+
+## Historical code and review snapshots (superseded by C404)
 
 - Delivery-security branch: `security/delivery-transport-consent-gates`.
 - Historical C225 independent-review target: HEAD `2d5d00371409a151c7c2ce23cb978b2eaa867e91`, tree `64253539093d9057a571c8a3103766292cf370ce`, base `ce82b3fdf1a73510de70e3729a487d4ae00e66e3`.
