@@ -121,6 +121,46 @@ SQL
 "${psql_cmd[@]}" --file supabase/migrations/202611190025_delivery_provider_webhooks.sql >"$tmp/m025.log"
 "${psql_cmd[@]}" --file supabase/migrations/202611190026_delivery_provider_lifecycle.sql >"$tmp/m026.log"
 "${psql_cmd[@]}" --file supabase/migrations/202611200027_delivery_provider_integrity.sql >"$tmp/m027.log"
+"${psql_cmd[@]}" --file supabase/migrations/202611210028_delivery_claim_lock_expiry.sql >"$tmp/m028.log"
+"${psql_cmd[@]}" <<'SQL'
+create table public.c323_m028_function_snapshot as
+select p.proname, pg_get_functiondef(p.oid) as definition
+from pg_catalog.pg_proc p
+where p.oid in (
+  to_regprocedure('public.authorize_delivery_job(uuid,uuid)'),
+  to_regprocedure('public.mark_delivery_failed(uuid,uuid,text)')
+);
+do $c323$
+begin
+  if (select count(*) from public.c323_m028_function_snapshot) <> 2
+    or not exists (
+      select 1 from pg_catalog.pg_proc p
+      where p.oid = to_regprocedure('public.authorize_delivery_job(uuid,uuid)')
+        and encode(extensions.digest(convert_to(p.prosrc, 'UTF8'), 'sha256'), 'hex')
+          = 'dea4d0ecb1518edec6c60f1ec998669af65b2164a547cffe67f5cbdaa8644215'
+        and p.prosecdef
+        and p.proconfig = array['search_path=public, auth, pg_temp']::text[]
+        and not has_function_privilege('anon', p.oid, 'EXECUTE')
+        and not has_function_privilege('authenticated', p.oid, 'EXECUTE')
+        and has_function_privilege('service_role', p.oid, 'EXECUTE')
+    )
+    or not exists (
+      select 1 from pg_catalog.pg_proc p
+      where p.oid = to_regprocedure('public.mark_delivery_failed(uuid,uuid,text)')
+        and encode(extensions.digest(convert_to(p.prosrc, 'UTF8'), 'sha256'), 'hex')
+          = 'c7830ca2281fa85e4466fa45c32c1067dba4c9766eeeb26d26dcdb3b46b72b78'
+        and p.prosecdef
+        and p.proconfig = array['search_path=public, auth, pg_temp']::text[]
+        and not has_function_privilege('anon', p.oid, 'EXECUTE')
+        and not has_function_privilege('authenticated', p.oid, 'EXECUTE')
+        and has_function_privilege('service_role', p.oid, 'EXECUTE')
+    ) then
+    raise exception 'Migration 028 positive path did not install the attested service-role-only RPCs.';
+  end if;
+end;
+$c323$;
+SQL
+echo "Migration 028 exact hardened RPC source and privilege attestation: PASS"
 "${psql_cmd[@]}" <<'SQL'
 set role service_role;
 select public.record_delivery_provider_event(
@@ -247,12 +287,116 @@ drop table public.c226_provider_impl_snapshot;
 SQL
 echo "Migration 029 source identity drift rejection, atomic rollback and legacy replay compatibility: PASS"
 
+# Migration 030 must reject missing or source-drifted migration-028 prerequisites atomically.
+"${psql_cmd[@]}" <<'SQL'
+drop function public.mark_delivery_failed(uuid,uuid,text);
+SQL
+if "${psql_cmd[@]}" --file supabase/migrations/202611210030_delivery_idempotency_receipt_guard.sql >"$tmp/m030-missing.log" 2>&1; then
+  echo "ERROR: Migration 030 accepted a missing migration-028 prerequisite." >&2
+  exit 1
+fi
+if ! grep -q "Migration 030 requires the exact hardened migration-028 authorize_delivery_job and mark_delivery_failed implementations" "$tmp/m030-missing.log"; then
+  echo "ERROR: Migration 030 missing-prerequisite rejection came from an unexpected check." >&2
+  grep -E 'ERROR:|FATAL:' "$tmp/m030-missing.log" >&2 || true
+  exit 1
+fi
+"${psql_cmd[@]}" <<'SQL'
+do $c323$
+declare v_definition text;
+begin
+  select definition into v_definition from public.c323_m028_function_snapshot where proname = 'mark_delivery_failed';
+  if v_definition is null then raise exception 'Missing mark_delivery_failed snapshot.'; end if;
+  execute v_definition;
+end;
+$c323$;
+revoke all privileges on function public.mark_delivery_failed(uuid,uuid,text) from public, anon, authenticated;
+grant execute on function public.mark_delivery_failed(uuid,uuid,text) to service_role;
+do $c323$
+begin
+  if to_regprocedure('public.authorize_delivery_idempotency_window(uuid,uuid)') is not null then
+    raise exception 'Failed migration 030 installed partial provider authorization schema.';
+  end if;
+end;
+$c323$;
+SQL
+
+# Drift authorize_delivery_job without changing its privilege boundary.
+"${psql_cmd[@]}" <<'SQL'
+do $c323$
+declare v_definition text;
+begin
+  select definition into v_definition from public.c323_m028_function_snapshot where proname = 'authorize_delivery_job';
+  if v_definition is null or position('v_job public.delivery_ledger%rowtype;' in v_definition) = 0 then
+    raise exception 'Could not locate authorize_delivery_job source drift anchor.';
+  end if;
+  execute replace(v_definition,
+    'v_job public.delivery_ledger%rowtype;',
+    'v_job public.delivery_ledger%rowtype; -- C323 deliberate source drift');
+end;
+$c323$;
+SQL
+if "${psql_cmd[@]}" --file supabase/migrations/202611210030_delivery_idempotency_receipt_guard.sql >"$tmp/m030-drift-authorize.log" 2>&1; then
+  echo "ERROR: Migration 030 accepted a drifted authorize_delivery_job prerequisite." >&2
+  exit 1
+fi
+if ! grep -q "Migration 030 requires the exact hardened migration-028 authorize_delivery_job and mark_delivery_failed implementations" "$tmp/m030-drift-authorize.log"; then
+  echo "ERROR: Migration 030 authorize_delivery_job drift rejection came from an unexpected check." >&2
+  grep -E 'ERROR:|FATAL:' "$tmp/m030-drift-authorize.log" >&2 || true
+  exit 1
+fi
+"${psql_cmd[@]}" <<'SQL'
+do $c323$
+declare v_definition text;
+begin
+  select definition into v_definition from public.c323_m028_function_snapshot where proname = 'authorize_delivery_job';
+  execute v_definition;
+end;
+$c323$;
+SQL
+
+# Drift mark_delivery_failed independently and require the same fail-closed result.
+"${psql_cmd[@]}" <<'SQL'
+do $c323$
+declare v_definition text;
+begin
+  select definition into v_definition from public.c323_m028_function_snapshot where proname = 'mark_delivery_failed';
+  if v_definition is null or position('v_job public.delivery_ledger%rowtype;' in v_definition) = 0 then
+    raise exception 'Could not locate mark_delivery_failed source drift anchor.';
+  end if;
+  execute replace(v_definition,
+    'v_job public.delivery_ledger%rowtype;',
+    'v_job public.delivery_ledger%rowtype; -- C323 deliberate source drift');
+end;
+$c323$;
+SQL
+if "${psql_cmd[@]}" --file supabase/migrations/202611210030_delivery_idempotency_receipt_guard.sql >"$tmp/m030-drift-failed.log" 2>&1; then
+  echo "ERROR: Migration 030 accepted a drifted mark_delivery_failed prerequisite." >&2
+  exit 1
+fi
+if ! grep -q "Migration 030 requires the exact hardened migration-028 authorize_delivery_job and mark_delivery_failed implementations" "$tmp/m030-drift-failed.log"; then
+  echo "ERROR: Migration 030 mark_delivery_failed drift rejection came from an unexpected check." >&2
+  grep -E 'ERROR:|FATAL:' "$tmp/m030-drift-failed.log" >&2 || true
+  exit 1
+fi
+"${psql_cmd[@]}" <<'SQL'
+do $c323$
+declare v_definition text;
+begin
+  select definition into v_definition from public.c323_m028_function_snapshot where proname = 'mark_delivery_failed';
+  execute v_definition;
+end;
+$c323$;
+SQL
+"${psql_cmd[@]}" --command="drop table public.c323_m028_function_snapshot"
+echo "Migration 030 rejects missing and drifted migration-028 prerequisite RPCs atomically: PASS"
+
 "${psql_cmd[@]}" --file supabase/migrations/202611210030_delivery_idempotency_receipt_guard.sql >"$tmp/m030.log"
 "${psql_cmd[@]}" --file supabase/migrations/202611220031_delivery_final_recipient_suppression_gate.sql >"$tmp/m031.log"
 "${psql_cmd[@]}" --file supabase/migrations/202611220032_resend_suppression_list_sync.sql >"$tmp/m032.log"
-"${psql_cmd[@]}" --file scripts/test-delivery-idempotency-guard.sql >"$tmp/idempotency-guard.log"
+"${psql_cmd[@]}" --file supabase/migrations/202611220033_delivery_cross_stream_suppression_order.sql >"$tmp/m033.log"
+"${psql_cmd[@]}" --file scripts/test-delivery-idempotency-guard.sql" >"$tmp/idempotency-guard.log"
 cat "$tmp/idempotency-guard.log"
 "${psql_cmd[@]}" --file scripts/test-delivery-provider-suppressions.sql >"$tmp/provider-suppressions.log"
 cat "$tmp/provider-suppressions.log"
-echo "Migrations 030-032 delivery idempotency, final recipient and Resend suppression sync: PASS"
+echo "Migrations 030-033 delivery idempotency, final recipient, Resend suppression and cross-stream ordering: PASS"
 

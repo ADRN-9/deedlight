@@ -19,7 +19,7 @@ Do not put the signing secret in `NEXT_PUBLIC_*`, source control, client configu
 ## Authenticity and replay protection
 
 - Verification uses the exact raw UTF-8 request body and the Resend/Svix `svix-id`, `svix-timestamp`, and `svix-signature` headers.
-- HMAC-SHA256 v1 signatures are verified using the base64 key in the `whsec_` secret.
+- HMAC-SHA256 v1 signatures are verified using the base64 key in the `whsec_` secret. The signature header is capped at 4,096 characters, at most five v1 candidates are considered (supporting bounded key rotation), and every decoded candidate must be exactly 32 bytes. Malformed or excessive candidates are rejected before cryptographic verification.
 - Timestamps more than five minutes in the past or future are rejected.
 - The request body is streamed with a 64 KiB maximum.
 - Email lifecycle events are processed only when tagged `application=deedlight`; suppression-list events are account-wide and are processed without that email-only tag. Other unrelated Resend event types are acknowledged without changing Deedlight data.
@@ -108,3 +108,11 @@ The policy is intentionally stricter than mirroring Resend's current list blindl
 The authorized Resend operator must subscribe the deployed endpoint to both new suppression events, confirm the endpoint belongs to Deedlight's dedicated provider account, and verify signed test events for manual add/remove, bounce-origin and complaint-origin records. Confirm the provider dashboard list and the private database state agree for each controlled test. Do not manually remove a complaint/bounce hold merely to make the provider and local projections match.
 
 CI uses synthetic PostgreSQL fixtures and signed fake HTTP requests only. It does not prove Production webhook subscriptions, signing-secret correctness, event delivery/retry behavior, account isolation, or actual provider suppression-list synchronization. Those remain Production-only rollout gates.
+
+## Cross-stream suppression ordering (migration 033)
+
+Migration `202611220033_delivery_cross_stream_suppression_order.sql` reconciles generic `email.suppressed` lifecycle events with migration 032's `delivery_provider_suppression_state` projection. Both event families serialize on the same normalized-recipient advisory lock. If the projection records a manual removal with a strictly newer provider event timestamp, a later-arriving older lifecycle event remains in event/lifecycle history but cannot recreate the generic `provider_suppressed` hold. Equal timestamps remain blocked as ambiguous.
+
+The reconciliation deletes only a generic `provider_suppressed` row. `previous_complaint` and `previous_bounce` lifecycle reasons continue to establish independent `complaint` and `permanent_bounce` holds; existing complaint/bounce rows are never deleted by this path. PostgreSQL regressions cover older lifecycle events after a newer manual removal, both reasoned protections, equal timestamps, and both lock acquisition orders.
+
+The lifecycle RPC remains service-role-only and retains migration 029's fingerprint-required insertion and historical replay-only compatibility gate. Migrations 031 and 032 are unchanged.

@@ -8,6 +8,9 @@ const lifecycleMigration = read("supabase/migrations/202611190026_delivery_provi
 const integrityMigration = read("supabase/migrations/202611200027_delivery_provider_integrity.sql");
 const legacyGuardMigration = read("supabase/migrations/202611210029_delivery_legacy_replay_guard.sql");
 const suppressionSyncMigration = read("supabase/migrations/202611220032_resend_suppression_list_sync.sql");
+const crossStreamMigration = read("supabase/migrations/202611220033_delivery_cross_stream_suppression_order.sql");
+const leaseMigration = read("supabase/migrations/202611210028_delivery_claim_lock_expiry.sql");
+const idempotencyMigration = read("supabase/migrations/202611210030_delivery_idempotency_receipt_guard.sql");
 const suppressionTests = read("scripts/test-delivery-provider-suppressions.sql");
 const migrationOrderTest = read("scripts/test-delivery-migration-order.sh");
 const aggregate = read("supabase/run_in_sql_editor_all.sql");
@@ -353,4 +356,77 @@ assert(workflow.includes("scripts/test-delivery-provider-webhooks.sql"));
 assert(workflow.includes("scripts/test-delivery-provider-webhook-concurrency.sh"));
 assert(workflow.includes('test -z "' + "$" + '{RESEND_WEBHOOK_SECRET:-}"'));
 
-console.log("Resend webhook authenticity, nine-event lifecycle, suppression ordering, independent holds and privacy assertions: PASS");
+const migration028FunctionBody = (source, tag) => {
+  const marker = "as $" + tag + "$";
+  const endMarker = "$" + tag + "$;";
+  const start = source.indexOf(marker);
+  const end = source.indexOf(endMarker, start + marker.length);
+  assert(start >= 0 && end >= 0, "Migration 028 " + tag + " source is missing");
+  return source.slice(start + marker.length, end);
+};
+assert.equal(
+  createHash("sha256").update(migration028FunctionBody(leaseMigration, "authorize"), "utf8").digest("hex"),
+  "dea4d0ecb1518edec6c60f1ec998669af65b2164a547cffe67f5cbdaa8644215",
+  "Migration 028 authorize_delivery_job source fingerprint changed",
+);
+assert.equal(
+  createHash("sha256").update(migration028FunctionBody(leaseMigration, "failed"), "utf8").digest("hex"),
+  "c7830ca2281fa85e4466fa45c32c1067dba4c9766eeeb26d26dcdb3b46b72b78",
+  "Migration 028 mark_delivery_failed source fingerprint changed",
+);
+for (const value of [
+  "Migration 030 requires the exact hardened migration-028 authorize_delivery_job and mark_delivery_failed implementations.",
+  "v_authorize_oid oid := to_regprocedure('public.authorize_delivery_job(uuid,uuid)')",
+  "v_failed_oid oid := to_regprocedure('public.mark_delivery_failed(uuid,uuid,text)')",
+  "p.prosrc",
+  "p.prosecdef",
+  "p.proconfig",
+  "has_function_privilege('service_role'",
+  "dea4d0ecb1518edec6c60f1ec998669af65b2164a547cffe67f5cbdaa8644215",
+  "c7830ca2281fa85e4466fa45c32c1067dba4c9766eeeb26d26dcdb3b46b72b78",
+]) assert(idempotencyMigration.includes(value), "Migration 030 missing migration-028 attestation: " + value);
+assert(migrationOrderTest.includes("202611210028_delivery_claim_lock_expiry.sql"));
+assert(migrationOrderTest.includes("Migration 030 rejects missing and drifted migration-028 prerequisite RPCs atomically: PASS"));
+assert(migrationOrderTest.includes("C323 deliberate source drift"));
+assert(migrationOrderTest.includes("revoke all privileges on function public.mark_delivery_failed"));
+assert(aggregate.includes(idempotencyMigration.trim()), "Migration 030 must be mirrored verbatim in aggregate SQL");
+assert(aggregate.includes(crossStreamMigration.trim()), "Migration 033 must be mirrored verbatim in aggregate SQL");
+assert(migrationOrderTest.includes("202611220033_delivery_cross_stream_suppression_order.sql"));
+assert(/p_payload_fingerprint is null[\s\S]*?_record_delivery_provider_lifecycle_event_fingerprinted_impl/i.test(crossStreamMigration),
+  "Migration 033 must preserve migration 029 fingerprint and legacy replay protections");
+for (const value of [
+  "v_result is true",
+  "p_event_type = 'email.suppressed'",
+  "p_suppression_reason = 'provider_suppressed'",
+  "s.origin = 'manual'",
+  "s.is_active = false",
+  "s.provider_created_at > p_provider_created_at",
+  "reason = 'provider_suppressed'",
+  "deedlight:033:cross-stream-suppression-order:v1",
+]) assert(crossStreamMigration.includes(value), "Migration 033 missing cross-stream ordering guard: " + value);
+for (const value of [
+  "Older email.suppressed lifecycle event reinstated a newer manual provider removal.",
+  "Equal-time cross-stream suppression did not fail closed.",
+  "Cross-stream stale lifecycle handling cleared a previous_complaint hold.",
+  "Cross-stream stale lifecycle handling cleared a previous_bounce hold.",
+]) assert(suppressionTests.includes(value), "Missing cross-stream SQL regression assertion: " + value);
+assert(suppressionTests.includes("'cross_stream_older_email_suppressed_after_manual_removal','pass'"));
+assert(concurrencyTests.includes("C323_CROSS_STREAM_REMOVAL_FIRST_LOCK_HELD"));
+assert(concurrencyTests.includes("C323_CROSS_STREAM_LIFECYCLE_FIRST_LOCK_HELD"));
+assert(concurrencyTests.includes("Concurrent cross-stream removal-first ordering: PASS"));
+assert(concurrencyTests.includes("Concurrent cross-stream lifecycle-first ordering: PASS"));
+assert(parser.includes("MAX_SIGNATURE_HEADER_LENGTH = 4096"));
+assert(parser.includes("MAX_SIGNATURE_CANDIDATES = 5"));
+assert(parser.includes("HMAC_SHA256_SIGNATURE_LENGTH = 32"));
+assert(parser.includes("signature.length > MAX_SIGNATURE_HEADER_LENGTH"));
+assert(parser.includes("candidate.byteLength !== HMAC_SHA256_SIGNATURE_LENGTH"));
+const signatureVerifier = parser.slice(parser.indexOf("export async function verifyResendWebhookSignature"));
+assert(signatureVerifier.indexOf("candidate.byteLength !== HMAC_SHA256_SIGNATURE_LENGTH")
+  < signatureVerifier.indexOf("crypto.subtle.importKey"),
+  "Signature candidates must be bounded and validated before cryptographic verification");
+assert(tests.includes("accepts five well-formed SHA-256 v1 rotation candidates"));
+assert(tests.includes("rejects excessive or malformed v1 candidates"));
+assert(tests.includes("rejects oversized Svix signature headers"));
+
+
+console.log("Resend webhook authenticity, bounded signatures, cross-stream suppression ordering, migration-028 attestation and privacy assertions: PASS");

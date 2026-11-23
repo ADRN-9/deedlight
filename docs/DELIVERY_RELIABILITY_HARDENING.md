@@ -164,3 +164,13 @@ The new private projection is keyed by normalized recipient and ordered by the s
 Provider removal clears only a generic manual provider hold after the matching add event has been observed. Bounce and complaint origins remain DeedLight holds after provider removal, and manual removal cannot delete an independently recorded complaint or permanent bounce. A removal received without a matching prior add does not clear a hold.
 
 The provider account must be dedicated to Deedlight because Resend suppression-list events are account/team-wide and do not carry the application tag used by Deedlight email lifecycle events. Production subscription configuration and real provider event delivery remain unverified.
+
+## C323 — migration-028 prerequisite attestation and webhook hardening
+
+Migration `202611210030_delivery_idempotency_receipt_guard.sql` now verifies the actual `authorize_delivery_job(uuid,uuid)` and `mark_delivery_failed(uuid,uuid,text)` implementations before applying. It checks each PL/pgSQL source SHA-256 against the reviewed migration-028 body, SECURITY DEFINER and constrained search-path metadata, and service-role-only execution privileges. A missing, drifted, or weakened prerequisite aborts the migration before it changes the schema. The migration-order harness applies migration 028 on the positive path and exercises missing-function plus per-function source-drift negative paths.
+
+The Resend verifier also bounds `svix-signature` to 4,096 characters, permits at most five v1 signature candidates, and requires each decoded HMAC-SHA256 value to be exactly 32 bytes. Invalid and excessive candidates fail before HMAC verification.
+
+Migration 033 reconciles cross-stream `email.suppressed` events with the provider suppression-state projection under the shared address lock. A late older generic suppression cannot undo a newer manual provider removal; complaint and permanent-bounce protections remain independent. CI includes PostgreSQL behavior and concurrency checks for both lock orders.
+
+These are repository and CI safeguards only. They do not authorize Production migrations, provider configuration, Cron activation, credentials changes, outbound email, or PR merge. Independent review of the new exact HEAD remains required.

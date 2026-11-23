@@ -541,3 +541,109 @@ suppression_cross_second="$(psql_scalar "select count(*) from public.delivery_pr
 [[ "$suppression_cross_first" == "1" ]]
 [[ "$suppression_cross_second" == "0" ]]
 echo "Concurrent cross-recipient suppression ID collision: PASS"
+
+# Cross-stream ordering: a later manual removal must win when an older email.suppressed waits on the shared address lock.
+"${psql_cmd[@]}" >"$tmp/cross-stream-removal-first.log" 2>&1 <<'SQL' &
+begin;
+set role service_role;
+select public.record_delivery_provider_suppression_event(
+  'evt_c323_concurrent_manual_add','suppression.added','sup_c323_concurrent_manual',
+  'c323-cross-stream-removal-first@example.test','manual',null,
+  '2026-11-22T20:00:00Z','2026-11-22T20:01:00Z',repeat('a',64)
+);
+select public.record_delivery_provider_suppression_event(
+  'evt_c323_concurrent_manual_remove','suppression.removed','sup_c323_concurrent_manual',
+  'c323-cross-stream-removal-first@example.test','manual',null,
+  '2026-11-22T20:00:00Z','2026-11-22T20:02:00Z',repeat('b',64)
+);
+\echo C323_CROSS_STREAM_REMOVAL_FIRST_LOCK_HELD
+select pg_sleep(2);
+commit;
+reset role;
+SQL
+cross_stream_removal_pid=$!
+wait_for_marker "$cross_stream_removal_pid" "$tmp/cross-stream-removal-first.log" "C323_CROSS_STREAM_REMOVAL_FIRST_LOCK_HELD"
+"${psql_cmd[@]}" >"$tmp/cross-stream-lifecycle-second.log" 2>&1 <<'SQL' &
+set role service_role;
+select public.record_delivery_provider_lifecycle_event(
+  'evt_c323_concurrent_old_email_suppressed','email.suppressed','resend_c323_concurrent_old',
+  'c323-cross-stream-removal-first@example.test','2026-11-22T19:00:00Z',null,null,
+  'provider_suppressed',repeat('c',64)
+);
+reset role;
+SQL
+cross_stream_lifecycle_pid=$!
+cross_stream_waiting="0"
+for _ in {1..100}; do
+  cross_stream_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%evt_c323_concurrent_old_email_suppressed%'")"
+  if [[ "$cross_stream_waiting" == "1" ]]; then break; fi
+  sleep 0.05
+done
+if [[ "$cross_stream_waiting" != "1" ]]; then
+  cat "$tmp/cross-stream-lifecycle-second.log"
+  echo "Older email.suppressed did not wait on the provider suppression address lock." >&2
+  exit 1
+fi
+wait "$cross_stream_removal_pid"
+if ! wait "$cross_stream_lifecycle_pid"; then
+  cat "$tmp/cross-stream-lifecycle-second.log"
+  exit 1
+fi
+cross_stream_removal_state="$(psql_scalar "select is_active::text from public.delivery_provider_suppression_state where recipient_email='c323-cross-stream-removal-first@example.test'")"
+cross_stream_removal_hold="$(psql_scalar "select count(*) from public.delivery_provider_suppressions where recipient_email='c323-cross-stream-removal-first@example.test'")"
+[[ "$cross_stream_removal_state" == "false" ]]
+[[ "$cross_stream_removal_hold" == "0" ]]
+echo "Concurrent cross-stream removal-first ordering: PASS"
+
+# The opposite lock order is also safe: the later provider removal clears a lifecycle hold.
+"${psql_cmd[@]}" >"$tmp/cross-stream-lifecycle-first.log" 2>&1 <<'SQL' &
+begin;
+set role service_role;
+select public.record_delivery_provider_lifecycle_event(
+  'evt_c323_concurrent_lifecycle_first','email.suppressed','resend_c323_concurrent_first',
+  'c323-cross-stream-lifecycle-first@example.test','2026-11-22T21:00:00Z',null,null,
+  'provider_suppressed',repeat('d',64)
+);
+\echo C323_CROSS_STREAM_LIFECYCLE_FIRST_LOCK_HELD
+select pg_sleep(2);
+commit;
+reset role;
+SQL
+cross_stream_lifecycle_first_pid=$!
+wait_for_marker "$cross_stream_lifecycle_first_pid" "$tmp/cross-stream-lifecycle-first.log" "C323_CROSS_STREAM_LIFECYCLE_FIRST_LOCK_HELD"
+"${psql_cmd[@]}" >"$tmp/cross-stream-removal-second.log" 2>&1 <<'SQL' &
+set role service_role;
+select public.record_delivery_provider_suppression_event(
+  'evt_c323_concurrent_later_add','suppression.added','sup_c323_concurrent_later',
+  'c323-cross-stream-lifecycle-first@example.test','manual',null,
+  '2026-11-22T21:01:00Z','2026-11-22T21:02:00Z',repeat('e',64)
+);
+select public.record_delivery_provider_suppression_event(
+  'evt_c323_concurrent_later_remove','suppression.removed','sup_c323_concurrent_later',
+  'c323-cross-stream-lifecycle-first@example.test','manual',null,
+  '2026-11-22T21:01:00Z','2026-11-22T21:03:00Z',repeat('f',64)
+);
+reset role;
+SQL
+cross_stream_removal_second_pid=$!
+cross_stream_waiting="0"
+for _ in {1..100}; do
+  cross_stream_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%evt_c323_concurrent_later_add%'")"
+  if [[ "$cross_stream_waiting" == "1" ]]; then break; fi
+  sleep 0.05
+done
+if [[ "$cross_stream_waiting" != "1" ]]; then
+  cat "$tmp/cross-stream-removal-second.log"
+  echo "Later provider suppression events did not wait on the lifecycle address lock." >&2
+  exit 1
+fi
+wait "$cross_stream_lifecycle_first_pid"
+if ! wait "$cross_stream_removal_second_pid"; then
+  cat "$tmp/cross-stream-removal-second.log"
+  exit 1
+fi
+cross_stream_lifecycle_state="$(psql_scalar "select is_active::text from public.delivery_provider_suppression_state where recipient_email='c323-cross-stream-lifecycle-first@example.test'")"
+cross_stream_lifecycle_hold="$(psql_scalar "select count(*) from public.delivery_provider_suppressions where recipient_email='c323-cross-stream-lifecycle-first@example.test'")"
+[[ "$cross_stream_lifecycle_state" == "false" ]]
+[[ "$cross_stream_lifecycle_hold" == "0" ]]
+echo "Concurrent cross-stream lifecycle-first ordering: PASS"

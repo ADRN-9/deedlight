@@ -93,13 +93,41 @@ test("verifies the raw Svix HMAC signature", async () => {
 test("accepts a valid v1 signature among rotated signature candidates", async () => {
   const payload = JSON.stringify(event("email.complained"));
   const headers = signed(payload);
-  headers.signature = `v1,${Buffer.from("invalid").toString("base64")} ${headers.signature}`;
+  headers.signature = `v1,${Buffer.alloc(32, 0x11).toString("base64")} ${headers.signature}`;
   assert.equal(await verifyResendWebhookSignature({
     payload,
     headers,
     secret,
     nowSeconds,
   }), true);
+});
+
+test("accepts five well-formed SHA-256 v1 rotation candidates", async () => {
+  const payload = JSON.stringify(event("email.complained"));
+  const headers = signed(payload);
+  const incorrectCandidate = `v1,${Buffer.alloc(32, 0x11).toString("base64")}`;
+  headers.signature = `${Array.from({ length: 4 }, () => incorrectCandidate).join(" ")} ${headers.signature}`;
+  assert.equal(await verifyResendWebhookSignature({ payload, headers, secret, nowSeconds }), true);
+});
+
+test("rejects excessive or malformed v1 candidates", async () => {
+  const payload = JSON.stringify(event("email.complained"));
+  const headers = signed(payload);
+  const incorrectCandidate = `v1,${Buffer.alloc(32, 0x22).toString("base64")}`;
+  headers.signature = `${Array.from({ length: 5 }, () => incorrectCandidate).join(" ")} ${headers.signature}`;
+  assert.equal(await verifyResendWebhookSignature({ payload, headers, secret, nowSeconds }), false);
+
+  for (const byteLength of [31, 33]) {
+    headers.signature = `v1,${Buffer.alloc(byteLength, 0x33).toString("base64")} ${signed(payload).signature}`;
+    assert.equal(await verifyResendWebhookSignature({ payload, headers, secret, nowSeconds }), false);
+  }
+});
+
+test("rejects oversized Svix signature headers", async () => {
+  const payload = JSON.stringify(event("email.complained"));
+  const headers = signed(payload);
+  headers.signature = `v1,${"A".repeat(4096)}`;
+  assert.equal(await verifyResendWebhookSignature({ payload, headers, secret, nowSeconds }), false);
 });
 
 test("rejects modified payloads, wrong secrets and malformed signatures", async () => {

@@ -1,16 +1,94 @@
 -- Make provider idempotency timing database-authoritative and validate Resend receipts.
 begin;
-do $$
+do $migration_030_preflight$
+declare
+  v_crypto_schema text;
+  v_authorize_oid oid := to_regprocedure('public.authorize_delivery_job(uuid,uuid)');
+  v_failed_oid oid := to_regprocedure('public.mark_delivery_failed(uuid,uuid,text)');
+  v_authorize_source text;
+  v_failed_source text;
+  v_authorize_hash text;
+  v_failed_hash text;
+  v_authorize_definer boolean;
+  v_failed_definer boolean;
+  v_authorize_config text[];
+  v_failed_config text[];
+  v_authorize_language text;
+  v_failed_language text;
 begin
-  if to_regprocedure('public.begin_delivery_transport(uuid,uuid,text)') is null
+  if v_authorize_oid is null
+    or v_failed_oid is null
     or to_regprocedure('public.retry_delivery_job(uuid,uuid,timestamptz,text)') is null
     or to_regprocedure('public.mark_delivery_sent(uuid,uuid,text)') is null
-    or not exists (select 1 from information_schema.columns where table_schema='public'
-      and table_name='delivery_ledger' and column_name='transport_started_at') then
-    raise exception 'Migration 030 requires recipient-bound transport, persisted transport start, and migration-028 transitions.';
+    or not exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'delivery_ledger'
+        and column_name = 'transport_started_at'
+    ) then
+    raise exception 'Migration 030 requires the exact hardened migration-028 authorize_delivery_job and mark_delivery_failed implementations.';
+  end if;
+
+  select n.nspname into v_crypto_schema
+  from pg_catalog.pg_extension e
+  join pg_catalog.pg_namespace n on n.oid = e.extnamespace
+  where e.extname = 'pgcrypto';
+
+  if v_crypto_schema is null then
+    raise exception 'Migration 030 requires pgcrypto to attest migration-028 function source.';
+  end if;
+
+  select p.prosrc, p.prosecdef, p.proconfig, l.lanname
+  into v_authorize_source, v_authorize_definer, v_authorize_config, v_authorize_language
+  from pg_catalog.pg_proc p
+  join pg_catalog.pg_language l on l.oid = p.prolang
+  where p.oid = v_authorize_oid;
+
+  select p.prosrc, p.prosecdef, p.proconfig, l.lanname
+  into v_failed_source, v_failed_definer, v_failed_config, v_failed_language
+  from pg_catalog.pg_proc p
+  join pg_catalog.pg_language l on l.oid = p.prolang
+  where p.oid = v_failed_oid;
+
+  execute format(
+    'select encode(%I.digest(convert_to($1, ''UTF8''), ''sha256''), ''hex'')',
+    v_crypto_schema
+  ) into v_authorize_hash using v_authorize_source;
+
+  execute format(
+    'select encode(%I.digest(convert_to($1, ''UTF8''), ''sha256''), ''hex'')',
+    v_crypto_schema
+  ) into v_failed_hash using v_failed_source;
+
+  if v_authorize_hash is distinct from 'dea4d0ecb1518edec6c60f1ec998669af65b2164a547cffe67f5cbdaa8644215'
+    or v_failed_hash is distinct from 'c7830ca2281fa85e4466fa45c32c1067dba4c9766eeeb26d26dcdb3b46b72b78'
+    or v_authorize_language is distinct from 'plpgsql'
+    or v_failed_language is distinct from 'plpgsql'
+    or v_authorize_definer is distinct from true
+    or v_failed_definer is distinct from true
+    or v_authorize_config is distinct from array['search_path=public, auth, pg_temp']::text[]
+    or v_failed_config is distinct from array['search_path=public, auth, pg_temp']::text[] then
+    raise exception 'Migration 030 requires the exact hardened migration-028 authorize_delivery_job and mark_delivery_failed implementations.';
+  end if;
+
+  if has_function_privilege('anon', v_authorize_oid, 'EXECUTE')
+    or has_function_privilege('authenticated', v_authorize_oid, 'EXECUTE')
+    or not has_function_privilege('service_role', v_authorize_oid, 'EXECUTE')
+    or has_function_privilege('anon', v_failed_oid, 'EXECUTE')
+    or has_function_privilege('authenticated', v_failed_oid, 'EXECUTE')
+    or not has_function_privilege('service_role', v_failed_oid, 'EXECUTE')
+    or exists (
+      select 1
+      from pg_catalog.pg_proc p
+      cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+      where p.oid in (v_authorize_oid, v_failed_oid)
+        and a.grantee = 0
+        and a.privilege_type = 'EXECUTE'
+    ) then
+    raise exception 'Migration 030 requires migration-028 service-role-only RPC privileges.';
   end if;
 end;
-$$;
+$migration_030_preflight$;
 
 drop function if exists public.authorize_delivery_idempotency_window(uuid,uuid);
 create function public.authorize_delivery_idempotency_window(p_job_id uuid,p_claim_token uuid)

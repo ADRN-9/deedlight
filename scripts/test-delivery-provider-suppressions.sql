@@ -1,6 +1,6 @@
 \set ON_ERROR_STOP on
 
--- Migration 032 is applied by the caller after migrations 025-029.
+-- Migrations 032 and 033 are applied by the caller after migrations 025-029.
 do $suppression_acl$
 begin
   if has_function_privilege('anon',
@@ -342,8 +342,109 @@ begin
 end;
 $cross_recipient_assert$;
 
+-- Cross-stream lifecycle events must respect the newer manual suppression-list projection.
+set role service_role;
+do $cross_stream_manual_remove$
+begin
+  perform public.record_delivery_provider_suppression_event(
+    'evt_c323_cross_stream_manual_add','suppression.added','sup_c323_cross_stream_manual',
+    'cross-stream-manual@example.test','manual',null,
+    '2026-11-22T17:00:00Z','2026-11-22T17:01:00Z',repeat('1',64)
+  );
+  perform public.record_delivery_provider_suppression_event(
+    'evt_c323_cross_stream_manual_remove','suppression.removed','sup_c323_cross_stream_manual',
+    'cross-stream-manual@example.test','manual',null,
+    '2026-11-22T17:00:00Z','2026-11-22T17:02:00Z',repeat('2',64)
+  );
+  perform public.record_delivery_provider_lifecycle_event(
+    'evt_c323_cross_stream_old_email_suppressed','email.suppressed','resend_c323_cross_stream_manual',
+    'cross-stream-manual@example.test','2026-11-22T17:00:00Z',null,null,'provider_suppressed',repeat('3',64)
+  );
+
+  -- Equal timestamps are ambiguous and remain blocked.
+  perform public.record_delivery_provider_suppression_event(
+    'evt_c323_cross_stream_equal_add','suppression.added','sup_c323_cross_stream_equal',
+    'cross-stream-equal@example.test','manual',null,
+    '2026-11-22T17:09:00Z','2026-11-22T17:10:00Z',repeat('4',64)
+  );
+  perform public.record_delivery_provider_suppression_event(
+    'evt_c323_cross_stream_equal_remove','suppression.removed','sup_c323_cross_stream_equal',
+    'cross-stream-equal@example.test','manual',null,
+    '2026-11-22T17:09:00Z','2026-11-22T17:11:00Z',repeat('5',64)
+  );
+  perform public.record_delivery_provider_lifecycle_event(
+    'evt_c323_cross_stream_equal_email_suppressed','email.suppressed','resend_c323_cross_stream_equal',
+    'cross-stream-equal@example.test','2026-11-22T17:11:00Z',null,null,'provider_suppressed',repeat('6',64)
+  );
+
+  -- Reasoned provider events still establish independent DeedLight holds.
+  perform public.record_delivery_provider_suppression_event(
+    'evt_c323_cross_stream_complaint_add','suppression.added','sup_c323_cross_stream_complaint',
+    'cross-stream-complaint@example.test','manual',null,
+    '2026-11-22T17:12:00Z','2026-11-22T17:13:00Z',repeat('7',64)
+  );
+  perform public.record_delivery_provider_suppression_event(
+    'evt_c323_cross_stream_complaint_remove','suppression.removed','sup_c323_cross_stream_complaint',
+    'cross-stream-complaint@example.test','manual',null,
+    '2026-11-22T17:12:00Z','2026-11-22T17:14:00Z',repeat('8',64)
+  );
+  perform public.record_delivery_provider_lifecycle_event(
+    'evt_c323_cross_stream_previous_complaint','email.suppressed','resend_c323_cross_stream_complaint',
+    'cross-stream-complaint@example.test','2026-11-22T17:12:00Z',null,null,'previous_complaint',repeat('9',64)
+  );
+
+  perform public.record_delivery_provider_suppression_event(
+    'evt_c323_cross_stream_bounce_add','suppression.added','sup_c323_cross_stream_bounce',
+    'cross-stream-bounce@example.test','manual',null,
+    '2026-11-22T17:15:00Z','2026-11-22T17:16:00Z',repeat('a',64)
+  );
+  perform public.record_delivery_provider_suppression_event(
+    'evt_c323_cross_stream_bounce_remove','suppression.removed','sup_c323_cross_stream_bounce',
+    'cross-stream-bounce@example.test','manual',null,
+    '2026-11-22T17:15:00Z','2026-11-22T17:17:00Z',repeat('b',64)
+  );
+  perform public.record_delivery_provider_lifecycle_event(
+    'evt_c323_cross_stream_previous_bounce','email.suppressed','resend_c323_cross_stream_bounce',
+    'cross-stream-bounce@example.test','2026-11-22T17:15:00Z',null,null,'previous_bounce',repeat('c',64)
+  );
+end;
+$cross_stream_manual_remove$;
+reset role;
+
+do $cross_stream_assert$
+begin
+  if exists (
+    select 1 from public.delivery_provider_suppressions
+    where recipient_email='cross-stream-manual@example.test'
+  ) or (select is_active from public.delivery_provider_suppression_state
+        where recipient_email='cross-stream-manual@example.test') is not false then
+    raise exception 'Older email.suppressed lifecycle event reinstated a newer manual provider removal.';
+  end if;
+
+  if (select reason from public.delivery_provider_suppressions
+      where recipient_email='cross-stream-equal@example.test') is distinct from 'provider_suppressed' then
+    raise exception 'Equal-time cross-stream suppression did not fail closed.';
+  end if;
+
+  if (select reason from public.delivery_provider_suppressions
+      where recipient_email='cross-stream-complaint@example.test') is distinct from 'complaint' then
+    raise exception 'Cross-stream stale lifecycle handling cleared a previous_complaint hold.';
+  end if;
+
+  if (select reason from public.delivery_provider_suppressions
+      where recipient_email='cross-stream-bounce@example.test') is distinct from 'permanent_bounce' then
+    raise exception 'Cross-stream stale lifecycle handling cleared a previous_bounce hold.';
+  end if;
+end;
+$cross_stream_assert$;
+
+
+
 select jsonb_build_object(
   'suppression_add_remove_manual_sync','pass',
+  'cross_stream_older_email_suppressed_after_manual_removal','pass',
+  'cross_stream_equal_timestamp_fails_closed','pass',
+  'cross_stream_previous_complaint_and_bounce_holds','pass',
   'exact_duplicate_suppression_event','pass',
   'conflicting_duplicate_suppression_event','pass',
   'complaint_origin_survives_provider_removal','pass',

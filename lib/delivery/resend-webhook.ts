@@ -63,6 +63,9 @@ const MAX_EVENT_ID_LENGTH = 255;
 const MAX_PROVIDER_ID_LENGTH = 255;
 const MAX_EMAIL_LENGTH = 320;
 const SIGNATURE_TOLERANCE_SECONDS = 300;
+const MAX_SIGNATURE_HEADER_LENGTH = 4096;
+const MAX_SIGNATURE_CANDIDATES = 5;
+const HMAC_SHA256_SIGNATURE_LENGTH = 32;
 
 function decodeBase64(value: string): Uint8Array<ArrayBuffer> | null {
   if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value) || value.length % 4 !== 0) return null;
@@ -93,7 +96,11 @@ export async function verifyResendWebhookSignature(input: {
   const timestamp = headers.timestamp ?? "";
   const signature = headers.signature ?? "";
 
-  if (!validHeaderId(id) || !/^\d{1,12}$/.test(timestamp) || !signature || !secret.startsWith("whsec_")) {
+  if (!validHeaderId(id)
+    || !/^\d{1,12}$/.test(timestamp)
+    || !signature
+    || signature.length > MAX_SIGNATURE_HEADER_LENGTH
+    || !secret.startsWith("whsec_")) {
     return false;
   }
 
@@ -108,12 +115,15 @@ export async function verifyResendWebhookSignature(input: {
   const secretBytes = decodeBase64(secret.slice("whsec_".length));
   if (!secretBytes) return false;
 
-  const candidates = signature
-    .trim()
-    .split(/\s+/)
-    .filter((part) => part.startsWith("v1,"))
-    .map((part) => decodeBase64(part.slice(3)))
-    .filter((part): part is Uint8Array<ArrayBuffer> => part !== null);
+  const candidates: Uint8Array<ArrayBuffer>[] = [];
+  for (const part of signature.trim().split(/\s+/)) {
+    if (!part.startsWith("v1,")) continue;
+    if (candidates.length >= MAX_SIGNATURE_CANDIDATES) return false;
+
+    const candidate = decodeBase64(part.slice(3));
+    if (!candidate || candidate.byteLength !== HMAC_SHA256_SIGNATURE_LENGTH) return false;
+    candidates.push(candidate);
+  }
 
   if (!candidates.length) return false;
 
