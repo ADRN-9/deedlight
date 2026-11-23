@@ -80,23 +80,20 @@ WHERE r.rolname = current_user;
 
 Expected posture: transaction_read_only is on; all elevated role flags are false; can_create_in_database is false. Any contrary result is a stop condition. The server address/port and database name are supporting identity evidence, not substitutes for the manual project-reference check.
 
-### Query 2 — direct role memberships
+### Query 2 — role memberships visible to the audit identity
 
 ~~~sql
 SELECT
-  member_role.rolname AS member_role,
   granted_role.rolname AS granted_role,
-  membership.admin_option
-FROM pg_catalog.pg_auth_members AS membership
-JOIN pg_catalog.pg_roles AS member_role
-  ON member_role.oid = membership.member
-JOIN pg_catalog.pg_roles AS granted_role
-  ON granted_role.oid = membership.roleid
-WHERE member_role.rolname = current_user
+  pg_has_role(current_user, granted_role.oid, 'MEMBER') AS is_member,
+  pg_has_role(current_user, granted_role.oid, 'USAGE') AS privileges_inherited
+FROM pg_catalog.pg_roles AS granted_role
+WHERE granted_role.rolname <> current_user
+  AND pg_has_role(current_user, granted_role.oid, 'MEMBER')
 ORDER BY granted_role.rolname;
 ~~~
 
-Review direct memberships and any inherited membership path. The audit identity must not inherit service_role, postgres, supabase_admin, or another role with schema, data, credential, or migration authority. An empty result is expected for a dedicated standalone audit role.
+This uses PostgreSQL's role-membership visibility function rather than reading the authentication membership catalog directly. It reports direct and inherited memberships visible to the current role. The audit identity must not be a member of service_role, postgres, supabase_admin, or another role with schema, data, credential, or migration authority. An empty result is expected for a dedicated standalone audit role.
 
 ### Query 3 — relevant PostgreSQL schemas and schema ACLs
 
