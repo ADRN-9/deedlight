@@ -394,7 +394,7 @@ echo "Migration 030 rejects missing and drifted migration-028 prerequisite RPCs 
 "${psql_cmd[@]}" --file supabase/migrations/202611220031_delivery_final_recipient_suppression_gate.sql >"$tmp/m031.log"
 "${psql_cmd[@]}" --file supabase/migrations/202611220032_resend_suppression_list_sync.sql >"$tmp/m032.log"
 "${psql_cmd[@]}" --file supabase/migrations/202611220033_delivery_cross_stream_suppression_order.sql >"$tmp/m033.log"
-"${psql_cmd[@]}" --file scripts/test-delivery-idempotency-guard.sql" >"$tmp/idempotency-guard.log"
+"${psql_cmd[@]}" --file scripts/test-delivery-idempotency-guard.sql >"$tmp/idempotency-guard.log"
 cat "$tmp/idempotency-guard.log"
 "${psql_cmd[@]}" --file scripts/test-delivery-provider-suppressions.sql >"$tmp/provider-suppressions.log"
 cat "$tmp/provider-suppressions.log"

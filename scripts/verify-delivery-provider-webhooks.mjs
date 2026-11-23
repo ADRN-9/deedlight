@@ -392,6 +392,7 @@ assert(migrationOrderTest.includes("revoke all privileges on function public.mar
 assert(aggregate.includes(idempotencyMigration.trim()), "Migration 030 must be mirrored verbatim in aggregate SQL");
 assert(aggregate.includes(crossStreamMigration.trim()), "Migration 033 must be mirrored verbatim in aggregate SQL");
 assert(migrationOrderTest.includes("202611220033_delivery_cross_stream_suppression_order.sql"));
+assert(migrationOrderTest.includes('--file scripts/test-delivery-idempotency-guard.sql >"$tmp/idempotency-guard.log"'), "Migration-order idempotency test command must remain shell-valid");
 assert(/p_payload_fingerprint is null[\s\S]*?_record_delivery_provider_lifecycle_event_fingerprinted_impl/i.test(crossStreamMigration),
   "Migration 033 must preserve migration 029 fingerprint and legacy replay protections");
 for (const value of [
