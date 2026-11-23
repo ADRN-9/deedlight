@@ -860,9 +860,10 @@ BEGIN
      OR NOT EXISTS (SELECT 1 FROM public.invitation_links WHERE inviter_user_id=auth.uid() AND code='b20000000000000000000000000000000002') THEN
     RAISE EXCEPTION 'Member B invitation links are not isolated to their own row.';
   END IF;
-  IF EXISTS (SELECT 1 FROM public.reflections WHERE id='00000000-0000-4000-8000-000000000306') THEN
-    RAISE EXCEPTION 'Member B read another member''s hidden Offering reflection.';
-  END IF;
+  v_denied := false;
+  BEGIN PERFORM 1 FROM public.reflections WHERE id='00000000-0000-4000-8000-000000000306';
+  EXCEPTION WHEN insufficient_privilege THEN v_denied := true; END;
+  IF NOT v_denied THEN RAISE EXCEPTION 'Member B directly accessed private Offering reflection records.'; END IF;
   v_denied := false;
   BEGIN PERFORM 1 FROM public.invitation_acceptances LIMIT 1;
   EXCEPTION WHEN insufficient_privilege THEN v_denied := true; END;
@@ -953,6 +954,10 @@ BEGIN
   BEGIN PERFORM 1 FROM public.member_moderation_events LIMIT 1;
   EXCEPTION WHEN insufficient_privilege THEN v_denied := true; END;
   IF NOT v_denied THEN RAISE EXCEPTION 'Admin bypassed the narrow moderation RPC boundary.'; END IF;
+  v_denied := false;
+  BEGIN PERFORM 1 FROM public.reflections LIMIT 1;
+  EXCEPTION WHEN insufficient_privilege THEN v_denied := true; END;
+  IF NOT v_denied THEN RAISE EXCEPTION 'Admin directly accessed private Offering reflection records outside the moderation context.'; END IF;
   v_denied := false;
   BEGIN PERFORM 1 FROM public.invitation_acceptances LIMIT 1;
   EXCEPTION WHEN insufficient_privilege THEN v_denied := true; END;
