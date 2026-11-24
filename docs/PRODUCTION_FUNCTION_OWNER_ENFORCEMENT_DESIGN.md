@@ -211,3 +211,49 @@ The technical enforcement shape is sufficiently specified for independent design
 5. Only after those gates pass, create the exact approved manifest and implement the assertion-only enforcement with PostgreSQL 16 positive/negative fixtures and migration-runner atomic rollback tests.
 6. Keep migration 038 unchanged, PR #22 OPEN / DRAFT / UNMERGED, and Production NO-GO until separately authorized.
 
+
+
+---
+
+## Cycle 382 — fail-closed manifest mechanics (not Production enforcement)
+
+**Status:** executable structural validator added; Production policy remains NOT IMPLEMENTED and NO-GO.  
+**Production project:** `xaipiovflxomcbfwtwmu`  
+**Migration 038:** unchanged and out of scope.
+
+### Added repository artifacts
+
+- `scripts/verify-production-function-owner-manifest.mjs` exports `validateProductionOwnerManifest` and provides a CLI requiring explicit manifest, approvals and expected Production project reference.
+- `scripts/test-production-function-owner-manifest.mjs` contains fixture-only positive and negative tests.
+- `.github/workflows/pr-validation.yml` runs the fixture-only validator tests in the disposable PostgreSQL ownership-audit job before Query 8A/8B database behavior tests.
+
+The validator requires exactly the 18 signatures already defined by the audited Query 8A contract; one exact function-to-owner mapping per signature; complete Query 8A evidence with exactly 18 rows; complete Query 8B evidence with an explicit distinct-owner count and owner reconciliation; complete owner records and explicit role attributes; complete per-owner membership path arrays and edge INHERIT/SET/effective privilege fields; and exactly two distinct-person approvals (Production DBA and security) for each function mapping, each owner attribute tuple, and each owner's full membership graph.
+
+Each approval must bind to the exact Production project, both Query 8A/8B SHA-256 values, the immutable policy version, and a SHA-256 digest of the exact approved policy value. The validator rejects absent/partial arrays, duplicates, unexpected/missing signatures, unknown or incomplete graphs, mismatched counts, malformed evidence metadata, privileged owner/path role attributes, incomplete approval coverage, mismatched evidence hashes, and approvals from the same person. It never derives an owner mapping from a live database.
+
+### Invocation after authoritative evidence exists
+
+Keep the Production manifest and approvals outside the repository in the approved protected evidence store. A future authorized operator can run:
+
+```sh
+node scripts/verify-production-function-owner-manifest.mjs \
+  --manifest /protected/path/production-owner-manifest.json \
+  --approvals /protected/path/production-owner-approvals.json \
+  --expected-project-ref xaipiovflxomcbfwtwmu
+```
+
+No Production manifest or approval document is present in this PR. No placeholder manifest is checked in. Fixture names such as `fixture_owner_only` and `Fixture DBA` exist only in the test file and are explicitly not Production expectations.
+
+### Security boundary and known limitation
+
+This is a **structural completeness and policy-value binding gate**, not a cryptographic approval verifier or live catalog drift checker. It validates that referenced evidence/approval hashes are well-formed and consistently bound; it does not retrieve protected evidence, recompute hashes from the external artifacts, authenticate the approver's identity/signature, or prove that a human approval is genuine. Those checks must be performed by the authorized evidence custodian and independent reviewers before accepting the protected records. It also does not connect to Production or compare live catalog state with the manifest. A later, separately approved read-only catalog verifier remains necessary before any enforcement migration.
+
+The fixture suite tests the mechanics only. It cannot satisfy Query 8A/8B, authorize Production owner mappings, or change the implementation-readiness gate. Migration 038, Production, branch targets and PR merge state remain untouched.
+
+### Cycle 383 handoff
+
+1. Verify exact-head CI for the commit that adds this validator and fixture suite; record every job result.
+2. Review validator behavior and its stated structural-only limitation. Extend negative fixtures if review finds a missing fail-closed case.
+3. Keep the Production manifest and approvals absent until authorized Query 8A/8B evidence and explicit DBA/security approvals exist.
+4. Recheck whether a human-controlled DBA has granted least-privilege read-only access to project `xaipiovflxomcbfwtwmu`; the connected Supabase accounts currently do not.
+5. Do not modify migration 038, merge/retarget PR #22, or run Production SQL/deployment. Production ownership enforcement and release remain NO-GO.
