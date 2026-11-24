@@ -207,6 +207,7 @@ function validateEvidenceRows(manifest, q8a, q8b) {
     if (canonicalJson(actual) !== canonicalJson(expected)) fail("manifest membership graph does not match actual Query 8B bytes for " + owner);
   }
   if (q8b.rows.length === 0) {
+    if (!manifest.evidence.query8b.zeroRowsAttestation) fail("successful zero-row Query 8B requires explicit successful/all-owners/zero-row attestation");
     const attestation = object(manifest.evidence.query8b.zeroRowsAttestation, "Query 8B zeroRowsAttestation");
     if (attestation.successful !== true || attestation.rowCount !== 0 || attestation.allOwnersQueried !== true) {
       fail("successful zero-row Query 8B requires explicit successful/all-owners/zero-row attestation");
