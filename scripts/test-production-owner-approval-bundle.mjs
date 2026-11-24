@@ -148,7 +148,7 @@ function fixture({ withPath = false, intermediateAttribute = null } = {}) {
       {identityId:"fixture-security",active:true,roles:["security"]},
     ],
     collectors:[{identityId:"fixture-collector",active:true}],
-    revokedKeyIds:[],revokedApprovalIds:[],
+    revokedKeyIds:[],revokedApprovalIds:[],consumedApprovalIds:[],
     artifacts:{...files,"approvals.json":approvalHash},
   };
   writeCanonical(root,"trust.json",trust);
@@ -345,5 +345,15 @@ test("rejects untrusted paths and symbolic-link artifact substitution",()=>{
     assert.throws(()=>verifyProductionOwnerApprovalBundle({
       rootDir:f.root,manifestPath:"../outside.json",approvalsPath:"approvals.json",trustPath:"trust.json",asOf:f.asOf,
     }),/normalized relative path/);
+  } finally { cleanup(f); }
+});
+
+
+test("rejects approval identifiers already recorded as consumed by the trusted authority",()=>{
+  const f=fixture();
+  try {
+    f.trust.consumedApprovalIds.push(f.approvalDocument.approvals[0].payload.approvalId);
+    writeCanonical(f.root,"trust.json",f.trust);
+    assert.throws(()=>run(f),/already been consumed/);
   } finally { cleanup(f); }
 });
