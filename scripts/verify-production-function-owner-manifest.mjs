@@ -136,7 +136,7 @@ function approvalsFor(approvals, scope, subject, ownerRole, approvedValueSha256,
       fail(scope + " approval is not bound to the exact Production project and evidence hashes");
     }
     if (item.approvedValueSha256 !== approvedValueSha256) {
-      fail(scope + " approval digest does not match the exact approved policy value");
+      fail(scope + " approval digest does not match the exact approved policy value (expected " + approvedValueSha256 + ", received " + item.approvedValueSha256 + ")");
     }
     if (!APPROVER_ROLES.includes(item.approverRole) || seenRoles.has(item.approverRole)) {
       fail(scope + " requires one distinct DBA and one distinct security approver");
