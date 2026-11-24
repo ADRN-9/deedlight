@@ -103,7 +103,7 @@ for (const r of inventory) {
   assert.equal(r.function_owner, ownerFor(index));
   assert.ok(r.owner_role_oid);
   assert.ok(r.catalog_identity_signature);
-  assert.equal(r.catalog_identity_signature.replace(/,\s*/g, ','), r.expected_identity_signature);
+  assert.equal(r.catalog_identity_signature.replace(/timestamp with time zone/g, 'timestamptz').replace(/,\s*/g, ','), r.expected_identity_signature);
   for (const field of ['owner_is_superuser', 'owner_role_inherits_memberships', 'owner_can_create_roles',
     'owner_can_create_databases', 'owner_can_login', 'owner_can_replicate', 'owner_bypasses_rls']) {
     assert.notEqual(r[field], null, 'Missing owner attribute: ' + field);
