@@ -871,19 +871,45 @@ begin
     null, null, null, repeat('d', 64)
   ) is not false then raise exception 'Exact lifecycle replay was not an idempotent no-op.'; end if;
 
-  begin
-    perform public.record_delivery_provider_lifecycle_event(
-      'evt_provider_id_wrong_recipient', 'email.sent', 'resend-order-20001',
-      'different-recipient@example.test', '2027-03-01T10:15:00Z',
-      null, null, null, repeat('3', 64)
-    );
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_provider_id_wrong_recipient', 'email.sent', 'resend-order-20001',
+    'different-recipient@example.test', '2027-03-01T10:15:00Z',
+    null, null, null, repeat('3', 64)
+  ) is not null then
     raise exception 'Provider email ID was accepted for a different recipient.';
-  exception when sqlstate '22023' then
-    null;
-  end;
+  end if;
 end;
 $lifecycle$;
 reset role;
+
+do $c353_provider_email_recipient_assertions$
+begin
+  if not exists (
+    select 1 from public.delivery_provider_integrity_cases
+    where recipient_email='different-recipient@example.test'
+      and anomaly_type='provider_email_recipient_conflict'
+      and state='open'
+  ) then
+    raise exception 'Cross-recipient provider email ID conflict did not create a recipient-scoped case.';
+  end if;
+
+  if not exists (
+    select 1 from public.delivery_provider_integrity_conflict_evidence
+    where recipient_email='different-recipient@example.test'
+      and event_id='evt_provider_id_wrong_recipient'
+      and stored_event_id='evt_order_sent'
+      and stored_recipient_email='lifecycle-order@example.test'
+      and payload_fingerprint=repeat('3', 64)
+  ) then
+    raise exception 'Cross-recipient provider email ID conflict evidence was not preserved.';
+  end if;
+
+  if (select status from public.delivery_provider_lifecycle
+      where provider_email_id='resend-order-20001') is distinct from 'integrity_anomaly' then
+    raise exception 'Cross-recipient provider email ID collision did not fail closed in the lifecycle projection.';
+  end if;
+end;
+$c353_provider_email_recipient_assertions$;
 
 do $lifecycle$
 begin

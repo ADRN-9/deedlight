@@ -156,7 +156,7 @@ collision_case="$(psql_scalar "select count(*) from public.delivery_provider_int
 collision_evidence="$(psql_scalar "select count(*) from public.delivery_provider_integrity_conflict_evidence where event_id='evt_cross_recipient_second' and stored_event_id='evt_cross_recipient_first' and payload_fingerprint=repeat('d',64)")"
 [[ "$collision_case" == "1" ]]
 [[ "$collision_evidence" == "1" ]]
-# Provider email correlation does not match: migration 037 records this retryable conflict.
+# Previous behavior: Provider email correlation does not match. Migration 037 records the retryable conflict and returns NULL.
 echo "Concurrent cross-recipient provider email ID collision with durable evidence: PASS"
 
 # A replay of a pre-027 row with no fingerprint remains a no-op under concurrency.
