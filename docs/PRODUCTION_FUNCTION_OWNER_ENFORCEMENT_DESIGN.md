@@ -257,3 +257,8 @@ The fixture suite tests the mechanics only. It cannot satisfy Query 8A/8B, autho
 3. Keep the Production manifest and approvals absent until authorized Query 8A/8B evidence and explicit DBA/security approvals exist.
 4. Recheck whether a human-controlled DBA has granted least-privilege read-only access to project `xaipiovflxomcbfwtwmu`; the connected Supabase accounts currently do not.
 5. Do not modify migration 038, merge/retarget PR #22, or run Production SQL/deployment. Production ownership enforcement and release remain NO-GO.
+
+
+### Query 8B evidence shape clarification
+
+Cycle 382 extended the Query 8B SELECT result with `membership_path_role_attributes`, an ordered array containing the seven role attributes for every role node in the path, including the owner and intermediate roles. Endpoint-only role attributes are insufficient to validate transitive paths. The manifest validator requires each path role-attribute record to name the corresponding role node and rejects positional/name mismatches. Query 8B's row count is the count of returned owner-to-endpoint membership paths; each path retains its full ordered role sequence and edge option arrays.
