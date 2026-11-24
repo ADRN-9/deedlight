@@ -170,6 +170,32 @@ assert.equal(memberships.some((r) => r.function_owner === ownerEmpty), false,
   'Owner without memberships must produce no rows');
 console.log('Query 8B: direct/transitive memberships, INHERIT, SET, effective privileges and unexpected membership PASS');
 
+psql('GRANT ' + parent + ' TO ' + ownerA + ' WITH INHERIT FALSE, SET FALSE;');
+const changedOptions = rows(q8b).find((r) => r.function_owner === ownerA && r.granted_role === parent);
+assert.ok(changedOptions);
+assert.deepEqual(changedOptions.membership_edge_inherit_options, [false]);
+assert.deepEqual(changedOptions.membership_edge_set_options, [false]);
+assert.equal(changedOptions.owner_is_member, true);
+assert.equal(changedOptions.owner_inherits_privileges, false);
+assert.equal(changedOptions.owner_can_set_role, false);
+
+psql('GRANT ' + parent + ' TO ' + ownerA + ' WITH INHERIT TRUE, SET TRUE;');
+const restoredOptions = rows(q8b).find((r) => r.function_owner === ownerA && r.granted_role === parent);
+assert.deepEqual(restoredOptions.membership_edge_inherit_options, [true]);
+assert.deepEqual(restoredOptions.membership_edge_set_options, [true]);
+assert.equal(restoredOptions.owner_inherits_privileges, true);
+assert.equal(restoredOptions.owner_can_set_role, true);
+
+psql('REVOKE ' + parent + ' FROM ' + ownerA + ';');
+const revokedMemberships = rows(q8b);
+assert.equal(revokedMemberships.some((r) => r.function_owner === ownerA && r.granted_role === parent), false);
+assert.equal(revokedMemberships.some((r) => r.function_owner === ownerA && r.granted_role === transitiveRole), false);
+psql('GRANT ' + parent + ' TO ' + ownerA + ' WITH INHERIT TRUE, SET TRUE;');
+const restoredMemberships = rows(q8b);
+assert.equal(restoredMemberships.some((r) => r.function_owner === ownerA && r.granted_role === parent), true);
+assert.equal(restoredMemberships.some((r) => r.function_owner === ownerA && r.granted_role === transitiveRole), true);
+console.log('Query 8B: membership option changes, revoke and transitive-path restoration PASS');
+
 for (const signature of signatures) psql('DROP FUNCTION ' + signature + ';');
 psql([
   'REVOKE ' + parent + ' FROM ' + ownerA + ';',
