@@ -10,6 +10,8 @@ const legacyGuardMigration = read("supabase/migrations/202611210029_delivery_leg
 const suppressionSyncMigration = read("supabase/migrations/202611220032_resend_suppression_list_sync.sql");
 const crossStreamMigration = read("supabase/migrations/202611220033_delivery_cross_stream_suppression_order.sql");
 const suppressionTimestampMigration = read("supabase/migrations/202611230034_delivery_suppression_timestamp_order.sql");
+const integrityEvidenceMigration = read("supabase/migrations/202611240037_delivery_provider_integrity_conflict_evidence.sql");
+const providerDocs = read("docs/DELIVERY_PROVIDER_WEBHOOKS.md");
 const leaseMigration = read("supabase/migrations/202611210028_delivery_claim_lock_expiry.sql");
 const idempotencyMigration = read("supabase/migrations/202611210030_delivery_idempotency_receipt_guard.sql");
 const suppressionTests = read("scripts/test-delivery-provider-suppressions.sql");
@@ -54,6 +56,33 @@ assert(migrationOrderTest.includes("202611220032_resend_suppression_list_sync.sq
 assert(migrationOrderTest.includes("scripts/test-delivery-provider-suppressions.sql"));
 assert(databaseTests.includes("202611220032_resend_suppression_list_sync.sql"));
 assert(databaseTests.includes("202611220033_delivery_cross_stream_suppression_order.sql"));
+assert(databaseTests.includes("202611240037_delivery_provider_integrity_conflict_evidence.sql"));
+for (const value of [
+  "delivery_provider_integrity_cases",
+  "delivery_provider_integrity_conflict_evidence",
+  "delivery_provider_integrity_conflict_history",
+  "legacy_anomaly_backfill",
+  "provider_email_recipient_conflict",
+  "provider_suppression_recipient_conflict",
+  "admin_resolve_delivery_provider_integrity_conflict",
+  "New conflicting provider evidence arrived after resolution",
+  "pg_advisory_xact_lock(20261119, hashtext(v_email))",
+  "pg_advisory_xact_lock(20261126, hashtext(p_provider_email_id))",
+  "pg_advisory_xact_lock(20261127, hashtext(p_provider_suppression_id))",
+  "rename to _record_delivery_provider_lifecycle_event_pre037_impl",
+  "rename to _record_delivery_provider_suppression_event_pre037_impl",
+]) assert(integrityEvidenceMigration.includes(value), "Migration 037 missing provider-integrity invariant: " + value);
+for (const value of [
+  "migration_037_legacy_anomaly_backfill",
+  "new_evidence_reopens_resolved_case",
+  "provider_integrity_private_grants",
+  "admin_resolve_delivery_provider_integrity_conflict",
+]) assert(databaseTests.includes(value), "Missing migration 037 SQL regression assertion: " + value);
+assert(suppressionTests.includes("provider_suppression_recipient_conflict"));
+assert(concurrencyTests.includes("provider_email_recipient_conflict"));
+assert(concurrencyTests.includes("provider_suppression_recipient_conflict"));
+assert(providerDocs.includes("Recipient-scoped provider-integrity evidence (migration 037)"));
+
 assert(databaseTests.includes("test-delivery-provider-suppressions.sql"));
 assert(/alter function public\.record_delivery_provider_lifecycle_event\([\s\S]*?rename to _record_delivery_provider_lifecycle_event_fingerprinted_impl/i.test(legacyGuardMigration));
 for (const signature of [

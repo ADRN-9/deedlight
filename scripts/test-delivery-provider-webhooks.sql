@@ -36,6 +36,29 @@ reset role;
 \ir ../supabase/migrations/202611220032_resend_suppression_list_sync.sql
 \ir ../supabase/migrations/202611220033_delivery_cross_stream_suppression_order.sql
 \ir ../supabase/migrations/202611230034_delivery_suppression_timestamp_order.sql
+-- Seed one pre-037 anomaly so the migration backfill is exercised.
+set role service_role;
+do $c353_legacy_backfill$
+begin
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_c353_legacy_backfill', 'email.sent', 'resend-c353-legacy-backfill',
+    'legacy-integrity-backfill@example.test', '2027-03-03T08:00:00Z',
+    null, null, null, repeat('a', 64)
+  ) is not true then
+    raise exception 'Legacy provider-integrity backfill fixture was not inserted.';
+  end if;
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_c353_legacy_backfill', 'email.failed', 'resend-c353-legacy-backfill',
+    'legacy-integrity-backfill@example.test', '2027-03-03T08:01:00Z',
+    null, 'unknown', null, repeat('b', 64)
+  ) is not null then
+    raise exception 'Legacy provider-integrity backfill conflict was not detected.';
+  end if;
+end;
+$c353_legacy_backfill$;
+reset role;
+
+\ir ../supabase/migrations/202611240037_delivery_provider_integrity_conflict_evidence.sql
 \ir test-delivery-provider-suppressions.sql
 
 -- Replays with a new digest must remain compatible with historical NULL metadata.
@@ -1072,3 +1095,268 @@ select jsonb_build_object(
   'no_queue_or_retry_mutation','pass',
   'lifecycle_projection_privacy','pass'
 ) as delivery_provider_webhook_behavior;
+
+
+-- Migration 037 backfills legacy anomaly markers and preserves the original event.
+do $c353_legacy_backfill_assertions$
+begin
+  if not exists (
+    select 1
+    from public.delivery_provider_integrity_cases c
+    join public.delivery_provider_integrity_conflict_evidence e using (conflict_id)
+    where c.recipient_email = 'legacy-integrity-backfill@example.test'
+      and c.anomaly_type = 'duplicate_event_id_conflict'
+      and c.state = 'open'
+      and e.event_id = 'evt_c353_legacy_backfill'
+      and e.evidence_source = 'legacy_anomaly_backfill'
+  ) then
+    raise exception 'Migration 037 did not backfill the historical anomaly as recipient-scoped evidence.';
+  end if;
+  if not exists (
+    select 1 from public.delivery_provider_events
+    where event_id = 'evt_c353_legacy_backfill'
+      and event_type = 'email.sent'
+      and payload_fingerprint = repeat('a', 64)
+  ) then
+    raise exception 'Migration 037 changed the canonical historical provider event.';
+  end if;
+end;
+$c353_legacy_backfill_assertions$;
+
+-- Create a new conflict, resolve it as an authenticated administrator, then
+-- prove that a distinct conflicting fingerprint reopens the same recipient case.
+insert into auth.users (id, email, email_confirmed_at)
+values (
+  '00000000-0000-0000-0000-000000020006',
+  'provider-integrity-admin@example.test',
+  now()
+);
+insert into public.profiles (user_id, role, is_suspended)
+values ('00000000-0000-0000-0000-000000020006', 'admin', false);
+
+set role service_role;
+do $c353_new_conflict$
+begin
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_c353_integrity_reopen', 'email.bounced', 'resend-c353-integrity-reopen',
+    'integrity-reopen@example.test', '2027-03-03T09:00:00Z',
+    'Permanent', null, null, repeat('1', 64)
+  ) is not true then
+    raise exception 'Provider integrity reopen fixture was not inserted.';
+  end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_c353_integrity_reopen', 'email.complained', 'resend-c353-integrity-reopen',
+    'integrity-reopen@example.test', '2027-03-03T09:01:00Z',
+    null, null, null, repeat('2', 64)
+  ) is not null then
+    raise exception 'Conflicting duplicate provider event did not return the retryable NULL result.';
+  end if;
+end;
+$c353_new_conflict$;
+reset role;
+
+begin;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000020006', true);
+do $c353_admin_resolution$
+declare
+  v_case_id bigint;
+  v_count bigint;
+begin
+  if not public.is_admin() then
+    raise exception 'Synthetic administrator fixture was not recognized.';
+  end if;
+
+  select c.conflict_id into v_case_id
+  from public.delivery_provider_integrity_cases c
+  where c.recipient_email = 'integrity-reopen@example.test'
+    and c.anomaly_type = 'duplicate_event_id_conflict';
+
+  if v_case_id is null then
+    raise exception 'Recipient-scoped duplicate conflict case was not created.';
+  end if;
+
+  if public.admin_resolve_delivery_provider_integrity_conflict(
+    v_case_id,
+    'Reviewed conflicting provider event; retain the original bounce record.'
+  ) is not true then
+    raise exception 'Administrator could not resolve an open provider-integrity case.';
+  end if;
+
+  select count(*) into v_count
+  from public.admin_list_delivery_provider_integrity_conflicts('resolved', 200)
+  where conflict_id = v_case_id and state = 'resolved'
+    and resolved_by = auth.uid()
+    and resolution_note = 'Reviewed conflicting provider event; retain the original bounce record.';
+
+  if v_count <> 1 then
+    raise exception 'Admin conflict list did not expose the audited resolution.';
+  end if;
+
+  select count(*) into v_count
+  from public.admin_list_delivery_provider_integrity_evidence(v_case_id, 100)
+  where payload_fingerprint = repeat('2', 64);
+
+  if v_count <> 1 then
+    raise exception 'Admin evidence list did not expose the normalized conflicting event.';
+  end if;
+
+  select count(*) into v_count
+  from public.admin_list_delivery_provider_integrity_history(v_case_id, 100)
+  where action = 'resolved' and actor_id = auth.uid();
+
+  if v_count <> 1 then
+    raise exception 'Resolution history did not retain the administrator actor and action.';
+  end if;
+end;
+$c353_admin_resolution$;
+commit;
+reset role;
+
+set role service_role;
+do $c353_reopen$
+begin
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_c353_integrity_reopen', 'email.failed', 'resend-c353-integrity-reopen',
+    'integrity-reopen@example.test', '2027-03-03T09:02:00Z',
+    null, 'unknown', null, repeat('3', 64)
+  ) is not null then
+    raise exception 'New conflicting provider evidence was not classified as a conflict.';
+  end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_c353_integrity_reopen', 'email.failed', 'resend-c353-integrity-reopen',
+    'integrity-reopen@example.test', '2027-03-03T09:02:00Z',
+    null, 'unknown', null, repeat('3', 64)
+  ) is not null then
+    raise exception 'Conflicting provider payload replay did not remain an anomaly.';
+  end if;
+end;
+$c353_reopen$;
+reset role;
+
+do $c353_reopen_assertions$
+declare
+  v_case_id bigint;
+  v_count bigint;
+begin
+  select c.conflict_id into v_case_id
+  from public.delivery_provider_integrity_cases c
+  where c.recipient_email = 'integrity-reopen@example.test'
+    and c.anomaly_type = 'duplicate_event_id_conflict'
+    and c.state = 'open'
+    and c.resolved_at is null
+    and c.resolved_by is null
+    and c.resolution_note is null;
+
+  if v_case_id is null then
+    raise exception 'New distinct provider evidence did not reopen the resolved case.';
+  end if;
+
+  select count(*) into v_count
+  from public.delivery_provider_integrity_conflict_evidence e
+  where e.conflict_id = v_case_id
+    and e.payload_fingerprint in (repeat('2', 64), repeat('3', 64));
+
+  if v_count <> 2 then
+    raise exception 'Distinct conflicting fingerprints were not durably retained exactly once.';
+  end if;
+
+  select count(*) into v_count
+  from public.delivery_provider_integrity_conflict_history h
+  where h.conflict_id = v_case_id
+    and h.action in ('resolved', 'reopened');
+
+  if v_count <> 2 then
+    raise exception 'Resolution/reopening history was overwritten or duplicated.';
+  end if;
+
+  if not exists (
+    select 1 from public.delivery_provider_events
+    where event_id = 'evt_c353_integrity_reopen'
+      and event_type = 'email.bounced'
+      and payload_fingerprint = repeat('1', 64)
+      and recipient_email = 'integrity-reopen@example.test'
+  ) then
+    raise exception 'Conflicting provider event replaced the canonical event.';
+  end if;
+
+  if (select reason from public.delivery_provider_suppressions
+      where recipient_email = 'integrity-reopen@example.test') is distinct from 'permanent_bounce' then
+    raise exception 'Conflicting provider event weakened permanent-bounce protection.';
+  end if;
+end;
+$c353_reopen_assertions$;
+
+-- Authenticated non-admins cannot list or resolve private provider conflicts.
+begin;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000020005', true);
+do $c353_non_admin$
+declare
+  v_denied boolean := false;
+begin
+  begin
+    perform * from public.admin_list_delivery_provider_integrity_conflicts('all', 100);
+  exception when sqlstate '42501' then
+    v_denied := true;
+  end;
+  if not v_denied then
+    raise exception 'Non-admin authenticated member accessed provider-integrity cases.';
+  end if;
+end;
+$c353_non_admin$;
+commit;
+reset role;
+
+do $c353_privacy_assertions$
+begin
+  if has_table_privilege('anon', 'public.delivery_provider_integrity_cases', 'SELECT')
+    or has_table_privilege('authenticated', 'public.delivery_provider_integrity_cases', 'SELECT')
+    or has_table_privilege('service_role', 'public.delivery_provider_integrity_cases', 'SELECT')
+    or has_table_privilege('anon', 'public.delivery_provider_integrity_conflict_evidence', 'SELECT')
+    or has_table_privilege('authenticated', 'public.delivery_provider_integrity_conflict_evidence', 'SELECT')
+    or has_table_privilege('service_role', 'public.delivery_provider_integrity_conflict_evidence', 'SELECT')
+    or has_table_privilege('anon', 'public.delivery_provider_integrity_conflict_history', 'SELECT')
+    or has_table_privilege('authenticated', 'public.delivery_provider_integrity_conflict_history', 'SELECT')
+    or has_table_privilege('service_role', 'public.delivery_provider_integrity_conflict_history', 'SELECT') then
+    raise exception 'Provider-integrity case/evidence/history tables are directly readable.';
+  end if;
+
+  if not (select relrowsecurity from pg_class where oid='public.delivery_provider_integrity_cases'::regclass)
+    or not (select relrowsecurity from pg_class where oid='public.delivery_provider_integrity_conflict_evidence'::regclass)
+    or not (select relrowsecurity from pg_class where oid='public.delivery_provider_integrity_conflict_history'::regclass) then
+    raise exception 'Provider-integrity case/evidence/history tables must retain RLS.';
+  end if;
+
+  if has_function_privilege('anon', 'public.admin_list_delivery_provider_integrity_conflicts(text,integer)', 'EXECUTE')
+    or has_function_privilege('service_role', 'public.admin_list_delivery_provider_integrity_conflicts(text,integer)', 'EXECUTE')
+    or not has_function_privilege('authenticated', 'public.admin_list_delivery_provider_integrity_conflicts(text,integer)', 'EXECUTE')
+    or has_function_privilege('anon', 'public.admin_resolve_delivery_provider_integrity_conflict(bigint,text)', 'EXECUTE')
+    or has_function_privilege('service_role', 'public.admin_resolve_delivery_provider_integrity_conflict(bigint,text)', 'EXECUTE')
+    or not has_function_privilege('authenticated', 'public.admin_resolve_delivery_provider_integrity_conflict(bigint,text)', 'EXECUTE') then
+    raise exception 'Provider-integrity admin RPC grants are not least-privilege.';
+  end if;
+
+  if has_function_privilege('anon', 'public._record_delivery_provider_integrity_conflict(text,text,text,text,text,text,text,timestamptz,text,text,text,text,text,timestamptz,text,text,text)', 'EXECUTE')
+    or has_function_privilege('authenticated', 'public._record_delivery_provider_integrity_conflict(text,text,text,text,text,text,text,timestamptz,text,text,text,text,text,timestamptz,text,text,text)', 'EXECUTE')
+    or has_function_privilege('service_role', 'public._record_delivery_provider_integrity_conflict(text,text,text,text,text,text,text,timestamptz,text,text,text,text,text,timestamptz,text,text,text)', 'EXECUTE')
+    or has_function_privilege('service_role', 'public._record_delivery_provider_lifecycle_event_pre037_impl(text,text,text,text,timestamptz,text,text,text,text)', 'EXECUTE')
+    or has_function_privilege('service_role', 'public._record_delivery_provider_suppression_event_pre037_impl(text,text,text,text,text,text,timestamptz,timestamptz,text)', 'EXECUTE') then
+    raise exception 'Migration 037 private provider-integrity implementations became directly executable.';
+  end if;
+end;
+$c353_privacy_assertions$;
+
+select jsonb_build_object(
+  'migration_037_legacy_anomaly_backfill','pass',
+  'recipient_scoped_conflict_cases','pass',
+  'append_only_conflict_evidence','pass',
+  'administrator_resolution_audit','pass',
+  'new_evidence_reopens_resolved_case','pass',
+  'exact_conflict_replay_deduplicated','pass',
+  'original_event_and_bounce_protection_preserved','pass',
+  'non_admin_resolution_denied','pass',
+  'provider_integrity_private_grants','pass'
+) as delivery_provider_integrity_migration_037_behavior;

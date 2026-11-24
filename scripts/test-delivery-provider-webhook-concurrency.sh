@@ -132,11 +132,13 @@ if [[ "$cross_recipient_waiting" != "1" ]]; then
   exit 1
 fi
 wait "$cross_recipient_first_pid"
-if wait "$cross_recipient_second_pid"; then
-  echo "Cross-recipient provider email ID collision was accepted." >&2
+if ! wait "$cross_recipient_second_pid"; then
+  cat "$tmp/cross-recipient-second.log"
+  echo "Cross-recipient provider email ID conflict did not persist its evidence." >&2
   exit 1
 fi
-grep -q "Provider email correlation does not match." "$tmp/cross-recipient-second.log"
+cross_recipient_result="$(tr -d '\r\n' <"$tmp/cross-recipient-second.log")"
+[[ "$cross_recipient_result" == "__NULL__" ]]
 
 collision_event_count="$(psql_scalar "select count(*) from public.delivery_provider_events where provider_email_id='resend-cross-recipient-collision'")"
 collision_first_event="$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_cross_recipient_first' and recipient_email='first-recipient@example.test'")"
@@ -147,10 +149,14 @@ collision_anomaly="$(psql_scalar "select count(*) from public.delivery_provider_
 [[ "$collision_event_count" == "1" ]]
 [[ "$collision_first_event" == "1" ]]
 [[ "$collision_second_event" == "0" ]]
-[[ "$collision_lifecycle" == "email.delivered:evt_cross_recipient_first" ]]
+[[ "$collision_lifecycle" == "integrity_anomaly:evt_cross_recipient_first" ]]
 [[ "$collision_suppression" == "0" ]]
 [[ "$collision_anomaly" == "0" ]]
-echo "Concurrent cross-recipient provider email ID collision: PASS"
+collision_case="$(psql_scalar "select count(*) from public.delivery_provider_integrity_cases where recipient_email='second-recipient@example.test' and anomaly_type='provider_email_recipient_conflict' and state='open'")"
+collision_evidence="$(psql_scalar "select count(*) from public.delivery_provider_integrity_conflict_evidence where event_id='evt_cross_recipient_second' and stored_event_id='evt_cross_recipient_first' and payload_fingerprint=repeat('d',64)")"
+[[ "$collision_case" == "1" ]]
+[[ "$collision_evidence" == "1" ]]
+echo "Concurrent cross-recipient provider email ID conflict evidence: PASS"
 
 # A replay of a pre-027 row with no fingerprint remains a no-op under concurrency.
 "${psql_cmd[@]}" >"$tmp/historical-first.log" 2>&1 <<'SQL' &
@@ -529,15 +535,22 @@ if [[ "$cross_id_waiting" != "1" ]]; then
   exit 1
 fi
 wait "$suppression_cross_first_pid"
-if wait "$suppression_cross_second_pid"; then
-  echo "Cross-recipient suppression ID collision was accepted." >&2
+if ! wait "$suppression_cross_second_pid"; then
+  cat "$tmp/suppression-cross-second.log"
+  echo "Cross-recipient suppression ID conflict did not persist its evidence." >&2
   exit 1
 fi
-grep -q "Provider suppression correlation does not match." "$tmp/suppression-cross-second.log"
+suppression_cross_result="$(tr -d '\r\n' <"$tmp/suppression-cross-second.log")"
+[[ "$suppression_cross_result" == "__NULL__" ]]
 suppression_cross_events="$(psql_scalar "select count(*) from public.delivery_provider_events where provider_suppression_id='sup_concurrent_cross'")"
 suppression_cross_first="$(psql_scalar "select count(*) from public.delivery_provider_suppression_state where recipient_email='concurrent-suppression-first@example.test' and is_active")"
 suppression_cross_second="$(psql_scalar "select count(*) from public.delivery_provider_suppression_state where recipient_email='concurrent-suppression-second@example.test'")"
 [[ "$suppression_cross_events" == "1" ]]
+suppression_cross_case="$(psql_scalar "select count(*) from public.delivery_provider_integrity_cases where recipient_email='concurrent-suppression-second@example.test' and anomaly_type='provider_suppression_recipient_conflict' and state='open'")"
+suppression_cross_evidence="$(psql_scalar "select count(*) from public.delivery_provider_integrity_conflict_evidence where event_id='evt_concurrent_suppression_cross_second' and stored_event_id='evt_concurrent_suppression_cross_first' and payload_fingerprint=repeat('e',64)")"
+[[ "$suppression_cross_case" == "1" ]]
+[[ "$suppression_cross_evidence" == "1" ]]
+echo "Concurrent cross-recipient suppression ID conflict evidence: PASS"
 [[ "$suppression_cross_first" == "1" ]]
 [[ "$suppression_cross_second" == "0" ]]
 echo "Concurrent cross-recipient suppression ID collision: PASS"
