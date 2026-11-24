@@ -366,7 +366,7 @@ begin
 
   v_email := lower(btrim(p_recipient_email));
   if char_length(v_email) not between 3 and 320
-    or v_email !~ '^[^[:space:]@]+@[^[:space:]@]+[.][^[:space:]@]+
+    or v_email !~ '^[^[:space:]@]+@[^[:space:]@]+[.][^[:space:]@]+$' then
 
   if p_event_type = 'email.suppressed' then
     v_suppression_reason := 'provider_suppressed';
