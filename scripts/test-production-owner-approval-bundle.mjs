@@ -57,7 +57,7 @@ function fixture({ withPath = false, intermediateAttribute = null } = {}) {
     owner_is_member:true, owner_inherits_privileges:true, owner_can_set_role:true,
   }] : [];
   const q8aSql = Buffer.from(EXPECTED_SIGNATURES.join("\n") + "\nSELECT /* fixture Query 8A */ 1;\n");
-  const q8bSql = Buffer.from("WITH RECURSIVE membership_walk AS (SELECT 1) SELECT /* fixture Query 8B */ 1;\n");
+  const q8bSql = Buffer.from("WITH RECURSIVE membership_walk AS (SELECT 1) SELECT pg_auth_members, pg_has_role, membership_path_role_attributes /* fixture Query 8B */;\n");
   const q8aResult = Buffer.from(canonicalJson(query8aRows));
   const q8bResult = Buffer.from(canonicalJson(query8bRows));
   const files = {
