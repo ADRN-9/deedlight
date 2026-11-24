@@ -23,6 +23,7 @@ The harness extracts the actual fenced Query 8A and Query 8B SQL from `docs/PROD
 The synthetic function definitions now explicitly set `search_path = pg_catalog`. The test asserts the exact `function_settings_search_path` returned by Query 8A for every signature.
 
 The owner-role assertions now check expected fixture attributes rather than merely checking that catalog fields are non-NULL: no fixture owner is superuser, CREATEROLE, CREATEDB, LOGIN, REPLICATION, or BYPASSRLS. The expected INHERIT role attribute is also asserted for the NOINHERIT fixture owner versus the INHERIT owners.
+The membership suite also mutates a direct membership's INHERIT and SET options and checks the effective MEMBER/USAGE/SET results, then revokes the parent membership and verifies that both the direct edge and recursive child path disappear before restoring the edge and proving both paths return.
 
 The original lexical verifier tests remain intact. The existing Cycle 372 PostgreSQL 16 job is retained as the single executable ownership-audit CI job; the duplicate Cycle 373 harness/job drafted during initial implementation was removed to avoid competing fixtures and redundant CI work.
 
