@@ -1474,6 +1474,8 @@ declare
   v_evidence_at timestamptz := clock_timestamp() + interval '10 seconds';
   v_history_at timestamptz := clock_timestamp() + interval '20 seconds';
   v_case_at timestamptz := clock_timestamp() + interval '30 seconds';
+  v_resolved_case_id bigint;
+  v_resolved_evidence_id bigint;
 begin
   select conflict_id into v_case_id
   from public.delivery_provider_integrity_cases
@@ -1527,6 +1529,33 @@ begin
     ('c356-page-case-a@example.test', 'duplicate_event_id_conflict', 'open', v_case_at, v_case_at),
     ('c356-page-case-b@example.test', 'contradictory_terminal_outcome', 'open', v_case_at, v_case_at),
     ('c356-page-case-c@example.test', 'suppression_event_timestamp_conflict', 'open', v_case_at, v_case_at);
+
+  insert into public.delivery_provider_integrity_cases (
+    recipient_email, anomaly_type, state, first_detected_at, last_detected_at,
+    resolved_at, resolved_by, resolution_note
+  ) values (
+    'c356-reopened-resolved@example.test', 'duplicate_event_id_conflict', 'resolved',
+    v_case_at, v_case_at, v_history_at + interval '1 second', v_admin_id,
+    'Cycle 356 follow-up resolution after reopening.'
+  ) returning conflict_id into v_resolved_case_id;
+
+  insert into public.delivery_provider_integrity_conflict_evidence (
+    conflict_id, recipient_email, event_id, event_type, provider_email_id,
+    bounce_type, provider_created_at, payload_fingerprint, stored_event_id,
+    stored_recipient_email, evidence_source, observed_at
+  ) values (
+    v_resolved_case_id, 'c356-reopened-resolved@example.test',
+    'evt_c356_reopened_resolved', 'email.bounced', 'resend-c356-reopened-resolved',
+    'Transient', clock_timestamp(), lpad(to_hex(4), 64, '0'),
+    'evt_c356_reopened_resolved', 'c356-reopened-resolved@example.test',
+    'provider_rpc', v_evidence_at
+  ) returning evidence_id into v_resolved_evidence_id;
+
+  insert into public.delivery_provider_integrity_conflict_history (
+    conflict_id, action, actor_id, note, evidence_id, created_at
+  ) values
+    (v_resolved_case_id, 'reopened', null, 'Cycle 356 reopening remains visible after resolution.', v_resolved_evidence_id, v_history_at),
+    (v_resolved_case_id, 'resolved', v_admin_id, 'Cycle 356 follow-up resolution after reopening.', null, v_history_at + interval '1 second');
 end;
 $c356_pagination_seed$;
 
@@ -1554,6 +1583,8 @@ select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000020008
 do $c356_admin_pagination$
 declare
   v_case_id bigint;
+  v_resolved_case_id bigint;
+  v_resolved_detail jsonb;
   v_detail jsonb;
   v_page jsonb;
   v_item jsonb;
@@ -1587,6 +1618,16 @@ begin
     or (v_detail->>'history_count')::bigint <> v_history_count
     or v_detail->'latest_reopened'->>'note' <> 'Cycle 356 pagination fixture latest reopening.' then
     raise exception 'Direct administrator case retrieval did not return accurate counts and latest reopening.';
+  end if;
+
+  select conflict_id into v_resolved_case_id
+  from public.delivery_provider_integrity_cases
+  where recipient_email='c356-reopened-resolved@example.test'
+    and anomaly_type='duplicate_event_id_conflict';
+  v_resolved_detail := public.admin_get_delivery_provider_integrity_conflict(v_resolved_case_id);
+  if v_resolved_detail->>'state' <> 'resolved'
+    or v_resolved_detail->'latest_reopened'->>'note' <> 'Cycle 356 reopening remains visible after resolution.' then
+    raise exception 'Latest reopening was hidden after a case was subsequently resolved.';
   end if;
 
   v_total := null;

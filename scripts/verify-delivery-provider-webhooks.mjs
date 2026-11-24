@@ -512,6 +512,8 @@ assert(providerIntegrityDetailPage.includes('"admin_get_delivery_provider_integr
 assert(providerIntegrityDetailPage.includes('"admin_list_delivery_provider_integrity_evidence_page"'));
 assert(providerIntegrityDetailPage.includes('"admin_list_delivery_provider_integrity_history_page"'));
 assert(providerIntegrityDetailPage.includes("latest_reopened"));
+assert(providerIntegrityDetailPage.includes("hasReopening"));
+assert(providerIntegrityDetailPage.includes("Most recent reopening event"));
 assert(providerIntegrityDetailPage.includes("Reopened after new provider evidence"));
 assert(providerIntegrityDetailPage.includes("Load older evidence"));
 assert(providerIntegrityDetailPage.includes("Load older history"));
@@ -603,6 +605,7 @@ for (const value of [
   "Non-admin authenticated member resolved a provider-integrity case.",
   "Case pagination accepted a partial cursor.",
   "History pagination accepted a partial cursor.",
+  "Latest reopening was hidden after a case was subsequently resolved.",
 ]) assert(databaseTests.toLowerCase().includes(value.toLowerCase()), "Missing Cycle 356 pagination/privacy regression: " + value);
 for (const value of [
   "grant execute on function public.record_delivery_provider_lifecycle_event",

@@ -236,7 +236,7 @@ export default async function AdminProviderIntegrityDetailPage({
   const historyPage = historyResult.data as HistoryPage;
   const evidence = evidencePage.items ?? [];
   const history = historyPage.items ?? [];
-  const reopened = integrityCase.state === "open" && integrityCase.latest_reopened !== null;
+  const hasReopening = integrityCase.latest_reopened !== null;
   const evidenceNextHref = evidencePage.next_cursor
     ? queryHref(detailPath, notices, {
         evidence_before_observed_at: evidencePage.next_cursor.observed_at,
@@ -312,13 +312,16 @@ export default async function AdminProviderIntegrityDetailPage({
         </div>
       ) : null}
 
-      {reopened && integrityCase.latest_reopened ? (
+      {hasReopening && integrityCase.latest_reopened ? (
         <div className="mb-6">
-          <AdminStatusMessage type="warning" title="Reopened after new provider evidence">
-            New distinct conflict evidence reopened this case on{" "}
-            {formatDate(integrityCase.latest_reopened.created_at)}. The latest
-            reopening note and evidence reference remain visible here even
-            when older history pages are being inspected.
+          <AdminStatusMessage
+            type={integrityCase.state === "open" ? "warning" : "info"}
+            title={integrityCase.state === "open" ? "Reopened after new provider evidence" : "Most recent reopening event"}
+          >
+            This case was reopened on{" "}
+            {formatDate(integrityCase.latest_reopened.created_at)} and is currently{" "}
+            {integrityCase.state}. Its latest reopening note and evidence reference
+            remain visible here even when older history pages are being inspected.
             <p className="mt-2 whitespace-pre-wrap text-sm leading-6">
               {integrityCase.latest_reopened.note}
             </p>
