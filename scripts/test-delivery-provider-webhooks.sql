@@ -1547,7 +1547,7 @@ begin
     v_resolved_case_id, 'c356-reopened-resolved@example.test',
     'evt_c356_reopened_resolved', 'email.bounced', 'resend-c356-reopened-resolved',
     'Transient', clock_timestamp(), lpad(to_hex(4), 64, '0'),
-    'evt_c356_reopened_resolved', 'c356-reopened-resolved@example.test',
+    'evt_historical_026_complaint', 'historical-026-complaint@example.test',
     'provider_rpc', v_evidence_at
   ) returning evidence_id into v_resolved_evidence_id;
 
