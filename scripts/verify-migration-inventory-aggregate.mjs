@@ -173,9 +173,9 @@ export function buildAggregate(rootDir, manifest, expectedInventoryBlobSha1 = EX
     const item = manifest.migrations[index];
     chunks.push(safeFile(rootDir, item.path, path.basename(item.path)));
     if (item.version === "202611240037") {
-      chunks.push(Buffer.from("\\n-- BEGIN MIGRATION 038 ADMIN COMPATIBILITY\\n"));
+      chunks.push(Buffer.from("\n-- BEGIN MIGRATION 038 ADMIN COMPATIBILITY\n"));
       chunks.push(compatibility);
-      chunks.push(Buffer.from("\\n-- END MIGRATION 038 ADMIN COMPATIBILITY\\n"));
+      chunks.push(Buffer.from("\n-- END MIGRATION 038 ADMIN COMPATIBILITY\n"));
     }
     if (index === 1) {
       chunks.push(Buffer.from("\n-- BEGIN BOOTSTRAP SEED (three idempotent upserts)\n"));
