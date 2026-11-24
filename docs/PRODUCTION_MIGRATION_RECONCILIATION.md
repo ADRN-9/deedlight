@@ -1,3 +1,109 @@
+# Cycle 389 — Current repository inventory and SQL aggregate integrity
+
+**Current source snapshot before Cycle 389 changes:** `afb63b53650222d901b0b32835678d138ac0761e`  
+**Repository:** ADRN-9/deedlight  
+**PR:** #22 — OPEN / DRAFT / UNMERGED  
+**Branch:** security/private-daily-journey-admin-isolation-c408  
+**Stack:** PR #22 targets PR #10's branch at `6a3660bbe2fd6beb2ddada43d5e77ff5ac9f3793`; comparison is 199 commits ahead / 0 behind with that exact merge base.  
+**Current inventory:** 39 migration files; 38 unique version prefixes.  
+**Current Production disposition:** all 39 migrations UNKNOWN; no Production execution or schema-equivalence claim is made.
+
+> Historical C421/C410/C404 and earlier observations below are retained as historical snapshots. In particular, the old C421 count of 37 files / 36 prefixes and its 37 UNKNOWN classifications describes its then-current tree, not the Cycle 389 tree. The two additional migrations now present are 037 and 038.
+
+## Current exact migration inventory
+
+The pinned inventory is `supabase/migration-inventory.json`. Each Git blob SHA-1 is the exact Git object hash of the original migration bytes. The complete inventory has 39 rows, 38 distinct 12-digit prefixes, and exactly one intentional duplicate group: both distinct `202607260007` files. No migration file was renamed, merged, or rewritten.
+
+| Version | Exact filename | Git blob SHA-1 |
+|---|---|---|
+| 202607210001 | `202607210001_initial_schema.sql` | `a244ab0df3e766b0f36e29a222b3160f9f74c502` |
+| 202607210002 | `202607210002_rls_policies.sql` | `f96b482c0d1cf396baae5b91d7c96112f7e88284` |
+| 202607220003 | `202607220003_sprint3_offerings_review.sql` | `74e02f2e60b82cf07a6aac5f8cf57dcdb6fe1382` |
+| 202607260004 | `202607260004_sprint4_reactions.sql` | `c25dce46ecf69d082fcdbea2bb931b6acd9180fc` |
+| 202607260005 | `202607260005_sprint5_moderation.sql` | `b48b4b8b3eea9fb55b68068011fa1371559228c2` |
+| 202607260006 | `202607260006_sprint5_admin_edit_hide_hotfix.sql` | `9e163de5119c3813724341b7a9eabeba6fdc2970` |
+| 202607260007 | `202607260007_sprint6_daily_deedlight.sql` | `e0c2379255003b8c7bc85a1fab781e23051f5e47` |
+| 202607260007 | `202607260007_sprint7_pwa_daily_engagement.sql` | `8b051cfce05ea75b1ee7a726864e2ad760f6fe5f` |
+| 202607270008 | `202607270008_sprint8_short_video_studio.sql` | `5b583bd99562e14db554943d034c748ce302f5ee` |
+| 202608060009 | `202608060009_sprint9_profiles_privacy.sql` | `6594ce6daa0183944fcc548885d6514e8adb9436` |
+| 202608100010 | `202608100010_sprint9_2_community_identity_consistency.sql` | `774708b7705d88a5a1e0da97e72a9d1b47c8884c` |
+| 202608100011 | `202608100011_sprint9_3_moderation_aware_members.sql` | `1d1b7b844b88077351d2658af4be2b2db92eda97` |
+| 202608110012 | `202608110012_sprint10_1_daily_deed_completion.sql` | `0973f72e39ce07b41e053a20f1b781c394578877` |
+| 202608110013 | `202608110013_sprint10_2_saved_lights_gentle_rhythm.sql` | `5fd2f4a796a8a1dfd6237ccf36d1ab62c1dc1714` |
+| 202608120014 | `202608120014_sprint10_3_gentle_reminder_preferences.sql` | `2af1a6a2aa5cffc6ef6d08849b6f71fab44a54d0` |
+| 202608130015 | `202608130015_sprint11_2_weekly_goodness.sql` | `394c774032d8206c0b7a373640859c2a331667a9` |
+| 202608130016 | `202608130016_sprint11_3_invitations_newsletter_foundation.sql` | `8d68ed19859e1a820af52a43c110a38b6a460d48` |
+| 202608130017 | `202608130017_sprint12_1_offering_ownership_engagement.sql` | `bc23b12fe454c1f49b096fd2c7199e3a2aea5bb4` |
+| 202608140018 | `202608140018_sprint12_1_owner_removal_guard_hotfix.sql` | `0ea7eaf04d5c99e4c5a25893aae7694affdd44bc` |
+| 202609230019 | `202609230019_sprint12_2_gentle_delivery_foundation.sql` | `1403b9324e786a2b724176875a70ffce92961d9b` |
+| 202609230020 | `202609230020_delivery_reliability_hardening.sql` | `554615da3d15fc4c0d395691103d3be5676856fa` |
+| 202609230021 | `202609230021_gentle_delivery_transport.sql` | `e50a06bd3a5ed386c54e789435c64b2bb4a54ab9` |
+| 202609240022 | `202609240022_auth_pgcrypto_schema_qualification.sql` | `f42afb3474f80c7d95cf5b47023b82cf5a948d4d` |
+| 202611120023 | `202611120023_delivery_consent_linearization.sql` | `75f5086feab2cbda381066cb9094390190c3332f` |
+| 202611120024 | `202611120024_delivery_identity_lease_capacity.sql` | `240271fd75081c062627cfc3d40bdc0c5feda049` |
+| 202611190025 | `202611190025_delivery_provider_webhooks.sql` | `e97c5c0ad645dfe43f11a88f01b030fa23dd5822` |
+| 202611190026 | `202611190026_delivery_provider_lifecycle.sql` | `6a06d780ad65babf2293a2746c68913758313af8` |
+| 202611200027 | `202611200027_delivery_provider_integrity.sql` | `a1469938ea13b5cb9d7cd883772bc60e4a058026` |
+| 202611210028 | `202611210028_delivery_claim_lock_expiry.sql` | `09d1927fba81d711bb37d214609931d2da2173a1` |
+| 202611210029 | `202611210029_delivery_legacy_replay_guard.sql` | `872fc49ec47e49b17e96ecf6ccaf5c8eb0e6322a` |
+| 202611210030 | `202611210030_delivery_idempotency_receipt_guard.sql` | `c5e3955c4e0dde708a8ffdc9c420807c4241fa32` |
+| 202611220031 | `202611220031_delivery_final_recipient_suppression_gate.sql` | `26d69a0a4e73bc7cfd05814f3f6129bc199da02b` |
+| 202611220032 | `202611220032_resend_suppression_list_sync.sql` | `6a0c0193d85ece99335f8715a65243ac42617f97` |
+| 202611220033 | `202611220033_delivery_cross_stream_suppression_order.sql` | `1cd0c2db5415a37b9a31ed8ef7de54db9019a88f` |
+| 202611230034 | `202611230034_delivery_suppression_timestamp_order.sql` | `4ec8aa578ad851918f4c4b2535c476b4ceb40f1d` |
+| 202611230035 | `202611230035_private_offering_base_table_rls.sql` | `3d0ce8dfd4abb88fccccd23c5ffb9c35f699c098` |
+| 202611230036 | `202611230036_private_daily_reflection_admin_isolation.sql` | `61a1fbf48b4557873ba6016e74fd3995bc62ba14` |
+| 202611240037 | `202611240037_delivery_provider_integrity_conflict_evidence.sql` | `ac0449b50a881e3a895ef40a8eee28bea95a6ec0` |
+| 202611240038 | `202611240038_delivery_provider_integrity_lock_order_pagination.sql` | `38951751fc5abeb79b75c4e37e55da01262a18b8` |
+
+Bootstrap seed: `supabase/seed.sql`, Git blob SHA-1 `e85554aed1553dec407e83966a1b0093f5d1e9a3`, 2574 bytes, exactly three idempotent upserts (themes, daily_posts, badges).
+
+## SQL Editor aggregate execution order and compatibility
+
+The previous aggregate contained complete byte-identical bodies for 001, 002 and 009–038, plus the seed artifact, but omitted the complete original bodies of 003, 004, 005, 006, both distinct 007 migrations, and 008. Those seven bodies are now restored from their pinned source files.
+
+The deterministic aggregate order is:
+1. All 39 migration sources in lexicographic filename order.
+2. The bootstrap seed is deliberately executed immediately after 001 and 002, before 003–038. Those initial migrations create the themes, daily_posts and badges tables required by the three seed upserts.
+3. Seed-before-007 is also a compatibility requirement: Sprint 6 migration 007 conditionally inserts its fallback daily post only when `daily_posts` is empty. The initial schema's `daily_posts.date` is NOT NULL without a default, while that fallback INSERT does not provide `date`; the seed's daily_posts upsert ensures the table is nonempty so the fallback INSERT is skipped. Do not move the seed after 007 or run the bodies in an arbitrary order.
+4. Sprint 7 migration 007 creates `daily_lights` and extends `daily_reflections`; 008 depends on the Sprint 7 007 body. Migration 012 depends on both 007 bodies (the Sprint 6 `daily_post_id` and Sprint 7 `daily_light_id` models). The two 007 files must remain independent and execute in filename order.
+
+The aggregate now has a deterministic source-provenance header with each migration filename, Git blob SHA-1 and byte length, an inventory blob identifier, and explicit migration/seed section markers. The source SQL bytes are included verbatim; the generator does not split SQL on semicolons or rewrite migration contents. The committed aggregate is verified byte-for-byte against generator output.
+
+## Migration 037 and 038 dependencies and effects
+
+**037 — `202611240037_delivery_provider_integrity_conflict_evidence.sql`** (blob `ac0449b50a881e3a895ef40a8eee28bea95a6ec0`):
+- Depends on the delivery provider event, lifecycle and integrity model introduced by 025–027, including recipient correlation and the lifecycle/suppression RPC contracts.
+- Creates durable `delivery_provider_integrity_cases`, `delivery_provider_integrity_conflict_evidence`, and `delivery_provider_integrity_conflict_history` tables with indexes, RLS and restricted mutation paths.
+- Backfills only recoverable historical anomaly markers, labels legacy evidence honestly, and preserves fingerprint-less legacy conflicts as separate evidence when identity cannot be established.
+- Adds recipient-scoped conflict recording, lifecycle/suppression wrappers and administrator list/resolve operations. It uses recipient-then-provider-ID transaction locking to serialize event identity and evidence.
+
+**038 — `202611240038_delivery_provider_integrity_lock_order_pagination.sql`** (blob `38951751fc5abeb79b75c4e37e55da01262a18b8`):
+- Depends on 037's durable cases/evidence/history tables and wrapper functions, and the provider event/suppression ordering contracts from 027 and 032–034.
+- Adds keyset pagination indexes and replaces the conflict/evidence/history list interfaces with bounded keyset pages, exact filtered totals and continuation cursors; adds direct conflict retrieval independent of list pagination.
+- Reasserts recipient-then-provider-ID lock ordering and the service-only provider mutation ACLs, and adds explicit function provenance comments. The migration's preflights abort on unexpected source, ACL or configuration drift.
+
+These are source-level dependencies and effects. The existence of either file or its inclusion in the SQL Editor aggregate does not prove Production application.
+
+## Duplicate-007 migration-history limitation
+
+Supabase CLI migration history is keyed by the 12-digit version prefix. Two distinct migration files share `202607260007`, so one history row cannot independently attest that both SQL bodies ran. The SQL aggregate can execute both bodies in deterministic order, but it does not reconcile the CLI's timestamp-keyed history or prove which body a historical row represents. The existing duplicate-007 CLI/order regression remains relevant. Do not rename, consolidate, delete, or blindly mark either migration applied; do not run Production `supabase db push`. A human-approved reconciliation design against the proven live schema and authorized read-only migration history remains required.
+
+## Aggregate and inventory verifier contract
+
+`scripts/verify-migration-inventory-aggregate.mjs` checks:
+- exact expected file count, exact filenames, unique version count and the sole approved duplicate group;
+- each source's Git blob SHA-1 and byte length, plus missing, unexpected, renamed and modified files;
+- the pinned seed blob and exactly three INSERT / ON CONFLICT upserts;
+- deterministic aggregate generation from immutable source bytes and the maintained seed artifact;
+- exact byte-for-byte equality between generated output and `supabase/run_in_sql_editor_all.sql`.
+
+The companion Node test suite includes positive and negative fixtures for missing, modified, renamed and unexpected migration files; the independently preserved 007 pair; missing/duplicated aggregate bodies; 037/038 modification; reversed order; truncated source and inventory; missing/duplicated seed data; and unexpected SQL. SQL is treated as bytes; tests do not parse it by splitting semicolons.
+
+The CI database harness uses a disposable PostgreSQL 16 instance with a minimal test-only Supabase compatibility surface. It is not a Production clone and cannot establish Production schema equivalence, migration history, or application status.
+
+---
+
 # DeedLight Production migration-history reconciliation
 
 **Authoritative source inventory snapshot:** C421 synchronization tree (the C410 reviewer and Production evidence below remains historical)  
