@@ -797,3 +797,108 @@ The currently connected Supabase integrations were checked for the target projec
 No credentials were requested, transmitted, or modified. No Production connection was established. No query in Sections 4–6 was executed. No Production data, schema, migration history, migration, scheduler, provider, or delivery setting was read or changed.
 
 The previous C404 denial record and the C247 disposable PostgreSQL/Supabase CLI evidence remain historical evidence with their existing scope; this access attempt does not duplicate or upgrade those results to Production evidence.\n\nThe two Cycle 342 evidence-document commits were subsequently validated by exact-head push run [45193172482](https://github.com/ADRN-9/deedlight/actions/runs/45193172482), SUCCESS, 8/8 jobs, at documentation-only branch HEAD `45346482af0ffbb5fa8e3ce29feb6bbf5c937f39`. This validates the documentation-only update, not Production state.
+
+
+---
+
+## Cycle 378 — Production ownership evidence acceptance checklist
+
+**Status: NOT RECEIVED / NOT VERIFIED / NOT APPROVED.** This section defines the evidence gate; it does not attest that Production queries have run. No Production connection, SQL execution, schema change, migration-history operation, role mutation, or credential access was performed for this cycle.
+
+The ownership evidence is a separate acceptance gate from the general migration-history audit. Do not infer ownership from the repository's synthetic PostgreSQL fixtures or from the historical source snapshot at the top of this document.
+
+### A. Provenance and collection controls
+
+The evidence custodian must retain all of the following before any owner mapping is considered:
+
+- [ ] Exact Production Supabase project reference independently verified in the dashboard as `xaipiovflxomcbfwtwmu`; include a protected evidence reference to the dashboard/environment record, not a credential or connection string.
+- [ ] Collection timestamp in ISO 8601 with timezone, collector's full name and role, and the approved read-only audit identity.
+- [ ] PostgreSQL server version recorded by Query 1; it must be PostgreSQL 16 or newer for the membership edge options in Query 8B.
+- [ ] Query 1 proves the connection is read-only and the audit identity is not superuser, CREATEROLE, CREATEDB, REPLICATION, BYPASSRLS, CREATE-capable, or a member of privileged roles. Stop if the least-privilege boundary is not proven.
+- [ ] Exact Query 8A and Query 8B text/version used, with a SHA-256 digest or immutable repository commit reference.
+- [ ] Original, unedited result exports stored in an approved access-controlled evidence location. Record immutable object/version IDs and cryptographic hashes in the approval record. Do not attach credentials, connection URIs, member data, provider payloads, or tokens.
+- [ ] Result row counts, export format, export timestamp, and collector attestation retained separately from the export itself.
+- [ ] Evidence retention and access policy identified; access restricted to the named DBA, security approvers and authorized reviewers.
+
+A screenshot alone is not sufficient. Screenshots may supplement, but never replace, complete machine-readable result exports and their row counts.
+
+### B. Query 8A acceptance — exactly 18 functions
+
+- [ ] Query 8A completed successfully against the independently verified Production target.
+- [ ] Exactly **18 rows** returned — not 17, 19, or an inferred count from a truncated display.
+- [ ] All 18 `expected_identity_signature` values match the exact documented inventory, one each, with no duplicate, missing or unexpected signature.
+- [ ] Every row has `inventory_status = PRESENT`, `security_definer = true`, a non-NULL catalog identity signature, and a resolvable owner role.
+- [ ] For every function, retain the exact `function_owner`, owner OID, `owner_is_superuser`, `owner_role_inherits_memberships`, `owner_can_create_roles`, `owner_can_create_databases`, `owner_can_login`, `owner_can_replicate`, and `owner_bypasses_rls` values.
+- [ ] Retain `function_settings_search_path`, `explicit_function_acl`, and `effective_defaulted_function_acl` for each function; do not conflate function ACLs with role memberships.
+- [ ] Any missing function, missing owner, non-SECURITY-DEFINER function, NULL/unavailable owner attribute, unexpected signature or export truncation is a hard rejection.
+
+The accepted inventory must be keyed by the full exact identity signature, not by function name alone. No owner value may be inferred from a migration author, CI role, SQL Editor role, application role, or prior environment.
+
+### C. Query 8B acceptance — complete membership graph
+
+- [ ] Query 8B completed successfully, with the exact query text/version retained.
+- [ ] Preserve the complete, untruncated result. The SQL Editor preview, first page, copied visible rows or partial CSV is not sufficient.
+- [ ] Record the exact returned row count and prove the export contains every row.
+- [ ] For every owner found in Query 8A, retain every direct and transitive membership path returned by Query 8B, including multiple distinct paths to the same granted role.
+- [ ] Preserve `function_owner`, `granted_role`, `depth`, `is_direct_membership`, `membership_path`, `membership_edge_inherit_options`, `membership_edge_set_options`, `owner_is_member`, `owner_inherits_privileges`, and `owner_can_set_role`.
+- [ ] Preserve every returned granted-role attribute: superuser, inherit, create-role, create-database, login, replication and bypass-RLS.
+- [ ] Review each path edge and every role node, not only the final granted role. A non-inheriting edge does not establish that SET ROLE is unavailable.
+- [ ] Reconcile every Query 8B `function_owner` to the distinct owner set from all 18 Query 8A rows. Query 8B is keyed by distinct owner roles; it is not expected to repeat one membership graph per function.
+- [ ] Retain all rows even when multiple paths lead to the same role. Do not deduplicate paths by owner/granted-role pair.
+
+**Required interpretation of an empty Query 8B result:** Query 8B naturally returns zero rows when no function-owner role has any direct or transitive memberships. A successful, complete execution with an independently verified row count of zero is valid evidence of an empty owner-membership graph. It is not missing evidence and must not be silently replaced by an assumed default. The collector must explicitly attest: (1) Query 8A passed the exact 18-row acceptance gate; (2) Query 8B executed successfully against the same verified database/session; (3) the complete export contains zero data rows and the query tool reports successful completion; (4) all distinct Query 8A owners were reconciled; and (5) the result is intentionally interpreted as no membership paths for those owners. A failed query, unavailable result, empty clipboard, blank screenshot, truncated export, or missing owner reconciliation is **UNKNOWN**, never an accepted empty result. Preserve a zero-row export/manifest and execution metadata so that emptiness is auditable.
+
+### D. Explicit owner and membership approvals
+
+No global or blanket approval is sufficient. The authorized approvers must approve **each of the 18 exact signatures**, even where multiple functions share the same owner.
+
+For each signature, the approval register must contain:
+
+- [ ] Exact identity signature and observed owner role name.
+- [ ] All Query 8A owner attributes and the exact approved value for each attribute.
+- [ ] Explicit decision: APPROVE or REJECT this owner for this exact function signature.
+- [ ] DBA approver's full name, organizational role, approval timestamp with timezone, and durable approval reference.
+- [ ] Security approver's full name, organizational role, approval timestamp with timezone, and durable approval reference.
+- [ ] Linkage to immutable Query 8A evidence object/version and hash.
+
+For each distinct owner role, separately approve its complete Query 8B membership graph:
+
+- [ ] Every permitted direct and transitive path, in exact role order.
+- [ ] Every edge's INHERIT and SET option.
+- [ ] Effective MEMBER, inherited privilege/USAGE, and SET results.
+- [ ] All role attributes on each membership path.
+- [ ] Explicit decision on an empty membership graph, where applicable.
+- [ ] Any disallowed path or privileged membership, with rejection rationale.
+- [ ] Named DBA and security approvers, their roles, approval timestamps/timezones, and protected evidence references.
+
+An owner or path is not approved because an approver approved another function with the same owner. The register must make the per-signature approval explicit and separately identify the shared owner-role membership approval. Approval must be affirmative and recorded; silence, missing names, chat-only acknowledgement, or an undocumented verbal statement is not approval.
+
+### E. Acceptance decision and fail-closed rules
+
+The evidence custodian and independent reviewer must sign a final completeness decision:
+
+- [ ] 18/18 exact Query 8A signatures accepted.
+- [ ] Query 8B complete and reconciled, including explicit accepted-empty interpretation if row count is zero.
+- [ ] 18/18 explicit owner decisions approved by both named approvers.
+- [ ] Every distinct owner membership graph explicitly approved by both named approvers.
+- [ ] No unresolved privileged owner attributes, privileged membership paths, unapproved role flags, missing evidence, or ambiguous query outcomes.
+- [ ] Evidence hashes and immutable protected references verified by a reviewer other than the collector.
+- [ ] Independent security acceptance and Production DBA acceptance recorded.
+
+Any unchecked item means **OWNERSHIP EVIDENCE NOT ACCEPTED**. Do not author an expected-owner baseline, modify migration 038, apply a migration, or run an enforcement deployment until all gates are satisfied. A subsequent source change still requires independent review and exact-head CI. This checklist does not authorize Production operations.
+
+### F. Cycle 378 collection status
+
+| Evidence item | Status |
+|---|---|
+| Production target independently connected | NOT PERFORMED |
+| Production Query 8A (18 rows) | NOT RECEIVED |
+| Production Query 8B complete output | NOT RECEIVED |
+| Query 8B empty-result attestation | NOT RECEIVED |
+| Per-function owner approvals (18/18) | NOT RECEIVED |
+| Per-owner membership approvals | NOT RECEIVED |
+| Named DBA/security approvers and timestamps | NOT RECEIVED |
+| Protected evidence references and hashes | NOT RECEIVED |
+| Independent acceptance | NOT PERFORMED |
+
+**Disposition: OUTSTANDING. Production remains NO-GO.** The absence of authorized evidence is not evidence that the Production ownership graph is empty or safe.
