@@ -698,7 +698,7 @@ function extractOwnershipSqlBlock(markdown, heading) {
 }
 
 function assertExactOwnershipInventory(query, label) {
-  assert(/^WITH(?: RECURSIVE)? expected\\(signature\\) AS/m.test(query),
+  assert(/^WITH(?: RECURSIVE)? expected\(signature\) AS/m.test(query),
     label + " must declare the exact expected-signature inventory inside its SQL block.");
   for (const signature of expectedSecurityDefinerOwnershipSignatures) {
     const literal = "('" + signature + "')";
