@@ -97,7 +97,7 @@ psql([
 const ownerFor = (index) => index === 1 ? ownerEmpty
   : index === signatures.length - 1 ? ownerB : ownerA;
 for (const [index, signature] of signatures.entries()) {
-  psql('CREATE FUNCTION ' + signature + ' RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog AS $ BEGIN RETURN; END; $;');
+  psql('CREATE FUNCTION ' + signature + ' RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog AS $$ BEGIN RETURN; END; $$;');
   psql('ALTER FUNCTION ' + signature + ' OWNER TO ' + ownerFor(index) + ';');
 }
 psql('REVOKE ALL ON FUNCTION ' + signatures[1] + ' FROM PUBLIC;');
