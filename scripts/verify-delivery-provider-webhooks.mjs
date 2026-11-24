@@ -733,6 +733,8 @@ assert.equal(trackedWebhookChildren.length, webhookChildRegistrations.length,
 assert(trackedWebhookChildren.length >= 30, "The complete webhook concurrency child inventory must remain tracked.");
 assert(!webhookConcurrencyScript.includes('track_child "$1"'),
   "Webhook concurrency cleanup must not register a literal placeholder instead of a PID.");
+assert(webhookConcurrencyScript.includes("if (( BASH_SUBSHELL > 0 )); then"),
+  "The process-group exec wrapper must only replace a subshell, never the parent test shell.");
 assert(webhookConcurrencyScript.includes('setsid timeout --verbose --signal=TERM --kill-after=5s'),
   "Each PostgreSQL command must run in a supervised process group with an explicit execution deadline.");
 assert(webhookConcurrencyScript.includes('PGCONNECT_TIMEOUT="$connect_timeout_seconds"'),
