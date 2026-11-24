@@ -495,6 +495,9 @@ jobs:
         with:
           node-version: 24
 
+      - name: Validate fail-closed Production owner manifest mechanics with fixture-only identities
+        run: node --test scripts/test-production-function-owner-manifest.mjs
+
       - name: Install PostgreSQL client
         run: |
           sudo apt-get update
