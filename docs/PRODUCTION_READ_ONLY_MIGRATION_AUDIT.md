@@ -257,6 +257,214 @@ ORDER BY namespace.nspname, procedure.proname,
 
 This query does not return function bodies. For admin_get_member_context it returns only a boolean indicating whether its direct definition text contains the identifier daily_reflections. It is not a transitive call-graph proof; retain independent source review and inspect the relevant function definition under the approved review process if a deeper code review is needed. Do not export arbitrary function bodies.
 
+
+### Query 8A — exact SECURITY DEFINER ownership inventory (18 signatures)
+
+This targeted query is the authoritative collection inventory for Cycle 363. It deliberately names every in-scope identity signature, rather than relying on function-name matching or a broad schema scan. It is metadata-only and returns one row per expected signature, including missing functions and unresolved owners. It does not return function bodies, member data, credentials, or provider payloads.
+
+Run it on PostgreSQL 16 or newer. The membership query in 8B uses the per-membership INHERIT and SET options introduced in PostgreSQL 16. Query 1 must record the server version before proceeding.
+
+```sql
+WITH expected(signature) AS (
+  VALUES
+    ('public.is_admin()'),
+    ('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)'),
+    ('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text)'),
+    ('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text)'),
+    ('public.record_delivery_provider_event(text,text,text,text,text)'),
+    ('public.record_delivery_provider_suppression_event(text,text,text,text,text,text,timestamptz,timestamptz,text)'),
+    ('public._record_delivery_provider_integrity_conflict(text,text,text,text,text,text,text,timestamptz,text,text,text,text,text,timestamptz,text,text,text)'),
+    ('public._record_delivery_provider_lifecycle_event_pre037_impl(text,text,text,text,timestamptz,text,text,text,text)'),
+    ('public._record_delivery_provider_suppression_event_pre037_impl(text,text,text,text,text,text,timestamptz,timestamptz,text)'),
+    ('public._deny_delivery_provider_integrity_audit_mutation()'),
+    ('public.admin_list_delivery_provider_integrity_conflicts(text,integer)'),
+    ('public.admin_list_delivery_provider_integrity_evidence(bigint,integer)'),
+    ('public.admin_list_delivery_provider_integrity_history(bigint,integer)'),
+    ('public.admin_resolve_delivery_provider_integrity_conflict(bigint,text)'),
+    ('public.admin_list_delivery_provider_integrity_conflicts_page(text,integer,timestamptz,bigint)'),
+    ('public.admin_get_delivery_provider_integrity_conflict(bigint)'),
+    ('public.admin_list_delivery_provider_integrity_evidence_page(bigint,integer,timestamptz,bigint)'),
+    ('public.admin_list_delivery_provider_integrity_history_page(bigint,integer,timestamptz,bigint)')
+),
+resolved AS (
+  SELECT
+    expected.signature AS expected_identity_signature,
+    pg_catalog.to_regprocedure(expected.signature) AS function_oid
+  FROM expected
+)
+SELECT
+  resolved.expected_identity_signature,
+  CASE
+    WHEN procedure.oid IS NULL THEN 'MISSING_FUNCTION'
+    WHEN owner_role.oid IS NULL
+      OR pg_catalog.pg_get_userbyid(procedure.proowner) IS NULL
+      THEN 'MISSING_OWNER_ROLE'
+    WHEN procedure.prosecdef IS DISTINCT FROM true
+      THEN 'NOT_SECURITY_DEFINER'
+    ELSE 'PRESENT'
+  END AS inventory_status,
+  CASE WHEN procedure.oid IS NOT NULL THEN
+    pg_catalog.format(
+      '%I.%I(%s)',
+      namespace.nspname,
+      procedure.proname,
+      pg_catalog.pg_get_function_identity_arguments(procedure.oid)
+    )
+  END AS catalog_identity_signature,
+  procedure.prokind AS routine_kind,
+  procedure.prosecdef AS security_definer,
+  procedure.proconfig AS function_settings_search_path,
+  procedure.proacl::text AS explicit_function_acl,
+  CASE WHEN procedure.oid IS NOT NULL THEN
+    COALESCE(
+      procedure.proacl,
+      pg_catalog.acldefault('f', procedure.proowner)
+    )::text
+  END AS effective_defaulted_function_acl,
+  procedure.proowner AS owner_role_oid,
+  pg_catalog.pg_get_userbyid(procedure.proowner) AS function_owner,
+  owner_role.rolsuper AS owner_is_superuser,
+  owner_role.rolinherit AS owner_role_inherits_memberships,
+  owner_role.rolcreaterole AS owner_can_create_roles,
+  owner_role.rolcreatedb AS owner_can_create_databases,
+  owner_role.rolcanlogin AS owner_can_login,
+  owner_role.rolreplication AS owner_can_replicate,
+  owner_role.rolbypassrls AS owner_bypasses_rls
+FROM resolved
+LEFT JOIN pg_catalog.pg_proc AS procedure
+  ON procedure.oid = resolved.function_oid
+LEFT JOIN pg_catalog.pg_namespace AS namespace
+  ON namespace.oid = procedure.pronamespace
+LEFT JOIN pg_catalog.pg_roles AS owner_role
+  ON owner_role.oid = procedure.proowner
+ORDER BY resolved.expected_identity_signature;
+```
+
+Expected collection shape: exactly 18 rows. Every row must have inventory_status = PRESENT, security_definer = true, a non-NULL catalog identity signature, a non-NULL function_owner, and populated owner-role attributes. A missing signature, missing owner role, or non-SECURITY DEFINER result is a stop condition, not an invitation to omit the row. Do not infer or normalize owner names from CI, SQL Editor, or migration-runner identities.
+
+The `function_settings_search_path` column is the exact `proconfig` setting array, not a reconstructed effective path. The ACL columns distinguish an explicitly stored ACL from PostgreSQL's default ACL when `proacl` is NULL. These are function ACLs, not role memberships.
+
+### Query 8B — direct and transitive memberships of function owners
+
+This query derives membership paths from the owner roles returned by Query 8A. It distinguishes membership existence from privileges available through inheritance and from the ability to SET ROLE. PostgreSQL evaluates the effective results with `pg_has_role`; the path columns expose each direct/transitive membership edge and its INHERIT/SET options.
+
+```sql
+WITH RECURSIVE expected(signature) AS (
+  VALUES
+    ('public.is_admin()'),
+    ('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)'),
+    ('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text)'),
+    ('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text)'),
+    ('public.record_delivery_provider_event(text,text,text,text,text)'),
+    ('public.record_delivery_provider_suppression_event(text,text,text,text,text,text,timestamptz,timestamptz,text)'),
+    ('public._record_delivery_provider_integrity_conflict(text,text,text,text,text,text,text,timestamptz,text,text,text,text,text,timestamptz,text,text,text)'),
+    ('public._record_delivery_provider_lifecycle_event_pre037_impl(text,text,text,text,timestamptz,text,text,text,text)'),
+    ('public._record_delivery_provider_suppression_event_pre037_impl(text,text,text,text,text,text,timestamptz,timestamptz,text)'),
+    ('public._deny_delivery_provider_integrity_audit_mutation()'),
+    ('public.admin_list_delivery_provider_integrity_conflicts(text,integer)'),
+    ('public.admin_list_delivery_provider_integrity_evidence(bigint,integer)'),
+    ('public.admin_list_delivery_provider_integrity_history(bigint,integer)'),
+    ('public.admin_resolve_delivery_provider_integrity_conflict(bigint,text)'),
+    ('public.admin_list_delivery_provider_integrity_conflicts_page(text,integer,timestamptz,bigint)'),
+    ('public.admin_get_delivery_provider_integrity_conflict(bigint)'),
+    ('public.admin_list_delivery_provider_integrity_evidence_page(bigint,integer,timestamptz,bigint)'),
+    ('public.admin_list_delivery_provider_integrity_history_page(bigint,integer,timestamptz,bigint)')
+),
+function_owners AS (
+  SELECT DISTINCT
+    procedure.proowner AS owner_oid,
+    pg_catalog.pg_get_userbyid(procedure.proowner) AS function_owner
+  FROM expected
+  JOIN pg_catalog.pg_proc AS procedure
+    ON procedure.oid = pg_catalog.to_regprocedure(expected.signature)
+  WHERE procedure.prosecdef IS TRUE
+),
+membership_walk(
+  owner_oid,
+  function_owner,
+  granted_role_oid,
+  depth,
+  role_path,
+  inherit_path,
+  set_path
+) AS (
+  SELECT
+    function_owners.owner_oid,
+    function_owners.function_owner,
+    membership.roleid,
+    1,
+    ARRAY[function_owners.owner_oid, membership.roleid]::oid[],
+    ARRAY[membership.inherit_option]::boolean[],
+    ARRAY[membership.set_option]::boolean[]
+  FROM function_owners
+  JOIN pg_catalog.pg_auth_members AS membership
+    ON membership.member = function_owners.owner_oid
+
+  UNION ALL
+
+  SELECT
+    membership_walk.owner_oid,
+    membership_walk.function_owner,
+    membership.roleid,
+    membership_walk.depth + 1,
+    membership_walk.role_path || membership.roleid,
+    membership_walk.inherit_path || membership.inherit_option,
+    membership_walk.set_path || membership.set_option
+  FROM membership_walk
+  JOIN pg_catalog.pg_auth_members AS membership
+    ON membership.member = membership_walk.granted_role_oid
+  WHERE NOT membership.roleid = ANY(membership_walk.role_path)
+)
+SELECT
+  membership_walk.function_owner,
+  granted_role.rolname AS granted_role,
+  membership_walk.depth,
+  membership_walk.depth = 1 AS is_direct_membership,
+  ARRAY(
+    SELECT path_role.rolname
+    FROM unnest(membership_walk.role_path) WITH ORDINALITY AS path(role_oid, position)
+    JOIN pg_catalog.pg_roles AS path_role ON path_role.oid = path.role_oid
+    ORDER BY path.position
+  ) AS membership_path,
+  membership_walk.inherit_path AS membership_edge_inherit_options,
+  membership_walk.set_path AS membership_edge_set_options,
+  pg_catalog.pg_has_role(
+    membership_walk.owner_oid, membership_walk.granted_role_oid, 'MEMBER'
+  ) AS owner_is_member,
+  pg_catalog.pg_has_role(
+    membership_walk.owner_oid, membership_walk.granted_role_oid, 'USAGE'
+  ) AS owner_inherits_privileges,
+  pg_catalog.pg_has_role(
+    membership_walk.owner_oid, membership_walk.granted_role_oid, 'SET'
+  ) AS owner_can_set_role,
+  granted_role.rolsuper AS granted_role_is_superuser,
+  granted_role.rolinherit AS granted_role_inherits_memberships,
+  granted_role.rolcreaterole AS granted_role_can_create_roles,
+  granted_role.rolcreatedb AS granted_role_can_create_databases,
+  granted_role.rolcanlogin AS granted_role_can_login,
+  granted_role.rolreplication AS granted_role_can_replicate,
+  granted_role.rolbypassrls AS granted_role_bypasses_rls
+FROM membership_walk
+JOIN pg_catalog.pg_roles AS granted_role
+  ON granted_role.oid = membership_walk.granted_role_oid
+ORDER BY membership_walk.function_owner, membership_walk.depth, granted_role.rolname;
+```
+
+An owner with no memberships produces no rows; preserve that as an empty membership result, not as missing owner evidence. Retain every direct and transitive path, including multiple paths to the same granted role. Review privileged memberships even when `owner_inherits_privileges` is false, because `owner_can_set_role` may still be true. The per-edge options and effective `pg_has_role` results must be considered together. Query 1 describes the audit connection only; these owner-prefixed columns describe the actual function-owner roles.
+
+### Cycle 363 — DBA collection and approval procedure
+
+1. The Production owner/operator independently verifies that the selected Supabase Dashboard project reference is exactly `xaipiovflxomcbfwtwmu`. Do not use a project name alone or infer the target from a database hostname.
+2. The DBA provides an approved, dedicated audit identity and an enforced read-only connection. Do not use `postgres`, `service_role`, `supabase_admin`, a service-role key, or an identity with migration/deployment authority.
+3. Run Query 1 first. Confirm the database/project context through the independent dashboard check, confirm `transaction_read_only = on`, record the server version, and review the audit connection's own role attributes. Stop if the connection is not enforced read-only or has unexpected privilege.
+4. Run Query 8A and Query 8B individually. Preserve the exact SQL, execution timestamps, project reference, query results, and row counts in the access-controlled Production evidence location. Do not paste credentials, connection URIs, or tokens into the report.
+5. Confirm Query 8A returns exactly 18 rows and that every row reports PRESENT, SECURITY DEFINER true, a resolved function owner, search-path configuration, ACL, and owner role attributes. Investigate every missing or mismatched row; do not silently drop it.
+6. Review Query 8B for direct and transitive privileged memberships, inherited privileges, and SET ROLE paths. Distinguish these findings from Query 1's audit-connection attributes and from CI or migration execution identities.
+7. The Production DBA/security owner explicitly approves the per-signature expected owner mapping for all 18 functions, the acceptable owner-role attribute profile, and any permitted membership/SET ROLE paths. The four migration-038 administrator RPCs require an explicit owner decision; do not assume their owner from the identity that happened to run a migration.
+8. Record the approver, approval timestamp, target project reference, evidence location, and exact per-signature mapping in the protected evidence record. Publish only the approval reference and non-sensitive disposition in the PR. No Production DDL is part of this collection procedure.
+
+The collection queries are SELECT-only. They do not establish migration application status and must not be used to infer that migration 038 has or has not run. The owner contract must be approved before a later implementation adds expected-owner checks or owner-drift fixtures. Until then, migration 038 remains unchanged and no owner identity is hardcoded.
+
 ### Query 9 — trigger definitions and attachment points
 
 ~~~sql
