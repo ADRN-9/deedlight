@@ -370,6 +370,16 @@ begin
     raise exception 'Invalid legacy delivery provider recipient.' using errcode = '22023';
   end if;
 
+  -- The legacy timestamp lookup must happen only after the global event lock.
+  perform pg_catalog.pg_advisory_xact_lock(20261118, pg_catalog.hashtext(p_event_id));
+  perform pg_catalog.pg_advisory_xact_lock(20261119, pg_catalog.hashtext(v_email));
+  perform pg_catalog.pg_advisory_xact_lock(20261126, pg_catalog.hashtext(p_provider_email_id));
+
+  select e.provider_created_at into v_existing_provider_created_at
+  from public.delivery_provider_events e
+  where e.event_id = p_event_id
+  for update;
+
   if p_event_type = 'email.suppressed' then
     v_suppression_reason := 'provider_suppressed';
   end if;
