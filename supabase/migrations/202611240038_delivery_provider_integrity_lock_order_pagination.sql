@@ -366,7 +366,7 @@ begin
 
   v_email := lower(btrim(p_recipient_email));
   if char_length(v_email) not between 3 and 320
-    or v_email !~ '^[^[:space:]@]+@[^[:space:]@]+\\.[^[:space:]@]+
+    or v_email !~ '^[^[:space:]@]+@[^[:space:]@]+[.][^[:space:]@]+
 
   if p_event_type = 'email.suppressed' then
     v_suppression_reason := 'provider_suppressed';
@@ -442,7 +442,7 @@ begin
 
   v_email := lower(btrim(p_recipient_email));
   if char_length(v_email) not between 3 and 320
-    or v_email !~ '^[^[:space:]@]+@[^[:space:]@]+\\.[^[:space:]@]+$' then
+    or v_email !~ '^[^[:space:]@]+@[^[:space:]@]+[.][^[:space:]@]+$' then
     raise exception 'Invalid legacy delivery provider recipient.' using errcode = '22023';
   end if;
 
@@ -490,7 +490,7 @@ begin
 
   v_email := lower(btrim(p_recipient_email));
   if char_length(v_email) not between 3 and 320
-    or v_email !~ '^[^[:space:]@]+@[^[:space:]@]+\\.[^[:space:]@]+$' then
+    or v_email !~ '^[^[:space:]@]+@[^[:space:]@]+[.][^[:space:]@]+$' then
     raise exception 'Invalid legacy delivery provider recipient.' using errcode = '22023';
   end if;
 

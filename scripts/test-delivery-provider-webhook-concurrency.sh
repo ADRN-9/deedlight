@@ -767,3 +767,131 @@ c331_lifecycle_first_hold="$(psql_scalar "select reason from public.delivery_pro
 [[ "$c331_lifecycle_first_hold" == "provider_suppressed" ]]
 echo "Concurrent newer lifecycle-first timestamp ordering: PASS"
 
+
+# Two first-insert requests with one event ID must serialize before recipient state is inspected.
+"${psql_cmd[@]}" >"$tmp/c356-simultaneous-first.log" 2>&1 <<'SQL' &
+begin;
+set role service_role;
+select pg_catalog.pg_advisory_xact_lock(20261118, pg_catalog.hashtext('evt_c356_simultaneous_first_insert'));
+select public.record_delivery_provider_lifecycle_event(
+  'evt_c356_simultaneous_first_insert','email.bounced','resend-c356-first-insert',
+  'c356-first-insert@example.test','2027-03-02T15:00:00Z','Permanent',null,
+  null,repeat('1',64)
+);
+\echo C356_SIMULTANEOUS_FIRST_INSERT_EVENT_LOCK_HELD
+select pg_sleep(2);
+commit;
+reset role;
+SQL
+c356_first_pid=$!
+wait_for_marker "$c356_first_pid" "$tmp/c356-simultaneous-first.log" "C356_SIMULTANEOUS_FIRST_INSERT_EVENT_LOCK_HELD"
+psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
+  'evt_c356_simultaneous_first_insert','email.complained','resend-c356-second-insert',
+  'c356-second-insert@example.test','2027-03-02T15:01:00Z',null,null,
+  null,repeat('2',64)
+)" >"$tmp/c356-simultaneous-second.log" 2>&1 &
+c356_second_pid=$!
+c356_waiting="0"
+for _ in {1..100}; do
+  c356_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%evt_c356_simultaneous_first_insert%'")"
+  if [[ "$c356_waiting" == "1" ]]; then break; fi
+  sleep 0.05
+done
+if [[ "$c356_waiting" != "1" ]]; then
+  cat "$tmp/c356-simultaneous-second.log"
+  echo "Simultaneous first insert did not wait on the global event-ID advisory lock." >&2
+  exit 1
+fi
+wait "$c356_first_pid"
+if ! wait "$c356_second_pid"; then
+  cat "$tmp/c356-simultaneous-second.log"
+  exit 1
+fi
+[[ "$(tr -d '\r\n' <"$tmp/c356-simultaneous-second.log")" == "__NULL__" ]]
+[[ "$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_c356_simultaneous_first_insert'")" == "1" ]]
+[[ "$(psql_scalar "select count(*) from public.delivery_provider_suppressions where recipient_email='c356-first-insert@example.test' and reason='permanent_bounce'")" == "1" ]]
+[[ "$(psql_scalar "select count(*) from public.delivery_provider_suppressions where recipient_email='c356-second-insert@example.test'")" == "0" ]]
+[[ "$(psql_scalar "select count(*) from public.delivery_provider_integrity_conflict_evidence where event_id='evt_c356_simultaneous_first_insert' and stored_recipient_email='c356-first-insert@example.test' and recipient_email='c356-second-insert@example.test'")" == "1" ]]
+echo "Concurrent simultaneous first-insert event-ID conflict: PASS"
+
+# The seven-argument legacy wrapper must acquire the event lock before its historical timestamp lookup.
+"${psql_cmd[@]}" >"$tmp/c356-legacy-lock-first.log" 2>&1 <<'SQL' &
+begin;
+set role service_role;
+select pg_catalog.pg_advisory_xact_lock(20261118, pg_catalog.hashtext('evt_c356_legacy_wrapper_lock'));
+\echo C356_LEGACY_EVENT_LOCK_HELD
+select pg_sleep(2);
+commit;
+reset role;
+SQL
+c356_legacy_first_pid=$!
+wait_for_marker "$c356_legacy_first_pid" "$tmp/c356-legacy-lock-first.log" "C356_LEGACY_EVENT_LOCK_HELD"
+psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
+  'evt_c356_legacy_wrapper_lock','email.sent','resend-c356-legacy-wrapper',
+  'c356-legacy-wrapper@example.test','2027-03-02T15:10:00Z',null,null
+)" >"$tmp/c356-legacy-lock-second.log" 2>&1 &
+c356_legacy_second_pid=$!
+c356_legacy_waiting="0"
+for _ in {1..100}; do
+  c356_legacy_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%evt_c356_legacy_wrapper_lock%'")"
+  if [[ "$c356_legacy_waiting" == "1" ]]; then break; fi
+  sleep 0.05
+done
+if [[ "$c356_legacy_waiting" != "1" ]]; then
+  cat "$tmp/c356-legacy-lock-second.log"
+  echo "Legacy seven-argument wrapper did not wait on the event-ID lock before reading." >&2
+  exit 1
+fi
+wait "$c356_legacy_first_pid"
+if wait "$c356_legacy_second_pid"; then
+  echo "Legacy fingerprint-less wrapper unexpectedly inserted a new event." >&2
+  exit 1
+fi
+[[ "$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_c356_legacy_wrapper_lock'")" == "0" ]]
+echo "Legacy lifecycle wrapper event-ID-first locking: PASS"
+
+# Suppression-list first inserts share the same global event-ID lock namespace as lifecycle events.
+"${psql_cmd[@]}" >"$tmp/c356-suppression-first.log" 2>&1 <<'SQL' &
+begin;
+set role service_role;
+select pg_catalog.pg_advisory_xact_lock(20261118, pg_catalog.hashtext('evt_c356_suppression_first_insert'));
+select public.record_delivery_provider_suppression_event(
+  'evt_c356_suppression_first_insert','suppression.added','sup-c356-first',
+  'c356-suppression-first@example.test','manual',null,
+  '2027-03-02T15:20:00Z','2027-03-02T15:21:00Z',repeat('3',64)
+);
+\echo C356_SUPPRESSION_FIRST_INSERT_EVENT_LOCK_HELD
+select pg_sleep(2);
+commit;
+reset role;
+SQL
+c356_suppression_first_pid=$!
+wait_for_marker "$c356_suppression_first_pid" "$tmp/c356-suppression-first.log" "C356_SUPPRESSION_FIRST_INSERT_EVENT_LOCK_HELD"
+psql_service_scalar "select public.record_delivery_provider_suppression_event(
+  'evt_c356_suppression_first_insert','suppression.removed','sup-c356-second',
+  'c356-suppression-second@example.test','manual',null,
+  '2027-03-02T15:20:00Z','2027-03-02T15:22:00Z',repeat('4',64)
+)" >"$tmp/c356-suppression-second.log" 2>&1 &
+c356_suppression_second_pid=$!
+c356_suppression_waiting="0"
+for _ in {1..100}; do
+  c356_suppression_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%evt_c356_suppression_first_insert%'")"
+  if [[ "$c356_suppression_waiting" == "1" ]]; then break; fi
+  sleep 0.05
+done
+if [[ "$c356_suppression_waiting" != "1" ]]; then
+  cat "$tmp/c356-suppression-second.log"
+  echo "Suppression callback did not wait on the shared event-ID lock." >&2
+  exit 1
+fi
+wait "$c356_suppression_first_pid"
+if ! wait "$c356_suppression_second_pid"; then
+  cat "$tmp/c356-suppression-second.log"
+  exit 1
+fi
+[[ "$(tr -d '\r\n' <"$tmp/c356-suppression-second.log")" == "__NULL__" ]]
+[[ "$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_c356_suppression_first_insert'")" == "1" ]]
+[[ "$(psql_scalar "select count(*) from public.delivery_provider_suppression_state where recipient_email='c356-suppression-first@example.test' and is_active")" == "1" ]]
+[[ "$(psql_scalar "select count(*) from public.delivery_provider_suppression_state where recipient_email='c356-suppression-second@example.test'")" == "0" ]]
+[[ "$(psql_scalar "select count(*) from public.delivery_provider_integrity_conflict_evidence where event_id='evt_c356_suppression_first_insert' and stored_recipient_email='c356-suppression-first@example.test' and recipient_email='c356-suppression-second@example.test'")" == "1" ]]
+echo "Concurrent suppression first-insert event-ID conflict: PASS"
