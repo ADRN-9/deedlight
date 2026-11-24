@@ -140,3 +140,14 @@ The evidence document update itself will receive its own exact-head CI run; the 
 ### PR #22 description synchronization
 
 The PR description was refreshed after Cycle 376 to identify the current branch/head, base, ancestry, complete 29-path diff inventory, and the successful PostgreSQL 16/CI evidence for commit `bd0bc119de3367cf963536c02b62af44100d4c30`. The documentation-only synchronization commit that contains this note is separately subject to exact-head CI; do not conflate the prior tested code commit with a later head.
+
+
+### Final Cycle 376 exact-head verification
+
+- Final tested source commit: `7c19bb7c3246e6fab44931e1ae5d93fd78293d15`.
+- Workflow: [PR Validation run 45486316180](https://github.com/ADRN-9/deedlight/actions/runs/45486316180) — completed SUCCESS on that exact HEAD.
+- All 9 jobs passed: `validate`, `security_definer_ownership_audit_database_behavior`, `delivery_provider_webhook_database_behavior`, `privacy_authorization_database_behavior`, `delivery_reliability_database_behavior`, `gentle_delivery_transport_database_behavior`, `delivery_migration_order_database_behavior`, `sprint12_2_database_behavior`, and `auth_pgcrypto_database_behavior`.
+- The dedicated PostgreSQL 16 ownership job passed after centralizing the safe-owner assertions; its actual Query 8A/8B execution and effective privilege/ACL/privileged-owner/transitive SET ROLE tests are included in that success.
+- The `validate` job passed security assertions, ESLint, TypeScript, Next.js production build with non-Production configuration, and Cloudflare packaging with non-Production configuration.
+- Provider webhook behavior/concurrency, privacy authorization, delivery reliability, consent/transport race, migration ordering, Sprint 12.2 and auth pgcrypto regressions all passed.
+- This run is the exact-head evidence for `7c19bb7...`; any later documentation-only commit requires its own run before being called exact-head validated.
