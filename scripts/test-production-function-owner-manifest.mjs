@@ -82,9 +82,14 @@ test("rejects unapproved privileged owner attributes and missing membership comp
 
 test("rejects membership path ambiguity, incomplete edge options and row-count mismatch", () => {
   const a=fixture();
-  a.manifest.owners[0].membershipGraph.paths=[{roles:["fixture_owner_only","fixture_parent"],
-    inheritOptions:[true],setOptions:[true],roleAttributes:[{role:"fixture_owner_only",...attrs()},{role:"fixture_parent",...attrs()}],
-    effective:{member:true,inheritsPrivileges:true,canSetRole:true}}];
+  const path={roles:["fixture_owner_only","fixture_parent"],inheritOptions:[true],setOptions:[true],
+    roleAttributes:[{role:"fixture_owner_only",...attrs()},{role:"fixture_parent",...attrs()}],
+    effective:{member:true,inheritsPrivileges:true,canSetRole:true}};
+  a.manifest.owners[0].membershipGraph.paths=[path];
+  const canonicalPath=JSON.stringify({roles:path.roles,inheritOptions:path.inheritOptions,setOptions:path.setOptions,
+    roleAttributes:path.roleAttributes,effective:path.effective});
+  const approvedDigest=digest({complete:true,paths:[canonicalPath]});
+  for (const approval of a.approvals.approvals.filter((item)=>item.scope==="membership_graph")) approval.approvedValueSha256=approvedDigest;
   a.manifest.evidence.query8b.rowCount=0;
   assert.throws(() => validateProductionOwnerManifest(a.manifest,a.approvals,projectRef),/rowCount does not equal/);
   a.manifest.evidence.query8b.rowCount=1;
