@@ -3,9 +3,9 @@
 **Purpose:** Give the Production owner a repeatable, SELECT-only catalog and migration-history audit.  
 **Repository:** ADRN-9/deedlight  
 **Source branch:** security/private-daily-journey-admin-isolation-c408  
-**Source snapshot inspected:** c4be798d1a4e0d6e4799085b818572038028d0bb  
-**Source tree:** 782ebae456df6190b0d347bb01ad917ed30220fd  
-**Source migration inventory:** 37 files; 36 unique version prefixes  
+**Source snapshot inspected for Cycle 363:** acad78981312d40993d03ec8c22240239c62a36b  
+**Source tree:** 6935200cefe484cfd16bba85e125966218261c79  
+**Source migration inventory at the Cycle 363 baseline:** 39 SQL files; 38 unique version prefixes  
 **Known Production project reference:** xaipiovflxomcbfwtwmu  
 **Disposition:** PREPARED ONLY — no Production connection or query execution was performed; every Production migration classification remains UNKNOWN.
 
