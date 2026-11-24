@@ -87,7 +87,10 @@ function canonicalPath(path, owner) {
   if (!Array.isArray(path.roleAttributes) || path.roleAttributes.length !== path.roles.length) {
     fail("membership path roleAttributes must describe every role node");
   }
-  path.roleAttributes.forEach((attrs, index) => validateAttributes(attrs, "membership path roleAttributes[" + index + "]"));
+  path.roleAttributes.forEach((attrs, index) => {
+    validateAttributes(attrs, "membership path roleAttributes[" + index + "]");
+    if (attrs.role !== path.roles[index]) fail("membership path roleAttributes role mismatch at depth " + index);
+  });
   object(path.effective, "membership path effective privileges");
   for (const key of ["member", "inheritsPrivileges", "canSetRole"]) {
     if (typeof path.effective[key] !== "boolean") fail("membership path effective." + key + " must be explicit");
