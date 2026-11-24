@@ -388,3 +388,22 @@ test("rejects a symlinked evidence artifact even when the target is inside the a
     assert.throws(()=>run(f),/symbolic link/);
   } finally { cleanup(f); }
 });
+
+
+test("rejects duplicate signed nonces",()=>{
+  const f=fixture();
+  try {
+    f.approvalDocument.approvals[1].payload.nonce=f.approvalDocument.approvals[0].payload.nonce;
+    resignEnvelope(f,1);
+    assert.throws(()=>run(f),/nonce is invalid or replayed/);
+  } finally { cleanup(f); }
+});
+
+test("rejects an execution principal absent from the trusted read-only registry",()=>{
+  const f=fixture();
+  try {
+    f.trust.executionPrincipals=[];
+    writeCanonical(f.root,"trust.json",f.trust);
+    assert.throws(()=>run(f),/trusted read-only execution principal registry is missing/);
+  } finally { cleanup(f); }
+});
