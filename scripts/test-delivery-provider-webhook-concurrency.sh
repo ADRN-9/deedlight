@@ -402,7 +402,7 @@ commit;
 reset role;
 SQL
   first_pid=$!
-  track_child "$1"
+  track_child "$first_pid"
   wait_for_marker "$first_pid" "$first_log" "PREVIOUS_SUPPRESSION_LOCK_HELD"
   second_result="$(psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
     '$second_id', 'email.suppressed', '$second_provider_id', '$recipient',
@@ -460,7 +460,7 @@ commit;
 reset role;
 SQL
   terminal_pid=$!
-  track_child "$1"
+  track_child "$terminal_pid"
   wait_for_marker "$terminal_pid" "$log" "TERMINAL_EVENT_LOCK_HELD"
   psql_service_scalar "select public.record_delivery_provider_lifecycle_event('$second_id','$second_type','$provider_id','$recipient','$second_time',$second_bounce,null,null,repeat('2',64))" >"$result"
   wait_bounded "$terminal_pid" "terminal_pid"
