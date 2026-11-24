@@ -146,6 +146,33 @@ if [[ "$wait_probe_status" != "124" ]]; then
   exit 1
 fi
 echo "Bounded wait terminates and reaps a TERM-resistant child: PASS"
+wait_for_advisory_lock() {
+  local pid="$1" file="$2" event_marker="$3" label="$4"
+  local deadline=$((SECONDS + marker_timeout_seconds)) waiting status saved_timeout="$command_timeout_seconds"
+  while (( SECONDS < deadline )); do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      cat "$file"
+      echo "Child exited before expected advisory-lock contention: $label (pid $pid)." >&2
+      return 1
+    fi
+    command_timeout_seconds=3
+    if waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%$event_marker%'")"; then
+      command_timeout_seconds="$saved_timeout"
+    else
+      status=$?
+      command_timeout_seconds="$saved_timeout"
+      cat "$file"
+      echo "Advisory-lock observation query failed for $label (status $status)." >&2
+      return "$status"
+    fi
+    if [[ "$waiting" == "1" ]]; then return 0; fi
+    sleep 0.05
+  done
+  cat "$file"
+  echo "Timed out after ${marker_timeout_seconds}s waiting for advisory-lock contention: $label." >&2
+  return 124
+}
+
 psql_scalar() {
   run_psql --quiet --no-align --tuples-only --pset=null=__NULL__ --command="$1"
 }
@@ -267,11 +294,9 @@ psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
 cross_recipient_second_pid=$!
 track_child "$1"
 cross_recipient_waiting="0"
-for _ in {1..100}; do
-  cross_recipient_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%evt_cross_recipient_second%'")"
-  if [[ "$cross_recipient_waiting" == "1" ]]; then break; fi
-  sleep 0.05
-done
+if wait_for_advisory_lock "$cross_recipient_second_pid" "$tmp/cross-recipient-second.log" "evt_cross_recipient_second" "cross-recipient provider email ID"; then
+  cross_recipient_waiting="1"
+fi
 if [[ "$cross_recipient_waiting" != "1" ]]; then
   cat "$tmp/cross-recipient-second.log"
   echo "Cross-recipient callback did not wait on the provider-email-ID advisory lock." >&2
@@ -677,11 +702,9 @@ psql_service_scalar "select public.record_delivery_provider_suppression_event(
 suppression_cross_second_pid=$!
 track_child "$1"
 cross_id_waiting="0"
-for _ in {1..100}; do
-  cross_id_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%sup_concurrent_cross%'")"
-  if [[ "$cross_id_waiting" == "1" ]]; then break; fi
-  sleep 0.05
-done
+if wait_for_advisory_lock "$suppression_cross_second_pid" "$tmp/suppression-cross-second.log" "sup_concurrent_cross" "cross-recipient suppression ID"; then
+  cross_id_waiting="1"
+fi
 if [[ "$cross_id_waiting" != "1" ]]; then
   cat "$tmp/suppression-cross-second.log"
   echo "Cross-recipient suppression callback did not wait on the suppression-ID advisory lock." >&2
@@ -742,11 +765,9 @@ SQL
 cross_stream_lifecycle_pid=$!
 track_child "$1"
 cross_stream_waiting="0"
-for _ in {1..100}; do
-  cross_stream_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%evt_c323_concurrent_old_email_suppressed%'")"
-  if [[ "$cross_stream_waiting" == "1" ]]; then break; fi
-  sleep 0.05
-done
+if wait_for_advisory_lock "$cross_stream_lifecycle_pid" "$tmp/cross-stream-lifecycle-second.log" "evt_c323_concurrent_old_email_suppressed" "cross-stream older lifecycle"; then
+  cross_stream_waiting="1"
+fi
 if [[ "$cross_stream_waiting" != "1" ]]; then
   cat "$tmp/cross-stream-lifecycle-second.log"
   echo "Older email.suppressed did not wait on the provider suppression address lock." >&2
@@ -797,11 +818,9 @@ SQL
 cross_stream_removal_second_pid=$!
 track_child "$1"
 cross_stream_waiting="0"
-for _ in {1..100}; do
-  cross_stream_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%evt_c323_concurrent_later_add%'")"
-  if [[ "$cross_stream_waiting" == "1" ]]; then break; fi
-  sleep 0.05
-done
+if wait_for_advisory_lock "$cross_stream_removal_second_pid" "$tmp/cross-stream-removal-second.log" "evt_c323_concurrent_later_add" "cross-stream later suppression"; then
+  cross_stream_waiting="1"
+fi
 if [[ "$cross_stream_waiting" != "1" ]]; then
   cat "$tmp/cross-stream-removal-second.log"
   echo "Later provider suppression events did not wait on the lifecycle address lock." >&2
@@ -853,11 +872,9 @@ SQL
 c331_lifecycle_second_pid=$!
 track_child "$1"
 c331_waiting="0"
-for _ in {1..100}; do
-  c331_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%evt_c331_concurrent_newer_lifecycle_after_removal%'")"
-  if [[ "$c331_waiting" == "1" ]]; then break; fi
-  sleep 0.05
-done
+if wait_for_advisory_lock "$c331_lifecycle_second_pid" "$tmp/c331-lifecycle-second.log" "evt_c331_concurrent_newer_lifecycle_after_removal" "C331 newer lifecycle"; then
+  c331_waiting="1"
+fi
 if [[ "$c331_waiting" != "1" ]]; then
   cat "$tmp/c331-lifecycle-second.log"
   echo "Newer lifecycle event did not wait on the recipient advisory lock." >&2
@@ -910,11 +927,9 @@ SQL
 c331_removal_second_pid=$!
 track_child "$1"
 c331_waiting="0"
-for _ in {1..100}; do
-  c331_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%evt_c331_concurrent_old_manual_add%'")"
-  if [[ "$c331_waiting" == "1" ]]; then break; fi
-  sleep 0.05
-done
+if wait_for_advisory_lock "$c331_removal_second_pid" "$tmp/c331-removal-second.log" "evt_c331_concurrent_old_manual_add" "C331 older manual suppression"; then
+  c331_waiting="1"
+fi
 if [[ "$c331_waiting" != "1" ]]; then
   cat "$tmp/c331-removal-second.log"
   echo "Older manual suppression add did not wait on the recipient advisory lock." >&2
@@ -958,11 +973,9 @@ psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
 c356_second_pid=$!
 track_child "$1"
 c356_waiting="0"
-for _ in {1..100}; do
-  c356_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%evt_c356_simultaneous_first_insert%'")"
-  if [[ "$c356_waiting" == "1" ]]; then break; fi
-  sleep 0.05
-done
+if wait_for_advisory_lock "$c356_second_pid" "$tmp/c356-simultaneous-second.log" "evt_c356_simultaneous_first_insert" "C356 simultaneous first insert"; then
+  c356_waiting="1"
+fi
 if [[ "$c356_waiting" != "1" ]]; then
   cat "$tmp/c356-simultaneous-second.log"
   echo "Simultaneous first insert did not wait on the global event-ID advisory lock." >&2
@@ -1000,11 +1013,9 @@ psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
 c356_legacy_second_pid=$!
 track_child "$1"
 c356_legacy_waiting="0"
-for _ in {1..100}; do
-  c356_legacy_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%evt_historical_026_complaint%'")"
-  if [[ "$c356_legacy_waiting" == "1" ]]; then break; fi
-  sleep 0.05
-done
+if wait_for_advisory_lock "$c356_legacy_second_pid" "$tmp/c356-legacy-lock-second.log" "evt_historical_026_complaint" "C356 legacy seven-argument wrapper"; then
+  c356_legacy_waiting="1"
+fi
 if [[ "$c356_legacy_waiting" != "1" ]]; then
   cat "$tmp/c356-legacy-lock-second.log"
   echo "Legacy seven-argument wrapper did not wait on the event-ID lock before reading." >&2
@@ -1036,11 +1047,9 @@ psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
 c356_compat_second_pid=$!
 track_child "$1"
 c356_compat_waiting="0"
-for _ in {1..100}; do
-  c356_compat_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%evt_historical_025_suppressed%'")"
-  if [[ "$c356_compat_waiting" == "1" ]]; then break; fi
-  sleep 0.05
-done
+if wait_for_advisory_lock "$c356_compat_second_pid" "$tmp/c356-compat-lock-second.log" "evt_historical_025_suppressed" "C356 eight-argument compatibility wrapper"; then
+  c356_compat_waiting="1"
+fi
 if [[ "$c356_compat_waiting" != "1" ]]; then
   cat "$tmp/c356-compat-lock-second.log"
   echo "Eight-argument compatibility wrapper did not wait on the event-ID lock." >&2
@@ -1072,11 +1081,9 @@ psql_service_scalar "select public.record_delivery_provider_event(
 c356_legacy_event_second_pid=$!
 track_child "$1"
 c356_legacy_event_waiting="0"
-for _ in {1..100}; do
-  c356_legacy_event_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%evt_historical_025_suppressed%'")"
-  if [[ "$c356_legacy_event_waiting" == "1" ]]; then break; fi
-  sleep 0.05
-done
+if wait_for_advisory_lock "$c356_legacy_event_second_pid" "$tmp/c356-legacy-event-second.log" "evt_historical_025_suppressed" "C356 five-argument legacy event wrapper"; then
+  c356_legacy_event_waiting="1"
+fi
 if [[ "$c356_legacy_event_waiting" != "1" ]]; then
   cat "$tmp/c356-legacy-event-second.log"
   echo "Five-argument legacy event wrapper did not wait on the event-ID lock." >&2
@@ -1115,11 +1122,9 @@ psql_service_scalar "select public.record_delivery_provider_suppression_event(
 c356_suppression_second_pid=$!
 track_child "$1"
 c356_suppression_waiting="0"
-for _ in {1..100}; do
-  c356_suppression_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%evt_c356_suppression_first_insert%'")"
-  if [[ "$c356_suppression_waiting" == "1" ]]; then break; fi
-  sleep 0.05
-done
+if wait_for_advisory_lock "$c356_suppression_second_pid" "$tmp/c356-suppression-second.log" "evt_c356_suppression_first_insert" "C356 suppression first insert"; then
+  c356_suppression_waiting="1"
+fi
 if [[ "$c356_suppression_waiting" != "1" ]]; then
   cat "$tmp/c356-suppression-second.log"
   echo "Suppression callback did not wait on the shared event-ID lock." >&2
