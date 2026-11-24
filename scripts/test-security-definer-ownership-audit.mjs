@@ -122,7 +122,7 @@ for (const [index, signature] of signatures.entries()) {
 psql([
   'REVOKE ALL ON FUNCTION ' + signatures[1] + ' FROM PUBLIC;',
   'GRANT EXECUTE ON FUNCTION ' + signatures[1] + ' TO service_role;',
-].join('\\n'));
+].join('\n'));
 
 const inventory = rows(q8a);
 assert.equal(inventory.length, 18);
