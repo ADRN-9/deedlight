@@ -12,7 +12,7 @@
 
 ## Current exact migration inventory
 
-The pinned inventory is `supabase/migration-inventory.json`. Each Git blob SHA-1 is the exact Git object hash of the original migration bytes. The complete inventory has 39 rows, 38 distinct 12-digit prefixes, and exactly one intentional duplicate group: both distinct `202607260007` files. No migration file was renamed, merged, or rewritten.
+The pinned inventory is `supabase/migration-inventory.json`, whose own Git blob SHA-1 is pinned in the verifier as `95d514a0bd97ff448c9507252eb1f5e69a507442`. Each migration Git blob SHA-1 is the exact Git object hash of the original migration bytes. The complete inventory has 39 rows, 38 distinct 12-digit prefixes, and exactly one intentional duplicate group: both distinct `202607260007` files. No migration file was renamed, merged, or rewritten.
 
 | Version | Exact filename | Git blob SHA-1 |
 |---|---|---|
@@ -104,12 +104,12 @@ The CI database harness uses a disposable PostgreSQL 16 instance with a minimal 
 
 ## Cycle 389 verification evidence and remaining execution blocker
 
-**Implementation/test HEAD:** `c81b12d216b53e2682c0857646cb1b9646283eb0`  
-**Exact-head GitHub Actions:** [run 45509699401](https://github.com/ADRN-9/deedlight/actions/runs/45509699401) — SUCCESS, 10/10 jobs.  
+**Implementation/test HEAD:** `3897bb47544af9e6c1454cba06d5bed3efff5357`  
+**Exact-head GitHub Actions:** [run 45510421319](https://github.com/ADRN-9/deedlight/actions/runs/45510421319) — SUCCESS, 10/10 jobs.  
 **Migration inventory:** 39/39 files; 38 unique prefixes; the two distinct 007 files are independently pinned.  
 **Bootstrap seed:** exact pinned blob; three upserts with conflict handling.  
 **Generated SQL aggregate:** exact byte-for-byte match; 390,310 bytes; SHA-256 `242e86a11c1c7af2eadb064621f0dd3068b9f51cfc7fd542d45b0ba5e8560e4a`.  
-**Negative fixture suite:** 17 tests, 17 passed, 0 failed.  
+**Negative fixture suite:** 18 tests, 18 passed, 0 failed.  
 **Disposable PostgreSQL 16 harness:** the 001–037 source sequence and all three bootstrap upserts executed; migration 038 rejected the aggregate and its transaction rollback was verified.
 
 ### Confirmed source incompatibility blocking full aggregate execution
