@@ -149,6 +149,7 @@ export function validateProductionOwnerManifest(manifest, approvalsDocument, exp
   validateEvidence(manifest.evidence.query8a, "Query 8A evidence", projectRef, EXPECTED_SIGNATURES.length);
   validateEvidence(manifest.evidence.query8b, "Query 8B evidence", projectRef);
   if (manifest.evidence.query8b.ownersReconciled !== true) fail("Query 8B must explicitly reconcile every distinct Query 8A owner");
+  if (!Number.isSafeInteger(manifest.evidence.query8b.distinctOwnerCount) || manifest.evidence.query8b.distinctOwnerCount < 1) fail("Query 8B distinctOwnerCount must be explicitly positive");
   const q8aHash = manifest.evidence.query8a.sha256;
   const q8bHash = manifest.evidence.query8b.sha256;
   if (!Array.isArray(approvalsDocument.approvals)) fail("approvals must be an explicit array");
@@ -199,6 +200,7 @@ export function validateProductionOwnerManifest(manifest, approvalsDocument, exp
     approvalsFor(approvalsDocument.approvals, "membership_graph", role, role,
       valueDigest({ complete: true, paths: [...paths].sort() }), q8aHash, q8bHash, projectRef);
   }
+  if (manifest.evidence.query8b.distinctOwnerCount !== distinctOwners.length) fail("Query 8B distinctOwnerCount does not match the function-owner inventory");
   if (distinctOwners.length !== owners.size || distinctOwners.some((role) => !owners.has(role))) {
     fail("owner records must exactly equal the distinct owners in the 18 function mappings");
   }
