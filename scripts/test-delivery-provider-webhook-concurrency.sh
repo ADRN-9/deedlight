@@ -1202,15 +1202,15 @@ deadlock_b_status=$?
 set -e
 
 if [[ "$deadlock_a_status" == "0" && "$deadlock_b_status" != "0" ]]; then
-  deadlock_victim="A"
-  deadlock_survivor="B"
-  deadlock_victim_log="$tmp/deadlock-a.log"
-  deadlock_survivor_log="$tmp/deadlock-b.log"
-elif [[ "$deadlock_b_status" == "0" && "$deadlock_a_status" != "0" ]]; then
   deadlock_victim="B"
   deadlock_survivor="A"
   deadlock_victim_log="$tmp/deadlock-b.log"
   deadlock_survivor_log="$tmp/deadlock-a.log"
+elif [[ "$deadlock_b_status" == "0" && "$deadlock_a_status" != "0" ]]; then
+  deadlock_victim="A"
+  deadlock_survivor="B"
+  deadlock_victim_log="$tmp/deadlock-a.log"
+  deadlock_survivor_log="$tmp/deadlock-b.log"
 else
   cat "$tmp/deadlock-a.log" "$tmp/deadlock-b.log" >&2
   echo "Expected exactly one committed survivor and one PostgreSQL deadlock victim (A=$deadlock_a_status, B=$deadlock_b_status)." >&2
@@ -1220,14 +1220,14 @@ fi
 if ! grep -Eq 'ERROR:[[:space:]]+40P01: deadlock detected' "$deadlock_victim_log" \
   || [[ "$(grep -Ec '^ERROR:' "$deadlock_victim_log")" != "1" ]] \
   || grep -Fq '55P03' "$deadlock_victim_log"; then
-  cat "$deadlock_victim_log" >&2
+  cat "$tmp/deadlock-a.log" "$tmp/deadlock-b.log" >&2
   echo "The failed transaction did not report exactly one PostgreSQL deadlock error (SQLSTATE 40P01)." >&2
   exit 1
 fi
 if ! grep -Fq "DEADLOCK_${deadlock_survivor}_CROSS_LOCK_ACQUIRED" "$deadlock_survivor_log" \
   || ! grep -Fq "DEADLOCK_${deadlock_survivor}_COMMITTED" "$deadlock_survivor_log" \
   || grep -Fq 'ERROR:' "$deadlock_survivor_log"; then
-  cat "$deadlock_survivor_log" >&2
+  cat "$tmp/deadlock-a.log" "$tmp/deadlock-b.log" >&2
   echo "The surviving transaction did not acquire the released lock and commit cleanly." >&2
   exit 1
 fi
