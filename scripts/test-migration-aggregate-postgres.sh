@@ -59,7 +59,7 @@ BEGIN
   SELECT p.prosrc INTO v_source
   FROM pg_catalog.pg_proc p
   WHERE p.oid = 'public.is_admin()'::regprocedure;
-  EXECUTE format('SELECT encode(%I.digest(convert_to($1, ''UTF8''), ''sha256''), ''hex'')', v_crypto_schema)
+  EXECUTE format('SELECT encode(%I.digest(convert_to(\$1, ''UTF8''), ''sha256''), ''hex'')', v_crypto_schema)
     INTO v_hash USING v_source;
   IF v_hash IS DISTINCT FROM '85e6838cf8feec05bcfe9e9051e5192bc8f0d42f7a53cb6c0450067d70bba74b' THEN
     RAISE EXCEPTION 'is_admin() source does not match Migration 038 reviewed fingerprint';
