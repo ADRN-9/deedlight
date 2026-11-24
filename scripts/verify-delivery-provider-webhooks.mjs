@@ -899,3 +899,14 @@ assert(workflow.includes("name: Provider webhook concurrency behavior")
 assert(webhookConcurrencyScript.includes("C362_EXPECTED_LOCK_TIMEOUT_SQLSTATE=55P03")
   && webhookConcurrencyScript.includes("Bounded advisory-lock conflict SQLSTATE 55P03 and unchanged database state: PASS"),
   "The controlled lock-timeout regression and fail-closed state assertion must remain.");
+
+
+const ownershipAuditBehavior = read("scripts/test-security-definer-ownership-audit.mjs");
+assert(workflow.includes("security_definer_ownership_audit_database_behavior:")
+  && workflow.includes("node scripts/test-security-definer-ownership-audit.mjs"),
+  "The PostgreSQL 16 ownership audit behavior suite must remain an executable CI job.");
+for (const value of [
+  "DEEDLIGHT_OWNERSHIP_AUDIT_CI", "deedlight_ownership_audit_test",
+  "MISSING_OWNER_ROLE", "NOT_SECURITY_DEFINER", "MISSING_FUNCTION",
+  "owner_inherits_privileges", "owner_can_set_role", "deedlight_audit_unexpected_bypassrls",
+]) assert(ownershipAuditBehavior.includes(value), "Ownership audit behavior fixture missing: " + value);
