@@ -10455,7 +10455,7 @@ returns boolean
 language sql
 security definer
 set search_path = public
-as $
+as $$
   select exists (
     select 1
     from public.profiles
@@ -10463,7 +10463,7 @@ as $
       and role = 'admin'
       and is_suspended = false
   );
-$;
+$$;
 
 do $migration_038_admin_compatibility_postflight$
 declare
