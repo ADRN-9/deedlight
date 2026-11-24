@@ -147,7 +147,7 @@ $migration_038_preflight$;
 
 -- Indexes match the keyset order and make the latest reopening independently discoverable.
 create index delivery_provider_integrity_cases_state_cursor_idx
-  on public.delivery_provider_integrity_cases (state, last_detected_at desc, conflict_id desc);
+  on public.delivery_provider_integrity_cases (state, conflict_id desc);
 
 create index delivery_provider_integrity_history_reopened_idx
   on public.delivery_provider_integrity_conflict_history (conflict_id, created_at desc, history_id desc)
@@ -657,9 +657,10 @@ begin
   if auth.uid() is null or not public.is_admin() then
     raise exception 'Administrator authorization is required.' using errcode = '42501';
   end if;
+  -- p_before_last_detected_at is retained for legacy callers but never participates in pagination.
   if p_state is null or p_state not in ('open', 'resolved', 'all')
     or p_limit is null or p_limit not between 1 and 100
-    or (p_before_last_detected_at is null) <> (p_before_conflict_id is null)
+    or (p_before_last_detected_at is not null and p_before_conflict_id is null)
     or (p_before_conflict_id is not null and p_before_conflict_id <= 0) then
     raise exception 'Invalid provider-integrity case page parameters.' using errcode = '22023';
   end if;
@@ -683,23 +684,22 @@ begin
       c.resolution_note
     from public.delivery_provider_integrity_cases c
     where (p_state = 'all' or c.state = p_state)
-      and (p_before_last_detected_at is null
-        or (c.last_detected_at, c.conflict_id) < (p_before_last_detected_at, p_before_conflict_id))
-    order by c.last_detected_at desc, c.conflict_id desc
+      and (p_before_conflict_id is null or c.conflict_id < p_before_conflict_id)
+    order by c.conflict_id desc
     limit p_limit + 1
   ),
   page as (
     select * from page_plus_one
-    order by last_detected_at desc, conflict_id desc
+    order by conflict_id desc
     limit p_limit
   ),
   metadata as (
     select count(*) > p_limit as has_more from page_plus_one
   ),
   tail as (
-    select last_detected_at, conflict_id
+    select conflict_id
     from page
-    order by last_detected_at asc, conflict_id asc
+    order by conflict_id asc
     limit 1
   )
   select jsonb_build_object(
@@ -707,7 +707,6 @@ begin
     'has_more', metadata.has_more,
     'next_cursor', case when metadata.has_more then
       (select jsonb_build_object(
-        'last_detected_at', tail.last_detected_at,
         'conflict_id', tail.conflict_id::text
       ) from tail)
       else null end,
@@ -723,7 +722,7 @@ begin
         'resolved_at', page.resolved_at,
         'resolved_by', page.resolved_by,
         'resolution_note', page.resolution_note
-      ) order by page.last_detected_at desc, page.conflict_id desc)
+      ) order by page.conflict_id desc)
       from page
     ), '[]'::jsonb)
   ) into v_result

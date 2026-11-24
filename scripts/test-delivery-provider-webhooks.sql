@@ -1626,6 +1626,88 @@ select set_config('test.c356_history_count', (
   where conflict_id=current_setting('test.c356_case_id')::bigint
 ), false);
 
+select set_config('test.c356_page_case_a_id', (
+  select conflict_id::text from public.delivery_provider_integrity_cases
+  where recipient_email='c356-page-case-a@example.test'
+    and anomaly_type='duplicate_event_id_conflict'
+), false);
+
+-- Equal timestamps make immutable conflict_id order deterministic for this fixture.
+update public.delivery_provider_integrity_cases
+set last_detected_at = '2000-01-01T00:00:00Z'::timestamptz
+where state = 'open';
+
+begin;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000020008', true);
+do $c356_case_page_one$
+declare
+  v_page jsonb;
+  v_item jsonb;
+  v_ids text[] := array[]::text[];
+  v_id text;
+  v_previous_id bigint;
+  v_cursor_id bigint;
+  v_target_id bigint;
+  v_total bigint;
+begin
+  v_page := public.admin_list_delivery_provider_integrity_conflicts_page('open', 2, null, null);
+  v_total := (v_page->>'total_count')::bigint;
+  if v_total <> current_setting('test.c356_open_count')::bigint
+    or not (v_page->>'has_more')::boolean then
+    raise exception 'Case page one did not return the expected total and continuation.';
+  end if;
+
+  v_cursor_id := (v_page->'next_cursor'->>'conflict_id')::bigint;
+  if (v_page->'next_cursor') ? 'last_detected_at' then
+    raise exception 'Case page cursor still depends on mutable last_detected_at.';
+  end if;
+  v_target_id := current_setting('test.c356_page_case_a_id')::bigint;
+
+  for v_item in select value from jsonb_array_elements(v_page->'items') loop
+    v_id := v_item->>'conflict_id';
+    if v_id = v_target_id::text then
+      raise exception 'The between-request target case unexpectedly appeared on page one.';
+    end if;
+    if v_previous_id is not null and v_id::bigint >= v_previous_id then
+      raise exception 'Case page one is not ordered by immutable conflict_id DESC.';
+    end if;
+    v_previous_id := v_id::bigint;
+    v_ids := array_append(v_ids, v_id);
+  end loop;
+
+  if cardinality(v_ids) <> 2 or v_target_id >= v_cursor_id then
+    raise exception 'Case page fixture does not place case A immediately after page one.';
+  end if;
+
+  perform set_config('test.c356_case_page_one_ids', array_to_string(v_ids, ','), false);
+  perform set_config('test.c356_case_page_cursor_id', v_cursor_id::text, false);
+  perform set_config('test.c356_case_page_total', v_total::text, false);
+end;
+$c356_case_page_one$;
+commit;
+
+-- New evidence moves case A's last_detected_at forward after page one has been read.
+select public._record_delivery_provider_integrity_conflict(
+  'c356-page-case-a@example.test',
+  'evt_c356_page_case_a_new_evidence',
+  null,
+  'duplicate_event_id_conflict',
+  'email.delivered',
+  'resend-c356-page-case-a-new-evidence',
+  null,
+  clock_timestamp(),
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  repeat('f', 64),
+  'evt_c356_page_case_a_canonical',
+  'c356-page-case-a@example.test'
+);
+
 begin;
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000020008', true);
@@ -1650,6 +1732,7 @@ declare
   v_evidence_count bigint;
   v_history_count bigint;
   v_case_count bigint;
+  v_target_case_id bigint;
   v_evidence_id bigint;
   v_history_id bigint;
   v_denied boolean;
@@ -1676,13 +1759,22 @@ begin
     raise exception 'Latest reopening was hidden after a case was subsequently resolved.';
   end if;
 
-  v_total := null;
-  v_seen := 0;
-  v_seen_ids := array[]::text[];
+  v_total := current_setting('test.c356_case_page_total')::bigint;
+  v_seen_ids := string_to_array(current_setting('test.c356_case_page_one_ids'), ',');
+  v_seen := cardinality(v_seen_ids);
   v_cursor_at := null;
-  v_cursor_id := null;
-  for v_iteration in 1..100 loop
-    v_page := public.admin_list_delivery_provider_integrity_conflicts_page('open', 2, v_cursor_at, v_cursor_id);
+  v_cursor_id := current_setting('test.c356_case_page_cursor_id')::bigint;
+  v_target_case_id := current_setting('test.c356_page_case_a_id')::bigint;
+  for v_iteration in 2..100 loop
+    v_page := public.admin_list_delivery_provider_integrity_conflicts_page('open', 2, null, v_cursor_id);
+    if v_iteration = 2 and not exists (
+      select 1
+      from jsonb_array_elements(v_page->'items') as page_item(value)
+      where page_item.value->>'conflict_id' = v_target_case_id::text
+        and (page_item.value->>'last_detected_at')::timestamptz > '2000-01-01T00:00:00Z'::timestamptz
+    ) then
+      raise exception 'New evidence between case page requests was skipped or reordered.';
+    end if;
     if v_total is null then
       v_total := (v_page->>'total_count')::bigint;
       if v_total <> v_case_count then raise exception 'Case page total_count is not exact.'; end if;
@@ -1702,7 +1794,9 @@ begin
       if v_page->'next_cursor' is null or v_page->'next_cursor' = 'null'::jsonb then
         raise exception 'Case page omitted its continuation cursor.';
       end if;
-      v_cursor_at := (v_page->'next_cursor'->>'last_detected_at')::timestamptz;
+      if (v_page->'next_cursor') ? 'last_detected_at' then
+        raise exception 'Case continuation cursor contains mutable last_detected_at.';
+      end if;
       v_cursor_id := (v_page->'next_cursor'->>'conflict_id')::bigint;
     else
       if v_page->'next_cursor' <> 'null'::jsonb then

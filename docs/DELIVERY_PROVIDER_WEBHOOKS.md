@@ -169,7 +169,7 @@ Before creating any new object, migration 038 attests the exact source SHA-256, 
 
 The new administrator-only RPCs are independently authorized with `auth.uid()` and `public.is_admin()` checks:
 
-- `admin_list_delivery_provider_integrity_conflicts_page` uses the descending `(last_detected_at, conflict_id)` keyset.
+- `admin_list_delivery_provider_integrity_conflicts_page` uses the immutable descending `conflict_id` keyset; `last_detected_at` remains display-only and never participates in continuation cursors.
 - `admin_get_delivery_provider_integrity_conflict` retrieves one case directly by ID, independently of the discovery page, and returns exact evidence/history counts plus the latest reopening summary.
 - `admin_list_delivery_provider_integrity_evidence_page` uses the descending `(observed_at, evidence_id)` keyset.
 - `admin_list_delivery_provider_integrity_history_page` uses the descending `(created_at, history_id)` keyset so the newest resolution/reopening events appear first.

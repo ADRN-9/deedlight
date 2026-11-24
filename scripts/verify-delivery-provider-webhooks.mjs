@@ -566,6 +566,14 @@ function migrationFunctionBody(source, tag) {
   assert(end > bodyStart, "Unterminated migration 038 function body: " + tag);
   return source.slice(bodyStart, end);
 }
+const casePaginationBody = migrationFunctionBody(integrityPaginationMigration, "integrity_conflict_page");
+assert(casePaginationBody.includes("c.conflict_id < p_before_conflict_id"), "Case pagination must continue by immutable conflict_id.");
+assert(casePaginationBody.includes("order by c.conflict_id desc"), "Case pagination must order by immutable conflict_id DESC.");
+assert(!casePaginationBody.includes("c.last_detected_at, c.conflict_id"), "Mutable last_detected_at must not participate in the case cursor.");
+assert(databaseTests.includes("New evidence between case page requests was skipped or reordered."), "Case pagination must test evidence arriving between requests.");
+assert(providerIntegrityListPage.includes("p_before_last_detected_at: null"), "The administrator UI must not send a mutable timestamp cursor.");
+assert(!providerIntegrityListPage.includes("before_last_detected_at="), "The administrator UI must not encode a mutable timestamp in case continuation links.");
+
 function assertProviderLockOrder(tag, correlationNamespace) {
   const body = migrationFunctionBody(integrityPaginationMigration, tag);
   const eventLock = body.indexOf("pg_advisory_xact_lock(20261118, pg_catalog.hashtext(p_event_id))");

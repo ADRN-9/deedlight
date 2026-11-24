@@ -22,7 +22,7 @@ type IntegrityCase = {
 type CasePage = {
   total_count: number;
   has_more: boolean;
-  next_cursor: { last_detected_at: string; conflict_id: string } | null;
+  next_cursor: { conflict_id: string } | null;
   items: IntegrityCase[];
 };
 
@@ -45,13 +45,10 @@ function formatDate(value: string) {
       }).format(date) + " UTC";
 }
 
-function validCursor(date?: string, id?: string) {
-  if (!date && !id) return true;
+function validCursor(id?: string) {
+  if (!id) return true;
   return Boolean(
-    date &&
-      Number.isFinite(Date.parse(date)) &&
-      id &&
-      /^[1-9]\d{0,18}$/.test(id) &&
+    /^[1-9]\d{0,18}$/.test(id) &&
       !(id.length === 19 && id > "9223372036854775807"),
   );
 }
@@ -60,21 +57,19 @@ export default async function AdminProviderIntegrityPage({
   searchParams,
 }: {
   searchParams: Promise<{
-    before_last_detected_at?: string;
     before_conflict_id?: string;
   }>;
 }) {
   const search = await searchParams;
-  const beforeDate = search.before_last_detected_at;
   const beforeId = search.before_conflict_id;
-  const cursorIsValid = validCursor(beforeDate, beforeId);
+  const cursorIsValid = validCursor(beforeId);
   const { supabase } = await requireDatabaseAdmin("/admin/provider-integrity");
 
   const { data, error } = cursorIsValid
     ? await supabase.rpc("admin_list_delivery_provider_integrity_conflicts_page", {
         p_state: "open",
         p_limit: 50,
-        p_before_last_detected_at: beforeDate ?? null,
+        p_before_last_detected_at: null,
         p_before_conflict_id: beforeId ?? null,
       })
     : { data: null, error: { message: "Invalid case page cursor." } };
@@ -83,9 +78,9 @@ export default async function AdminProviderIntegrityPage({
   const cases = page?.items ?? [];
   const nextCursor = page?.next_cursor;
   const nextHref = nextCursor
-    ? `/admin/provider-integrity?before_last_detected_at=${encodeURIComponent(nextCursor.last_detected_at)}&before_conflict_id=${encodeURIComponent(nextCursor.conflict_id)}`
+    ? `/admin/provider-integrity?before_conflict_id=${encodeURIComponent(nextCursor.conflict_id)}`
     : null;
-  const isPaged = Boolean(beforeDate || beforeId);
+  const isPaged = Boolean(beforeId);
 
   return (
     <section className="mx-auto max-w-6xl px-4 py-12 sm:px-6">
