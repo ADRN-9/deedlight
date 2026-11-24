@@ -78,3 +78,48 @@ The first attempted SET ROLE negative assertion ran through the PostgreSQL super
 3. Have independent security review verify that CI evidence is correctly scoped to synthetic fixtures and does not substitute for Production ownership evidence.
 4. Do not alter migrations 036–038 or historical migration 007 without a separately authorized scope.
 5. Do not deploy, merge, or perform Production ownership changes as part of this handoff.
+
+
+# Cycle 376 — ownership audit completeness and fail-closed privilege fixtures
+
+**Starting HEAD:** `110de2cc3ba27b5e3328f045f26a49880b77d9c7`
+
+## F375-02 — effective function EXECUTE privileges
+
+The PostgreSQL 16 behavior suite now creates disposable `anon`, `authenticated`, and `service_role` identities and evaluates PostgreSQL's effective `has_function_privilege(role, signature, 'EXECUTE')` result. The default-ACL fixture preserves `proacl IS NULL` and confirms PUBLIC-derived EXECUTE for all three identities. The explicit-ACL fixture revokes PUBLIC, grants EXECUTE only to the synthetic `service_role`, and proves anon/authenticated are denied while service_role is allowed. These are synthetic ACL behavior fixtures, not claims about the live Production ACLs.
+
+## F375-03 — privileged function-owner fail-closed scenarios
+
+The suite creates one disposable owner role for each dangerous attribute: SUPERUSER, CREATEROLE, CREATEDB, REPLICATION, and BYPASSRLS. It transfers one synthetic SECURITY DEFINER function to each role in turn, verifies Query 8A reports the corresponding catalog attribute, and invokes an explicit safe-owner assertion that must throw for every unauthorized configuration. The function is returned to its benign fixture owner before subsequent checks. No privileged role identity is an expected Production owner.
+
+## F375-04 — actual transitive SET ROLE behavior
+
+In addition to the existing direct SET ROLE positive/negative checks, a synthetic non-superuser login now executes the complete owner → parent → transitive-role chain. The full transitive chain succeeds when each edge has SET enabled. Disabling SET on the parent → transitive-role edge causes the same nested command to fail with PostgreSQL's permission-denied error; restoring SET permits it again. Query 8B's recursive path and effective SET result are checked alongside the actual session operations.
+
+## Preserved coverage and boundaries
+
+- Query 8A and Query 8B remain extracted from the exact documented SQL fences and are executed against disposable PostgreSQL 16.
+- The exact 18-signature inventory, explicit/default ACL metadata checks, search_path assertions, direct/recursive membership checks, missing-function/missing-owner/non-definer negative branches, and existing role-option/revoke/restoration tests remain.
+- The four lexical negative fixtures in `scripts/verify-delivery-provider-webhooks.mjs` remain unchanged.
+- Provider-integrity, provider-concurrency, privacy authorization, consent and delivery reliability workflow jobs remain unchanged.
+- Migration 038 is not changed. It has no DBA-approved expected-owner baseline, and adding a guessed or synthetic Production owner expectation would be unsafe.
+
+## Production ownership approval and future implementation plan
+
+Ownership attestation remains unresolved until the authorized Production DBA supplies read-only Query 8A/8B results for the verified Production project and explicitly approves every one of the 18 function owners and acceptable direct/transitive membership paths. Independent security review must accept that evidence and the policy for privileged owner attributes.
+
+Only after those approvals should a separate implementation proposal define the expected-owner contract, its source of authority, how it is reviewed/versioned, and how drift is tested. The contract must not derive values from CI fixture owners, migration-runner identities, a developer's database session, or guessed role names. A subsequent migration/verifier should fail closed on missing or changed approved ownership only after that contract has been formally approved. No baseline is introduced in this cycle.
+
+## Cycle 376 execution evidence
+
+- Initial branch/PR inspection confirmed PR #22 was OPEN / DRAFT / UNMERGED at starting HEAD `110de2cc3ba27b5e3328f045f26a49880b77d9c7`.
+- Changes are limited to the PostgreSQL ownership behavior test and this evidence document.
+- Exact-head workflow evidence will be added after the new commit's complete CI run finishes; earlier workflow evidence is not substituted for it.
+
+## Cycle 377 handoff
+
+1. Inspect exact-head PostgreSQL 16 job output for the new EXECUTE, privileged-owner, and transitive SET ROLE assertions.
+2. Confirm all other jobs pass, including provider integrity/concurrency, privacy, consent and delivery reliability.
+3. Keep the four lexical negative fixtures and 18-signature Query 8A/8B inventory unchanged.
+4. Obtain authoritative Production DBA Query 8A/8B evidence and explicit owner/membership approval before proposing any expected-owner enforcement.
+5. Keep PR #22 OPEN / DRAFT / UNMERGED. Production remains NO-GO; no migrations, deployments, merges, credentials or Production changes are authorized by this handoff.
