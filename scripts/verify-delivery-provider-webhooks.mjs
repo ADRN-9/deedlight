@@ -760,6 +760,10 @@ for (const marker of [
   "evt_c356_suppression_first_insert",
 ]) assert(webhookConcurrencyScript.includes(marker),
   "A required provider lock-order or legacy-wrapper concurrency scenario was removed: " + marker);
+assert(webhookConcurrencyScript.includes("suite_complete=1")
+  && webhookConcurrencyScript.includes("Concurrency suite exited before completing all scenarios; refusing a false PASS.")
+  && webhookConcurrencyScript.includes("Concurrency test process deadlines, bounded waits, and cleanup watchdog: PASS"),
+  "The concurrency harness must fail closed if it exits before every scenario reaches the final sentinel.");
 assert(webhookConcurrencyScript.includes("C362_EXPECTED_LOCK_TIMEOUT_SQLSTATE=55P03")
   && webhookConcurrencyScript.includes("Bounded advisory-lock conflict SQLSTATE 55P03 and unchanged database state: PASS"),
   "The controlled lock-timeout regression and fail-closed state assertion must remain.");
