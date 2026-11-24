@@ -5,6 +5,9 @@ import { EXPECTED_SIGNATURES, validateProductionOwnerManifest } from "./verify-p
 
 const projectRef = "xaipiovflxomcbfwtwmu";
 const hash = (value) => createHash("sha256").update(value).digest("hex");
+const canonicalize = (value) => Array.isArray(value) ? value.map(canonicalize)
+  : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])])) : value;
+const digest = (value) => hash(JSON.stringify(canonicalize(value)));
 const attrs = () => ({ rolsuper:false, rolinherit:true, rolcreaterole:false, rolcreatedb:false,
   rolcanlogin:false, rolreplication:false, rolbypassrls:false });
 
@@ -24,16 +27,17 @@ function fixture() {
     owners:[{role:"fixture_owner_only",attributes:attrs(),membershipGraph:{complete:true,paths:[]}}],
   };
   const approvals=[];
-  const add = (scope, subject, ownerRole) => {
+  const add = (scope, subject, ownerRole, approvedValue) => {
     for (const [approverRole, approver] of [["production_dba","Fixture DBA"],["security","Fixture Security"]]) {
-      approvals.push({scope,subject,ownerRole,projectRef,query8aSha256:q8a,query8bSha256:q8b,
+      approvals.push({scope,subject,ownerRole,projectRef,query8aSha256:q8a,query8bSha256:q8b,approvedValueSha256:digest(approvedValue),
         approverRole,approver,approved:true,approvedAt:"2026-11-24T00:01:00Z",
         recordRef:"fixture://approvals/"+approvals.length,recordSha256:hash("approval-"+approvals.length)});
     }
   };
-  for (const signature of EXPECTED_SIGNATURES) add("function_owner",signature,"fixture_owner_only");
-  add("owner_attributes","fixture_owner_only","fixture_owner_only");
-  add("membership_graph","fixture_owner_only","fixture_owner_only");
+  for (const identitySignature of EXPECTED_SIGNATURES) add("function_owner",identitySignature,"fixture_owner_only",
+    {identitySignature,expectedOwnerRole:"fixture_owner_only",securityDefiner:true});
+  add("owner_attributes","fixture_owner_only","fixture_owner_only",attrs());
+  add("membership_graph","fixture_owner_only","fixture_owner_only",{complete:true,paths:[]});
   return {manifest,approvals:{schemaVersion:1,projectRef,policyVersion:"fixture-only-v1",approvals}};
 }
 
