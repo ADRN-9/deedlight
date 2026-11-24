@@ -52,7 +52,7 @@ wait_bounded() {
 
 tmp="$(mktemp -d)"
 suite_pid=$
-timeout --signal=TERM --kill-after=2s "${suite_timeout_seconds}s" bash -c 'sleep "$1"; kill -TERM "$2"' _ "$suite_timeout_seconds" "$suite_pid" &
+( sleep "$suite_timeout_seconds"; kill -TERM "$suite_pid" 2>/dev/null ) &
 watchdog_pid=$!
 
 cleanup() {
@@ -60,14 +60,14 @@ cleanup() {
   trap - EXIT
   set +e
   kill -TERM -- "-$watchdog_pid" 2>/dev/null || kill -TERM "$watchdog_pid" 2>/dev/null || true
-  wait "$watchdog_pid" 2>/dev/null || true
+  wait_bounded "$watchdog_pid" "suite watchdog cleanup" || true
   for pid in "${child_pids[@]}"; do
     kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
   done
   sleep 1
   for pid in "${child_pids[@]}"; do
     kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
-    wait "$pid" 2>/dev/null || true
+    wait_bounded "$pid" "cleanup child $pid" || true
   done
   rm -rf "$tmp"
   exit "$status"
@@ -75,15 +75,39 @@ cleanup() {
 trap 'exit 124' TERM
 trap 'exit 130' INT
 trap cleanup EXIT
+
+# Prove the timeout supervisor escalates against a child that ignores TERM.
+set +e
+timeout --signal=TERM --kill-after=1s 1s bash -c 'trap "" TERM; exec sleep 60' >/dev/null 2>&1
+watchdog_probe_status=$?
+set -e
+if [[ "$watchdog_probe_status" != "124" ]]; then
+  echo "Timeout supervisor self-test failed (status $watchdog_probe_status)." >&2
+  exit 1
+fi
+echo "Timeout supervisor terminates a TERM-resistant child: PASS"
+
+# Prove wait_bounded escalates and reaps a child that ignores TERM.
+wait_timeout_seconds=1
+bash -c 'trap "" TERM; exec sleep 60' &
+wait_probe_pid=$!
+track_child "$wait_probe_pid"
+set +e
+wait_bounded "$wait_probe_pid" "bounded wait self-test"
+wait_probe_status=$?
+set -e
+wait_timeout_seconds=32
+if [[ "$wait_probe_status" != "124" ]]; then
+  echo "Bounded wait self-test failed (status $wait_probe_status)." >&2
+  exit 1
+fi
+echo "Bounded wait terminates and reaps a TERM-resistant child: PASS"
 psql_scalar() {
   run_psql --quiet --no-align --tuples-only --pset=null=__NULL__ --command="$1"
 }
 psql_service_scalar() {
   run_psql --quiet --no-align --tuples-only --pset=null=__NULL__ --command="set role service_role; $1"
 }
-tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
-
 wait_for_marker() {
   local pid="$1"
   local file="$2"
