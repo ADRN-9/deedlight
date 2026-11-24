@@ -36,18 +36,20 @@ function fixture() {
       byteLength: seedFixture.length,
     },
   };
-  writeFileSync(path.join(root, "supabase/migration-inventory.json"), JSON.stringify(manifest, null, 2) + "\n");
-  const aggregate = buildAggregate(root, manifest);
+  const manifestBytes = Buffer.from(JSON.stringify(manifest, null, 2) + "\n");
+  writeFileSync(path.join(root, "supabase/migration-inventory.json"), manifestBytes);
+  const inventoryBlobSha1 = gitBlobSha1(manifestBytes);
+  const aggregate = buildAggregate(root, manifest, inventoryBlobSha1);
   writeFileSync(path.join(root, "supabase/run_in_sql_editor_all.sql"), aggregate);
-  return { root, manifest, aggregate, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+  return { root, manifest, aggregate, inventoryBlobSha1, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 
 function expectInventoryFailure(f, pattern) {
-  assert.throws(() => verifyMigrationInventory(f.root, f.manifest), pattern);
+  assert.throws(() => verifyMigrationInventory(f.root, f.manifest, f.inventoryBlobSha1), pattern);
 }
 
 function expectAggregateFailure(f, pattern) {
-  assert.throws(() => verifyAggregate(f.root, f.manifest), pattern);
+  assert.throws(() => verifyAggregate(f.root, f.manifest, "supabase/run_in_sql_editor_all.sql", f.inventoryBlobSha1), pattern);
 }
 
 test("accepts exact 39-file inventory and preserves both distinct 007 sources", () => {
@@ -64,6 +66,16 @@ test("accepts exact 39-file inventory and preserves both distinct 007 sources", 
     assert.match(a, /202607260007_sprint6_daily_deedlight\.sql/);
     assert.match(a, /202607260007_sprint7_pwa_daily_engagement\.sql/);
     assert.equal((a.match(/BEGIN BOOTSTRAP SEED/g) ?? []).length, 1);
+  } finally { f.cleanup(); }
+});
+
+
+test("rejects a substituted inventory manifest even when its JSON remains valid",()=>{
+  const f=fixture();
+  try {
+    const changed={...f.manifest,bootstrapSeed:{...f.manifest.bootstrapSeed,expectedUpsertCount:2}};
+    writeFileSync(path.join(f.root,"supabase/migration-inventory.json"),JSON.stringify(changed,null,2)+"\\n");
+    assert.throws(()=>verifyMigrationInventory(f.root,f.manifest,f.inventoryBlobSha1),/inventory manifest Git blob SHA-1/);
   } finally { f.cleanup(); }
 });
 
