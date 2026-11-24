@@ -964,6 +964,10 @@ begin
     where provider_email_id = 'resend-failed-20002'
       and status = 'integrity_anomaly'
       and event_id = 'evt_failed_quota'
+      and failure_class is null
+  ) or not exists (
+    select 1 from public.delivery_provider_events
+    where event_id = 'evt_failed_quota'
       and failure_class = 'quota_exceeded'
   ) then
     raise exception 'Conflicting provider events erased the original failure classification or canonical event.';

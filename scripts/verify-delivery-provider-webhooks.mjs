@@ -71,9 +71,9 @@ for (const value of [
   "pg_advisory_xact_lock(20261127, hashtext(p_provider_suppression_id))",
   "rename to _record_delivery_provider_lifecycle_event_pre037_impl",
   "rename to _record_delivery_provider_suppression_event_pre037_impl",
-  "v_existing_lifecycle.failure_class",
   "v_existing_lifecycle.event_id",
   "provider_created_at = v_existing_lifecycle.provider_created_at",
+  "failure_class = null",
 ]) assert(integrityEvidenceMigration.includes(value), "Migration 037 missing provider-integrity invariant: " + value);
 for (const value of [
   "migration_037_legacy_anomaly_backfill",

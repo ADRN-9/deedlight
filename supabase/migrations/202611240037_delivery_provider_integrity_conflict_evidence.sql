@@ -594,6 +594,7 @@ begin
     update public.delivery_provider_lifecycle
     set status = 'integrity_anomaly',
         status_rank = 80,
+        failure_class = null,
         updated_at = clock_timestamp()
     where provider_email_id = p_provider_email_id;
 
@@ -640,14 +641,6 @@ begin
         p_payload_fingerprint, v_existing.event_id, v_existing.recipient_email
       );
 
-      -- The prior implementation marks the projection anomalous but clears its
-      -- failure classification. Restore the canonical classification snapshot.
-      if v_had_lifecycle then
-        update public.delivery_provider_lifecycle
-        set failure_class = v_existing_lifecycle.failure_class,
-            updated_at = clock_timestamp()
-        where provider_email_id = p_provider_email_id;
-      end if;
     else
       select e.* into v_related
       from public.delivery_provider_events e
@@ -673,7 +666,7 @@ begin
             provider_created_at = v_existing_lifecycle.provider_created_at,
             received_at = v_existing_lifecycle.received_at,
             event_id = v_existing_lifecycle.event_id,
-            failure_class = v_existing_lifecycle.failure_class,
+            failure_class = null,
             updated_at = clock_timestamp()
         where provider_email_id = p_provider_email_id;
       end if;
