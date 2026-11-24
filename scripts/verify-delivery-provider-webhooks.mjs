@@ -654,6 +654,7 @@ for (const value of [
   "Bounded advisory-lock conflict SQLSTATE 55P03 and unchanged database state: PASS",
   "command -v setsid",
   "Timeout supervisor terminates a TERM-resistant child: PASS",
+  `watchdog_probe_status" != "137"`,
   "Bounded wait terminates and reaps a TERM-resistant child: PASS",
 ]) assert(concurrencyTests.includes(value), "Missing bounded concurrency safety assertion: " + value);
 const concurrencyScenarioBody = concurrencyTests.slice(concurrencyTests.indexOf("# An exact duplicate"));
