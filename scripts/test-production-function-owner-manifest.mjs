@@ -83,7 +83,7 @@ test("rejects unapproved privileged owner attributes and missing membership comp
 test("rejects membership path ambiguity, incomplete edge options and row-count mismatch", () => {
   const a=fixture();
   a.manifest.owners[0].membershipGraph.paths=[{roles:["fixture_owner_only","fixture_parent"],
-    inheritOptions:[true],setOptions:[true],roleAttributes:[attrs(),attrs()],
+    inheritOptions:[true],setOptions:[true],roleAttributes:[{role:"fixture_owner_only",...attrs()},{role:"fixture_parent",...attrs()}],
     effective:{member:true,inheritsPrivileges:true,canSetRole:true}}];
   a.manifest.evidence.query8b.rowCount=0;
   assert.throws(() => validateProductionOwnerManifest(a.manifest,a.approvals,projectRef),/rowCount does not equal/);
