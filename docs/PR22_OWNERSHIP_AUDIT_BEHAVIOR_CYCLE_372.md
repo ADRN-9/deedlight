@@ -44,4 +44,16 @@ A dedicated `security_definer_ownership_audit_database_behavior` job uses `postg
 4. Keep the DBA dependency open: run the unmodified SELECT-only Query 8A/8B on the exact Production project only after an authorized read-only identity is provided; preserve raw evidence in restricted storage and obtain explicit owner-map approval plus independent review.
 5. Keep PR #22 OPEN and DRAFT. Do not merge, deploy, alter Production ownership or rewrite migration 038.
 
-**Cycle 372 status at authoring:** implementation and CI wiring prepared; PostgreSQL execution and passing CI remain pending the exact-head GitHub Actions run.
+## Final Cycle 372 execution evidence
+
+The exact-head push workflow completed successfully:
+
+- **Workflow run:** [45478035937](https://github.com/ADRN-9/deedlight/actions/runs/45478035937)
+- **Validated HEAD:** `84cc6864a84c7f10e02ff88c10563c2e3a52c3fb`
+- **Conclusion:** SUCCESS — all nine jobs passed.
+- **Ownership audit job:** `security_definer_ownership_audit_database_behavior` — PASS on PostgreSQL 16.16.
+- Its logs explicitly report Query 8A identity/owner/ACL assertions, missing-function/missing-owner/non-definer branches, Query 8B membership/INHERIT/SET/effective-privilege assertions, and final disposable PostgreSQL PASS.
+
+Two early exact-head iterations exposed test-harness issues (a SQL statement terminator in the derived query wrapper and fixture assertions that assumed result order). A subsequent run also exposed PostgreSQL's canonical `timestamp with time zone` display. Those test-only issues were corrected; the final exact-head run above passed. The actual Query 8A/8B source was not modified.
+
+**Final Cycle 372 status:** IMPLEMENTED AND EXACT-HEAD CI-VALIDATED. The evidence remains limited to the synthetic disposable PostgreSQL fixture. Production owner attestation remains BLOCKED and Production remains NO-GO.
