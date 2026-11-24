@@ -4,7 +4,7 @@
 
 **Repository:** ADRN-9/deedlight  
 **PR #10:** OPEN / DRAFT / UNMERGED; branch `security/delivery-transport-consent-gates`; HEAD `6a3660bbe2fd6beb2ddada43d5e77ff5ac9f3793`.  
-**PR #22:** OPEN / DRAFT / UNMERGED; branch `security/private-daily-journey-admin-isolation-c408`.  
+**PR #22:** OPEN / DRAFT / UNMERGED; branch `security/private-daily-journey-admin-isolation-c408`; base branch `security/delivery-transport-consent-gates` now at `6a3660bbe2fd6beb2ddada43d5e77ff5ac9f3793`.  
 **Synchronization commit:** `c5bf9d205934e089d310fbc6677ddc5014314689`; tree `ed49efef679ae00b28f22e458256ae26671ada96`. This is the two-parent merge commit created at the start of the C421 documentation refresh, before the three documentation-only updates in this section's work.  
 **Parents:** previous PR #22 HEAD `ff53e43e9cee7da4189d0d06b576934589f6bfcb`; PR #10 HEAD `6a3660bbe2fd6beb2ddada43d5e77ff5ac9f3793`. The PR #22 branch ref was advanced with a non-forced, expected-HEAD-guarded update.
 
