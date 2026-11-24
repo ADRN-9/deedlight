@@ -119,7 +119,10 @@ export function productionOwnerPolicyValueDigest(scope, subject, ownerRole, mani
   if (!owner) fail("cannot calculate approved policy digest for an unknown owner");
   if (scope === "owner_attributes") return valueDigest(owner.attributes);
   if (scope === "membership_graph") {
-    const paths = owner.membershipGraph.paths.map((path) => canonicalPath(path, ownerRole));
+    const paths = owner.membershipGraph.paths.map((path) => JSON.stringify(canonicalize({
+      roles: path.roles, inheritOptions: path.inheritOptions, setOptions: path.setOptions,
+      roleAttributes: path.roleAttributes, effective: path.effective,
+    })));
     return valueDigest({ complete: true, paths: [...paths].sort() });
   }
   fail("unsupported approval scope for policy digest");
