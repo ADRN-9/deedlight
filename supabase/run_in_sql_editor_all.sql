@@ -2810,3 +2810,2558 @@ to service_role;
 notify pgrst, 'reload schema';
 
 commit;
+-- Sprint 11.2 — Weekly Goodness
+-- Seven-day public Offering activity plus an optional database-admin-curated
+-- Featured Light. No reflection, Daily completion, Saved Light, or reminder
+-- data is queried or exposed by these APIs.
+
+begin;
+
+-- ---------------------------------------------------------------------
+-- 1. Make seven-day reaction aggregation efficient.
+-- ---------------------------------------------------------------------
+
+create index if not exists reactions_created_offering_type_idx
+on public.reactions (created_at desc, offering_id, reaction_type);
+
+-- ---------------------------------------------------------------------
+-- 2. Private weekly feature selection.
+--    The table itself is never readable or writable by browser roles.
+-- ---------------------------------------------------------------------
+
+create table if not exists public.weekly_goodness_features (
+  week_start date primary key
+    check (extract(isodow from week_start) = 1),
+  offering_id uuid not null
+    references public.offerings(id) on delete cascade,
+  selected_by uuid
+    references auth.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.weekly_goodness_features
+enable row level security;
+
+drop trigger if exists weekly_goodness_features_set_updated_at
+on public.weekly_goodness_features;
+
+create trigger weekly_goodness_features_set_updated_at
+before update on public.weekly_goodness_features
+for each row execute function public.set_updated_at();
+
+revoke all privileges
+on table public.weekly_goodness_features
+from public, anon, authenticated;
+
+grant all privileges
+on table public.weekly_goodness_features
+to service_role;
+
+-- ---------------------------------------------------------------------
+-- 3. Public seven-day goodness API.
+--    This SECURITY DEFINER function intentionally returns aggregate reaction
+--    counts only. It exposes no reaction user IDs and does not read reflection
+--    tables or reflection-derived bless_score values.
+-- ---------------------------------------------------------------------
+
+create or replace function public.get_weekly_goodness(
+  p_limit integer default 12
+)
+returns table (
+  id uuid,
+  title text,
+  body text,
+  takeaway text,
+  offering_type text,
+  media_url text,
+  media_type text,
+  is_anonymous boolean,
+  allow_reflections boolean,
+  location_label text,
+  bless_count integer,
+  inspired_count integer,
+  carried_forward_count integer,
+  published_at timestamptz,
+  theme_name text,
+  author_name text,
+  author_username text,
+  weekly_bless_count integer,
+  weekly_inspired_count integer,
+  weekly_carried_forward_count integer,
+  weekly_reaction_count integer
+)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_limit integer := least(
+    greatest(coalesce(p_limit, 12), 1),
+    24
+  );
+begin
+  return query
+  with recent as (
+    select
+      r.offering_id,
+      count(*) filter (
+        where r.reaction_type = 'bless'
+      )::integer as weekly_bless_count,
+      count(*) filter (
+        where r.reaction_type = 'inspired_me'
+      )::integer as weekly_inspired_count,
+      count(*) filter (
+        where r.reaction_type = 'i_did_this_too'
+      )::integer as weekly_carried_forward_count,
+      count(*)::integer as weekly_reaction_count
+    from public.reactions r
+    where r.created_at >= now() - interval '7 days'
+    group by r.offering_id
+  )
+  select
+    op.id,
+    op.title,
+    op.body,
+    op.takeaway,
+    op.offering_type,
+    op.media_url,
+    op.media_type,
+    op.is_anonymous,
+    op.allow_reflections,
+    op.location_label,
+    op.bless_count,
+    op.inspired_count,
+    op.carried_forward_count,
+    op.published_at,
+    op.theme_name,
+    op.author_name,
+    op.author_username,
+    coalesce(recent.weekly_bless_count, 0)::integer,
+    coalesce(recent.weekly_inspired_count, 0)::integer,
+    coalesce(recent.weekly_carried_forward_count, 0)::integer,
+    coalesce(recent.weekly_reaction_count, 0)::integer
+  from public.offerings_public op
+  left join recent
+    on recent.offering_id = op.id
+  where
+    coalesce(recent.weekly_reaction_count, 0) > 0
+    or op.published_at >= now() - interval '7 days'
+  order by
+    (
+      coalesce(recent.weekly_bless_count, 0)
+      + coalesce(recent.weekly_inspired_count, 0) * 2
+      + coalesce(recent.weekly_carried_forward_count, 0) * 3
+    ) desc,
+    coalesce(recent.weekly_reaction_count, 0) desc,
+    op.published_at desc nulls last,
+    op.id
+  limit v_limit;
+end;
+$$;
+
+revoke all privileges
+on function public.get_weekly_goodness(integer)
+from public, anon, authenticated;
+
+grant execute
+on function public.get_weekly_goodness(integer)
+to anon, authenticated, service_role;
+
+-- ---------------------------------------------------------------------
+-- 4. Public current Featured Light API.
+--    Only the same privacy-minimized offerings_public projection is returned.
+-- ---------------------------------------------------------------------
+
+create or replace function public.get_current_weekly_goodness_feature()
+returns table (
+  week_start date,
+  id uuid,
+  title text,
+  body text,
+  takeaway text,
+  offering_type text,
+  media_url text,
+  media_type text,
+  is_anonymous boolean,
+  allow_reflections boolean,
+  location_label text,
+  bless_count integer,
+  inspired_count integer,
+  carried_forward_count integer,
+  published_at timestamptz,
+  theme_name text,
+  author_name text,
+  author_username text
+)
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select
+    f.week_start,
+    op.id,
+    op.title,
+    op.body,
+    op.takeaway,
+    op.offering_type,
+    op.media_url,
+    op.media_type,
+    op.is_anonymous,
+    op.allow_reflections,
+    op.location_label,
+    op.bless_count,
+    op.inspired_count,
+    op.carried_forward_count,
+    op.published_at,
+    op.theme_name,
+    op.author_name,
+    op.author_username
+  from public.weekly_goodness_features f
+  join public.offerings_public op
+    on op.id = f.offering_id
+  where f.week_start =
+    date_trunc('week', timezone('UTC', now()))::date
+  limit 1;
+$$;
+
+revoke all privileges
+on function public.get_current_weekly_goodness_feature()
+from public, anon, authenticated;
+
+grant execute
+on function public.get_current_weekly_goodness_feature()
+to anon, authenticated, service_role;
+
+-- ---------------------------------------------------------------------
+-- 5. Database-admin-only curation mutation.
+--    ADMIN_EMAILS fallback access is deliberately insufficient here.
+-- ---------------------------------------------------------------------
+
+create or replace function public.set_weekly_goodness_feature(
+  p_offering_id uuid
+)
+returns date
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_actor uuid := auth.uid();
+  v_week_start date :=
+    date_trunc('week', timezone('UTC', now()))::date;
+begin
+  if v_actor is null or not public.is_admin() then
+    raise exception 'Database-backed admin access is required.'
+      using errcode = '42501';
+  end if;
+
+  if p_offering_id is null then
+    delete from public.weekly_goodness_features
+    where week_start = v_week_start;
+
+    return v_week_start;
+  end if;
+
+  if not exists (
+    select 1
+    from public.offerings o
+    where o.id = p_offering_id
+      and o.status = 'approved'
+  ) then
+    raise exception 'Featured Light must be an approved public Offering.'
+      using errcode = '22023';
+  end if;
+
+  insert into public.weekly_goodness_features (
+    week_start,
+    offering_id,
+    selected_by
+  )
+  values (
+    v_week_start,
+    p_offering_id,
+    v_actor
+  )
+  on conflict (week_start)
+  do update set
+    offering_id = excluded.offering_id,
+    selected_by = excluded.selected_by,
+    updated_at = now();
+
+  return v_week_start;
+end;
+$$;
+
+revoke all privileges
+on function public.set_weekly_goodness_feature(uuid)
+from public, anon, authenticated;
+
+grant execute
+on function public.set_weekly_goodness_feature(uuid)
+to authenticated, service_role;
+
+notify pgrst, 'reload schema';
+
+commit;
+-- Sprint 11.3 — Invitations & Newsletter Foundation
+-- Private invitation attribution and explicit account-linked newsletter consent.
+-- No email/newsletter delivery provider is introduced by this migration.
+-- No reflections, Daily completions, Saved Lights, or reminder preferences are
+-- read or exposed by this feature.
+
+begin;
+
+create extension if not exists pgcrypto;
+
+create table if not exists public.invitation_links (
+  id uuid primary key default gen_random_uuid(),
+  inviter_user_id uuid not null references auth.users(id) on delete cascade,
+  code text not null unique check (code ~ '^[a-f0-9]{36}$'),
+  accepted_count integer not null default 0 check (accepted_count >= 0),
+  expires_at timestamptz not null default (now() + interval '30 days'),
+  revoked_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (expires_at > created_at)
+);
+
+create index if not exists invitation_links_inviter_created_idx
+on public.invitation_links (inviter_user_id, created_at desc);
+
+create index if not exists invitation_links_active_lookup_idx
+on public.invitation_links (code, revoked_at, expires_at);
+
+drop trigger if exists invitation_links_set_updated_at
+on public.invitation_links;
+
+create trigger invitation_links_set_updated_at
+before update on public.invitation_links
+for each row execute function public.set_updated_at();
+
+alter table public.invitation_links enable row level security;
+
+drop policy if exists "invitation_links_select_own"
+on public.invitation_links;
+
+create policy "invitation_links_select_own"
+on public.invitation_links
+for select to authenticated
+using (inviter_user_id = auth.uid());
+
+revoke all privileges on table public.invitation_links
+from public, anon, authenticated;
+
+grant select on table public.invitation_links to authenticated;
+grant all privileges on table public.invitation_links to service_role;
+
+create table if not exists public.invitation_acceptances (
+  id uuid primary key default gen_random_uuid(),
+  invitation_id uuid not null references public.invitation_links(id) on delete cascade,
+  invited_user_id uuid not null unique references auth.users(id) on delete cascade,
+  accepted_at timestamptz not null default now()
+);
+
+create index if not exists invitation_acceptances_invitation_idx
+on public.invitation_acceptances (invitation_id, accepted_at desc);
+
+alter table public.invitation_acceptances enable row level security;
+
+revoke all privileges on table public.invitation_acceptances
+from public, anon, authenticated;
+
+grant all privileges on table public.invitation_acceptances to service_role;
+
+create table if not exists public.newsletter_preferences (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  weekly_enabled boolean not null default false,
+  consented_at timestamptz,
+  unsubscribed_at timestamptz,
+  consent_source text check (
+    consent_source is null or consent_source in ('signup', 'settings')
+  ),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+drop trigger if exists newsletter_preferences_set_updated_at
+on public.newsletter_preferences;
+
+create trigger newsletter_preferences_set_updated_at
+before update on public.newsletter_preferences
+for each row execute function public.set_updated_at();
+
+alter table public.newsletter_preferences enable row level security;
+
+drop policy if exists "newsletter_preferences_select_own"
+on public.newsletter_preferences;
+
+create policy "newsletter_preferences_select_own"
+on public.newsletter_preferences
+for select to authenticated
+using (user_id = auth.uid());
+
+revoke all privileges on table public.newsletter_preferences
+from public, anon, authenticated;
+
+grant select on table public.newsletter_preferences to authenticated;
+grant all privileges on table public.newsletter_preferences to service_role;
+
+insert into public.newsletter_preferences (user_id, weekly_enabled)
+select u.id, false
+from auth.users u
+on conflict (user_id) do nothing;
+
+create or replace function public.validate_invitation_code(p_code text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select exists (
+    select 1
+    from public.invitation_links il
+    join public.profiles p on p.user_id = il.inviter_user_id
+    where il.code = lower(btrim(coalesce(p_code, '')))
+      and il.revoked_at is null
+      and il.expires_at > now()
+      and p.is_suspended = false
+  );
+$$;
+
+revoke all privileges on function public.validate_invitation_code(text)
+from public, anon, authenticated;
+
+grant execute on function public.validate_invitation_code(text)
+to anon, authenticated, service_role;
+
+create or replace function public.create_invitation_link()
+returns table (
+  invitation_id uuid,
+  invitation_code text,
+  invitation_expires_at timestamptz,
+  accepted_count integer
+)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_actor uuid := auth.uid();
+  v_link public.invitation_links%rowtype;
+  v_code text;
+begin
+  if v_actor is null then
+    raise exception 'Authentication is required.' using errcode = '42501';
+  end if;
+
+  if not exists (
+    select 1
+    from public.profiles p
+    where p.user_id = v_actor
+      and p.is_suspended = false
+  ) then
+    raise exception 'An active member account is required to create invitation links.'
+      using errcode = '42501';
+  end if;
+
+  select il.* into v_link
+  from public.invitation_links il
+  where il.inviter_user_id = v_actor
+    and il.revoked_at is null
+    and il.expires_at > now()
+  order by il.created_at desc
+  limit 1;
+
+  if found then
+    invitation_id := v_link.id;
+    invitation_code := v_link.code;
+    invitation_expires_at := v_link.expires_at;
+    accepted_count := v_link.accepted_count;
+    return next;
+    return;
+  end if;
+
+  if (
+    select count(*)
+    from public.invitation_links il
+    where il.inviter_user_id = v_actor
+      and il.created_at >= now() - interval '24 hours'
+  ) >= 5 then
+    raise exception 'Please wait before creating another invitation link.'
+      using errcode = 'P0001';
+  end if;
+
+  v_code := encode(extensions.gen_random_bytes(18), 'hex');
+
+  insert into public.invitation_links (inviter_user_id, code)
+  values (v_actor, v_code)
+  returning * into v_link;
+
+  invitation_id := v_link.id;
+  invitation_code := v_link.code;
+  invitation_expires_at := v_link.expires_at;
+  accepted_count := v_link.accepted_count;
+  return next;
+end;
+$$;
+
+revoke all privileges on function public.create_invitation_link()
+from public, anon, authenticated;
+
+grant execute on function public.create_invitation_link()
+to authenticated, service_role;
+
+create or replace function public.revoke_invitation_link(
+  p_invitation_id uuid
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_actor uuid := auth.uid();
+begin
+  if v_actor is null then
+    raise exception 'Authentication is required.' using errcode = '42501';
+  end if;
+
+  update public.invitation_links
+  set revoked_at = now()
+  where id = p_invitation_id
+    and inviter_user_id = v_actor
+    and revoked_at is null;
+
+  return found;
+end;
+$$;
+
+revoke all privileges on function public.revoke_invitation_link(uuid)
+from public, anon, authenticated;
+
+grant execute on function public.revoke_invitation_link(uuid)
+to authenticated, service_role;
+
+create or replace function public.set_newsletter_preference(
+  p_enabled boolean
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_actor uuid := auth.uid();
+  v_enabled boolean := coalesce(p_enabled, false);
+begin
+  if v_actor is null then
+    raise exception 'Authentication is required.' using errcode = '42501';
+  end if;
+
+  if v_enabled and exists (
+    select 1
+    from public.profiles p
+    where p.user_id = v_actor
+      and p.is_suspended = true
+  ) then
+    raise exception 'Newsletter consent cannot be enabled while community access is suspended.'
+      using errcode = '42501';
+  end if;
+
+  insert into public.newsletter_preferences (
+    user_id, weekly_enabled, consented_at, unsubscribed_at, consent_source
+  )
+  values (
+    v_actor,
+    v_enabled,
+    case when v_enabled then now() else null end,
+    null,
+    case when v_enabled then 'settings' else null end
+  )
+  on conflict (user_id)
+  do update set
+    weekly_enabled = excluded.weekly_enabled,
+    consented_at = case
+      when excluded.weekly_enabled
+        then coalesce(public.newsletter_preferences.consented_at, now())
+      else public.newsletter_preferences.consented_at
+    end,
+    unsubscribed_at = case
+      when excluded.weekly_enabled then null
+      when public.newsletter_preferences.weekly_enabled then now()
+      else public.newsletter_preferences.unsubscribed_at
+    end,
+    consent_source = case
+      when excluded.weekly_enabled then 'settings'
+      else public.newsletter_preferences.consent_source
+    end,
+    updated_at = now();
+
+  return v_enabled;
+end;
+$$;
+
+revoke all privileges on function public.set_newsletter_preference(boolean)
+from public, anon, authenticated;
+
+grant execute on function public.set_newsletter_preference(boolean)
+to authenticated, service_role;
+
+create or replace function public.record_invitation_acceptance(
+  p_invited_user_id uuid,
+  p_code text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_invitation_id uuid;
+  v_inserted integer := 0;
+begin
+  if p_invited_user_id is null
+     or p_code is null
+     or lower(btrim(p_code)) !~ '^[a-f0-9]{36}$' then
+    return false;
+  end if;
+
+  select il.id into v_invitation_id
+  from public.invitation_links il
+  join public.profiles p on p.user_id = il.inviter_user_id
+  where il.code = lower(btrim(p_code))
+    and il.revoked_at is null
+    and il.expires_at > now()
+    and il.inviter_user_id <> p_invited_user_id
+    and p.is_suspended = false
+  limit 1;
+
+  if v_invitation_id is null then
+    return false;
+  end if;
+
+  insert into public.invitation_acceptances (
+    invitation_id, invited_user_id
+  )
+  values (v_invitation_id, p_invited_user_id)
+  on conflict (invited_user_id) do nothing;
+
+  get diagnostics v_inserted = row_count;
+
+  if v_inserted = 1 then
+    update public.invitation_links
+    set accepted_count = accepted_count + 1
+    where id = v_invitation_id;
+    return true;
+  end if;
+
+  return false;
+end;
+$$;
+
+revoke all privileges
+on function public.record_invitation_acceptance(uuid, text)
+from public, anon, authenticated;
+
+create or replace function public.handle_growth_signup()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_newsletter_opt_in boolean := false;
+  v_invite_code text;
+begin
+  if tg_op = 'INSERT' then
+    v_newsletter_opt_in :=
+      lower(coalesce(
+        new.raw_user_meta_data->>'newsletter_weekly_opt_in', ''
+      )) in ('true', '1', 'yes', 'on');
+
+    insert into public.newsletter_preferences (
+      user_id, weekly_enabled, consented_at, consent_source
+    )
+    values (
+      new.id,
+      v_newsletter_opt_in,
+      case when v_newsletter_opt_in then now() else null end,
+      case when v_newsletter_opt_in then 'signup' else null end
+    )
+    on conflict (user_id)
+    do update set
+      weekly_enabled = excluded.weekly_enabled,
+      consented_at = case
+        when excluded.weekly_enabled then coalesce(
+          public.newsletter_preferences.consented_at,
+          excluded.consented_at
+        )
+        else public.newsletter_preferences.consented_at
+      end,
+      consent_source = case
+        when excluded.weekly_enabled then 'signup'
+        else public.newsletter_preferences.consent_source
+      end,
+      updated_at = now();
+
+    if new.email_confirmed_at is not null then
+      v_invite_code := lower(btrim(coalesce(
+        new.raw_user_meta_data->>'deedlight_invite_code', ''
+      )));
+      perform public.record_invitation_acceptance(
+        new.id, nullif(v_invite_code, '')
+      );
+    end if;
+
+    return new;
+  end if;
+
+  if tg_op = 'UPDATE'
+     and old.email_confirmed_at is null
+     and new.email_confirmed_at is not null then
+    v_invite_code := lower(btrim(coalesce(
+      new.raw_user_meta_data->>'deedlight_invite_code', ''
+    )));
+    perform public.record_invitation_acceptance(
+      new.id, nullif(v_invite_code, '')
+    );
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke all privileges on function public.handle_growth_signup()
+from public, anon, authenticated;
+
+drop trigger if exists on_auth_user_growth_insert on auth.users;
+create trigger on_auth_user_growth_insert
+after insert on auth.users
+for each row execute function public.handle_growth_signup();
+
+drop trigger if exists on_auth_user_growth_email_confirmed on auth.users;
+create trigger on_auth_user_growth_email_confirmed
+after update of email_confirmed_at on auth.users
+for each row execute function public.handle_growth_signup();
+
+notify pgrst, 'reload schema';
+
+commit;
+-- Sprint 12.1 — Offering Ownership & Engagement
+-- Adds safe owner editing/removal/restore flows and private Offering saves.
+-- Public attribution remains privacy-minimized; no public save counts or owner UUIDs are introduced.
+
+begin;
+
+-- ---------------------------------------------------------------------
+-- 1. Distinguish member-removed Offerings from moderator-hidden content.
+-- ---------------------------------------------------------------------
+
+alter table public.offerings
+  add column if not exists owner_removed_at timestamptz;
+
+create index if not exists offerings_owner_removed_idx
+  on public.offerings (user_id, owner_removed_at desc)
+  where owner_removed_at is not null;
+
+-- Keep owner_removed_at under the controlled owner RPCs rather than ordinary
+-- browser INSERT/UPDATE privileges. Admin behavior is preserved.
+
+drop policy if exists "offerings_user_insert_pending"
+on public.offerings;
+
+create policy "offerings_user_insert_pending"
+on public.offerings
+for insert
+to authenticated
+with check (
+  user_id = auth.uid()
+  and status in ('draft', 'pending')
+  and owner_removed_at is null
+  and not exists (
+    select 1
+    from public.profiles p
+    where p.user_id = auth.uid()
+      and p.is_suspended = true
+  )
+);
+
+drop policy if exists "offerings_update_own_or_admin"
+on public.offerings;
+
+create policy "offerings_update_own_or_admin"
+on public.offerings
+for update
+to authenticated
+using (
+  public.is_admin()
+  or (
+    user_id = auth.uid()
+    and status in ('draft', 'needs_edit')
+    and owner_removed_at is null
+    and not exists (
+      select 1
+      from public.profiles p
+      where p.user_id = auth.uid()
+        and p.is_suspended = true
+    )
+  )
+)
+with check (
+  public.is_admin()
+  or (
+    user_id = auth.uid()
+    and status in ('draft', 'pending', 'needs_edit')
+    and owner_removed_at is null
+    and not exists (
+      select 1
+      from public.profiles p
+      where p.user_id = auth.uid()
+        and p.is_suspended = true
+    )
+  )
+);
+
+drop policy if exists "offerings_user_update_safe_statuses"
+on public.offerings;
+
+create policy "offerings_user_update_safe_statuses"
+on public.offerings
+for update
+to authenticated
+using (
+  user_id = auth.uid()
+  and status in ('draft', 'needs_edit')
+  and owner_removed_at is null
+  and not exists (
+    select 1
+    from public.profiles p
+    where p.user_id = auth.uid()
+      and p.is_suspended = true
+  )
+)
+with check (
+  user_id = auth.uid()
+  and status in ('draft', 'pending')
+  and owner_removed_at is null
+  and not exists (
+    select 1
+    from public.profiles p
+    where p.user_id = auth.uid()
+      and p.is_suspended = true
+  )
+);
+
+-- ---------------------------------------------------------------------
+-- 2. Extend private Saved Lights to approved Offerings.
+--    Saves remain private, immutable rows: insert to save, delete to unsave.
+-- ---------------------------------------------------------------------
+
+drop policy if exists
+  "saved_lights_insert_own_published_daily_light"
+on public.saved_lights;
+
+drop policy if exists
+  "saved_lights_insert_own_published_source"
+on public.saved_lights;
+
+create policy
+  "saved_lights_insert_own_published_source"
+on public.saved_lights
+for insert
+to authenticated
+with check (
+  user_id = auth.uid()
+  and (
+    (
+      daily_light_id is not null
+      and offering_id is null
+      and daily_post_id is null
+      and exists (
+        select 1
+        from public.daily_lights dl
+        where dl.id = daily_light_id
+          and dl.status = 'published'
+      )
+    )
+    or
+    (
+      offering_id is not null
+      and daily_light_id is null
+      and daily_post_id is null
+      and exists (
+        select 1
+        from public.offerings_public op
+        where op.id = offering_id
+      )
+    )
+  )
+);
+
+revoke all privileges
+on table public.saved_lights
+from public, anon, authenticated;
+
+grant select, insert, delete
+on table public.saved_lights
+to authenticated;
+
+grant all
+on table public.saved_lights
+to service_role;
+
+-- Repair the post-privacy reaction policy so members can react to any
+-- approved public Offering, not only an Offering visible through own-row RLS.
+-- The public view exposes no owner UUIDs and is sufficient for this boolean check.
+drop policy if exists "reactions_insert_own_on_approved"
+on public.reactions;
+
+create policy "reactions_insert_own_on_approved"
+on public.reactions
+for insert
+to authenticated
+with check (
+  user_id = auth.uid()
+  and exists (
+    select 1
+    from public.offerings_public op
+    where op.id = offering_id
+  )
+  and not exists (
+    select 1
+    from public.profiles p
+    where p.user_id = auth.uid()
+      and p.is_suspended = true
+  )
+);
+
+-- ---------------------------------------------------------------------
+-- 3. Owner edit RPC.
+--    Any edited public version leaves public discovery and returns to review.
+--    Rejected or moderator-hidden Offerings cannot be bypassed by members.
+-- ---------------------------------------------------------------------
+
+create or replace function public.update_own_offering(
+  p_offering_id uuid,
+  p_offering_type text,
+  p_title text,
+  p_body text,
+  p_takeaway text,
+  p_media_url text,
+  p_media_type text,
+  p_is_anonymous boolean,
+  p_allow_reflections boolean
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_actor uuid := auth.uid();
+  v_offering public.offerings%rowtype;
+  v_title text := btrim(coalesce(p_title, ''));
+  v_body text := btrim(coalesce(p_body, ''));
+  v_takeaway text := nullif(btrim(coalesce(p_takeaway, '')), '');
+  v_media_url text := nullif(btrim(coalesce(p_media_url, '')), '');
+  v_media_type text := p_media_type;
+begin
+  if v_actor is null then
+    raise exception 'Authentication is required.' using errcode = '42501';
+  end if;
+
+  if not exists (
+    select 1
+    from public.profiles p
+    where p.user_id = v_actor
+      and p.is_suspended = false
+  ) then
+    raise exception 'An active member profile is required.' using errcode = '42501';
+  end if;
+
+  if p_offering_id is null then
+    raise exception 'Offering is required.' using errcode = '22023';
+  end if;
+
+  if p_offering_type not in (
+    'good_deed',
+    'goodness_invitation',
+    'gratitude',
+    'beauty_reminder',
+    'quiet_goodness',
+    'community_need'
+  ) then
+    raise exception 'Invalid Offering type.' using errcode = '22023';
+  end if;
+
+  if char_length(v_title) < 4 or char_length(v_title) > 120 then
+    raise exception 'Title must be between 4 and 120 characters.' using errcode = '22023';
+  end if;
+
+  if char_length(v_body) < 20 or char_length(v_body) > 5000 then
+    raise exception 'Offering body must be between 20 and 5000 characters.' using errcode = '22023';
+  end if;
+
+  if v_takeaway is not null and char_length(v_takeaway) > 500 then
+    raise exception 'Small deed must be 500 characters or fewer.' using errcode = '22023';
+  end if;
+
+  if v_media_url is not null and char_length(v_media_url) > 1000 then
+    raise exception 'Media URL is too long.' using errcode = '22023';
+  end if;
+
+  if v_media_url is not null and v_media_url !~* '^https?://' then
+    raise exception 'Media URL must use http or https.' using errcode = '22023';
+  end if;
+
+  if v_media_url is null then
+    v_media_type := null;
+  elsif v_media_type is null or v_media_type not in ('image', 'video') then
+    raise exception 'Media type is invalid.' using errcode = '22023';
+  end if;
+
+  select o.*
+  into v_offering
+  from public.offerings o
+  where o.id = p_offering_id
+    and o.user_id = v_actor
+  for update;
+
+  if not found then
+    raise exception 'Offering was not found.' using errcode = '42501';
+  end if;
+
+  if v_offering.status = 'rejected' then
+    raise exception 'Rejected Offerings cannot be resubmitted from the member editor.' using errcode = '42501';
+  end if;
+
+  if v_offering.status = 'hidden' and v_offering.owner_removed_at is null then
+    raise exception 'Moderator-hidden Offerings cannot be changed from the member editor.' using errcode = '42501';
+  end if;
+
+  update public.offerings
+  set
+    offering_type = p_offering_type,
+    title = v_title,
+    body = v_body,
+    takeaway = v_takeaway,
+    media_url = v_media_url,
+    media_type = v_media_type,
+    is_anonymous = coalesce(p_is_anonymous, false),
+    allow_reflections = coalesce(p_allow_reflections, false),
+    status = 'pending',
+    moderation_note = null,
+    published_at = null,
+    owner_removed_at = null
+  where id = p_offering_id;
+
+  return p_offering_id;
+end;
+$$;
+
+revoke all
+on function public.update_own_offering(
+  uuid, text, text, text, text, text, text, boolean, boolean
+)
+from public, anon;
+
+grant execute
+on function public.update_own_offering(
+  uuid, text, text, text, text, text, text, boolean, boolean
+)
+to authenticated;
+
+-- ---------------------------------------------------------------------
+-- 4. Reversible owner removal.
+--    This is intentionally a soft removal, not browser DELETE.
+--    A suspended owner may still remove their own content for privacy/safety.
+-- ---------------------------------------------------------------------
+
+create or replace function public.remove_own_offering(
+  p_offering_id uuid
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_actor uuid := auth.uid();
+  v_offering public.offerings%rowtype;
+begin
+  if v_actor is null then
+    raise exception 'Authentication is required.' using errcode = '42501';
+  end if;
+
+  select o.*
+  into v_offering
+  from public.offerings o
+  where o.id = p_offering_id
+    and o.user_id = v_actor
+  for update;
+
+  if not found then
+    raise exception 'Offering was not found.' using errcode = '42501';
+  end if;
+
+  if v_offering.status = 'hidden' and v_offering.owner_removed_at is null then
+    raise exception 'Moderator-hidden Offerings cannot be changed from the member controls.' using errcode = '42501';
+  end if;
+
+  if v_offering.owner_removed_at is not null then
+    return p_offering_id;
+  end if;
+
+  update public.offerings
+  set
+    status = 'hidden',
+    owner_removed_at = now(),
+    published_at = null
+  where id = p_offering_id;
+
+  return p_offering_id;
+end;
+$$;
+
+revoke all
+on function public.remove_own_offering(uuid)
+from public, anon;
+
+grant execute
+on function public.remove_own_offering(uuid)
+to authenticated;
+
+-- ---------------------------------------------------------------------
+-- 5. Restore an owner-removed Offering to moderation review.
+-- ---------------------------------------------------------------------
+
+create or replace function public.restore_own_offering(
+  p_offering_id uuid
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_actor uuid := auth.uid();
+  v_offering public.offerings%rowtype;
+begin
+  if v_actor is null then
+    raise exception 'Authentication is required.' using errcode = '42501';
+  end if;
+
+  if not exists (
+    select 1
+    from public.profiles p
+    where p.user_id = v_actor
+      and p.is_suspended = false
+  ) then
+    raise exception 'An active member profile is required.' using errcode = '42501';
+  end if;
+
+  select o.*
+  into v_offering
+  from public.offerings o
+  where o.id = p_offering_id
+    and o.user_id = v_actor
+  for update;
+
+  if not found then
+    raise exception 'Offering was not found.' using errcode = '42501';
+  end if;
+
+  if v_offering.status <> 'hidden' or v_offering.owner_removed_at is null then
+    raise exception 'Only an Offering you removed can be restored.' using errcode = '42501';
+  end if;
+
+  update public.offerings
+  set
+    status = 'pending',
+    owner_removed_at = null,
+    moderation_note = null,
+    published_at = null
+  where id = p_offering_id;
+
+  return p_offering_id;
+end;
+$$;
+
+revoke all
+on function public.restore_own_offering(uuid)
+from public, anon;
+
+grant execute
+on function public.restore_own_offering(uuid)
+to authenticated;
+
+notify pgrst, 'reload schema';
+
+commit;
+-- Sprint 12.1 owner-removal moderation guard hotfix.
+-- Records the narrow Production repair applied after migration 017.
+-- Rejected Offerings cannot use Remove -> Restore to bypass moderation.
+-- An owner-removed Offering must remain hidden while owner_removed_at is set.
+
+begin;
+
+do $$
+declare
+  v_removed_count integer;
+begin
+  if not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'offerings'
+      and column_name = 'owner_removed_at'
+  ) then
+    raise exception
+      'Sprint 12.1 owner_removed_at column is missing.';
+  end if;
+
+  if to_regprocedure(
+    'public.remove_own_offering(uuid)'
+  ) is null then
+    raise exception
+      'Sprint 12.1 remove_own_offering(uuid) is missing.';
+  end if;
+
+  select count(*)
+  into v_removed_count
+  from public.offerings
+  where owner_removed_at is not null;
+
+  if v_removed_count <> 0 then
+    raise exception
+      'Hotfix aborted: expected 0 currently owner-removed Offerings; found %.',
+      v_removed_count;
+  end if;
+end
+$$;
+
+alter table public.offerings
+  drop constraint if exists offerings_owner_removed_hidden;
+
+alter table public.offerings
+  add constraint offerings_owner_removed_hidden
+  check (
+    owner_removed_at is null
+    or status = 'hidden'
+  );
+
+create or replace function public.remove_own_offering(
+  p_offering_id uuid
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_actor uuid := auth.uid();
+  v_offering public.offerings%rowtype;
+begin
+  if v_actor is null then
+    raise exception
+      'Authentication is required.'
+      using errcode = '42501';
+  end if;
+
+  select o.*
+  into v_offering
+  from public.offerings o
+  where o.id = p_offering_id
+    and o.user_id = v_actor
+  for update;
+
+  if not found then
+    raise exception
+      'Offering was not found.'
+      using errcode = '42501';
+  end if;
+
+  if v_offering.status = 'rejected' then
+    raise exception
+      'Rejected Offerings cannot be changed from the member controls.'
+      using errcode = '42501';
+  end if;
+
+  if (
+    v_offering.status = 'hidden'
+    and v_offering.owner_removed_at is null
+  ) then
+    raise exception
+      'Moderator-hidden Offerings cannot be changed from the member controls.'
+      using errcode = '42501';
+  end if;
+
+  if v_offering.owner_removed_at is not null then
+    return p_offering_id;
+  end if;
+
+  update public.offerings
+  set
+    status = 'hidden',
+    owner_removed_at = now(),
+    published_at = null
+  where id = p_offering_id;
+
+  return p_offering_id;
+end;
+$$;
+
+revoke all
+on function public.remove_own_offering(uuid)
+from public, anon, authenticated;
+
+grant execute
+on function public.remove_own_offering(uuid)
+to authenticated;
+
+notify pgrst, 'reload schema';
+
+commit;
+-- Sprint 12.2 — Gentle Delivery Foundation
+-- Transport-neutral queueing and authorization gates only.
+-- This migration does not configure a cron trigger or any outbound provider.
+
+begin;
+
+-- ---------------------------------------------------------------------
+-- 1. Reminder preference writes move behind one validating RPC.
+-- ---------------------------------------------------------------------
+
+create or replace function public.set_daily_reminder_preference(
+  p_enabled boolean,
+  p_reminder_time time without time zone,
+  p_timezone text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_actor uuid := auth.uid();
+  v_enabled boolean := coalesce(p_enabled, false);
+  v_timezone text := btrim(coalesce(p_timezone, ''));
+begin
+  if v_actor is null then
+    raise exception 'Authentication is required.' using errcode = '42501';
+  end if;
+
+  if p_reminder_time is null then
+    raise exception 'A reminder time is required.' using errcode = '22023';
+  end if;
+
+  if char_length(v_timezone) < 1
+     or char_length(v_timezone) > 64
+     or not exists (
+       select 1
+       from pg_catalog.pg_timezone_names tz
+       where tz.name = v_timezone
+     ) then
+    raise exception 'A valid IANA timezone is required.' using errcode = '22023';
+  end if;
+
+  if v_enabled and exists (
+    select 1
+    from public.profiles p
+    where p.user_id = v_actor
+      and p.is_suspended = true
+  ) then
+    raise exception 'Reminder preferences cannot be enabled while community access is suspended.'
+      using errcode = '42501';
+  end if;
+
+  insert into public.daily_reminder_preferences (
+    user_id,
+    daily_enabled,
+    reminder_time,
+    timezone
+  )
+  values (
+    v_actor,
+    v_enabled,
+    p_reminder_time,
+    v_timezone
+  )
+  on conflict (user_id)
+  do update set
+    daily_enabled = excluded.daily_enabled,
+    reminder_time = excluded.reminder_time,
+    timezone = excluded.timezone,
+    updated_at = now();
+
+  return v_enabled;
+end;
+$$;
+
+revoke all privileges
+on function public.set_daily_reminder_preference(boolean, time without time zone, text)
+from public, anon, authenticated;
+
+grant execute
+on function public.set_daily_reminder_preference(boolean, time without time zone, text)
+to authenticated;
+
+revoke insert, update
+on table public.daily_reminder_preferences
+from authenticated;
+
+-- ---------------------------------------------------------------------
+-- 2. Private delivery ledger.
+--    No recipient address or member content is stored here.
+-- ---------------------------------------------------------------------
+
+create table if not exists public.delivery_ledger (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  kind text not null
+    check (kind in ('daily_reminder', 'weekly_newsletter')),
+  delivery_key text not null
+    check (char_length(delivery_key) between 1 and 80),
+  state text not null default 'queued'
+    check (state in ('queued', 'claimed', 'cancelled', 'sent', 'failed')),
+  scheduled_for timestamptz not null,
+  claim_token uuid,
+  claimed_at timestamptz,
+  sent_at timestamptz,
+  failed_at timestamptz,
+  cancelled_at timestamptz,
+  provider_result_id text
+    check (
+      provider_result_id is null
+      or char_length(provider_result_id) between 1 and 255
+    ),
+  error_code text
+    check (
+      error_code is null
+      or char_length(error_code) between 1 and 100
+    ),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (kind, user_id, delivery_key)
+);
+
+create index if not exists delivery_ledger_ready_idx
+on public.delivery_ledger (state, scheduled_for, created_at);
+
+create index if not exists delivery_ledger_user_idx
+on public.delivery_ledger (user_id, created_at desc);
+
+alter table public.delivery_ledger enable row level security;
+
+drop trigger if exists delivery_ledger_set_updated_at
+on public.delivery_ledger;
+
+create trigger delivery_ledger_set_updated_at
+before update on public.delivery_ledger
+for each row execute function public.set_updated_at();
+
+revoke all privileges
+on table public.delivery_ledger
+from public, anon, authenticated;
+
+grant all privileges
+on table public.delivery_ledger
+to service_role;
+
+-- ---------------------------------------------------------------------
+-- 3. Deterministically enqueue today's due reminder for active opt-ins.
+--    Repeated runs are idempotent through the unique delivery key.
+-- ---------------------------------------------------------------------
+
+create or replace function public.enqueue_due_daily_reminders(
+  p_now timestamptz default now(),
+  p_limit integer default 500
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_inserted integer := 0;
+begin
+  if p_now is null then
+    raise exception 'A scheduler timestamp is required.' using errcode = '22023';
+  end if;
+
+  if p_limit is null or p_limit < 1 or p_limit > 5000 then
+    raise exception 'p_limit must be between 1 and 5000.' using errcode = '22023';
+  end if;
+
+  with candidates as (
+    select
+      drp.user_id,
+      timezone(drp.timezone, p_now)::date as local_date,
+      (
+        (
+          timezone(drp.timezone, p_now)::date
+          + drp.reminder_time
+        ) at time zone drp.timezone
+      ) as scheduled_for
+    from public.daily_reminder_preferences drp
+    join public.profiles p
+      on p.user_id = drp.user_id
+     and p.is_suspended = false
+    join pg_catalog.pg_timezone_names tz
+      on tz.name = drp.timezone
+    where drp.daily_enabled = true
+  ), due as (
+    select *
+    from candidates
+    where scheduled_for <= p_now
+    order by scheduled_for, user_id
+    limit p_limit
+  ), inserted as (
+    insert into public.delivery_ledger (
+      user_id,
+      kind,
+      delivery_key,
+      scheduled_for
+    )
+    select
+      due.user_id,
+      'daily_reminder',
+      'daily:' || due.local_date::text,
+      due.scheduled_for
+    from due
+    on conflict (kind, user_id, delivery_key) do nothing
+    returning 1
+  )
+  select count(*)::integer
+  into v_inserted
+  from inserted;
+
+  return v_inserted;
+end;
+$$;
+
+revoke all privileges
+on function public.enqueue_due_daily_reminders(timestamptz, integer)
+from public, anon, authenticated;
+
+grant execute
+on function public.enqueue_due_daily_reminders(timestamptz, integer)
+to service_role;
+
+-- ---------------------------------------------------------------------
+-- 4. Enqueue one explicitly identified Weekly Goodness issue.
+--    Email addresses remain in Supabase Auth and are never copied here.
+-- ---------------------------------------------------------------------
+
+create or replace function public.enqueue_weekly_goodness_delivery(
+  p_week_start date,
+  p_scheduled_for timestamptz default now(),
+  p_limit integer default 5000
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_inserted integer := 0;
+begin
+  if p_week_start is null
+     or extract(isodow from p_week_start) <> 1 then
+    raise exception 'p_week_start must be a Monday.' using errcode = '22023';
+  end if;
+
+  if p_scheduled_for is null then
+    raise exception 'A scheduled timestamp is required.' using errcode = '22023';
+  end if;
+
+  if p_limit is null or p_limit < 1 or p_limit > 10000 then
+    raise exception 'p_limit must be between 1 and 10000.' using errcode = '22023';
+  end if;
+
+  if not exists (
+    select 1
+    from public.weekly_goodness_features f
+    where f.week_start = p_week_start
+  ) then
+    raise exception 'Weekly Goodness issue has not been explicitly curated.'
+      using errcode = '22023';
+  end if;
+
+  with eligible as (
+    select np.user_id
+    from public.newsletter_preferences np
+    join public.profiles p
+      on p.user_id = np.user_id
+     and p.is_suspended = false
+    join auth.users u
+      on u.id = np.user_id
+     and u.email_confirmed_at is not null
+     and nullif(btrim(u.email), '') is not null
+    where np.weekly_enabled = true
+      and np.consented_at is not null
+    order by np.user_id
+    limit p_limit
+  ), inserted as (
+    insert into public.delivery_ledger (
+      user_id,
+      kind,
+      delivery_key,
+      scheduled_for
+    )
+    select
+      eligible.user_id,
+      'weekly_newsletter',
+      'weekly:' || p_week_start::text,
+      p_scheduled_for
+    from eligible
+    on conflict (kind, user_id, delivery_key) do nothing
+    returning 1
+  )
+  select count(*)::integer
+  into v_inserted
+  from inserted;
+
+  return v_inserted;
+end;
+$$;
+
+revoke all privileges
+on function public.enqueue_weekly_goodness_delivery(date, timestamptz, integer)
+from public, anon, authenticated;
+
+grant execute
+on function public.enqueue_weekly_goodness_delivery(date, timestamptz, integer)
+to service_role;
+
+-- ---------------------------------------------------------------------
+-- 5. Claim due jobs without exposing recipient addresses.
+-- ---------------------------------------------------------------------
+
+create or replace function public.claim_delivery_jobs(
+  p_now timestamptz default now(),
+  p_limit integer default 100
+)
+returns table (
+  job_id uuid,
+  user_id uuid,
+  kind text,
+  delivery_key text,
+  scheduled_for timestamptz,
+  claim_token uuid
+)
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+begin
+  if p_now is null then
+    raise exception 'A claim timestamp is required.' using errcode = '22023';
+  end if;
+
+  if p_limit is null or p_limit < 1 or p_limit > 1000 then
+    raise exception 'p_limit must be between 1 and 1000.' using errcode = '22023';
+  end if;
+
+  return query
+  with picked as (
+    select dl.id
+    from public.delivery_ledger dl
+    where dl.state = 'queued'
+      and dl.scheduled_for <= p_now
+    order by dl.scheduled_for, dl.created_at, dl.id
+    for update skip locked
+    limit p_limit
+  ), claimed as (
+    update public.delivery_ledger dl
+    set
+      state = 'claimed',
+      claim_token = gen_random_uuid(),
+      claimed_at = p_now,
+      error_code = null,
+      updated_at = now()
+    from picked
+    where dl.id = picked.id
+    returning
+      dl.id,
+      dl.user_id,
+      dl.kind,
+      dl.delivery_key,
+      dl.scheduled_for,
+      dl.claim_token
+  )
+  select
+    claimed.id,
+    claimed.user_id,
+    claimed.kind,
+    claimed.delivery_key,
+    claimed.scheduled_for,
+    claimed.claim_token
+  from claimed;
+end;
+$$;
+
+revoke all privileges
+on function public.claim_delivery_jobs(timestamptz, integer)
+from public, anon, authenticated;
+
+grant execute
+on function public.claim_delivery_jobs(timestamptz, integer)
+to service_role;
+
+-- ---------------------------------------------------------------------
+-- 6. Re-authorize immediately before any future external transport.
+--    Revoked consent or suspension cancels the claimed job.
+-- ---------------------------------------------------------------------
+
+create or replace function public.authorize_delivery_job(
+  p_job_id uuid,
+  p_claim_token uuid
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_job public.delivery_ledger%rowtype;
+  v_authorized boolean := false;
+begin
+  if p_job_id is null or p_claim_token is null then
+    raise exception 'A job ID and claim token are required.' using errcode = '22023';
+  end if;
+
+  select * into v_job
+  from public.delivery_ledger dl
+  where dl.id = p_job_id
+  for update;
+
+  if not found
+     or v_job.state <> 'claimed'
+     or v_job.claim_token is distinct from p_claim_token then
+    raise exception 'Delivery claim is not authorized.' using errcode = '42501';
+  end if;
+
+  if v_job.kind = 'daily_reminder' then
+    select exists (
+      select 1
+      from public.daily_reminder_preferences drp
+      join public.profiles p
+        on p.user_id = drp.user_id
+       and p.is_suspended = false
+      join pg_catalog.pg_timezone_names tz
+        on tz.name = drp.timezone
+      where drp.user_id = v_job.user_id
+        and drp.daily_enabled = true
+        and v_job.delivery_key =
+          'daily:' || timezone(drp.timezone, v_job.scheduled_for)::date::text
+        and v_job.scheduled_for = (
+          (
+            timezone(drp.timezone, v_job.scheduled_for)::date
+            + drp.reminder_time
+          ) at time zone drp.timezone
+        )
+    ) into v_authorized;
+  elsif v_job.kind = 'weekly_newsletter' then
+    select exists (
+      select 1
+      from public.newsletter_preferences np
+      join public.profiles p
+        on p.user_id = np.user_id
+       and p.is_suspended = false
+      join auth.users u
+        on u.id = np.user_id
+       and u.email_confirmed_at is not null
+       and nullif(btrim(u.email), '') is not null
+      join public.weekly_goodness_features f
+        on v_job.delivery_key = 'weekly:' || f.week_start::text
+      where np.user_id = v_job.user_id
+        and np.weekly_enabled = true
+        and np.consented_at is not null
+    ) into v_authorized;
+  else
+    raise exception 'Unsupported delivery kind.' using errcode = '22023';
+  end if;
+
+  if not v_authorized then
+    update public.delivery_ledger
+    set
+      state = 'cancelled',
+      cancelled_at = now(),
+      error_code = 'authorization_revoked',
+      updated_at = now()
+    where id = v_job.id;
+
+    return false;
+  end if;
+
+  return true;
+end;
+$$;
+
+revoke all privileges
+on function public.authorize_delivery_job(uuid, uuid)
+from public, anon, authenticated;
+
+grant execute
+on function public.authorize_delivery_job(uuid, uuid)
+to service_role;
+
+-- ---------------------------------------------------------------------
+-- 7. Terminal state transitions. These record provider-neutral outcomes only.
+-- ---------------------------------------------------------------------
+
+create or replace function public.mark_delivery_sent(
+  p_job_id uuid,
+  p_claim_token uuid,
+  p_provider_result_id text default null
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+begin
+  if p_provider_result_id is not null
+     and char_length(p_provider_result_id) > 255 then
+    raise exception 'Provider result identifier is too long.' using errcode = '22023';
+  end if;
+
+  update public.delivery_ledger
+  set
+    state = 'sent',
+    sent_at = now(),
+    provider_result_id = nullif(btrim(p_provider_result_id), ''),
+    error_code = null,
+    updated_at = now()
+  where id = p_job_id
+    and state = 'claimed'
+    and claim_token = p_claim_token;
+
+  if not found then
+    raise exception 'Delivery claim is not authorized.' using errcode = '42501';
+  end if;
+
+  return true;
+end;
+$$;
+
+revoke all privileges
+on function public.mark_delivery_sent(uuid, uuid, text)
+from public, anon, authenticated;
+
+grant execute
+on function public.mark_delivery_sent(uuid, uuid, text)
+to service_role;
+
+create or replace function public.mark_delivery_failed(
+  p_job_id uuid,
+  p_claim_token uuid,
+  p_error_code text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_error_code text := btrim(coalesce(p_error_code, ''));
+begin
+  if char_length(v_error_code) < 1
+     or char_length(v_error_code) > 100 then
+    raise exception 'A bounded error code is required.' using errcode = '22023';
+  end if;
+
+  update public.delivery_ledger
+  set
+    state = 'failed',
+    failed_at = now(),
+    error_code = v_error_code,
+    updated_at = now()
+  where id = p_job_id
+    and state = 'claimed'
+    and claim_token = p_claim_token;
+
+  if not found then
+    raise exception 'Delivery claim is not authorized.' using errcode = '42501';
+  end if;
+
+  return true;
+end;
+$$;
+
+revoke all privileges
+on function public.mark_delivery_failed(uuid, uuid, text)
+from public, anon, authenticated;
+
+grant execute
+on function public.mark_delivery_failed(uuid, uuid, text)
+to service_role;
+
+notify pgrst, 'reload schema';
+
+commit;
+-- Delivery Reliability Hardening
+-- Adds bounded claim leases and retry safety without activating transport.
+
+begin;
+
+-- ---------------------------------------------------------------------
+-- 1. Refuse an unexpected or partially applied baseline.
+-- ---------------------------------------------------------------------
+
+do $$
+begin
+  if to_regclass('public.delivery_ledger') is null then
+    raise exception 'Delivery reliability hardening requires the Sprint 12.2 delivery ledger.';
+  end if;
+
+  if to_regprocedure('public.claim_delivery_jobs(timestamp with time zone,integer)') is null
+     or to_regprocedure('public.authorize_delivery_job(uuid,uuid)') is null
+     or to_regprocedure('public.mark_delivery_sent(uuid,uuid,text)') is null
+     or to_regprocedure('public.mark_delivery_failed(uuid,uuid,text)') is null then
+    raise exception 'Delivery reliability hardening requires the complete Sprint 12.2 RPC baseline.';
+  end if;
+
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'delivery_ledger'
+      and column_name in (
+        'claim_expires_at',
+        'attempt_count',
+        'last_attempt_at',
+        'next_attempt_at'
+      )
+  )
+  or to_regprocedure(
+    'public.retry_delivery_job(uuid,uuid,timestamp with time zone,text)'
+  ) is not null then
+    raise exception 'Delivery reliability hardening is already or partially applied.';
+  end if;
+
+  if exists (
+    select 1
+    from public.delivery_ledger
+    where state = 'claimed'
+  ) then
+    raise exception 'Delivery reliability hardening refuses to migrate live claimed jobs.';
+  end if;
+end
+$$;
+
+-- ---------------------------------------------------------------------
+-- 2. Add bounded lease/retry metadata. Original scheduled_for remains the
+--    semantic delivery time; next_attempt_at is transport retry availability.
+-- ---------------------------------------------------------------------
+
+alter table public.delivery_ledger
+  add column claim_expires_at timestamptz,
+  add column attempt_count integer not null default 0,
+  add column last_attempt_at timestamptz,
+  add column next_attempt_at timestamptz;
+
+update public.delivery_ledger
+set
+  claim_token = null,
+  claim_expires_at = null
+where state <> 'claimed';
+
+alter table public.delivery_ledger
+  add constraint delivery_ledger_attempt_count_check
+  check (attempt_count between 0 and 5),
+  add constraint delivery_ledger_claim_lease_check
+  check (
+    (
+      state = 'claimed'
+      and claim_token is not null
+      and claimed_at is not null
+      and claim_expires_at is not null
+    )
+    or
+    (
+      state <> 'claimed'
+      and claim_token is null
+      and claim_expires_at is null
+    )
+  );
+
+create index delivery_ledger_retry_ready_idx
+on public.delivery_ledger (
+  state,
+  next_attempt_at,
+  scheduled_for,
+  created_at
+);
+
+-- ---------------------------------------------------------------------
+-- 3. Claim queued jobs or reclaim expired leases. Each successful claim is
+--    one attempt. Expired fifth attempts become terminal retry_exhausted.
+-- ---------------------------------------------------------------------
+
+create or replace function public.claim_delivery_jobs(
+  p_now timestamptz default now(),
+  p_limit integer default 100
+)
+returns table (
+  job_id uuid,
+  user_id uuid,
+  kind text,
+  delivery_key text,
+  scheduled_for timestamptz,
+  claim_token uuid
+)
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+begin
+  if p_now is null then
+    raise exception 'A claim timestamp is required.' using errcode = '22023';
+  end if;
+
+  if p_limit is null or p_limit < 1 or p_limit > 1000 then
+    raise exception 'p_limit must be between 1 and 1000.' using errcode = '22023';
+  end if;
+
+  update public.delivery_ledger dl
+  set
+    state = 'failed',
+    failed_at = p_now,
+    claim_token = null,
+    claim_expires_at = null,
+    next_attempt_at = null,
+    error_code = 'retry_exhausted',
+    updated_at = now()
+  where dl.state = 'claimed'
+    and dl.claim_expires_at is not null
+    and dl.claim_expires_at <= p_now
+    and dl.attempt_count >= 5;
+
+  return query
+  with picked as (
+    select dl.id
+    from public.delivery_ledger dl
+    where (
+        dl.state = 'queued'
+        and coalesce(dl.next_attempt_at, dl.scheduled_for) <= p_now
+        and dl.attempt_count < 5
+      )
+      or (
+        dl.state = 'claimed'
+        and dl.claim_expires_at is not null
+        and dl.claim_expires_at <= p_now
+        and dl.attempt_count < 5
+      )
+    order by
+      coalesce(dl.next_attempt_at, dl.scheduled_for),
+      dl.created_at,
+      dl.id
+    for update skip locked
+    limit p_limit
+  ), claimed as (
+    update public.delivery_ledger dl
+    set
+      state = 'claimed',
+      claim_token = gen_random_uuid(),
+      claimed_at = p_now,
+      claim_expires_at = p_now + interval '5 minutes',
+      attempt_count = dl.attempt_count + 1,
+      last_attempt_at = p_now,
+      next_attempt_at = null,
+      error_code = null,
+      updated_at = now()
+    from picked
+    where dl.id = picked.id
+    returning
+      dl.id,
+      dl.user_id,
+      dl.kind,
+      dl.delivery_key,
+      dl.scheduled_for,
+      dl.claim_token
+  )
+  select
+    claimed.id,
+    claimed.user_id,
+    claimed.kind,
+    claimed.delivery_key,
+    claimed.scheduled_for,
+    claimed.claim_token
+  from claimed;
+end;
+$$;
+
+revoke all privileges
+on function public.claim_delivery_jobs(timestamptz, integer)
+from public, anon, authenticated;
+
+grant execute
+on function public.claim_delivery_jobs(timestamptz, integer)
+to service_role;
+
+-- ---------------------------------------------------------------------
+-- 4. A claim must still be live when current authorization is checked.
+--    Revoked consent/suspension cancels the job and invalidates the token.
+-- ---------------------------------------------------------------------
+
+create or replace function public.authorize_delivery_job(
+  p_job_id uuid,
+  p_claim_token uuid
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_job public.delivery_ledger%rowtype;
+  v_authorized boolean := false;
+begin
+  if p_job_id is null or p_claim_token is null then
+    raise exception 'A job ID and claim token are required.' using errcode = '22023';
+  end if;
+
+  select * into v_job
+  from public.delivery_ledger dl
+  where dl.id = p_job_id
+  for update;
+
+  if not found
+     or v_job.state <> 'claimed'
+     or v_job.claim_token is distinct from p_claim_token
+     or v_job.claim_expires_at is null
+     or v_job.claim_expires_at <= now() then
+    raise exception 'Delivery claim is not authorized.' using errcode = '42501';
+  end if;
+
+  if v_job.kind = 'daily_reminder' then
+    select exists (
+      select 1
+      from public.daily_reminder_preferences drp
+      join public.profiles p
+        on p.user_id = drp.user_id
+       and p.is_suspended = false
+      join pg_catalog.pg_timezone_names tz
+        on tz.name = drp.timezone
+      where drp.user_id = v_job.user_id
+        and drp.daily_enabled = true
+        and v_job.delivery_key =
+          'daily:' || timezone(drp.timezone, v_job.scheduled_for)::date::text
+        and v_job.scheduled_for = (
+          (
+            timezone(drp.timezone, v_job.scheduled_for)::date
+            + drp.reminder_time
+          ) at time zone drp.timezone
+        )
+    ) into v_authorized;
+  elsif v_job.kind = 'weekly_newsletter' then
+    select exists (
+      select 1
+      from public.newsletter_preferences np
+      join public.profiles p
+        on p.user_id = np.user_id
+       and p.is_suspended = false
+      join auth.users u
+        on u.id = np.user_id
+       and u.email_confirmed_at is not null
+       and nullif(btrim(u.email), '') is not null
+      join public.weekly_goodness_features f
+        on v_job.delivery_key = 'weekly:' || f.week_start::text
+      where np.user_id = v_job.user_id
+        and np.weekly_enabled = true
+        and np.consented_at is not null
+    ) into v_authorized;
+  else
+    raise exception 'Unsupported delivery kind.' using errcode = '22023';
+  end if;
+
+  if not v_authorized then
+    update public.delivery_ledger
+    set
+      state = 'cancelled',
+      cancelled_at = now(),
+      claim_token = null,
+      claim_expires_at = null,
+      next_attempt_at = null,
+      error_code = 'authorization_revoked',
+      updated_at = now()
+    where id = v_job.id;
+
+    return false;
+  end if;
+
+  return true;
+end;
+$$;
+
+revoke all privileges
+on function public.authorize_delivery_job(uuid, uuid)
+from public, anon, authenticated;
+
+grant execute
+on function public.authorize_delivery_job(uuid, uuid)
+to service_role;
+
+-- ---------------------------------------------------------------------
+-- 5. Temporary provider failures requeue the same logical job without
+--    changing scheduled_for. A fifth failed attempt becomes terminal.
+-- ---------------------------------------------------------------------
+
+create or replace function public.retry_delivery_job(
+  p_job_id uuid,
+  p_claim_token uuid,
+  p_retry_at timestamptz,
+  p_error_code text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_job public.delivery_ledger%rowtype;
+  v_error_code text := btrim(coalesce(p_error_code, ''));
+begin
+  if p_job_id is null or p_claim_token is null or p_retry_at is null then
+    raise exception 'A job ID, claim token, and retry time are required.' using errcode = '22023';
+  end if;
+
+  if char_length(v_error_code) < 1
+     or char_length(v_error_code) > 100 then
+    raise exception 'A bounded error code is required.' using errcode = '22023';
+  end if;
+
+  if p_retry_at <= now()
+     or p_retry_at > now() + interval '24 hours' then
+    raise exception 'Retry time must be within the next 24 hours.' using errcode = '22023';
+  end if;
+
+  select * into v_job
+  from public.delivery_ledger dl
+  where dl.id = p_job_id
+  for update;
+
+  if not found
+     or v_job.state <> 'claimed'
+     or v_job.claim_token is distinct from p_claim_token
+     or v_job.claim_expires_at is null
+     or v_job.claim_expires_at <= now() then
+    raise exception 'Delivery claim is not authorized.' using errcode = '42501';
+  end if;
+
+  if v_job.attempt_count >= 5 then
+    update public.delivery_ledger
+    set
+      state = 'failed',
+      failed_at = now(),
+      claim_token = null,
+      claim_expires_at = null,
+      next_attempt_at = null,
+      error_code = 'retry_exhausted',
+      updated_at = now()
+    where id = v_job.id;
+
+    return false;
+  end if;
+
+  update public.delivery_ledger
+  set
+    state = 'queued',
+    claim_token = null,
+    claim_expires_at = null,
+    next_attempt_at = p_retry_at,
+    error_code = v_error_code,
+    updated_at = now()
+  where id = v_job.id;
+
+  return true;
+end;
+$$;
+
+revoke all privileges
+on function public.retry_delivery_job(uuid, uuid, timestamptz, text)
+from public, anon, authenticated;
+
+grant execute
+on function public.retry_delivery_job(uuid, uuid, timestamptz, text)
+to service_role;
+
+-- ---------------------------------------------------------------------
+-- 6. Terminal outcomes require a live claim and invalidate its token.
+-- ---------------------------------------------------------------------
+
+create or replace function public.mark_delivery_sent(
+  p_job_id uuid,
+  p_claim_token uuid,
+  p_provider_result_id text default null
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+begin
+  if p_provider_result_id is not null
+     and char_length(p_provider_result_id) > 255 then
+    raise exception 'Provider result identifier is too long.' using errcode = '22023';
+  end if;
+
+  update public.delivery_ledger
+  set
+    state = 'sent',
+    sent_at = now(),
+    claim_token = null,
+    claim_expires_at = null,
+    next_attempt_at = null,
+    provider_result_id = nullif(btrim(p_provider_result_id), ''),
+    error_code = null,
+    updated_at = now()
+  where id = p_job_id
+    and state = 'claimed'
+    and claim_token = p_claim_token
+    and claim_expires_at is not null
+    and claim_expires_at > now();
+
+  if not found then
+    raise exception 'Delivery claim is not authorized.' using errcode = '42501';
+  end if;
+
+  return true;
+end;
+$$;
+
+revoke all privileges
+on function public.mark_delivery_sent(uuid, uuid, text)
+from public, anon, authenticated;
+
+grant execute
+on function public.mark_delivery_sent(uuid, uuid, text)
+to service_role;
+
+create or replace function public.mark_delivery_failed(
+  p_job_id uuid,
+  p_claim_token uuid,
+  p_error_code text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_error_code text := btrim(coalesce(p_error_code, ''));
+begin
+  if char_length(v_error_code) < 1
+     or char_length(v_error_code) > 100 then
+    raise exception 'A bounded error code is required.' using errcode = '22023';
+  end if;
+
+  update public.delivery_ledger
+  set
+    state = 'failed',
+    failed_at = now(),
+    claim_token = null,
+    claim_expires_at = null,
+    next_attempt_at = null,
+    error_code = v_error_code,
+    updated_at = now()
+  where id = p_job_id
+    and state = 'claimed'
+    and claim_token = p_claim_token
+    and claim_expires_at is not null
+    and claim_expires_at > now();
+
+  if not found then
+    raise exception 'Delivery claim is not authorized.' using errcode = '42501';
+  end if;
+
+  return true;
+end;
+$$;
+
+revoke all privileges
+on function public.mark_delivery_failed(uuid, uuid, text)
+from public, anon, authenticated;
+
+grant execute
+on function public.mark_delivery_failed(uuid, uuid, text)
+to service_role;
+
+notify pgrst, 'reload schema';
+
+commit;
+-- Gentle Delivery Transport — provider-idempotency boundary and weekly scheduler helper.
+-- Requires delivery reliability migration 020.
+
+begin;
+
+do $$
+begin
+  if to_regclass('public.delivery_ledger') is null
+     or to_regprocedure('public.retry_delivery_job(uuid,uuid,timestamp with time zone,text)') is null
+     or not exists (
+       select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'delivery_ledger'
+         and column_name = 'claim_expires_at'
+     ) then
+    raise exception 'Delivery reliability migration 020 must be applied first.';
+  end if;
+
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'delivery_ledger'
+      and column_name = 'transport_started_at'
+  )
+  or to_regprocedure('public.begin_delivery_transport(uuid,uuid)') is not null
+  or to_regprocedure('public.enqueue_current_weekly_goodness_if_curated(timestamp with time zone,integer)') is not null then
+    raise exception 'Gentle delivery transport migration appears partially applied.';
+  end if;
+end;
+$$;
+
+alter table public.delivery_ledger
+  add column transport_started_at timestamptz;
+
+create or replace function public.begin_delivery_transport(
+  p_job_id uuid,
+  p_claim_token uuid
+)
+returns timestamptz
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_started_at timestamptz;
+begin
+  if p_job_id is null or p_claim_token is null then
+    raise exception 'A job ID and claim token are required.' using errcode = '22023';
+  end if;
+
+  update public.delivery_ledger
+  set
+    transport_started_at = coalesce(transport_started_at, now()),
+    updated_at = now()
+  where id = p_job_id
+    and state = 'claimed'
+    and claim_token = p_claim_token
+    and claim_expires_at > now()
+  returning transport_started_at into v_started_at;
+
+  if not found then
+    raise exception 'Delivery claim is not authorized.' using errcode = '42501';
+  end if;
+
+  return v_started_at;
+end;
+$$;
+
+revoke all privileges
+on function public.begin_delivery_transport(uuid, uuid)
+from public, anon, authenticated;
+
+grant execute
+on function public.begin_delivery_transport(uuid, uuid)
+to service_role;
+
+create or replace function public.enqueue_current_weekly_goodness_if_curated(
+  p_now timestamptz default now(),
+  p_limit integer default 5000
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_week_start date;
+begin
+  if p_now is null then
+    raise exception 'A scheduler timestamp is required.' using errcode = '22023';
+  end if;
+
+  if p_limit is null or p_limit < 1 or p_limit > 10000 then
+    raise exception 'p_limit must be between 1 and 10000.' using errcode = '22023';
+  end if;
+
+  v_week_start := (
+    timezone('UTC', p_now)::date
+    - (extract(isodow from timezone('UTC', p_now))::integer - 1)
+  );
+
+  if not exists (
+    select 1
+    from public.weekly_goodness_features f
+    where f.week_start = v_week_start
+  ) then
+    return 0;
+  end if;
+
+  return public.enqueue_weekly_goodness_delivery(v_week_start, p_now, p_limit);
+end;
+$$;
+
+revoke all privileges
+on function public.enqueue_current_weekly_goodness_if_curated(timestamptz, integer)
+from public, anon, authenticated;
+
+grant execute
+on function public.enqueue_current_weekly_goodness_if_curated(timestamptz, integer)
+to service_role;
+
+notify pgrst, 'reload schema';
+
+commit;
+-- Production Auth hotfix — schema-qualify pgcrypto in the auth.users profile trigger.
+--
+-- Supabase keeps pgcrypto in the `extensions` schema while the auth service
+-- executes with a deliberately narrow search_path. The Deedlight trigger
+-- function introduced in Sprint 9 called gen_random_bytes() without a schema,
+-- causing new Auth-user creation to fail before confirmation email delivery.
+--
+-- Keep the existing profile/bootstrap behavior and SECURITY DEFINER boundary;
+-- only make the extension dependency explicit.
+
+begin;
+
+do $$
+begin
+  if to_regprocedure('extensions.gen_random_bytes(integer)') is null then
+    raise exception 'Required extensions.gen_random_bytes(integer) is missing.';
+  end if;
+end
+$$;
+
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+begin
+  insert into public.profiles (
+    user_id,
+    username,
+    display_name
+  )
+  values (
+    new.id,
+    'member-' || encode(extensions.gen_random_bytes(8), 'hex'),
+    coalesce(
+      nullif(new.raw_user_meta_data->>'display_name', ''),
+      'Deedlight member'
+    )
+  )
+  on conflict (user_id) do nothing;
+
+  return new;
+end;
+$$;
+
+commit;
