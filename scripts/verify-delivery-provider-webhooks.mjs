@@ -523,6 +523,6 @@ assert(/perform \* from public\.admin_list_delivery_provider_integrity_evidence\
   "Authenticated non-admins must be denied evidence RPC access.");
 assert(/perform \* from public\.admin_list_delivery_provider_integrity_history\(v_case_id, 100\)[\s\S]*?sqlstate '42501'/i.test(databaseTests),
   "Authenticated non-admins must be denied history RPC access.");
-assert(/admin_resolve_delivery_provider_integrity_conflict\(v_case_id,[\s\S]*?sqlstate '42501'/i.test(databaseTests),
+assert(/admin_resolve_delivery_provider_integrity_conflict\(\s*v_case_id,[\s\S]*?sqlstate '42501'/i.test(databaseTests),
   "Authenticated non-admins must be denied provider-integrity resolution.");
 console.log("Resend webhook authenticity, provider-integrity administration, bounded signatures, suppression ordering and privacy assertions: PASS");
