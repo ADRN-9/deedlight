@@ -51,6 +51,16 @@ function psql(sql) {
   return result.stdout.trim();
 }
 
+function psqlFails(sql, expected) {
+  const result = spawnSync('psql', [
+    '--no-psqlrc', '--no-password', '--quiet', '--tuples-only', '--no-align',
+    '--set', 'ON_ERROR_STOP=1', '--command', sql,
+  ], { encoding: 'utf8', env: process.env, maxBuffer: 8 * 1024 * 1024 });
+  if (result.error) throw result.error;
+  assert.notEqual(result.status, 0, 'Expected PostgreSQL command to fail: ' + sql);
+  assert.match(result.stderr, expected, 'Unexpected PostgreSQL failure: ' + result.stderr);
+}
+
 function rows(sql) {
   const query = sql.replace(/;\s*$/, "");
   return JSON.parse(psql("SELECT COALESCE(json_agg(row_to_json(r)), '[]'::json) FROM (" + query + ") r;") || '[]');
@@ -152,6 +162,7 @@ assert.deepEqual(direct.membership_edge_set_options, [true]);
 assert.equal(direct.owner_is_member, true);
 assert.equal(direct.owner_inherits_privileges, true);
 assert.equal(direct.owner_can_set_role, true);
+psql('SET ROLE ' + ownerA + '; SET ROLE ' + parent + '; RESET ROLE;');
 
 const transitive = path(ownerA, transitiveRole);
 assert.ok(transitive);
@@ -178,6 +189,7 @@ assert.deepEqual(changedOptions.membership_edge_set_options, [false]);
 assert.equal(changedOptions.owner_is_member, true);
 assert.equal(changedOptions.owner_inherits_privileges, false);
 assert.equal(changedOptions.owner_can_set_role, false);
+psqlFails('SET ROLE ' + ownerA + '; SET ROLE ' + parent + ';', /permission denied to set role/);
 
 psql('GRANT ' + parent + ' TO ' + ownerA + ' WITH INHERIT TRUE, SET TRUE;');
 const restoredOptions = rows(q8b).find((r) => r.function_owner === ownerA && r.granted_role === parent);
@@ -185,6 +197,7 @@ assert.deepEqual(restoredOptions.membership_edge_inherit_options, [true]);
 assert.deepEqual(restoredOptions.membership_edge_set_options, [true]);
 assert.equal(restoredOptions.owner_inherits_privileges, true);
 assert.equal(restoredOptions.owner_can_set_role, true);
+psql('SET ROLE ' + ownerA + '; SET ROLE ' + parent + '; RESET ROLE;');
 
 psql('REVOKE ' + parent + ' FROM ' + ownerA + ';');
 const revokedMemberships = rows(q8b);
