@@ -923,14 +923,14 @@ begin
     raise exception 'Payload fingerprint conflict replaced the original event.';
   end if;
   if (select status from public.delivery_provider_lifecycle
-      where provider_email_id = 'resend-order-20001') <> 'email.delivered' then
+      where provider_email_id = 'resend-order-20001') <> 'integrity_anomaly' then
     raise exception 'Out-of-order event regressed delivered lifecycle evidence.';
   end if;
   if not exists (
     select 1 from public.delivery_provider_lifecycle l
     join public.delivery_provider_events e using (event_id)
     where l.provider_email_id = 'resend-order-20001'
-      and l.status = 'email.delivered'
+      and l.status = 'integrity_anomaly'
       and l.event_id = 'evt_order_delivered'
       and l.provider_created_at = '2027-03-01T10:10:00Z'::timestamptz
       and l.received_at = e.received_at
