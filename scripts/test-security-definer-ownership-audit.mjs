@@ -41,25 +41,27 @@ function sqlBlock(markdown, heading) {
   return blocks[0][1].trim();
 }
 
-function psql(sql) {
+function psql(sql, user = process.env.PGUSER, password = process.env.PGPASSWORD) {
   const result = spawnSync('psql', [
     '--no-psqlrc', '--no-password', '--quiet', '--tuples-only', '--no-align',
     '--set', 'ON_ERROR_STOP=1', '--command', sql,
-  ], { encoding: 'utf8', env: process.env, maxBuffer: 8 * 1024 * 1024 });
+  ], { encoding: 'utf8', env: { ...process.env, PGUSER: user, PGPASSWORD: password }, maxBuffer: 8 * 1024 * 1024 });
   if (result.error) throw result.error;
   assert.equal(result.status, 0, 'Disposable PostgreSQL failed:\n' + result.stderr + '\n' + sql);
   return result.stdout.trim();
 }
 
-function psqlFails(sql, expected) {
+function psqlFails(sql, expected, user = process.env.PGUSER, password = process.env.PGPASSWORD) {
   const result = spawnSync('psql', [
     '--no-psqlrc', '--no-password', '--quiet', '--tuples-only', '--no-align',
     '--set', 'ON_ERROR_STOP=1', '--command', sql,
-  ], { encoding: 'utf8', env: process.env, maxBuffer: 8 * 1024 * 1024 });
+  ], { encoding: 'utf8', env: { ...process.env, PGUSER: user, PGPASSWORD: password }, maxBuffer: 8 * 1024 * 1024 });
   if (result.error) throw result.error;
   assert.notEqual(result.status, 0, 'Expected PostgreSQL command to fail: ' + sql);
   assert.match(result.stderr, expected, 'Unexpected PostgreSQL failure: ' + result.stderr);
 }
+
+function quoteLiteral(value) { return "'" + value.replaceAll("'", "''") + "'"; }
 
 function rows(sql) {
   const query = sql.replace(/;\s*$/, "");
@@ -80,6 +82,8 @@ const ownerEmpty = 'deedlight_audit_owner_without_memberships';
 const parent = 'deedlight_audit_parent';
 const transitiveRole = 'deedlight_audit_transitive';
 const unexpected = 'deedlight_audit_unexpected_bypassrls';
+const login = 'deedlight_audit_login';
+const loginPassword = 'fixture-only-password';
 
 psql([
   'CREATE ROLE ' + ownerA + ' NOLOGIN INHERIT;',
@@ -88,6 +92,8 @@ psql([
   'CREATE ROLE ' + parent + ' NOLOGIN INHERIT;',
   'CREATE ROLE ' + transitiveRole + ' NOLOGIN INHERIT;',
   'CREATE ROLE ' + unexpected + ' NOLOGIN BYPASSRLS;',
+  'CREATE ROLE ' + login + ' LOGIN PASSWORD ' + quoteLiteral(loginPassword) + ';',
+  'GRANT ' + ownerA + ' TO ' + login + ' WITH INHERIT FALSE, SET TRUE;',
   'GRANT CREATE ON SCHEMA public TO ' + ownerA + ', ' + ownerB + ', ' + ownerEmpty + ';',
   'GRANT ' + parent + ' TO ' + ownerA + ' WITH INHERIT TRUE, SET TRUE;',
   'GRANT ' + transitiveRole + ' TO ' + parent + ' WITH INHERIT FALSE, SET TRUE;',
@@ -162,7 +168,7 @@ assert.deepEqual(direct.membership_edge_set_options, [true]);
 assert.equal(direct.owner_is_member, true);
 assert.equal(direct.owner_inherits_privileges, true);
 assert.equal(direct.owner_can_set_role, true);
-psql('SET ROLE ' + ownerA + '; SET ROLE ' + parent + '; RESET ROLE;');
+psql('SET ROLE ' + ownerA + '; SET ROLE ' + parent + '; RESET ROLE;', login, loginPassword);
 
 const transitive = path(ownerA, transitiveRole);
 assert.ok(transitive);
@@ -189,7 +195,7 @@ assert.deepEqual(changedOptions.membership_edge_set_options, [false]);
 assert.equal(changedOptions.owner_is_member, true);
 assert.equal(changedOptions.owner_inherits_privileges, false);
 assert.equal(changedOptions.owner_can_set_role, false);
-psqlFails('SET ROLE ' + ownerA + '; SET ROLE ' + parent + ';', /permission denied to set role/);
+psqlFails('SET ROLE ' + ownerA + '; SET ROLE ' + parent + ';', /permission denied to set role/, login, loginPassword);
 
 psql('GRANT ' + parent + ' TO ' + ownerA + ' WITH INHERIT TRUE, SET TRUE;');
 const restoredOptions = rows(q8b).find((r) => r.function_owner === ownerA && r.granted_role === parent);
@@ -214,7 +220,8 @@ psql([
   'REVOKE ' + parent + ' FROM ' + ownerA + ';',
   'REVOKE ' + transitiveRole + ' FROM ' + parent + ';',
   'REVOKE ' + unexpected + ' FROM ' + ownerB + ';',
+  'REVOKE ' + ownerA + ' FROM ' + login + ';',
   'REVOKE CREATE ON SCHEMA public FROM ' + ownerA + ', ' + ownerB + ', ' + ownerEmpty + ';',
-  'DROP ROLE ' + [ownerA, ownerB, ownerEmpty, parent, transitiveRole, unexpected].join(', ') + ';',
+  'DROP ROLE ' + [ownerA, ownerB, ownerEmpty, parent, transitiveRole, unexpected, login].join(', ') + ';',
 ].join('\n'));
 console.log('Disposable PostgreSQL 16 SECURITY DEFINER ownership audit behavior: PASS');
