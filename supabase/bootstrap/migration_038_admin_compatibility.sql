@@ -93,7 +93,7 @@ declare
 begin
   select n.nspname into v_crypto_schema
   from pg_catalog.pg_extension e
-  join pg_catalog.pg_namespace n on n.oid = e.oid
+  join pg_catalog.pg_namespace n on n.oid = e.extnamespace
   where e.extname = 'pgcrypto';
 
   select p.prosrc, p.prosecdef, p.proconfig
