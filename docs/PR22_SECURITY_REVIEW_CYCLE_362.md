@@ -53,7 +53,7 @@ The controlled conflict holds only the same event-ID advisory lock that the prod
 
 The static verifier now asserts the timeout, wait, cleanup, self-test, and SQLSTATE safeguards.
 
-**P1 status: IMPLEMENTED IN SOURCE; not yet validated by a new exact-head CI run.** No local shell execution or database run is claimed.
+**P1 status: IMPLEMENTED AND CI-VALIDATED.** Exact source HEAD `607319cd3f8d50d2ed18fc7c623d2052b01023f5` passed [PR Validation run 45455823729](https://github.com/ADRN-9/deedlight/actions/runs/45455823729), including all eight jobs. The provider concurrency job completed both TERM-resistant-child self-tests and the controlled PostgreSQL `55P03` lock-timeout regression with unchanged-state assertion. This CI evidence is for the source/test changes at that exact HEAD; this report update is documentation-only. No local shell execution or Production database run is claimed.
 
 ## P2 — migration 038 application status: UNKNOWN; DO NOT REWRITE
 
@@ -74,7 +74,7 @@ Preserve migrations 036 and 037, both historical migration 007 variants, and the
 | P1 deadlines, bounded waits, process tracking and cleanup | IMPLEMENTED IN SOURCE |
 | P1 lock-timeout SQLSTATE and unchanged-state regression | IMPLEMENTED IN SOURCE |
 | P1 suite-hang and wait-hang self-tests | IMPLEMENTED IN SOURCE |
-| P1 exact-head CI | PENDING |
+| P1 exact-head CI | PASS — run 45455823729, 8/8 jobs at source HEAD 607319c |
 | P2 migration 038 Production status | UNKNOWN |
 | Production operations | NOT PERFORMED |
 | PR merge/approval | NOT PERFORMED |
