@@ -52,7 +52,7 @@ function psql(sql) {
 }
 
 function rows(sql) {
-  const query = sql.replace(/;\\s*$/, "");
+  const query = sql.replace(/;\s*$/, "");
   return JSON.parse(psql("SELECT COALESCE(json_agg(row_to_json(r)), '[]'::json) FROM (" + query + ") r;") || '[]');
 }
 
