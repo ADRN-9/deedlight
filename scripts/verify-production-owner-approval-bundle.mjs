@@ -1,5 +1,5 @@
 import { createHash, createPublicKey, verify as verifySignature } from "node:crypto";
-import { lstatSync, readFileSync, realpathSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, openSync, realpathSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { EXPECTED_SIGNATURES, validateProductionOwnerManifest } from "./verify-production-function-owner-manifest.mjs";
 
@@ -71,9 +71,15 @@ function safeArtifact(root, relativePath, label) {
   const resolved = realpathSync(current);
   const rel = path.relative(rootReal, resolved);
   if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) fail(label + " path escapes the artifact root");
-  const info = lstatSync(resolved);
-  if (info.size > MAX_ARTIFACT_BYTES) fail(label + " exceeds the 25 MiB artifact limit");
-  return { path: resolved, bytes: readFileSync(resolved) };
+  const fd = openSync(resolved, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const info = fstatSync(fd);
+    if (!info.isFile()) fail(label + " artifact must be a regular file");
+    if (info.size > MAX_ARTIFACT_BYTES) fail(label + " exceeds the 25 MiB artifact limit");
+    return { path: resolved, bytes: readFileSync(fd) };
+  } finally {
+    closeSync(fd);
+  }
 }
 function trustedArtifact(trust, relativePath, bytes, label) {
   const expected = trust.artifacts?.[relativePath];
@@ -107,6 +113,15 @@ function validateEvidenceMetadata(evidence, queryId, root, trust, projectRef, co
   const resultFile = safeArtifact(root, resultPath, "Query " + queryId + " result");
   trustedArtifact(trust, queryPath, queryFile.bytes, "Query " + queryId + " SQL");
   trustedArtifact(trust, resultPath, resultFile.bytes, "Query " + queryId + " result");
+  const queryText = queryFile.bytes.toString("utf8");
+  if (queryText.includes("\u0000")) fail("Query " + queryId + " SQL contains a NUL byte");
+  if (queryId === "8A" && EXPECTED_SIGNATURES.some((signature) => !queryText.includes(signature))) {
+    fail("Query 8A SQL does not contain the exact 18-signature inventory");
+  }
+  if (queryId === "8B" && ["WITH RECURSIVE", "pg_auth_members", "pg_has_role", "membership_path_role_attributes"]
+      .some((fragment) => !queryText.includes(fragment))) {
+    fail("Query 8B SQL does not contain the required recursive membership and effective-privilege inventory");
+  }
   const queryHash = digest(queryFile.bytes);
   const resultHash = digest(resultFile.bytes);
   if (queryHash !== validHash(evidence.querySha256, "Query " + queryId + " querySha256")) fail("Query " + queryId + " SQL hash mismatch");
@@ -218,6 +233,14 @@ function verifyApprovals(approvalsDocument, trust, manifest, manifestDigest, q8a
   if (!Array.isArray(approvalsDocument.approvals)) fail("approval artifact approvals must be an explicit array");
   const keys = new Map();
   const identities = new Map();
+  const identityRecords = new Set();
+  for (const identity of trust.identities) {
+    object(identity, "trusted identity");
+    const identityId = requiredString(identity.identityId, "trusted identityId");
+    if (identityRecords.has(identityId)) fail("duplicate trusted identityId");
+    identityRecords.add(identityId);
+    if (typeof identity.active !== "boolean" || !Array.isArray(identity.roles)) fail("trusted identity must explicitly declare active status and roles");
+  }
   for (const key of trust.keys) {
     object(key, "trusted key");
     const keyId = requiredString(key.keyId, "trusted keyId");
@@ -321,4 +344,32 @@ export function verifyProductionOwnerApprovalBundle({
     approvalCount: mappedApprovals.approvals.length, functionCount: EXPECTED_SIGNATURES.length,
     distinctOwnerCount: manifest.owners.length, membershipPathCount: q8b.rows.length,
   };
+}
+
+
+if (process.argv[1] && import.meta.url === new URL("file://" + process.argv[1]).href) {
+  const args = process.argv.slice(2);
+  const value = (name) => {
+    const index = args.indexOf(name);
+    return index >= 0 ? args[index + 1] : undefined;
+  };
+  const rootDir = value("--artifact-root");
+  const manifestPath = value("--manifest");
+  const approvalsPath = value("--approvals");
+  const trustPath = value("--trust-root");
+  const asOf = value("--as-of") ?? new Date().toISOString();
+  if (!rootDir || !manifestPath || !approvalsPath || !trustPath
+      || args.some((item, index) => item.startsWith("--") && !["--artifact-root","--manifest","--approvals","--trust-root","--as-of"].includes(item))
+      || args.length < 8 || args.length > 10) {
+    console.error("Usage: node scripts/verify-production-owner-approval-bundle.mjs --artifact-root <protected-directory> --manifest <relative-manifest.json> --approvals <relative-approvals.json> --trust-root <relative-trust-root.json> [--as-of <ISO-8601>]");
+    process.exitCode = 2;
+  } else {
+    try {
+      const result = verifyProductionOwnerApprovalBundle({ rootDir, manifestPath, approvalsPath, trustPath, asOf });
+      console.log("Cryptographic Production owner approval and evidence verification PASS:", JSON.stringify(result));
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : "Production approval bundle verification failed");
+      process.exitCode = 1;
+    }
+  }
 }
