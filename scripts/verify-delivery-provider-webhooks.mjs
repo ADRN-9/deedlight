@@ -606,6 +606,8 @@ for (const value of [
   "Case pagination accepted a partial cursor.",
   "History pagination accepted a partial cursor.",
   "Latest reopening was hidden after a case was subsequently resolved.",
+  "test.c356_resolved_case_id",
+  "current_setting('test.c356_resolved_case_id')",
 ]) assert(databaseTests.toLowerCase().includes(value.toLowerCase()), "Missing Cycle 356 pagination/privacy regression: " + value);
 for (const value of [
   "grant execute on function public.record_delivery_provider_lifecycle_event",

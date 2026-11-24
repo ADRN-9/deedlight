@@ -1572,6 +1572,11 @@ select set_config('test.c356_evidence_count', (
   select count(*)::text from public.delivery_provider_integrity_conflict_evidence
   where conflict_id=current_setting('test.c356_case_id')::bigint
 ), false);
+select set_config('test.c356_resolved_case_id', (
+  select conflict_id::text from public.delivery_provider_integrity_cases
+  where recipient_email='c356-reopened-resolved@example.test'
+    and anomaly_type='duplicate_event_id_conflict'
+), false);
 select set_config('test.c356_history_count', (
   select count(*)::text from public.delivery_provider_integrity_conflict_history
   where conflict_id=current_setting('test.c356_case_id')::bigint
@@ -1620,10 +1625,7 @@ begin
     raise exception 'Direct administrator case retrieval did not return accurate counts and latest reopening.';
   end if;
 
-  select conflict_id into v_resolved_case_id
-  from public.delivery_provider_integrity_cases
-  where recipient_email='c356-reopened-resolved@example.test'
-    and anomaly_type='duplicate_event_id_conflict';
+  v_resolved_case_id := current_setting('test.c356_resolved_case_id')::bigint;
   v_resolved_detail := public.admin_get_delivery_provider_integrity_conflict(v_resolved_case_id);
   if v_resolved_detail->>'state' <> 'resolved'
     or v_resolved_detail->'latest_reopened'->>'note' <> 'Cycle 356 reopening remains visible after resolution.' then
