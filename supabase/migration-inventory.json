@@ -1,0 +1,253 @@
+{
+  "schemaVersion": 1,
+  "expectedMigrationCount": 39,
+  "expectedUniqueVersionCount": 38,
+  "intentionalDuplicateVersionGroups": {
+    "202607260007": [
+      "202607260007_sprint6_daily_deedlight.sql",
+      "202607260007_sprint7_pwa_daily_engagement.sql"
+    ]
+  },
+  "migrations": [
+    {
+      "path": "supabase/migrations/202607210001_initial_schema.sql",
+      "version": "202607210001",
+      "blobSha1": "a244ab0df3e766b0f36e29a222b3160f9f74c502",
+      "byteLength": 13648
+    },
+    {
+      "path": "supabase/migrations/202607210002_rls_policies.sql",
+      "version": "202607210002",
+      "blobSha1": "f96b482c0d1cf396baae5b91d7c96112f7e88284",
+      "byteLength": 5885
+    },
+    {
+      "path": "supabase/migrations/202607220003_sprint3_offerings_review.sql",
+      "version": "202607220003",
+      "blobSha1": "74e02f2e60b82cf07a6aac5f8cf57dcdb6fe1382",
+      "byteLength": 1064
+    },
+    {
+      "path": "supabase/migrations/202607260004_sprint4_reactions.sql",
+      "version": "202607260004",
+      "blobSha1": "c25dce46ecf69d082fcdbea2bb931b6acd9180fc",
+      "byteLength": 4983
+    },
+    {
+      "path": "supabase/migrations/202607260005_sprint5_moderation.sql",
+      "version": "202607260005",
+      "blobSha1": "b48b4b8b3eea9fb55b68068011fa1371559228c2",
+      "byteLength": 5775
+    },
+    {
+      "path": "supabase/migrations/202607260006_sprint5_admin_edit_hide_hotfix.sql",
+      "version": "202607260006",
+      "blobSha1": "9e163de5119c3813724341b7a9eabeba6fdc2970",
+      "byteLength": 2008
+    },
+    {
+      "path": "supabase/migrations/202607260007_sprint6_daily_deedlight.sql",
+      "version": "202607260007",
+      "blobSha1": "e0c2379255003b8c7bc85a1fab781e23051f5e47",
+      "byteLength": 9545
+    },
+    {
+      "path": "supabase/migrations/202607260007_sprint7_pwa_daily_engagement.sql",
+      "version": "202607260007",
+      "blobSha1": "8b051cfce05ea75b1ee7a726864e2ad760f6fe5f",
+      "byteLength": 6279
+    },
+    {
+      "path": "supabase/migrations/202607270008_sprint8_short_video_studio.sql",
+      "version": "202607270008",
+      "blobSha1": "5b583bd99562e14db554943d034c748ce302f5ee",
+      "byteLength": 1890
+    },
+    {
+      "path": "supabase/migrations/202608060009_sprint9_profiles_privacy.sql",
+      "version": "202608060009",
+      "blobSha1": "6594ce6daa0183944fcc548885d6514e8adb9436",
+      "byteLength": 6031
+    },
+    {
+      "path": "supabase/migrations/202608100010_sprint9_2_community_identity_consistency.sql",
+      "version": "202608100010",
+      "blobSha1": "774708b7705d88a5a1e0da97e72a9d1b47c8884c",
+      "byteLength": 3294
+    },
+    {
+      "path": "supabase/migrations/202608100011_sprint9_3_moderation_aware_members.sql",
+      "version": "202608100011",
+      "blobSha1": "1d1b7b844b88077351d2658af4be2b2db92eda97",
+      "byteLength": 12225
+    },
+    {
+      "path": "supabase/migrations/202608110012_sprint10_1_daily_deed_completion.sql",
+      "version": "202608110012",
+      "blobSha1": "0973f72e39ce07b41e053a20f1b781c394578877",
+      "byteLength": 4462
+    },
+    {
+      "path": "supabase/migrations/202608110013_sprint10_2_saved_lights_gentle_rhythm.sql",
+      "version": "202608110013",
+      "blobSha1": "5fd2f4a796a8a1dfd6237ccf36d1ab62c1dc1714",
+      "byteLength": 2769
+    },
+    {
+      "path": "supabase/migrations/202608120014_sprint10_3_gentle_reminder_preferences.sql",
+      "version": "202608120014",
+      "blobSha1": "2af1a6a2aa5cffc6ef6d08849b6f71fab44a54d0",
+      "byteLength": 2523
+    },
+    {
+      "path": "supabase/migrations/202608130015_sprint11_2_weekly_goodness.sql",
+      "version": "202608130015",
+      "blobSha1": "394c774032d8206c0b7a373640859c2a331667a9",
+      "byteLength": 8089
+    },
+    {
+      "path": "supabase/migrations/202608130016_sprint11_3_invitations_newsletter_foundation.sql",
+      "version": "202608130016",
+      "blobSha1": "8d68ed19859e1a820af52a43c110a38b6a460d48",
+      "byteLength": 12951
+    },
+    {
+      "path": "supabase/migrations/202608130017_sprint12_1_offering_ownership_engagement.sql",
+      "version": "202608130017",
+      "blobSha1": "bc23b12fe454c1f49b096fd2c7199e3a2aea5bb4",
+      "byteLength": 11901
+    },
+    {
+      "path": "supabase/migrations/202608140018_sprint12_1_owner_removal_guard_hotfix.sql",
+      "version": "202608140018",
+      "blobSha1": "0ea7eaf04d5c99e4c5a25893aae7694affdd44bc",
+      "byteLength": 2780
+    },
+    {
+      "path": "supabase/migrations/202609230019_sprint12_2_gentle_delivery_foundation.sql",
+      "version": "202609230019",
+      "blobSha1": "1403b9324e786a2b724176875a70ffce92961d9b",
+      "byteLength": 15845
+    },
+    {
+      "path": "supabase/migrations/202609230020_delivery_reliability_hardening.sql",
+      "version": "202609230020",
+      "blobSha1": "554615da3d15fc4c0d395691103d3be5676856fa",
+      "byteLength": 13642
+    },
+    {
+      "path": "supabase/migrations/202609230021_gentle_delivery_transport.sql",
+      "version": "202609230021",
+      "blobSha1": "e50a06bd3a5ed386c54e789435c64b2bb4a54ab9",
+      "byteLength": 3417
+    },
+    {
+      "path": "supabase/migrations/202609240022_auth_pgcrypto_schema_qualification.sql",
+      "version": "202609240022",
+      "blobSha1": "f42afb3474f80c7d95cf5b47023b82cf5a948d4d",
+      "byteLength": 1214
+    },
+    {
+      "path": "supabase/migrations/202611120023_delivery_consent_linearization.sql",
+      "version": "202611120023",
+      "blobSha1": "75f5086feab2cbda381066cb9094390190c3332f",
+      "byteLength": 9411
+    },
+    {
+      "path": "supabase/migrations/202611120024_delivery_identity_lease_capacity.sql",
+      "version": "202611120024",
+      "blobSha1": "240271fd75081c062627cfc3d40bdc0c5feda049",
+      "byteLength": 12329
+    },
+    {
+      "path": "supabase/migrations/202611190025_delivery_provider_webhooks.sql",
+      "version": "202611190025",
+      "blobSha1": "e97c5c0ad645dfe43f11a88f01b030fa23dd5822",
+      "byteLength": 17132
+    },
+    {
+      "path": "supabase/migrations/202611190026_delivery_provider_lifecycle.sql",
+      "version": "202611190026",
+      "blobSha1": "6a06d780ad65babf2293a2746c68913758313af8",
+      "byteLength": 13857
+    },
+    {
+      "path": "supabase/migrations/202611200027_delivery_provider_integrity.sql",
+      "version": "202611200027",
+      "blobSha1": "a1469938ea13b5cb9d7cd883772bc60e4a058026",
+      "byteLength": 20879
+    },
+    {
+      "path": "supabase/migrations/202611210028_delivery_claim_lock_expiry.sql",
+      "version": "202611210028",
+      "blobSha1": "09d1927fba81d711bb37d214609931d2da2173a1",
+      "byteLength": 9643
+    },
+    {
+      "path": "supabase/migrations/202611210029_delivery_legacy_replay_guard.sql",
+      "version": "202611210029",
+      "blobSha1": "872fc49ec47e49b17e96ecf6ccaf5c8eb0e6322a",
+      "byteLength": 7476
+    },
+    {
+      "path": "supabase/migrations/202611210030_delivery_idempotency_receipt_guard.sql",
+      "version": "202611210030",
+      "blobSha1": "c5e3955c4e0dde708a8ffdc9c420807c4241fa32",
+      "byteLength": 12214
+    },
+    {
+      "path": "supabase/migrations/202611220031_delivery_final_recipient_suppression_gate.sql",
+      "version": "202611220031",
+      "blobSha1": "26d69a0a4e73bc7cfd05814f3f6129bc199da02b",
+      "byteLength": 6477
+    },
+    {
+      "path": "supabase/migrations/202611220032_resend_suppression_list_sync.sql",
+      "version": "202611220032",
+      "blobSha1": "6a0c0193d85ece99335f8715a65243ac42617f97",
+      "byteLength": 14118
+    },
+    {
+      "path": "supabase/migrations/202611220033_delivery_cross_stream_suppression_order.sql",
+      "version": "202611220033",
+      "blobSha1": "1cd0c2db5415a37b9a31ed8ef7de54db9019a88f",
+      "byteLength": 4647
+    },
+    {
+      "path": "supabase/migrations/202611230034_delivery_suppression_timestamp_order.sql",
+      "version": "202611230034",
+      "blobSha1": "4ec8aa578ad851918f4c4b2535c476b4ceb40f1d",
+      "byteLength": 11255
+    },
+    {
+      "path": "supabase/migrations/202611230035_private_offering_base_table_rls.sql",
+      "version": "202611230035",
+      "blobSha1": "3d0ce8dfd4abb88fccccd23c5ffb9c35f699c098",
+      "byteLength": 564
+    },
+    {
+      "path": "supabase/migrations/202611230036_private_daily_reflection_admin_isolation.sql",
+      "version": "202611230036",
+      "blobSha1": "61a1fbf48b4557873ba6016e74fd3995bc62ba14",
+      "byteLength": 2042
+    },
+    {
+      "path": "supabase/migrations/202611240037_delivery_provider_integrity_conflict_evidence.sql",
+      "version": "202611240037",
+      "blobSha1": "ac0449b50a881e3a895ef40a8eee28bea95a6ec0",
+      "byteLength": 44182
+    },
+    {
+      "path": "supabase/migrations/202611240038_delivery_provider_integrity_lock_order_pagination.sql",
+      "version": "202611240038",
+      "blobSha1": "38951751fc5abeb79b75c4e37e55da01262a18b8",
+      "byteLength": 43748
+    }
+  ],
+  "bootstrapSeed": {
+    "path": "supabase/seed.sql",
+    "blobSha1": "e85554aed1553dec407e83966a1b0093f5d1e9a3",
+    "byteLength": 2574,
+    "expectedUpsertCount": 3
+  }
+}
