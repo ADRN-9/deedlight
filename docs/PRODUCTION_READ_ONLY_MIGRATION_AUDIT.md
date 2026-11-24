@@ -1089,3 +1089,57 @@ Expected-owner enforcement bound to Production identities, any Production role c
 4. Continue repository-only test/review work that does not require guessing Production owners.
 5. Obtain an authorized least-privilege Production DBA connection or complete signed-off Query 8A/8B evidence, then independently verify provenance, completeness and approvals before any expected-owner enforcement implementation.
 6. Maintain Production NO-GO. Do not deploy, merge, run Production SQL, or modify migration 038 as part of this handoff.
+
+
+---
+
+## Cycle 382 — access recheck and manifest-validator readiness
+
+**Verification date:** 2026-11-24  
+**Repository branch:** `security/private-daily-journey-admin-isolation-c408`  
+**Production target:** `xaipiovflxomcbfwtwmu`  
+**Disposition:** Production ownership evidence BLOCKED; repository-only manifest validation mechanics added.
+
+### 1. Supabase access investigation
+
+Both Supabase account connections were rechecked using organization listing, project listing and exact Production project metadata lookup.
+
+- Neither connection's organization membership result includes the organization owning DeedLight Production project `xaipiovflxomcbfwtwmu`.
+- Neither project listing includes `xaipiovflxomcbfwtwmu`.
+- Direct `get_project` lookup for that exact project reference returns `MCP error -32600: You do not have permission to perform this action` on both connections.
+- The visible projects on these connections are not the DeedLight Production target. Their existence does not confer access to this target.
+- No authorized read-only database session or Production SQL execution capability was established.
+
+**Precise missing authorization:** a human-controlled DeedLight Production organization/project administrator or DBA must grant the designated evidence collector access to the correct Supabase organization/project and provide an explicitly authorized least-privilege read-only PostgreSQL connection capable of reading the required system catalog metadata. The current connected principals lack organization/project visibility and the project metadata permission. No credential, role elevation, service-role key, or database password was supplied or inferred.
+
+The DBA authorization must specify the exact project reference, named collector, read-only scope, allowed catalog/query scope, time window, and evidence-retention destination. The database role must be able to inspect the function catalog and all owner-role and membership metadata needed by Query 8A/8B without permitting DDL, role mutation, grants/revokes, application data access, or writes. If ordinary project metadata membership is not sufficient for complete catalog visibility, the DBA must provide a separately controlled read-only database identity with the necessary catalog visibility. Do not attempt to work around the permission denial.
+
+### 2. Exact outstanding Query 8A/8B evidence
+
+**Query 8A — not collected:** the complete, successful result for all 18 exact SECURITY DEFINER identity signatures, including resolved catalog signature, function OID, owner role name/OID, SECURITY DEFINER state, role attribute tuple, and relevant function configuration. It must prove all 18 are present and uniquely resolved.
+
+**Query 8B — not collected:** complete direct and transitive membership paths for every distinct owner returned by Query 8A, with exact edge INHERIT and SET options, effective MEMBER/USAGE/SET semantics, and relevant attributes for every reachable role. The output must be complete and untruncated and reconcile to every distinct Query 8A owner. A zero-row result is valid only when the query succeeds, all owners were included, completeness is attested, and the DBA/security approvers explicitly approve each empty owner graph.
+
+**Required provenance and approvals:** exact Production project identity attestation; query text/version and SHA-256; collection timestamp with timezone; collector and DBA identities; raw result SHA-256; immutable protected evidence references; row counts and truncation/completeness attestation; complete distinct-owner reconciliation; and explicit DBA plus independent security approval for every function-to-owner mapping, every owner attribute tuple, and every owner's full membership graph. Query outputs and approvals must remain in the approved protected evidence store, not ordinary repository files or chat.
+
+### 3. Executable manifest validation mechanics
+
+Cycle 382 added:
+
+- `scripts/verify-production-function-owner-manifest.mjs`
+- `scripts/test-production-function-owner-manifest.mjs`
+- A fixture-only test step in `.github/workflows/pr-validation.yml`.
+
+The validator requires exact coverage of the 18 audited signatures, complete evidence metadata, distinct-owner reconciliation, explicit owner attributes, complete membership paths/edge options/effective privilege values, and independent DBA/security approval records bound to the exact project, Query 8A/8B hashes, and exact policy-value digests. It rejects missing/partial/duplicate/extra mappings and unknown membership graphs. It does not auto-discover or adopt live owners.
+
+The fixture tests use clearly synthetic fixture identities solely to test mechanics. No Production owner manifest or approval document is checked in. The validator is a structural completeness and policy-value binding gate only: it does not authenticate human signatures, retrieve/re-hash protected external artifacts, or compare live Production catalogs. Those limitations are documented in the technical design and must be resolved by protected-evidence custody and a later separately reviewed read-only catalog verifier. Passing fixture tests is not Production ownership evidence.
+
+### 4. Cycle 383 handoff
+
+1. Verify exact-head CI for the validator/test/workflow commits; record all nine job results and exact SHA.
+2. Review the validator and negative fixture coverage, including its structural-only trust boundary.
+3. Obtain explicit human DBA authorization for the exact project and named read-only evidence collector; provision least-privilege catalog access through the owning organization/project administrator.
+4. Collect Query 8A and Query 8B from the verified Production target only after authorization. Preserve raw outputs, query hashes, timestamps, provenance and immutable references.
+5. Reconcile every distinct owner and membership path and obtain explicit DBA/security approvals before populating any Production manifest.
+6. Keep migration 038 unchanged; keep PR #22 OPEN / DRAFT / UNMERGED and stacked on PR #10. No retarget, merge, Production SQL mutation, deployment or rollout.
+7. Production ownership enforcement and release remain NO-GO until evidence, approvals, independent review and all applicable release gates pass.
