@@ -36,6 +36,26 @@ reset role;
 \ir ../supabase/migrations/202611220032_resend_suppression_list_sync.sql
 \ir ../supabase/migrations/202611220033_delivery_cross_stream_suppression_order.sql
 \ir ../supabase/migrations/202611230034_delivery_suppression_timestamp_order.sql
+-- The isolated webhook fixture has only the member profile fields needed by
+-- the delivery tests. Add the real admin contract used by migration 037.
+alter table public.profiles
+  add column role text not null default 'member';
+
+create or replace function public.is_admin()
+returns boolean
+language sql
+security definer
+set search_path = public
+as $is_admin_fixture$
+  select exists (
+    select 1 from public.profiles
+    where user_id = auth.uid()
+      and role = 'admin'
+      and is_suspended = false
+  );
+$is_admin_fixture$;
+grant execute on function public.is_admin() to anon, authenticated;
+
 -- Seed one pre-037 anomaly so the migration backfill is exercised.
 set role service_role;
 do $c353_legacy_backfill$

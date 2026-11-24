@@ -289,19 +289,25 @@ begin
       where event_id='evt_sup_equal_time_remove'
         and related_event_id='evt_sup_equal_time_add'
         and anomaly_type='suppression_event_timestamp_conflict'
-    )
-    or not exists (
-      select 1 from public.delivery_provider_integrity_cases
-      where recipient_email='suppression-equal-time@example.test'
-        and anomaly_type='suppression_event_timestamp_conflict'
-        and state='open'
-    )
-    or not exists (
-      select 1 from public.delivery_provider_integrity_conflict_evidence
-      where event_id='evt_sup_equal_time_remove'
-        and payload_fingerprint=repeat('d',64)
     ) then
-    raise exception 'Equal-time contradictory suppression events did not preserve fail-closed state and durable evidence.';
+    raise exception 'Equal-time contradictory suppression events did not fail closed.';
+  end if;
+
+  if to_regclass('public.delivery_provider_integrity_cases') is not null
+    and (
+      not exists (
+        select 1 from public.delivery_provider_integrity_cases
+        where recipient_email='suppression-equal-time@example.test'
+          and anomaly_type='suppression_event_timestamp_conflict'
+          and state='open'
+      )
+      or not exists (
+        select 1 from public.delivery_provider_integrity_conflict_evidence
+        where event_id='evt_sup_equal_time_remove'
+          and payload_fingerprint=repeat('d',64)
+      )
+    ) then
+    raise exception 'Equal-time suppression conflict evidence was not preserved.';
   end if;
 end;
 $out_of_order_assert$;
@@ -309,7 +315,10 @@ $out_of_order_assert$;
 -- A suppression ID is permanently bound to one normalized recipient.
 set role service_role;
 do $cross_recipient$
-declare v_result boolean;
+declare
+  v_result boolean;
+  v_has_037 boolean := to_regclass('public.delivery_provider_integrity_cases') is not null;
+  v_rejected boolean := false;
 begin
   perform public.record_delivery_provider_suppression_event(
     'evt_sup_cross_recipient_first','suppression.added','sup_cross_recipient',
@@ -317,14 +326,28 @@ begin
     '2026-11-22T16:00:00Z','2026-11-22T16:01:00Z',repeat('e',64)
   );
 
-  v_result := public.record_delivery_provider_suppression_event(
-    'evt_sup_cross_recipient_second','suppression.removed','sup_cross_recipient',
-    'suppression-second@example.test','manual',null,
-    '2026-11-22T16:00:00Z','2026-11-22T16:02:00Z',repeat('f',64)
-  );
-
-  if v_result is not null then
-    raise exception 'Cross-recipient suppression ID reuse was not rejected as a retryable conflict.';
+  if v_has_037 then
+    v_result := public.record_delivery_provider_suppression_event(
+      'evt_sup_cross_recipient_second','suppression.removed','sup_cross_recipient',
+      'suppression-second@example.test','manual',null,
+      '2026-11-22T16:00:00Z','2026-11-22T16:02:00Z',repeat('f',64)
+    );
+    if v_result is not null then
+      raise exception 'Cross-recipient suppression ID reuse was accepted.';
+    end if;
+  else
+    begin
+      perform public.record_delivery_provider_suppression_event(
+        'evt_sup_cross_recipient_second','suppression.removed','sup_cross_recipient',
+        'suppression-second@example.test','manual',null,
+        '2026-11-22T16:00:00Z','2026-11-22T16:02:00Z',repeat('f',64)
+      );
+    exception when sqlstate '22023' then
+      v_rejected := true;
+    end;
+    if not v_rejected then
+      raise exception 'Cross-recipient suppression ID reuse was accepted.';
+    end if;
   end if;
 end;
 $cross_recipient$;
@@ -343,21 +366,27 @@ begin
       where recipient_email='suppression-second@example.test'
     )
     or (select is_active from public.delivery_provider_suppression_state
-        where recipient_email='suppression-first@example.test') is not true
-    or not exists (
-      select 1 from public.delivery_provider_integrity_cases
-      where recipient_email='suppression-second@example.test'
-        and anomaly_type='provider_suppression_recipient_conflict'
-        and state='open'
-    )
-    or not exists (
-      select 1 from public.delivery_provider_integrity_conflict_evidence
-      where event_id='evt_sup_cross_recipient_second'
-        and recipient_email='suppression-second@example.test'
-        and stored_event_id='evt_sup_cross_recipient_first'
-        and payload_fingerprint=repeat('f',64)
+        where recipient_email='suppression-first@example.test') is not true then
+    raise exception 'Cross-recipient suppression ID conflict mutated event history or state.';
+  end if;
+
+  if to_regclass('public.delivery_provider_integrity_cases') is not null
+    and (
+      not exists (
+        select 1 from public.delivery_provider_integrity_cases
+        where recipient_email='suppression-second@example.test'
+          and anomaly_type='provider_suppression_recipient_conflict'
+          and state='open'
+      )
+      or not exists (
+        select 1 from public.delivery_provider_integrity_conflict_evidence
+        where event_id='evt_sup_cross_recipient_second'
+          and recipient_email='suppression-second@example.test'
+          and stored_event_id='evt_sup_cross_recipient_first'
+          and payload_fingerprint=repeat('f',64)
+      )
     ) then
-    raise exception 'Cross-recipient suppression conflict mutated state or failed to preserve recipient-scoped evidence.';
+    raise exception 'Cross-recipient suppression conflict evidence was not preserved.';
   end if;
 end;
 $cross_recipient_assert$;

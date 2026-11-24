@@ -156,7 +156,8 @@ collision_case="$(psql_scalar "select count(*) from public.delivery_provider_int
 collision_evidence="$(psql_scalar "select count(*) from public.delivery_provider_integrity_conflict_evidence where event_id='evt_cross_recipient_second' and stored_event_id='evt_cross_recipient_first' and payload_fingerprint=repeat('d',64)")"
 [[ "$collision_case" == "1" ]]
 [[ "$collision_evidence" == "1" ]]
-echo "Concurrent cross-recipient provider email ID conflict evidence: PASS"
+# Provider email correlation does not match: migration 037 records this retryable conflict.
+echo "Concurrent cross-recipient provider email ID collision with durable evidence: PASS"
 
 # A replay of a pre-027 row with no fingerprint remains a no-op under concurrency.
 "${psql_cmd[@]}" >"$tmp/historical-first.log" 2>&1 <<'SQL' &
@@ -546,7 +547,7 @@ suppression_cross_case="$(psql_scalar "select count(*) from public.delivery_prov
 suppression_cross_evidence="$(psql_scalar "select count(*) from public.delivery_provider_integrity_conflict_evidence where event_id='evt_concurrent_suppression_cross_second' and stored_event_id='evt_concurrent_suppression_cross_first' and payload_fingerprint=repeat('e',64)")"
 [[ "$suppression_cross_case" == "1" ]]
 [[ "$suppression_cross_evidence" == "1" ]]
-echo "Concurrent cross-recipient suppression ID conflict evidence: PASS"
+echo "Concurrent cross-recipient suppression ID collision: PASS (durable evidence retained)"
 [[ "$suppression_cross_first" == "1" ]]
 [[ "$suppression_cross_second" == "0" ]]
 echo "Concurrent cross-recipient suppression ID collision: PASS"
