@@ -49,3 +49,9 @@ The PostgreSQL behavior run does not establish Production ownership, migration a
 ## Cycle 374 validation extension
 
 The executable suite now tests PostgreSQL's actual session role-switch behavior, not only the Query 8B `pg_has_role(..., 'SET')` result: a permitted `SET ROLE` succeeds, the same operation fails with permission denied when the membership's SET option is false, and it succeeds again after the option is restored. These checks execute in isolated psql sessions as the synthetic owner role after switching away from the superuser session identity.
+
+## Validation finding and correction
+
+The first Cycle 374 exact-head PostgreSQL 16 run (workflow 45482525878) exposed a real fixture syntax defect before any catalog assertions: the PL/pgSQL function body used a single-dollar delimiter instead of PostgreSQL's required paired `$$` delimiter. The job failed at the first synthetic function creation; this was not a query or Production finding.
+
+The fixture was corrected to use paired `$$` delimiters. The failed run is retained as evidence and is not represented as a pass. A fresh exact-head CI run is required to validate the correction and the subsequent assertions.
