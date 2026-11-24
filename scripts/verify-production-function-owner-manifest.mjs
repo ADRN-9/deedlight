@@ -142,6 +142,7 @@ export function validateProductionOwnerManifest(manifest, approvalsDocument, exp
   if (manifest.evidence.query8b.ownersReconciled !== true) fail("Query 8B must explicitly reconcile every distinct Query 8A owner");
   const q8aHash = manifest.evidence.query8a.sha256;
   const q8bHash = manifest.evidence.query8b.sha256;
+  if (!Array.isArray(approvalsDocument.approvals)) fail("approvals must be an explicit array");
 
   if (!Array.isArray(manifest.functions) || manifest.functions.length !== EXPECTED_SIGNATURES.length) {
     fail("manifest must contain exactly 18 function mappings");
