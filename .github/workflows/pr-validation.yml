@@ -307,7 +307,7 @@ jobs:
     timeout-minutes: 10
     services:
       postgres:
-        image: postgres:16
+        image: postgres:16.16
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: deedlight_migration_order_test
@@ -320,6 +320,7 @@ jobs:
           --health-retries 10
     env:
       PGPASSWORD: postgres
+      DELIVERY_ENABLED: "false"
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -333,6 +334,9 @@ jobs:
           test -z "${SUPABASE_PROJECT_REF:-}"
           test -z "${SUPABASE_DB_PASSWORD:-}"
           test -z "${RESEND_API_KEY:-}"
+
+      - name: Reject remote PostgreSQL and libpq connection overrides
+        run: bash scripts/test-duplicate-migration-007-safety.sh
 
       - name: Install PostgreSQL client
         run: |
@@ -348,6 +352,8 @@ jobs:
           version: 3.2.0
 
       - name: Verify duplicate 007 order and CLI migration semantics
+        env:
+          POSTGRES_SERVICE_CONTAINER_ID: ${{ job.services.postgres.id }}
         run: bash scripts/test-duplicate-migration-007.sh
 
   delivery_provider_webhook_database_behavior:

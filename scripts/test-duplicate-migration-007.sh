@@ -8,50 +8,175 @@ readonly S7="$MIGRATIONS/202607260007_sprint7_pwa_daily_engagement.sql"
 readonly S8="$MIGRATIONS/202607270008_sprint8_short_video_studio.sql"
 readonly M12="$MIGRATIONS/202608110012_sprint10_1_daily_deed_completion.sql"
 readonly M13="$MIGRATIONS/202608110013_sprint10_2_saved_lights_gentle_rhythm.sql"
-readonly TMP="$(mktemp -d)"
-readonly PGHOST="${PGHOST:-127.0.0.1}"
-readonly PGPORT="${PGPORT:-5432}"
-readonly PGUSER="${PGUSER:-postgres}"
-export PGPASSWORD="${PGPASSWORD:-postgres}"
 
+die() {
+  printf 'ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+assert_ci_context() {
+  [[ "${GITHUB_ACTIONS:-}" == "true" ]] || die "This destructive migration fixture is restricted to GitHub Actions."
+  [[ "${GITHUB_REPOSITORY:-}" == "ADRN-9/deedlight" ]] || die "Unexpected GitHub repository for migration fixture."
+  [[ "${GITHUB_JOB:-}" == "delivery_migration_order_database_behavior" ]] || die "Unexpected GitHub job for migration fixture."
+  case "${GITHUB_EVENT_NAME:-}" in
+    push|pull_request) ;;
+    *) die "Unsupported GitHub event for migration fixture." ;;
+  esac
+  [[ "${DELIVERY_ENABLED:-}" == "false" ]] || die "Delivery must remain disabled during migration fixture execution."
+}
+
+validate_libpq_environment() {
+  local name
+  while IFS= read -r name; do
+    case "$name" in
+      PGHOST)
+        [[ "${!name}" == "127.0.0.1" ]] || die "Refusing PostgreSQL target: PGHOST must be exactly 127.0.0.1."
+        ;;
+      PGPORT)
+        [[ "${!name}" == "5432" ]] || die "Refusing PostgreSQL target: PGPORT must be exactly 5432."
+        ;;
+      PGUSER)
+        [[ "${!name}" == "postgres" ]] || die "Refusing PostgreSQL target: PGUSER must be exactly postgres."
+        ;;
+      PGPASSWORD)
+        [[ "${!name}" == "postgres" ]] || die "Refusing PostgreSQL target: unexpected PGPASSWORD value."
+        ;;
+      PG*)
+        die "Refusing unsupported libpq connection override: $name."
+        ;;
+    esac
+  done < <(compgen -e | LC_ALL=C sort)
+}
+
+assert_no_privileged_configuration() {
+  local name
+  for name in \
+    CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID \
+    DATABASE_URL RESEND_API_KEY RESEND_WEBHOOK_SECRET DELIVERY_FROM_EMAIL \
+    SUPABASE_ACCESS_TOKEN SUPABASE_DB_PASSWORD SUPABASE_DB_URL \
+    SUPABASE_PROJECT_REF SUPABASE_SERVICE_ROLE_KEY; do
+    [[ -z "${!name:-}" ]] || die "Refusing privileged configuration in migration fixture: $name."
+  done
+}
+
+assert_ci_context
+validate_libpq_environment
+assert_no_privileged_configuration
+
+# Strip accepted environment defaults; every database command supplies its target explicitly.
+unset PGHOST PGPORT PGUSER PGPASSWORD
+readonly DB_HOST="127.0.0.1"
+readonly DB_PORT="5432"
+readonly DB_USER="postgres"
+readonly CONTROL_DB="deedlight_migration_order_test"
+export PGPASSWORD="postgres"
+
+is_ipv4_address() {
+  local address="$1" octet
+  local -a octets
+  [[ "$address" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || return 1
+  IFS='.' read -r -a octets <<< "$address"
+  [[ "${#octets[@]}" -eq 4 ]] || return 1
+  for octet in "${octets[@]}"; do
+    (( 10#$octet <= 255 )) || return 1
+  done
+}
+
+verify_docker_service_container() {
+  local expected_id="${POSTGRES_SERVICE_CONTAINER_ID:-}"
+  local metadata actual_id image running network_count container_ip
+  local inspect_format='{{.Id}}|{{.Config.Image}}|{{.State.Running}}|{{len .NetworkSettings.Networks}}|{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'
+
+  [[ "$expected_id" =~ ^[0-9a-f]{64}$ ]] || die "Refusing PostgreSQL target: missing or malformed GitHub Actions service container ID."
+  if ! metadata="$(docker inspect --type container --format "$inspect_format" "$expected_id" 2>/dev/null)"; then
+    die "Refusing PostgreSQL target: Docker could not inspect the expected PostgreSQL service container."
+  fi
+  [[ -n "$metadata" && "$metadata" != *$'\n'* && "$metadata" != *$'\r'* ]] || die "Refusing PostgreSQL target: Docker returned missing or ambiguous service metadata."
+
+  IFS='|' read -r actual_id image running network_count container_ip <<< "$metadata"
+  [[ "$actual_id" == "$expected_id" ]] || die "Refusing PostgreSQL target: Docker inspected an unexpected service container."
+  [[ "$image" == "postgres:16.16" ]] || die "Refusing PostgreSQL target: expected Docker image postgres:16.16."
+  [[ "$running" == "true" ]] || die "Refusing PostgreSQL target: expected PostgreSQL service container is not running."
+  [[ "$network_count" == "1" ]] || die "Refusing PostgreSQL target: expected exactly one Docker network for the PostgreSQL service container."
+  [[ -n "$container_ip" ]] || die "Refusing PostgreSQL target: Docker service container has no network address."
+  is_ipv4_address "$container_ip" || die "Refusing PostgreSQL target: Docker service container address is missing, ambiguous, or not a valid IPv4 address."
+
+  DOCKER_SERVICE_IP="$container_ip"
+}
+
+verify_postgres_target() {
+  local observed server_addr server_port database username server_version_num server_version expected_server_addr
+  verify_docker_service_container
+  expected_server_addr="$DOCKER_SERVICE_IP"
+  if ! observed="$(psql -X -A -t -F '|' -v ON_ERROR_STOP=1 \
+    --host "$DB_HOST" --port "$DB_PORT" --username "$DB_USER" --dbname "$CONTROL_DB" \
+    --command "select coalesce(host(inet_server_addr()), ''), inet_server_port(), current_database(), current_user, current_setting('server_version_num'), current_setting('server_version')")"; then
+    die "Could not verify the isolated PostgreSQL service before database operations."
+  fi
+
+  IFS='|' read -r server_addr server_port database username server_version_num server_version <<< "$observed"
+  [[ -n "$server_addr" ]] || die "Refusing PostgreSQL target: the server did not report a TCP address."
+  [[ "$server_addr" == "$expected_server_addr" ]] || die "Refusing PostgreSQL target: backend address does not match Docker service container address ($expected_server_addr); PostgreSQL reported ($server_addr)."
+  [[ "$server_port" == "$DB_PORT" ]] || die "Refusing PostgreSQL target: server port is not 5432."
+  [[ "$database" == "$CONTROL_DB" ]] || die "Refusing PostgreSQL target: unexpected control database."
+  [[ "$username" == "$DB_USER" ]] || die "Refusing PostgreSQL target: unexpected database user."
+  [[ "$server_version_num" == "160016" ]] || die "Expected PostgreSQL 16.16 (server_version_num=160016), got ${server_version_num:-unknown}."
+
+  printf 'Verified isolated PostgreSQL target: client=%s:%s/%s user=%s docker_service_addr=%s server_addr=%s server_port=%s PostgreSQL=%s (server_version_num=%s)\n' \
+    "$DB_HOST" "$DB_PORT" "$database" "$username" "$expected_server_addr" "$server_addr" "$server_port" "$server_version" "$server_version_num"
+}
+
+# This read-only identity/version check runs before temp setup, cleanup traps, or any DROP/CREATE.
+verify_postgres_target
+
+cli_version="$(supabase --version 2>&1)"
+echo "Supabase CLI: $cli_version"
+case "$cli_version" in
+  *3.2.0*) ;;
+  *) die "Expected pinned Supabase CLI v3.2.0." ;;
+esac
+
+readonly TMP="$(mktemp -d)"
 readonly DB_S6_S7="deedlight_007_s6_s7"
 readonly DB_S7_S6="deedlight_007_s7_s6"
 readonly DB_DEPS="deedlight_007_dependencies"
 readonly DB_013_FIRST="deedlight_007_013_before_012"
 
 cleanup() {
+  local exit_code=$?
+  local cleanup_failed=0
+  trap - EXIT
   for db in "$DB_S6_S7" "$DB_S7_S6" "$DB_DEPS" "$DB_013_FIRST"; do
-    dropdb --if-exists --host "$PGHOST" --port "$PGPORT" --username "$PGUSER" "$db" >/dev/null 2>&1 || true
+    if ! dropdb --if-exists --host "$DB_HOST" --port "$DB_PORT" --username "$DB_USER" "$db" >/dev/null; then
+      printf 'ERROR: cleanup could not drop isolated fixture database %s\n' "$db" >&2
+      cleanup_failed=1
+    fi
   done
   rm -rf "$TMP"
+  if (( cleanup_failed == 1 && exit_code == 0 )); then
+    exit_code=1
+  fi
+  exit "$exit_code"
 }
 trap cleanup EXIT
-
-for file in "$S6" "$S7" "$S8" "$M12" "$M13"; do
-  test -f "$file" || { echo "Missing migration file: $file" >&2; exit 1; }
-done
-
-cli_version="$(supabase --version 2>&1)"
-echo "Supabase CLI: $cli_version"
-case "$cli_version" in
-  *3.2.0*) ;;
-  *) echo "Expected pinned Supabase CLI v3.2.0." >&2; exit 1 ;;
-esac
 
 psql_db() {
   local db="$1"
   shift
-  psql -X -v ON_ERROR_STOP=1 --host "$PGHOST" --port "$PGPORT" --username "$PGUSER" --dbname "$db" "$@"
+  psql -X -v ON_ERROR_STOP=1 --host "$DB_HOST" --port "$DB_PORT" --username "$DB_USER" --dbname "$db" "$@"
 }
 
 db_url() {
-  printf 'postgresql://%s:%s@%s:%s/%s' "$PGUSER" "$PGPASSWORD" "$PGHOST" "$PGPORT" "$1"
+  printf 'postgresql://%s:%s@%s:%s/%s' "$DB_USER" "$PGPASSWORD" "$DB_HOST" "$DB_PORT" "$1"
 }
 
 reset_db() {
-  local db="$1"
-  dropdb --if-exists --host "$PGHOST" --port "$PGPORT" --username "$PGUSER" "$db" >/dev/null 2>&1 || true
-  createdb --host "$PGHOST" --port "$PGPORT" --username "$PGUSER" "$db"
+  local db="$1" database_owner
+  dropdb --if-exists --host "$DB_HOST" --port "$DB_PORT" --username "$DB_USER" "$db" >/dev/null 2>&1 || true
+  createdb --host "$DB_HOST" --port "$DB_PORT" --username "$DB_USER" --owner "$DB_USER" "$db"
+  database_owner="$(psql_db "$db" -Atqc "select pg_get_userbyid(datdba) from pg_database where datname = current_database()")"
+  [[ "$database_owner" == "$DB_USER" ]] || die "Disposable database $db has unexpected owner ${database_owner:-unknown}; expected $DB_USER."
+  printf 'Disposable database owner verified: database=%s owner=%s\n' "$db" "$database_owner"
   psql_db "$db" <<'SQL'
 create extension if not exists pgcrypto;
 do $roles$
