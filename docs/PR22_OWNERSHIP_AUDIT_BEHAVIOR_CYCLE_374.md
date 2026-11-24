@@ -48,14 +48,33 @@ The PostgreSQL behavior run does not establish Production ownership, migration a
 
 ## Cycle 374 validation extension
 
-The executable suite now tests PostgreSQL's actual session role-switch behavior, not only the Query 8B `pg_has_role(..., 'SET')` result: a permitted `SET ROLE` succeeds, the same operation fails with permission denied when the membership's SET option is false, and it succeeds again after the option is restored. These checks execute in isolated psql sessions as the synthetic owner role after switching away from the superuser session identity.
+The executable suite now tests PostgreSQL's actual session role-switch behavior, not only the Query 8B `pg_has_role(..., 'SET')` result: a permitted `SET ROLE` succeeds, the same operation fails with permission denied when the membership's SET option is false, and it succeeds again after the option is restored. These checks execute in isolated psql sessions authenticated as a synthetic non-superuser LOGIN role, then switch to the synthetic function owner.
 
 ## Validation finding and correction
 
-The first Cycle 374 exact-head PostgreSQL 16 run (workflow 45482525878) exposed a real fixture syntax defect before any catalog assertions: the PL/pgSQL function body used a single-dollar delimiter instead of PostgreSQL's required paired `$$` delimiter. The job failed at the first synthetic function creation; this was not a query or Production finding.
+The first two Cycle 374 PostgreSQL 16 runs (workflows 45482525878 and 45482683052) exposed a fixture syntax defect before any catalog assertions: the PL/pgSQL function body used a single-dollar delimiter instead of PostgreSQL's required paired `$$` delimiter. The job failed at the first synthetic function creation; this was not a query or Production finding.
 
-The fixture was corrected to use paired `$$` delimiters. The failed run is retained as evidence and is not represented as a pass. A fresh exact-head CI run is required to validate the correction and the subsequent assertions.
+The fixture was corrected to use paired `$` delimiters. Both failed runs are retained as evidence and are not represented as passes. A later run also exposed that a superuser session could SET ROLE despite a false membership SET option (workflow 45482926573); the test was corrected to use a non-superuser synthetic LOGIN. The final run validates both corrections.
 
 ## SET ROLE fixture correction
 
 The first attempted SET ROLE negative assertion ran through the PostgreSQL superuser connection. PostgreSQL superusers can bypass ordinary membership SET restrictions, so that test correctly did not fail. The test now creates a disposable LOGIN role with a non-superuser session, grants it SET access to the synthetic function owner, and tests the owner's membership to the target role from that login session. The SET-enabled path must succeed; after the owner-to-target SET option is disabled, the same path must fail with permission denied. The fixture login and memberships are removed during cleanup.
+
+
+## Final exact-head CI evidence
+
+- Final tested commit: `b5441c0c197ed40415c48453b6fc633154a80fa0`.
+- Workflow: [45483125584](https://github.com/ADRN-9/deedlight/actions/runs/45483125584).
+- Overall conclusion: SUCCESS.
+- All nine jobs completed successfully, including `security_definer_ownership_audit_database_behavior` and the general `validate` job.
+- PostgreSQL 16 job log confirms Query 8A exact signatures/ownership/SECURITY DEFINER/role attributes/ACLs PASS; missing-function, missing-owner-role lookup and non-definer negative cases PASS; Query 8B direct/transitive memberships, INHERIT, SET, effective privileges and unexpected membership PASS; membership option mutation, revoke and restoration PASS; final disposable PostgreSQL 16 behavior PASS.
+- General validation job confirms existing security assertions, ESLint, TypeScript, Next.js production build and Cloudflare packaging build PASS.
+- The workflow checked out exactly the final tested commit. No Production secrets were supplied to the ownership job.
+
+## Cycle 375 handoff
+
+1. Preserve PR #22 as OPEN / DRAFT / UNMERGED and retain its current branch ancestry.
+2. Keep Production NO-GO until an authorized DBA supplies read-only Query 8A/8B evidence and approves the 18 per-signature owner mapping and acceptable membership paths.
+3. Have independent security review verify that CI evidence is correctly scoped to synthetic fixtures and does not substitute for Production ownership evidence.
+4. Do not alter migrations 036–038 or historical migration 007 without a separately authorized scope.
+5. Do not deploy, merge, or perform Production ownership changes as part of this handoff.
