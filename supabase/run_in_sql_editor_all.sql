@@ -5365,3 +5365,2733 @@ end;
 $$;
 
 commit;
+-- Delivery consent linearization and starvation-free enqueue.
+-- Migration 023: additive function replacements, no runtime activation.
+begin;
+
+do $$
+begin
+  if to_regclass('public.delivery_ledger') is null
+     or to_regclass('public.daily_reminder_preferences') is null
+     or to_regclass('public.newsletter_preferences') is null
+     or to_regclass('public.profiles') is null
+     or to_regclass('public.weekly_goodness_features') is null
+     or to_regprocedure('public.begin_delivery_transport(uuid,uuid)') is null
+     or to_regprocedure('public.retry_delivery_job(uuid,uuid,timestamp with time zone,text)') is null
+     or not exists (
+       select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'delivery_ledger'
+         and column_name = 'transport_started_at'
+     ) then
+    raise exception 'Migration 023 requires the verified delivery 019-021 baseline.';
+  end if;
+end;
+$$;
+
+-- Eliminate starvation: exclude existing logical jobs BEFORE the limit.
+-- Uniqueness and ON CONFLICT remain the final concurrent-insertion guard.
+create or replace function public.enqueue_due_daily_reminders(
+  p_now timestamptz default now(),
+  p_limit integer default 500
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_inserted integer := 0;
+begin
+  if p_now is null then
+    raise exception 'A scheduler timestamp is required.' using errcode = '22023';
+  end if;
+  if p_limit is null or p_limit < 1 or p_limit > 5000 then
+    raise exception 'p_limit must be between 1 and 5000.' using errcode = '22023';
+  end if;
+
+  with candidates as (
+    select
+      drp.user_id,
+      timezone(drp.timezone, p_now)::date as local_date,
+      (
+        (
+          timezone(drp.timezone, p_now)::date
+          + drp.reminder_time
+        ) at time zone drp.timezone
+      ) as scheduled_for
+    from public.daily_reminder_preferences drp
+    join public.profiles p
+      on p.user_id = drp.user_id
+     and p.is_suspended = false
+    join pg_catalog.pg_timezone_names tz
+      on tz.name = drp.timezone
+    where drp.daily_enabled = true
+  ), due as (
+    select c.*
+    from candidates c
+    where c.scheduled_for <= p_now
+      and not exists (
+        select 1
+        from public.delivery_ledger dl
+        where dl.kind = 'daily_reminder'
+          and dl.user_id = c.user_id
+          and dl.delivery_key = 'daily:' || c.local_date::text
+      )
+    order by c.scheduled_for, c.user_id
+    limit p_limit
+  ), inserted as (
+    insert into public.delivery_ledger (
+      user_id, kind, delivery_key, scheduled_for
+    )
+    select
+      due.user_id,
+      'daily_reminder',
+      'daily:' || due.local_date::text,
+      due.scheduled_for
+    from due
+    on conflict (kind, user_id, delivery_key) do nothing
+    returning 1
+  )
+  select count(*)::integer into v_inserted from inserted;
+
+  return v_inserted;
+end;
+$$;
+
+revoke all privileges
+on function public.enqueue_due_daily_reminders(timestamptz, integer)
+from public, anon, authenticated;
+grant execute
+on function public.enqueue_due_daily_reminders(timestamptz, integer)
+to service_role;
+
+create or replace function public.enqueue_weekly_goodness_delivery(
+  p_week_start date,
+  p_scheduled_for timestamptz default now(),
+  p_limit integer default 5000
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_inserted integer := 0;
+begin
+  if p_week_start is null
+     or extract(isodow from p_week_start) <> 1 then
+    raise exception 'p_week_start must be a Monday.' using errcode = '22023';
+  end if;
+  if p_scheduled_for is null then
+    raise exception 'A scheduled timestamp is required.' using errcode = '22023';
+  end if;
+  if p_limit is null or p_limit < 1 or p_limit > 10000 then
+    raise exception 'p_limit must be between 1 and 10000.' using errcode = '22023';
+  end if;
+  if not exists (
+    select 1 from public.weekly_goodness_features f
+    where f.week_start = p_week_start
+  ) then
+    raise exception 'Weekly Goodness issue has not been explicitly curated.'
+      using errcode = '22023';
+  end if;
+
+  with eligible as (
+    select np.user_id
+    from public.newsletter_preferences np
+    join public.profiles p
+      on p.user_id = np.user_id
+     and p.is_suspended = false
+    join auth.users u
+      on u.id = np.user_id
+     and u.email_confirmed_at is not null
+     and nullif(btrim(u.email), '') is not null
+    where np.weekly_enabled = true
+      and np.consented_at is not null
+      and not exists (
+        select 1 from public.delivery_ledger dl
+        where dl.kind = 'weekly_newsletter'
+          and dl.user_id = np.user_id
+          and dl.delivery_key = 'weekly:' || p_week_start::text
+      )
+    order by np.user_id
+    limit p_limit
+  ), inserted as (
+    insert into public.delivery_ledger (
+      user_id, kind, delivery_key, scheduled_for
+    )
+    select
+      eligible.user_id,
+      'weekly_newsletter',
+      'weekly:' || p_week_start::text,
+      p_scheduled_for
+    from eligible
+    on conflict (kind, user_id, delivery_key) do nothing
+    returning 1
+  )
+  select count(*)::integer into v_inserted from inserted;
+
+  return v_inserted;
+end;
+$$;
+
+revoke all privileges
+on function public.enqueue_weekly_goodness_delivery(date, timestamptz, integer)
+from public, anon, authenticated;
+grant execute
+on function public.enqueue_weekly_goodness_delivery(date, timestamptz, integer)
+to service_role;
+
+-- This RPC is the final authority immediately before external transport.
+-- Under READ COMMITTED, FOR SHARE conflicts with consent/suspension UPDATE;
+-- a revocation committed first is observed after waiting for its row lock.
+-- Once this transaction commits, a later revocation cannot recall in-flight IO.
+create or replace function public.begin_delivery_transport(
+  p_job_id uuid,
+  p_claim_token uuid
+)
+returns timestamptz
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_job public.delivery_ledger%rowtype;
+  v_started_at timestamptz;
+  v_authorized boolean := false;
+begin
+  if p_job_id is null or p_claim_token is null then
+    raise exception 'A job ID and claim token are required.' using errcode = '22023';
+  end if;
+
+  select * into v_job
+  from public.delivery_ledger dl
+  where dl.id = p_job_id
+  for update;
+
+  if not found
+     or v_job.state <> 'claimed'
+     or v_job.claim_token is distinct from p_claim_token
+     or v_job.claim_expires_at is null
+     or v_job.claim_expires_at <= now() then
+    raise exception 'Delivery claim is not authorized.' using errcode = '42501';
+  end if;
+
+  if v_job.kind = 'daily_reminder' then
+    perform 1
+    from public.daily_reminder_preferences drp
+    join public.profiles p
+      on p.user_id = drp.user_id
+     and p.is_suspended = false
+    join pg_catalog.pg_timezone_names tz
+      on tz.name = drp.timezone
+    where drp.user_id = v_job.user_id
+      and drp.daily_enabled = true
+      and v_job.delivery_key =
+        'daily:' || timezone(drp.timezone, v_job.scheduled_for)::date::text
+      and v_job.scheduled_for = (
+        (
+          timezone(drp.timezone, v_job.scheduled_for)::date
+          + drp.reminder_time
+        ) at time zone drp.timezone
+      )
+    for share of drp, p;
+    v_authorized := found;
+  elsif v_job.kind = 'weekly_newsletter' then
+    perform 1
+    from public.newsletter_preferences np
+    join public.profiles p
+      on p.user_id = np.user_id
+     and p.is_suspended = false
+    join auth.users u
+      on u.id = np.user_id
+     and u.email_confirmed_at is not null
+     and nullif(btrim(u.email), '') is not null
+    join public.weekly_goodness_features f
+      on v_job.delivery_key = 'weekly:' || f.week_start::text
+    where np.user_id = v_job.user_id
+      and np.weekly_enabled = true
+      and np.consented_at is not null
+    for share of np, p, u, f;
+    v_authorized := found;
+  else
+    raise exception 'Unsupported delivery kind.' using errcode = '22023';
+  end if;
+
+  if not v_authorized then
+    update public.delivery_ledger
+    set state = 'cancelled',
+        cancelled_at = now(),
+        claim_token = null,
+        claim_expires_at = null,
+        next_attempt_at = null,
+        error_code = 'authorization_revoked',
+        updated_at = now()
+    where id = v_job.id;
+    -- NULL is a deny decision. The worker must never call the provider.
+    return null;
+  end if;
+
+  update public.delivery_ledger
+  set transport_started_at = coalesce(transport_started_at, now()),
+      updated_at = now()
+  where id = v_job.id
+  returning transport_started_at into v_started_at;
+
+  return v_started_at;
+end;
+$$;
+
+revoke all privileges
+on function public.begin_delivery_transport(uuid, uuid)
+from public, anon, authenticated;
+grant execute
+on function public.begin_delivery_transport(uuid, uuid)
+to service_role;
+
+
+-- An auditable, schema-local attestation of the reviewed 023 function contract.
+-- Migration history alone is not evidence that these exact replacements ran.
+comment on function public.enqueue_due_daily_reminders(timestamptz, integer)
+  is 'deedlight:023:daily-exclusion-before-limit:v1';
+comment on function public.enqueue_weekly_goodness_delivery(date, timestamptz, integer)
+  is 'deedlight:023:weekly-exclusion-before-limit:v1';
+comment on function public.begin_delivery_transport(uuid, uuid)
+  is 'deedlight:023:locked-consent-before-transport:v1';
+
+notify pgrst, 'reload schema';
+commit;
+-- Delivery recipient identity, actual lease clock, Weekly capacity (migration 024).
+begin;
+do $$
+begin
+  if to_regprocedure('public.begin_delivery_transport(uuid,uuid)') is null
+    or to_regprocedure('public.enqueue_current_weekly_goodness_if_curated(timestamp with time zone,integer)') is null
+    or to_regclass('public.delivery_ledger') is null
+    or to_regclass('auth.users') is null then
+    raise exception 'Migration 024 requires the reviewed delivery baseline through 023.';
+  end if;
+-- Fail closed unless migration 023's reviewed source-level contracts ran.
+-- The markers are written by 023 itself, independent of CLI migration history.
+  if coalesce(obj_description(
+      to_regprocedure('public.enqueue_due_daily_reminders(timestamptz,integer)'), 'pg_proc'
+    ), '') <> 'deedlight:023:daily-exclusion-before-limit:v1'
+    or coalesce(obj_description(
+      to_regprocedure('public.enqueue_weekly_goodness_delivery(date,timestamptz,integer)'), 'pg_proc'
+    ), '') <> 'deedlight:023:weekly-exclusion-before-limit:v1'
+    or coalesce(obj_description(
+      to_regprocedure('public.begin_delivery_transport(uuid,uuid)'), 'pg_proc'
+    ), '') <> 'deedlight:023:locked-consent-before-transport:v1'
+    or coalesce((
+      select md5(p.prosrc) from pg_catalog.pg_proc p
+      where p.oid = to_regprocedure('public.enqueue_due_daily_reminders(timestamptz,integer)')
+    ), '') <> 'ad0b49bdc5d6ea94bbc2a73fa40985ac'
+    or coalesce((
+      select md5(p.prosrc) from pg_catalog.pg_proc p
+      where p.oid = to_regprocedure('public.enqueue_weekly_goodness_delivery(date,timestamptz,integer)')
+    ), '') <> 'd13eed60e2cf6413d0dd3e0531f5cf77'
+    or coalesce((
+      select md5(p.prosrc) from pg_catalog.pg_proc p
+      where p.oid = to_regprocedure('public.begin_delivery_transport(uuid,uuid)')
+    ), '') <> 'a5f2ba15937ab66bbdd71d3e6d175c2d'
+    or exists (
+      select 1 from pg_catalog.pg_proc p
+      where p.oid in (
+        to_regprocedure('public.enqueue_due_daily_reminders(timestamptz,integer)'),
+        to_regprocedure('public.enqueue_weekly_goodness_delivery(date,timestamptz,integer)'),
+        to_regprocedure('public.begin_delivery_transport(uuid,uuid)')
+      )
+      and (
+        not p.prosecdef
+        or p.provolatile <> 'v'
+        or not (coalesce(p.proconfig, array[]::text[])
+                @> array['search_path=public, auth, pg_temp']::text[])
+        or p.prolang <> (
+          select l.oid from pg_catalog.pg_language l where l.lanname = 'plpgsql'
+        )
+      )
+    )
+  then
+    raise exception 'Migration 024 requires reviewed migration 023 functions and attestation.'
+      using errcode = '55000';
+  end if;
+  if to_regprocedure('public.begin_delivery_transport(uuid,uuid,text)') is not null then
+    raise exception 'Migration 024 recipient-bound RPC is already present.';
+  end if;
+end;
+$$;
+
+-- Identity is compared against the currently confirmed Auth email, locked
+-- with the consent/profile rows. The address is never persisted in the ledger.
+create function public.begin_delivery_transport(
+  p_job_id uuid,
+  p_claim_token uuid,
+  p_expected_email text
+)
+returns timestamptz
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_job public.delivery_ledger%rowtype;
+  v_started_at timestamptz;
+  v_authorized boolean := false;
+begin
+  if p_job_id is null or p_claim_token is null
+    or p_expected_email is null
+    or char_length(p_expected_email) > 320
+    or nullif(btrim(p_expected_email), '') is null then
+    raise exception 'Invalid delivery transport authorization arguments.'
+      using errcode = '22023';
+  end if;
+
+  select * into v_job from public.delivery_ledger dl
+  where dl.id = p_job_id for update;
+
+  if not found or v_job.state <> 'claimed'
+    or v_job.claim_token is distinct from p_claim_token
+    or v_job.claim_expires_at is null
+    or v_job.claim_expires_at <= clock_timestamp() then
+    raise exception 'Delivery claim is not authorized.' using errcode = '42501';
+  end if;
+
+  if v_job.kind = 'daily_reminder' then
+    perform 1 from public.daily_reminder_preferences drp
+    join public.profiles p on p.user_id = drp.user_id and p.is_suspended = false
+    join auth.users u on u.id = drp.user_id
+      and u.email_confirmed_at is not null and btrim(u.email) = p_expected_email
+    join pg_catalog.pg_timezone_names tz on tz.name = drp.timezone
+    where drp.user_id = v_job.user_id
+      and drp.daily_enabled = true
+      and v_job.delivery_key =
+        'daily:' || timezone(drp.timezone, v_job.scheduled_for)::date::text
+      and v_job.scheduled_for = (
+        (timezone(drp.timezone, v_job.scheduled_for)::date
+          + drp.reminder_time) at time zone drp.timezone
+      )
+    for share of drp, p, u;
+    v_authorized := found;
+  elsif v_job.kind = 'weekly_newsletter' then
+    perform 1 from public.newsletter_preferences np
+    join public.profiles p on p.user_id = np.user_id and p.is_suspended = false
+    join auth.users u on u.id = np.user_id
+      and u.email_confirmed_at is not null and btrim(u.email) = p_expected_email
+    join public.weekly_goodness_features f
+      on v_job.delivery_key = 'weekly:' || f.week_start::text
+    where np.user_id = v_job.user_id
+      and np.weekly_enabled = true and np.consented_at is not null
+    for share of np, p, u, f;
+    v_authorized := found;
+  else
+    raise exception 'Unsupported delivery kind.' using errcode = '22023';
+  end if;
+
+  -- now() is transaction-start time; lock waits must use actual wall clock.
+  if v_job.claim_expires_at <= clock_timestamp() then
+    raise exception 'Claim expired during transport authorization.'
+      using errcode = '42501';
+  end if;
+
+  if not v_authorized then
+    update public.delivery_ledger set
+      state = 'cancelled', cancelled_at = clock_timestamp(),
+      claim_token = null, claim_expires_at = null, next_attempt_at = null,
+      error_code = 'authorization_revoked', updated_at = clock_timestamp()
+    where id = v_job.id;
+    return null;
+  end if;
+
+  update public.delivery_ledger set
+    transport_started_at = coalesce(transport_started_at, clock_timestamp()),
+    updated_at = clock_timestamp()
+  where id = v_job.id and state = 'claimed'
+    and claim_token = p_claim_token
+    and claim_expires_at > clock_timestamp()
+  returning transport_started_at into v_started_at;
+
+  if not found then
+    raise exception 'Claim expired during transport authorization.'
+      using errcode = '42501';
+  end if;
+  return v_started_at;
+end;
+$$;
+
+revoke all privileges on function public.begin_delivery_transport(uuid,uuid,text)
+from public, anon, authenticated;
+grant execute on function public.begin_delivery_transport(uuid,uuid,text)
+to service_role;
+-- Old two-argument entry point must not bypass identity authorization.
+drop function public.begin_delivery_transport(uuid,uuid);
+
+-- All weekly enqueue entry points share this per-issue advisory lock.
+-- A distinct logical ledger row counts forever, regardless of state. The
+-- serialized eligible cohort is sampled after acquiring the lock. Late opt-ins
+-- are considered by the next invocation; at capacity they cause a visible
+-- SQLSTATE 54000 error rather than a false successful completion.
+create or replace function public.enqueue_weekly_goodness_delivery(
+  p_week_start date,
+  p_scheduled_for timestamptz default now(),
+  p_limit integer default 5000
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_delivery_key text;
+  v_existing integer;
+  v_room integer;
+  v_candidates uuid[];
+  v_candidate_count integer;
+  v_inserted integer;
+begin
+  if current_setting('transaction_isolation') <> 'read committed' then
+    raise exception 'Weekly scheduling requires READ COMMITTED isolation.'
+      using errcode = '25000';
+  end if;
+  if p_week_start is null or extract(isodow from p_week_start) <> 1
+     or p_scheduled_for is null then
+    raise exception 'A curated Monday and timestamp are required.'
+      using errcode = '22023';
+  end if;
+  if p_limit is null or p_limit < 1 or p_limit > 5000 then
+    raise exception 'Weekly batch limit must be between 1 and 5000.'
+      using errcode = '22023';
+  end if;
+  v_delivery_key := 'weekly:' || p_week_start::text;
+
+  -- Transaction-scoped lock serializes direct and wrapper service-role RPCs.
+  perform pg_catalog.pg_advisory_xact_lock(
+    20261112, p_week_start - date '2000-01-01'
+  );
+  if not exists (
+    select 1 from public.weekly_goodness_features f
+    where f.week_start = p_week_start
+  ) then
+    raise exception 'Weekly Goodness issue has not been explicitly curated.'
+      using errcode = '22023';
+  end if;
+
+  select count(*)::integer into v_existing
+  from public.delivery_ledger dl
+  where dl.kind = 'weekly_newsletter' and dl.delivery_key = v_delivery_key;
+
+  if v_existing > 5000 then
+    raise exception 'Weekly issue already exceeds the 5000-delivery ceiling.'
+      using errcode = '54000', detail = 'deedlight:weekly-issue-capacity:v1';
+  end if;
+  v_room := least(5000 - v_existing, p_limit);
+
+  -- Selection is a single SQL statement/snapshot under the issue lock.
+  -- Never silently enqueue only the first p_limit members.
+  select coalesce(array_agg(c.user_id order by c.user_id), array[]::uuid[])
+    into v_candidates
+  from (
+    select np.user_id
+    from public.newsletter_preferences np
+    join public.profiles p
+      on p.user_id = np.user_id and p.is_suspended = false
+    join auth.users u
+      on u.id = np.user_id
+     and u.email_confirmed_at is not null
+     and nullif(btrim(u.email), '') is not null
+    where np.weekly_enabled = true
+      and np.consented_at is not null
+      and not exists (
+        select 1 from public.delivery_ledger dl
+        where dl.kind = 'weekly_newsletter'
+          and dl.user_id = np.user_id
+          and dl.delivery_key = v_delivery_key
+      )
+    order by np.user_id
+    limit v_room + 1
+  ) c;
+
+  v_candidate_count := cardinality(v_candidates);
+  if v_candidate_count > v_room then
+    raise exception 'Weekly delivery capacity exceeded; no jobs enqueued.'
+      using errcode = '54000', detail = 'deedlight:weekly-issue-capacity:v1';
+  end if;
+  if v_candidate_count = 0 then
+    return 0;
+  end if;
+
+  insert into public.delivery_ledger (
+    user_id, kind, delivery_key, scheduled_for
+  )
+  select candidate.user_id, 'weekly_newsletter', v_delivery_key, p_scheduled_for
+  from unnest(v_candidates) as candidate(user_id)
+  on conflict (kind, user_id, delivery_key) do nothing;
+
+  get diagnostics v_inserted = row_count;
+  if v_inserted <> v_candidate_count then
+    raise exception 'Concurrent weekly ledger write detected; transaction rolled back.'
+      using errcode = '40001';
+  end if;
+  return v_inserted;
+end;
+$$;
+
+revoke all privileges
+on function public.enqueue_weekly_goodness_delivery(date,timestamptz,integer)
+from public, anon, authenticated;
+grant execute
+on function public.enqueue_weekly_goodness_delivery(date,timestamptz,integer)
+to service_role;
+
+-- The public scheduler entry point delegates to the same serialized capacity
+-- policy. An uncurated issue is a harmless no-op; an over-capacity issue fails.
+create or replace function public.enqueue_current_weekly_goodness_if_curated(
+  p_now timestamptz default now(),
+  p_limit integer default 5000
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_week_start date;
+begin
+  if p_now is null then
+    raise exception 'A scheduler timestamp is required.' using errcode = '22023';
+  end if;
+  if p_limit is null or p_limit < 1 or p_limit > 5000 then
+    raise exception 'Weekly batch limit must be between 1 and 5000.'
+      using errcode = '22023';
+  end if;
+  v_week_start := timezone('UTC', p_now)::date
+    - (extract(isodow from timezone('UTC', p_now))::integer - 1);
+
+  if not exists (
+    select 1 from public.weekly_goodness_features f
+    where f.week_start = v_week_start
+  ) then
+    return 0;
+  end if;
+
+  return public.enqueue_weekly_goodness_delivery(
+    v_week_start, p_now, p_limit
+  );
+end;
+$$;
+
+revoke all privileges
+on function public.enqueue_current_weekly_goodness_if_curated(timestamptz,integer)
+from public, anon, authenticated;
+grant execute
+on function public.enqueue_current_weekly_goodness_if_curated(timestamptz,integer)
+to service_role;
+
+notify pgrst, 'reload schema';
+commit;
+-- Resend bounce/complaint intake, replay suppression and transport gate.
+-- Migration 025 is additive and does not activate outbound delivery.
+
+begin;
+
+do $$
+begin
+  if to_regclass('public.delivery_ledger') is null
+    or to_regclass('auth.users') is null
+    or to_regprocedure('public.begin_delivery_transport(uuid,uuid,text)') is null
+    or to_regprocedure('public.enqueue_due_daily_reminders(timestamp with time zone,integer)') is null
+    or to_regprocedure('public.enqueue_weekly_goodness_delivery(date,timestamp with time zone,integer)') is null then
+    raise exception 'Migration 025 requires the reviewed delivery baseline through 024.';
+  end if;
+end;
+$$;
+
+create table public.delivery_provider_events (
+  event_id text primary key
+    check (char_length(event_id) between 1 and 255),
+  event_type text not null
+    check (event_type in ('email.bounced', 'email.complained', 'email.suppressed')),
+  provider_email_id text not null
+    check (char_length(provider_email_id) between 1 and 255),
+  recipient_email text not null
+    check (
+      char_length(recipient_email) between 3 and 320
+      and recipient_email = lower(btrim(recipient_email))
+      and recipient_email !~ '[[:space:][:cntrl:]]'
+      and position('@' in recipient_email) > 1
+    ),
+  bounce_type text
+    check (bounce_type is null or bounce_type in ('Permanent', 'Transient', 'Unknown')),
+  received_at timestamptz not null default clock_timestamp(),
+  constraint delivery_provider_events_bounce_event_type_check
+    check (
+      (event_type = 'email.bounced' and bounce_type is not null)
+      or (event_type <> 'email.bounced' and bounce_type is null)
+    )
+);
+
+create index delivery_provider_events_email_id_idx
+  on public.delivery_provider_events (provider_email_id);
+
+create table public.delivery_provider_suppressions (
+  recipient_email text primary key
+    check (
+      char_length(recipient_email) between 3 and 320
+      and recipient_email = lower(btrim(recipient_email))
+    ),
+  reason text not null
+    check (reason in ('permanent_bounce', 'complaint', 'provider_suppressed')),
+  provider_event_id text not null
+    references public.delivery_provider_events(event_id) on delete restrict,
+  created_at timestamptz not null default clock_timestamp(),
+  updated_at timestamptz not null default clock_timestamp()
+);
+
+alter table public.delivery_provider_events enable row level security;
+alter table public.delivery_provider_suppressions enable row level security;
+
+-- Even service_role uses the narrow RPC; raw recipient addresses stay private.
+revoke all privileges on table public.delivery_provider_events
+  from public, anon, authenticated, service_role;
+revoke all privileges on table public.delivery_provider_suppressions
+  from public, anon, authenticated, service_role;
+
+create or replace function public.record_delivery_provider_event(
+  p_event_id text,
+  p_event_type text,
+  p_provider_email_id text,
+  p_recipient_email text,
+  p_bounce_type text default null
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_email text;
+  v_reason text;
+  v_inserted integer;
+begin
+  if p_event_id is null or char_length(p_event_id) not between 1 and 255
+    or p_event_type is null
+    or p_event_type not in ('email.bounced', 'email.complained', 'email.suppressed')
+    or p_provider_email_id is null
+    or char_length(p_provider_email_id) not between 1 and 255
+    or p_recipient_email is null
+    or char_length(p_recipient_email) > 320 then
+    raise exception 'Invalid delivery provider event.' using errcode = '22023';
+  end if;
+
+  v_email := lower(btrim(p_recipient_email));
+  if char_length(v_email) not between 3 and 320
+    or v_email !~ '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$' then
+    raise exception 'Invalid delivery provider recipient.' using errcode = '22023';
+  end if;
+
+  if p_event_type = 'email.bounced' then
+    if p_bounce_type is null or p_bounce_type not in ('Permanent', 'Transient', 'Unknown') then
+      raise exception 'Invalid delivery bounce classification.' using errcode = '22023';
+    end if;
+    if p_bounce_type <> 'Transient' then
+      v_reason := 'permanent_bounce';
+    end if;
+  elsif p_bounce_type is not null then
+    raise exception 'Bounce classification is only valid for bounced events.' using errcode = '22023';
+  elsif p_event_type = 'email.complained' then
+    v_reason := 'complaint';
+  else
+    v_reason := 'provider_suppressed';
+  end if;
+
+  -- Serialize the final transport authorization against provider suppression.
+  perform pg_catalog.pg_advisory_xact_lock(20261119, hashtext(v_email));
+
+  insert into public.delivery_provider_events (
+    event_id, event_type, provider_email_id, recipient_email, bounce_type
+  ) values (
+    p_event_id, p_event_type, p_provider_email_id, v_email, p_bounce_type
+  )
+  on conflict (event_id) do nothing;
+
+  get diagnostics v_inserted = row_count;
+  if v_inserted = 0 then
+    return false;
+  end if;
+
+  if v_reason is not null then
+    insert into public.delivery_provider_suppressions (
+      recipient_email, reason, provider_event_id
+    ) values (
+      v_email, v_reason, p_event_id
+    )
+    on conflict (recipient_email) do update set
+      reason = case
+        when delivery_provider_suppressions.reason = 'complaint' then 'complaint'
+        when excluded.reason = 'complaint' then 'complaint'
+        when delivery_provider_suppressions.reason = 'permanent_bounce' then 'permanent_bounce'
+        when excluded.reason = 'permanent_bounce' then 'permanent_bounce'
+        else 'provider_suppressed'
+      end,
+      provider_event_id = case
+        when delivery_provider_suppressions.reason = 'complaint'
+          then delivery_provider_suppressions.provider_event_id
+        when excluded.reason = 'complaint' then excluded.provider_event_id
+        when delivery_provider_suppressions.reason = 'permanent_bounce'
+          then delivery_provider_suppressions.provider_event_id
+        when excluded.reason = 'permanent_bounce' then excluded.provider_event_id
+        else excluded.provider_event_id
+      end,
+      updated_at = clock_timestamp();
+  end if;
+
+  return true;
+end;
+$$;
+
+revoke all privileges
+on function public.record_delivery_provider_event(text, text, text, text, text)
+from public, anon, authenticated;
+grant execute
+on function public.record_delivery_provider_event(text, text, text, text, text)
+to service_role;
+
+-- Exclude suppressed addresses before the batch limit so they cannot starve
+-- eligible recipients or create a new logical job every day.
+create or replace function public.enqueue_due_daily_reminders(
+  p_now timestamptz default now(),
+  p_limit integer default 500
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_inserted integer := 0;
+begin
+  if p_now is null then
+    raise exception 'A scheduler timestamp is required.' using errcode = '22023';
+  end if;
+  if p_limit is null or p_limit < 1 or p_limit > 5000 then
+    raise exception 'p_limit must be between 1 and 5000.' using errcode = '22023';
+  end if;
+
+  with candidates as (
+    select
+      drp.user_id,
+      timezone(drp.timezone, p_now)::date as local_date,
+      (
+        (timezone(drp.timezone, p_now)::date + drp.reminder_time)
+        at time zone drp.timezone
+      ) as scheduled_for
+    from public.daily_reminder_preferences drp
+    join public.profiles p
+      on p.user_id = drp.user_id and p.is_suspended = false
+    join auth.users u
+      on u.id = drp.user_id
+     and u.email_confirmed_at is not null
+     and nullif(btrim(u.email), '') is not null
+    join pg_catalog.pg_timezone_names tz
+      on tz.name = drp.timezone
+    where drp.daily_enabled = true
+      and not exists (
+        select 1 from public.delivery_provider_suppressions s
+        where s.recipient_email = lower(btrim(u.email))
+      )
+  ), due as (
+    select c.*
+    from candidates c
+    where c.scheduled_for <= p_now
+      and not exists (
+        select 1 from public.delivery_ledger dl
+        where dl.kind = 'daily_reminder'
+          and dl.user_id = c.user_id
+          and dl.delivery_key = 'daily:' || c.local_date::text
+      )
+    order by c.scheduled_for, c.user_id
+    limit p_limit
+  ), inserted as (
+    insert into public.delivery_ledger (
+      user_id, kind, delivery_key, scheduled_for
+    )
+    select
+      due.user_id,
+      'daily_reminder',
+      'daily:' || due.local_date::text,
+      due.scheduled_for
+    from due
+    on conflict (kind, user_id, delivery_key) do nothing
+    returning 1
+  )
+  select count(*)::integer into v_inserted from inserted;
+
+  return v_inserted;
+end;
+$$;
+
+revoke all privileges
+on function public.enqueue_due_daily_reminders(timestamptz, integer)
+from public, anon, authenticated;
+grant execute
+on function public.enqueue_due_daily_reminders(timestamptz, integer)
+to service_role;
+
+-- Preserve the issue-wide 5,000-row cap and serialization from migration 024.
+create or replace function public.enqueue_weekly_goodness_delivery(
+  p_week_start date,
+  p_scheduled_for timestamptz default now(),
+  p_limit integer default 5000
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_delivery_key text;
+  v_existing integer;
+  v_room integer;
+  v_candidates uuid[];
+  v_candidate_count integer;
+  v_inserted integer;
+begin
+  if current_setting('transaction_isolation') <> 'read committed' then
+    raise exception 'Weekly scheduling requires READ COMMITTED isolation.'
+      using errcode = '25000';
+  end if;
+  if p_week_start is null or extract(isodow from p_week_start) <> 1
+    or p_scheduled_for is null then
+    raise exception 'A curated Monday and timestamp are required.' using errcode = '22023';
+  end if;
+  if p_limit is null or p_limit < 1 or p_limit > 5000 then
+    raise exception 'Weekly batch limit must be between 1 and 5000.' using errcode = '22023';
+  end if;
+
+  v_delivery_key := 'weekly:' || p_week_start::text;
+  perform pg_catalog.pg_advisory_xact_lock(
+    20261112, p_week_start - date '2000-01-01'
+  );
+
+  if not exists (
+    select 1 from public.weekly_goodness_features f
+    where f.week_start = p_week_start
+  ) then
+    raise exception 'Weekly Goodness issue has not been explicitly curated.'
+      using errcode = '22023';
+  end if;
+
+  select count(*)::integer into v_existing
+  from public.delivery_ledger dl
+  where dl.kind = 'weekly_newsletter' and dl.delivery_key = v_delivery_key;
+
+  if v_existing > 5000 then
+    raise exception 'Weekly issue already exceeds the 5000-delivery ceiling.'
+      using errcode = '54000', detail = 'deedlight:weekly-issue-capacity:v1';
+  end if;
+  v_room := least(5000 - v_existing, p_limit);
+
+  select coalesce(array_agg(c.user_id order by c.user_id), array[]::uuid[])
+    into v_candidates
+  from (
+    select np.user_id
+    from public.newsletter_preferences np
+    join public.profiles p
+      on p.user_id = np.user_id and p.is_suspended = false
+    join auth.users u
+      on u.id = np.user_id
+     and u.email_confirmed_at is not null
+     and nullif(btrim(u.email), '') is not null
+    where np.weekly_enabled = true
+      and np.consented_at is not null
+      and not exists (
+        select 1 from public.delivery_provider_suppressions s
+        where s.recipient_email = lower(btrim(u.email))
+      )
+      and not exists (
+        select 1 from public.delivery_ledger dl
+        where dl.kind = 'weekly_newsletter'
+          and dl.user_id = np.user_id
+          and dl.delivery_key = v_delivery_key
+      )
+    order by np.user_id
+    limit v_room + 1
+  ) c;
+
+  v_candidate_count := cardinality(v_candidates);
+  if v_candidate_count > v_room then
+    raise exception 'Weekly delivery capacity exceeded; no jobs enqueued.'
+      using errcode = '54000', detail = 'deedlight:weekly-issue-capacity:v1';
+  end if;
+  if v_candidate_count = 0 then return 0; end if;
+
+  insert into public.delivery_ledger (
+    user_id, kind, delivery_key, scheduled_for
+  )
+  select candidate.user_id, 'weekly_newsletter', v_delivery_key, p_scheduled_for
+  from unnest(v_candidates) as candidate(user_id)
+  on conflict (kind, user_id, delivery_key) do nothing;
+
+  get diagnostics v_inserted = row_count;
+  if v_inserted <> v_candidate_count then
+    raise exception 'Concurrent weekly ledger write detected; transaction rolled back.'
+      using errcode = '40001';
+  end if;
+  return v_inserted;
+end;
+$$;
+
+revoke all privileges
+on function public.enqueue_weekly_goodness_delivery(date, timestamptz, integer)
+from public, anon, authenticated;
+grant execute
+on function public.enqueue_weekly_goodness_delivery(date, timestamptz, integer)
+to service_role;
+
+-- This final authorization gate serializes against a bounce/complaint event.
+-- If the provider event wins the per-address lock, no external send starts.
+create or replace function public.begin_delivery_transport(
+  p_job_id uuid,
+  p_claim_token uuid,
+  p_expected_email text
+)
+returns timestamptz
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_job public.delivery_ledger%rowtype;
+  v_started_at timestamptz;
+  v_authorized boolean := false;
+  v_email text;
+begin
+  if p_job_id is null or p_claim_token is null
+    or p_expected_email is null
+    or char_length(p_expected_email) > 320
+    or nullif(btrim(p_expected_email), '') is null then
+    raise exception 'Invalid delivery transport authorization arguments.'
+      using errcode = '22023';
+  end if;
+
+  v_email := lower(btrim(p_expected_email));
+
+  select * into v_job from public.delivery_ledger dl
+  where dl.id = p_job_id for update;
+
+  if not found or v_job.state <> 'claimed'
+    or v_job.claim_token is distinct from p_claim_token
+    or v_job.claim_expires_at is null
+    or v_job.claim_expires_at <= clock_timestamp() then
+    raise exception 'Delivery claim is not authorized.' using errcode = '42501';
+  end if;
+
+  -- The webhook RPC takes this same lock before inserting a suppression.
+  perform pg_catalog.pg_advisory_xact_lock(20261119, hashtext(v_email));
+
+  if v_job.kind = 'daily_reminder' then
+    perform 1 from public.daily_reminder_preferences drp
+    join public.profiles p
+      on p.user_id = drp.user_id and p.is_suspended = false
+    join auth.users u
+      on u.id = drp.user_id
+     and u.email_confirmed_at is not null
+     and lower(btrim(u.email)) = v_email
+    join pg_catalog.pg_timezone_names tz
+      on tz.name = drp.timezone
+    where drp.user_id = v_job.user_id
+      and drp.daily_enabled = true
+      and v_job.delivery_key =
+        'daily:' || timezone(drp.timezone, v_job.scheduled_for)::date::text
+      and v_job.scheduled_for = (
+        (timezone(drp.timezone, v_job.scheduled_for)::date
+          + drp.reminder_time) at time zone drp.timezone
+      )
+      and not exists (
+        select 1 from public.delivery_provider_suppressions s
+        where s.recipient_email = v_email
+      )
+    for share of drp, p, u;
+    v_authorized := found;
+  elsif v_job.kind = 'weekly_newsletter' then
+    perform 1 from public.newsletter_preferences np
+    join public.profiles p
+      on p.user_id = np.user_id and p.is_suspended = false
+    join auth.users u
+      on u.id = np.user_id
+     and u.email_confirmed_at is not null
+     and lower(btrim(u.email)) = v_email
+    join public.weekly_goodness_features f
+      on v_job.delivery_key = 'weekly:' || f.week_start::text
+    where np.user_id = v_job.user_id
+      and np.weekly_enabled = true
+      and np.consented_at is not null
+      and not exists (
+        select 1 from public.delivery_provider_suppressions s
+        where s.recipient_email = v_email
+      )
+    for share of np, p, u, f;
+    v_authorized := found;
+  else
+    raise exception 'Unsupported delivery kind.' using errcode = '22023';
+  end if;
+
+  if v_job.claim_expires_at <= clock_timestamp() then
+    raise exception 'Claim expired during transport authorization.' using errcode = '42501';
+  end if;
+
+  if not v_authorized then
+    update public.delivery_ledger set
+      state = 'cancelled',
+      cancelled_at = clock_timestamp(),
+      claim_token = null,
+      claim_expires_at = null,
+      next_attempt_at = null,
+      error_code = 'authorization_revoked',
+      updated_at = clock_timestamp()
+    where id = v_job.id;
+    return null;
+  end if;
+
+  update public.delivery_ledger set
+    transport_started_at = coalesce(transport_started_at, clock_timestamp()),
+    updated_at = clock_timestamp()
+  where id = v_job.id
+    and state = 'claimed'
+    and claim_token = p_claim_token
+    and claim_expires_at > clock_timestamp()
+  returning transport_started_at into v_started_at;
+
+  if not found then
+    raise exception 'Claim expired during transport authorization.' using errcode = '42501';
+  end if;
+  return v_started_at;
+end;
+$$;
+
+revoke all privileges
+on function public.begin_delivery_transport(uuid, uuid, text)
+from public, anon, authenticated;
+grant execute
+on function public.begin_delivery_transport(uuid, uuid, text)
+to service_role;
+
+comment on function public.begin_delivery_transport(uuid, uuid, text)
+  is 'deedlight:025:provider-suppression-before-transport:v1';
+
+notify pgrst, 'reload schema';
+commit;
+-- Provider lifecycle observability. This migration is additive; migration 025 is immutable.
+begin;
+
+do $$
+begin
+  if to_regclass('public.delivery_provider_events') is null
+    or to_regprocedure('public.record_delivery_provider_event(text,text,text,text,text)') is null then
+    raise exception 'Migration 026 requires the reviewed provider webhook baseline from migration 025.';
+  end if;
+end;
+$$;
+
+alter table public.delivery_provider_events
+  add column provider_created_at timestamptz,
+  add column failure_class text;
+
+alter table public.delivery_provider_events
+  drop constraint delivery_provider_events_event_type_check;
+
+alter table public.delivery_provider_events
+  add constraint delivery_provider_events_event_type_check
+  check (event_type in (
+    'email.sent',
+    'email.delivered',
+    'email.delivery_delayed',
+    'email.bounced',
+    'email.complained',
+    'email.suppressed',
+    'email.failed'
+  )),
+  add constraint delivery_provider_events_provider_created_at_check
+  check (
+    provider_created_at is not null
+    or event_type in ('email.bounced', 'email.complained', 'email.suppressed')
+  ),
+  add constraint delivery_provider_events_failure_class_check
+  check (
+    (event_type = 'email.failed' and failure_class in (
+      'invalid_recipient',
+      'provider_authentication',
+      'domain_verification',
+      'quota_exceeded',
+      'content_rejected',
+      'unknown'
+    ))
+    or (event_type <> 'email.failed' and failure_class is null)
+  );
+
+create table public.delivery_provider_lifecycle (
+  provider_email_id text primary key
+    check (char_length(provider_email_id) between 1 and 255),
+  status text not null
+    check (status in (
+      'email.sent',
+      'email.delivered',
+      'email.delivery_delayed',
+      'email.bounced',
+      'email.complained',
+      'email.suppressed',
+      'email.failed'
+    )),
+  status_rank smallint not null,
+  provider_created_at timestamptz not null,
+  received_at timestamptz not null,
+  event_id text not null unique
+    references public.delivery_provider_events(event_id) on delete restrict,
+  failure_class text
+    check (failure_class is null or failure_class in (
+      'invalid_recipient',
+      'provider_authentication',
+      'domain_verification',
+      'quota_exceeded',
+      'content_rejected',
+      'unknown'
+    )),
+  created_at timestamptz not null default clock_timestamp(),
+  updated_at timestamptz not null default clock_timestamp(),
+  constraint delivery_provider_lifecycle_status_rank_check
+    check (status_rank = case status
+      when 'email.sent' then 10
+      when 'email.delivery_delayed' then 20
+      when 'email.failed' then 30
+      when 'email.bounced' then 40
+      when 'email.suppressed' then 50
+      when 'email.delivered' then 60
+      when 'email.complained' then 70
+      else 0
+    end),
+  constraint delivery_provider_lifecycle_failure_status_check
+    check (
+      (status = 'email.failed' and failure_class is not null)
+      or (status <> 'email.failed' and failure_class is null)
+    )
+);
+
+create index delivery_provider_lifecycle_status_idx
+  on public.delivery_provider_lifecycle (status, provider_created_at desc);
+
+alter table public.delivery_provider_lifecycle enable row level security;
+
+revoke all privileges on table public.delivery_provider_lifecycle
+  from public, anon, authenticated, service_role;
+
+create or replace function public.record_delivery_provider_lifecycle_event(
+  p_event_id text,
+  p_event_type text,
+  p_provider_email_id text,
+  p_recipient_email text,
+  p_provider_created_at timestamptz,
+  p_bounce_type text default null,
+  p_failure_class text default null
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_email text;
+  v_reason text;
+  v_status_rank smallint;
+  v_inserted integer;
+  v_received_at timestamptz;
+  v_lifecycle_rows integer;
+begin
+  if p_event_id is null or char_length(p_event_id) not between 1 and 255
+    or p_event_type is null
+    or p_event_type not in (
+      'email.sent',
+      'email.delivered',
+      'email.delivery_delayed',
+      'email.bounced',
+      'email.complained',
+      'email.suppressed',
+      'email.failed'
+    )
+    or p_provider_email_id is null
+    or char_length(p_provider_email_id) not between 1 and 255
+    or p_recipient_email is null
+    or char_length(p_recipient_email) > 320
+    or p_provider_created_at is null then
+    raise exception 'Invalid delivery provider lifecycle event.' using errcode = '22023';
+  end if;
+
+  v_email := lower(btrim(p_recipient_email));
+  if char_length(v_email) not between 3 and 320
+    or v_email !~ '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$' then
+    raise exception 'Invalid delivery provider recipient.' using errcode = '22023';
+  end if;
+
+  if p_event_type = 'email.bounced' then
+    if p_bounce_type is null or p_bounce_type not in ('Permanent', 'Transient', 'Unknown') then
+      raise exception 'Invalid delivery bounce classification.' using errcode = '22023';
+    end if;
+    if p_bounce_type <> 'Transient' then
+      v_reason := 'permanent_bounce';
+    end if;
+  elsif p_bounce_type is not null then
+    raise exception 'Bounce classification is only valid for bounced events.' using errcode = '22023';
+  end if;
+
+  if p_event_type = 'email.failed' then
+    if p_failure_class is null or p_failure_class not in (
+      'invalid_recipient',
+      'provider_authentication',
+      'domain_verification',
+      'quota_exceeded',
+      'content_rejected',
+      'unknown'
+    ) then
+      raise exception 'Invalid normalized provider failure classification.' using errcode = '22023';
+    end if;
+  elsif p_failure_class is not null then
+    raise exception 'Failure classification is only valid for failed events.' using errcode = '22023';
+  end if;
+
+  if p_event_type = 'email.complained' then
+    v_reason := 'complaint';
+  elsif p_event_type = 'email.suppressed' then
+    v_reason := 'provider_suppressed';
+  end if;
+
+  v_status_rank := case p_event_type
+    when 'email.sent' then 10
+    when 'email.delivery_delayed' then 20
+    when 'email.failed' then 30
+    when 'email.bounced' then 40
+    when 'email.suppressed' then 50
+    when 'email.delivered' then 60
+    when 'email.complained' then 70
+    else 0
+  end;
+
+  -- Keep the existing suppression/transport serialization point and also
+  -- serialize provider-ID-to-recipient correlation without exposing it.
+  perform pg_catalog.pg_advisory_xact_lock(20261119, hashtext(v_email));
+  perform pg_catalog.pg_advisory_xact_lock(20261126, hashtext(p_provider_email_id));
+
+  if exists (
+    select 1
+    from public.delivery_provider_events e
+    where e.provider_email_id = p_provider_email_id
+      and e.recipient_email <> v_email
+  ) then
+    raise exception 'Provider email correlation does not match.' using errcode = '22023';
+  end if;
+
+  insert into public.delivery_provider_events (
+    event_id,
+    event_type,
+    provider_email_id,
+    recipient_email,
+    bounce_type,
+    provider_created_at,
+    failure_class
+  ) values (
+    p_event_id,
+    p_event_type,
+    p_provider_email_id,
+    v_email,
+    p_bounce_type,
+    p_provider_created_at,
+    p_failure_class
+  )
+  on conflict (event_id) do nothing
+  returning received_at into v_received_at;
+
+  get diagnostics v_inserted = row_count;
+  if v_inserted = 0 then
+    return false;
+  end if;
+
+  if v_reason is not null then
+    insert into public.delivery_provider_suppressions (
+      recipient_email, reason, provider_event_id
+    ) values (
+      v_email, v_reason, p_event_id
+    )
+    on conflict (recipient_email) do update set
+      reason = case
+        when delivery_provider_suppressions.reason = 'complaint' then 'complaint'
+        when excluded.reason = 'complaint' then 'complaint'
+        when delivery_provider_suppressions.reason = 'permanent_bounce' then 'permanent_bounce'
+        when excluded.reason = 'permanent_bounce' then 'permanent_bounce'
+        else 'provider_suppressed'
+      end,
+      provider_event_id = case
+        when delivery_provider_suppressions.reason = 'complaint'
+          then delivery_provider_suppressions.provider_event_id
+        when excluded.reason = 'complaint' then excluded.provider_event_id
+        when delivery_provider_suppressions.reason = 'permanent_bounce'
+          then delivery_provider_suppressions.provider_event_id
+        when excluded.reason = 'permanent_bounce' then excluded.provider_event_id
+        else excluded.provider_event_id
+      end,
+      updated_at = clock_timestamp();
+  end if;
+
+  -- Evidence rank is monotonic: late sent/delayed/failed events cannot replace
+  -- delivered or complaint evidence. Equal-rank events use provider time,
+  -- then event ID, as a deterministic tie-break independent of arrival order.
+  insert into public.delivery_provider_lifecycle (
+    provider_email_id,
+    status,
+    status_rank,
+    provider_created_at,
+    received_at,
+    event_id,
+    failure_class
+  ) values (
+    p_provider_email_id,
+    p_event_type,
+    v_status_rank,
+    p_provider_created_at,
+    v_received_at,
+    p_event_id,
+    p_failure_class
+  )
+  on conflict (provider_email_id) do update set
+    status = case
+      when excluded.status_rank > delivery_provider_lifecycle.status_rank
+        or (
+          excluded.status_rank = delivery_provider_lifecycle.status_rank
+          and (excluded.provider_created_at, excluded.event_id)
+            > (delivery_provider_lifecycle.provider_created_at, delivery_provider_lifecycle.event_id)
+        )
+      then excluded.status
+      else delivery_provider_lifecycle.status
+    end,
+    status_rank = greatest(
+      delivery_provider_lifecycle.status_rank,
+      excluded.status_rank
+    ),
+    provider_created_at = case
+      when excluded.status_rank > delivery_provider_lifecycle.status_rank
+        or (
+          excluded.status_rank = delivery_provider_lifecycle.status_rank
+          and (excluded.provider_created_at, excluded.event_id)
+            > (delivery_provider_lifecycle.provider_created_at, delivery_provider_lifecycle.event_id)
+        )
+      then excluded.provider_created_at
+      else delivery_provider_lifecycle.provider_created_at
+    end,
+    received_at = case
+      when excluded.status_rank > delivery_provider_lifecycle.status_rank
+        or (
+          excluded.status_rank = delivery_provider_lifecycle.status_rank
+          and (excluded.provider_created_at, excluded.event_id)
+            > (delivery_provider_lifecycle.provider_created_at, delivery_provider_lifecycle.event_id)
+        )
+      then excluded.received_at
+      else delivery_provider_lifecycle.received_at
+    end,
+    event_id = case
+      when excluded.status_rank > delivery_provider_lifecycle.status_rank
+        or (
+          excluded.status_rank = delivery_provider_lifecycle.status_rank
+          and (excluded.provider_created_at, excluded.event_id)
+            > (delivery_provider_lifecycle.provider_created_at, delivery_provider_lifecycle.event_id)
+        )
+      then excluded.event_id
+      else delivery_provider_lifecycle.event_id
+    end,
+    failure_class = case
+      when excluded.status_rank > delivery_provider_lifecycle.status_rank
+        or (
+          excluded.status_rank = delivery_provider_lifecycle.status_rank
+          and (excluded.provider_created_at, excluded.event_id)
+            > (delivery_provider_lifecycle.provider_created_at, delivery_provider_lifecycle.event_id)
+        )
+      then excluded.failure_class
+      else delivery_provider_lifecycle.failure_class
+    end,
+    updated_at = case
+      when excluded.status_rank > delivery_provider_lifecycle.status_rank
+        or (
+          excluded.status_rank = delivery_provider_lifecycle.status_rank
+          and (excluded.provider_created_at, excluded.event_id)
+            > (delivery_provider_lifecycle.provider_created_at, delivery_provider_lifecycle.event_id)
+        )
+      then clock_timestamp()
+      else delivery_provider_lifecycle.updated_at
+    end;
+
+  get diagnostics v_lifecycle_rows = row_count;
+  if v_lifecycle_rows <> 1 then
+    raise exception 'Provider lifecycle persistence failed.' using errcode = '23505';
+  end if;
+
+  return true;
+end;
+$$;
+
+revoke all privileges
+on function public.record_delivery_provider_lifecycle_event(text, text, text, text, timestamptz, text, text)
+from public, anon, authenticated;
+grant execute
+on function public.record_delivery_provider_lifecycle_event(text, text, text, text, timestamptz, text, text)
+to service_role;
+
+comment on function public.record_delivery_provider_lifecycle_event(text, text, text, text, timestamptz, text, text)
+  is 'deedlight:026:provider-lifecycle-idempotent-monotonic:v1';
+
+
+-- Preserve the legacy suppression RPC contract while routing it through the
+-- same provider-ID lock and lifecycle projection. Legacy callers have no
+-- provider timestamp, so receipt time is the only safe timestamp available.
+create or replace function public.record_delivery_provider_event(
+  p_event_id text,
+  p_event_type text,
+  p_provider_email_id text,
+  p_recipient_email text,
+  p_bounce_type text default null
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $legacy$
+begin
+  if p_event_type not in ('email.bounced', 'email.complained', 'email.suppressed') then
+    raise exception 'Unsupported legacy provider event type.' using errcode = '22023';
+  end if;
+
+  return public.record_delivery_provider_lifecycle_event(
+    p_event_id,
+    p_event_type,
+    p_provider_email_id,
+    p_recipient_email,
+    clock_timestamp(),
+    p_bounce_type,
+    null
+  );
+end;
+$legacy$;
+
+revoke all privileges
+on function public.record_delivery_provider_event(text, text, text, text, text)
+from public, anon, authenticated;
+grant execute
+on function public.record_delivery_provider_event(text, text, text, text, text)
+to service_role;
+
+notify pgrst, 'reload schema';
+commit;
+-- Fail-closed provider event idempotency and lifecycle integrity.
+-- Migration 025 remains immutable; all changes are additive.
+begin;
+
+alter table public.delivery_provider_events
+  add column suppression_reason text,
+  add column payload_fingerprint text,
+  add constraint delivery_provider_events_suppression_reason_check
+  check (
+    (event_type = 'email.suppressed'
+      and (suppression_reason is null or suppression_reason in (
+        'previous_bounce',
+        'previous_complaint',
+        'provider_suppressed'
+      )))
+    or (event_type <> 'email.suppressed' and suppression_reason is null)
+  ),
+  add constraint delivery_provider_events_payload_fingerprint_check
+  check (payload_fingerprint is null or payload_fingerprint ~ '^[0-9a-f]{64}$');
+
+alter table public.delivery_provider_lifecycle
+  drop constraint delivery_provider_lifecycle_status_check;
+
+alter table public.delivery_provider_lifecycle
+  add constraint delivery_provider_lifecycle_status_check
+  check (status in (
+    'email.sent',
+    'email.delivered',
+    'email.delivery_delayed',
+    'email.bounced',
+    'email.complained',
+    'email.suppressed',
+    'email.failed',
+    'integrity_anomaly'
+  ));
+
+alter table public.delivery_provider_lifecycle
+  drop constraint delivery_provider_lifecycle_status_rank_check;
+
+alter table public.delivery_provider_lifecycle
+  add constraint delivery_provider_lifecycle_status_rank_check
+  check (status_rank = case status
+    when 'email.sent' then 10
+    when 'email.delivery_delayed' then 20
+    when 'email.failed' then 30
+    when 'email.bounced' then 40
+    when 'email.suppressed' then 50
+    when 'email.delivered' then 60
+    when 'email.complained' then 70
+    when 'integrity_anomaly' then 80
+    else 0
+  end);
+
+create table public.delivery_provider_integrity_anomalies (
+  event_id text not null
+    references public.delivery_provider_events(event_id) on delete restrict,
+  related_event_id text
+    references public.delivery_provider_events(event_id) on delete restrict,
+  anomaly_type text not null
+    check (anomaly_type in (
+      'duplicate_event_id_conflict',
+      'contradictory_terminal_outcome'
+    )),
+  detected_at timestamptz not null default clock_timestamp(),
+  constraint delivery_provider_integrity_anomalies_related_event_check
+    check (related_event_id is null or related_event_id <> event_id)
+);
+
+create unique index delivery_provider_integrity_anomalies_dedupe_idx
+  on public.delivery_provider_integrity_anomalies (
+    event_id,
+    anomaly_type,
+    (coalesce(related_event_id, ''))
+  );
+
+alter table public.delivery_provider_integrity_anomalies enable row level security;
+
+revoke all privileges on table public.delivery_provider_integrity_anomalies
+  from public, anon, authenticated, service_role;
+
+comment on table public.delivery_provider_integrity_anomalies
+  is 'Private append-only integrity markers; contains no recipient or raw provider diagnostics.';
+
+comment on column public.delivery_provider_events.suppression_reason
+  is 'Normalized Resend data.suppressed.reason; null for historical or non-suppression events.';
+
+comment on column public.delivery_provider_events.payload_fingerprint
+  is 'SHA-256 of the signed raw webhook body; never stores the raw payload or provider diagnostics.';
+
+create or replace function public.record_delivery_provider_lifecycle_event(
+  p_event_id text,
+  p_event_type text,
+  p_provider_email_id text,
+  p_recipient_email text,
+  p_provider_created_at timestamptz,
+  p_bounce_type text,
+  p_failure_class text,
+  p_suppression_reason text,
+  p_payload_fingerprint text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_email text;
+  v_reason text;
+  v_status_rank smallint;
+  v_inserted integer;
+  v_received_at timestamptz;
+  v_lifecycle_rows integer;
+  v_existing public.delivery_provider_events%rowtype;
+  v_conflicting_event_id text;
+begin
+  if p_event_id is null or char_length(p_event_id) not between 1 and 255
+    or p_event_type is null
+    or p_event_type not in (
+      'email.sent',
+      'email.delivered',
+      'email.delivery_delayed',
+      'email.bounced',
+      'email.complained',
+      'email.suppressed',
+      'email.failed'
+    )
+    or p_provider_email_id is null
+    or char_length(p_provider_email_id) not between 1 and 255
+    or p_recipient_email is null
+    or char_length(p_recipient_email) > 320
+    or p_provider_created_at is null
+    or (p_payload_fingerprint is not null
+      and p_payload_fingerprint !~ '^[0-9a-f]{64}$') then
+    raise exception 'Invalid delivery provider lifecycle event.' using errcode = '22023';
+  end if;
+
+  v_email := lower(btrim(p_recipient_email));
+  if char_length(v_email) not between 3 and 320
+    or v_email !~ '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$' then
+    raise exception 'Invalid delivery provider recipient.' using errcode = '22023';
+  end if;
+
+  if p_event_type = 'email.bounced' then
+    if p_bounce_type is null or p_bounce_type not in ('Permanent', 'Transient', 'Unknown') then
+      raise exception 'Invalid delivery bounce classification.' using errcode = '22023';
+    end if;
+    if p_bounce_type <> 'Transient' then
+      v_reason := 'permanent_bounce';
+    end if;
+  elsif p_bounce_type is not null then
+    raise exception 'Bounce classification is only valid for bounced events.' using errcode = '22023';
+  end if;
+
+  if p_event_type = 'email.failed' then
+    if p_failure_class is null or p_failure_class not in (
+      'invalid_recipient',
+      'provider_authentication',
+      'domain_verification',
+      'quota_exceeded',
+      'content_rejected',
+      'unknown'
+    ) then
+      raise exception 'Invalid normalized provider failure classification.' using errcode = '22023';
+    end if;
+  elsif p_failure_class is not null then
+    raise exception 'Failure classification is only valid for failed events.' using errcode = '22023';
+  end if;
+
+  if p_event_type = 'email.suppressed' then
+    if p_suppression_reason is null or p_suppression_reason not in (
+      'previous_bounce',
+      'previous_complaint',
+      'provider_suppressed'
+    ) then
+      raise exception 'Invalid normalized provider suppression reason.' using errcode = '22023';
+    end if;
+    v_reason := case p_suppression_reason
+      when 'previous_complaint' then 'complaint'
+      when 'previous_bounce' then 'permanent_bounce'
+      else 'provider_suppressed'
+    end;
+  elsif p_suppression_reason is not null then
+    raise exception 'Suppression reason is only valid for suppressed events.' using errcode = '22023';
+  end if;
+
+  if p_event_type = 'email.complained' then
+    v_reason := 'complaint';
+  end if;
+
+  v_status_rank := case p_event_type
+    when 'email.sent' then 10
+    when 'email.delivery_delayed' then 20
+    when 'email.failed' then 30
+    when 'email.bounced' then 40
+    when 'email.suppressed' then 50
+    when 'email.delivered' then 60
+    when 'email.complained' then 70
+    else 0
+  end;
+
+  -- Preserve the shared address lock and provider-ID correlation lock.
+  perform pg_catalog.pg_advisory_xact_lock(20261119, hashtext(v_email));
+  perform pg_catalog.pg_advisory_xact_lock(20261126, hashtext(p_provider_email_id));
+
+  insert into public.delivery_provider_events (
+    event_id,
+    event_type,
+    provider_email_id,
+    recipient_email,
+    bounce_type,
+    provider_created_at,
+    failure_class,
+    suppression_reason,
+    payload_fingerprint
+  ) values (
+    p_event_id,
+    p_event_type,
+    p_provider_email_id,
+    v_email,
+    p_bounce_type,
+    p_provider_created_at,
+    p_failure_class,
+    p_suppression_reason,
+    p_payload_fingerprint
+  )
+  on conflict (event_id) do nothing
+  returning received_at into v_received_at;
+
+  get diagnostics v_inserted = row_count;
+  if v_inserted = 0 then
+    select e.* into v_existing
+    from public.delivery_provider_events e
+    where e.event_id = p_event_id
+    for update;
+
+    if not found then
+      raise exception 'Conflicting provider event could not be inspected.' using errcode = 'XX000';
+    end if;
+
+    if v_existing.event_type = p_event_type
+      and v_existing.provider_email_id = p_provider_email_id
+      and v_existing.recipient_email = v_email
+      and v_existing.bounce_type is not distinct from p_bounce_type
+      and (v_existing.provider_created_at is null
+        or v_existing.provider_created_at = p_provider_created_at)
+      and v_existing.failure_class is not distinct from p_failure_class
+      -- Historical suppression metadata and legacy callers may lack a reason.
+      -- Fingerprints are stricter below: stored digests require exact non-NULL replay input.
+      and (
+        v_existing.suppression_reason is null
+        or p_suppression_reason is null
+        or v_existing.suppression_reason = p_suppression_reason
+      )
+      and (
+        -- Only genuinely historical rows without a stored digest are compatible.
+        -- Fingerprinted rows require an exact, non-NULL digest on every replay.
+        v_existing.payload_fingerprint is null
+        or (p_payload_fingerprint is not null
+          and v_existing.payload_fingerprint = p_payload_fingerprint)
+      ) then
+      return false;
+    end if;
+
+    insert into public.delivery_provider_integrity_anomalies (
+      event_id, related_event_id, anomaly_type
+    ) values (
+      v_existing.event_id, null, 'duplicate_event_id_conflict'
+    )
+    on conflict do nothing;
+
+    update public.delivery_provider_lifecycle
+    set status = 'integrity_anomaly',
+        status_rank = 80,
+        failure_class = null,
+        updated_at = clock_timestamp()
+    where provider_email_id = v_existing.provider_email_id;
+
+    return null;
+  end if;
+
+  if exists (
+    select 1
+    from public.delivery_provider_events e
+    where e.provider_email_id = p_provider_email_id
+      and e.recipient_email <> v_email
+  ) then
+    raise exception 'Provider email correlation does not match.' using errcode = '22023';
+  end if;
+
+  if v_reason is not null then
+    insert into public.delivery_provider_suppressions (
+      recipient_email, reason, provider_event_id
+    ) values (
+      v_email, v_reason, p_event_id
+    )
+    on conflict (recipient_email) do update set
+      reason = case
+        when delivery_provider_suppressions.reason = 'complaint' then 'complaint'
+        when excluded.reason = 'complaint' then 'complaint'
+        when delivery_provider_suppressions.reason = 'permanent_bounce' then 'permanent_bounce'
+        when excluded.reason = 'permanent_bounce' then 'permanent_bounce'
+        else 'provider_suppressed'
+      end,
+      provider_event_id = case
+        when delivery_provider_suppressions.reason = 'complaint'
+          then delivery_provider_suppressions.provider_event_id
+        when excluded.reason = 'complaint' then excluded.provider_event_id
+        when delivery_provider_suppressions.reason = 'permanent_bounce'
+          then delivery_provider_suppressions.provider_event_id
+        when excluded.reason = 'permanent_bounce' then excluded.provider_event_id
+        else excluded.provider_event_id
+      end,
+      updated_at = clock_timestamp();
+  end if;
+
+  -- Delayed-to-delivered and delivered-to-complaint progression are valid.
+  -- Incompatible terminal pairs are retained but never projected as success.
+  select e.event_id into v_conflicting_event_id
+  from public.delivery_provider_events e
+  where e.provider_email_id = p_provider_email_id
+    and e.event_id <> p_event_id
+    and (
+      (p_event_type = 'email.delivered'
+        and e.event_type in ('email.bounced', 'email.failed', 'email.suppressed'))
+      or (p_event_type in ('email.bounced', 'email.failed', 'email.suppressed')
+        and e.event_type in ('email.delivered', 'email.complained'))
+      or (p_event_type = 'email.complained'
+        and e.event_type in ('email.bounced', 'email.failed', 'email.suppressed'))
+      or (p_event_type = 'email.bounced'
+        and e.event_type in ('email.failed', 'email.suppressed'))
+      or (p_event_type = 'email.failed'
+        and e.event_type in ('email.bounced', 'email.suppressed'))
+      or (p_event_type = 'email.suppressed'
+        and e.event_type in ('email.bounced', 'email.failed'))
+    )
+  order by e.received_at, e.event_id
+  limit 1;
+
+  if v_conflicting_event_id is not null then
+    insert into public.delivery_provider_integrity_anomalies (
+      event_id, related_event_id, anomaly_type
+    ) values (
+      p_event_id, v_conflicting_event_id, 'contradictory_terminal_outcome'
+    )
+    on conflict do nothing;
+
+    insert into public.delivery_provider_lifecycle (
+      provider_email_id,
+      status,
+      status_rank,
+      provider_created_at,
+      received_at,
+      event_id,
+      failure_class
+    ) values (
+      p_provider_email_id,
+      'integrity_anomaly',
+      80,
+      p_provider_created_at,
+      v_received_at,
+      p_event_id,
+      null
+    )
+    on conflict (provider_email_id) do update set
+      status = 'integrity_anomaly',
+      status_rank = 80,
+      provider_created_at = excluded.provider_created_at,
+      received_at = excluded.received_at,
+      event_id = excluded.event_id,
+      failure_class = null,
+      updated_at = clock_timestamp();
+
+    get diagnostics v_lifecycle_rows = row_count;
+    if v_lifecycle_rows <> 1 then
+      raise exception 'Provider lifecycle integrity state could not be persisted.' using errcode = '23505';
+    end if;
+
+    return null;
+  end if;
+
+  insert into public.delivery_provider_lifecycle (
+    provider_email_id,
+    status,
+    status_rank,
+    provider_created_at,
+    received_at,
+    event_id,
+    failure_class
+  ) values (
+    p_provider_email_id,
+    p_event_type,
+    v_status_rank,
+    p_provider_created_at,
+    v_received_at,
+    p_event_id,
+    p_failure_class
+  )
+  on conflict (provider_email_id) do update set
+    status = case
+      when excluded.status_rank > delivery_provider_lifecycle.status_rank
+        or (
+          excluded.status_rank = delivery_provider_lifecycle.status_rank
+          and (excluded.provider_created_at, excluded.event_id)
+            > (delivery_provider_lifecycle.provider_created_at, delivery_provider_lifecycle.event_id)
+        )
+      then excluded.status
+      else delivery_provider_lifecycle.status
+    end,
+    status_rank = greatest(
+      delivery_provider_lifecycle.status_rank,
+      excluded.status_rank
+    ),
+    provider_created_at = case
+      when excluded.status_rank > delivery_provider_lifecycle.status_rank
+        or (
+          excluded.status_rank = delivery_provider_lifecycle.status_rank
+          and (excluded.provider_created_at, excluded.event_id)
+            > (delivery_provider_lifecycle.provider_created_at, delivery_provider_lifecycle.event_id)
+        )
+      then excluded.provider_created_at
+      else delivery_provider_lifecycle.provider_created_at
+    end,
+    received_at = case
+      when excluded.status_rank > delivery_provider_lifecycle.status_rank
+        or (
+          excluded.status_rank = delivery_provider_lifecycle.status_rank
+          and (excluded.provider_created_at, excluded.event_id)
+            > (delivery_provider_lifecycle.provider_created_at, delivery_provider_lifecycle.event_id)
+        )
+      then excluded.received_at
+      else delivery_provider_lifecycle.received_at
+    end,
+    event_id = case
+      when excluded.status_rank > delivery_provider_lifecycle.status_rank
+        or (
+          excluded.status_rank = delivery_provider_lifecycle.status_rank
+          and (excluded.provider_created_at, excluded.event_id)
+            > (delivery_provider_lifecycle.provider_created_at, delivery_provider_lifecycle.event_id)
+        )
+      then excluded.event_id
+      else delivery_provider_lifecycle.event_id
+    end,
+    failure_class = case
+      when excluded.status_rank > delivery_provider_lifecycle.status_rank
+        or (
+          excluded.status_rank = delivery_provider_lifecycle.status_rank
+          and (excluded.provider_created_at, excluded.event_id)
+            > (delivery_provider_lifecycle.provider_created_at, delivery_provider_lifecycle.event_id)
+        )
+      then excluded.failure_class
+      else delivery_provider_lifecycle.failure_class
+    end,
+    updated_at = case
+      when excluded.status_rank > delivery_provider_lifecycle.status_rank
+        or (
+          excluded.status_rank = delivery_provider_lifecycle.status_rank
+          and (excluded.provider_created_at, excluded.event_id)
+            > (delivery_provider_lifecycle.provider_created_at, delivery_provider_lifecycle.event_id)
+        )
+      then clock_timestamp()
+      else delivery_provider_lifecycle.updated_at
+    end;
+
+  get diagnostics v_lifecycle_rows = row_count;
+  if v_lifecycle_rows <> 1 then
+    raise exception 'Provider lifecycle persistence failed.' using errcode = '23505';
+  end if;
+
+  return true;
+end;
+$$;
+
+revoke all privileges
+on function public.record_delivery_provider_lifecycle_event(text, text, text, text, timestamptz, text, text, text, text)
+from public, anon, authenticated;
+grant execute
+on function public.record_delivery_provider_lifecycle_event(text, text, text, text, timestamptz, text, text, text, text)
+to service_role;
+
+comment on function public.record_delivery_provider_lifecycle_event(text, text, text, text, timestamptz, text, text, text, text)
+  is 'deedlight:027:provider-lifecycle-integrity-and-suppression-reasons:v1';
+
+-- Compatibility wrapper for callers that already supply suppression_reason.
+create or replace function public.record_delivery_provider_lifecycle_event(
+  p_event_id text,
+  p_event_type text,
+  p_provider_email_id text,
+  p_recipient_email text,
+  p_provider_created_at timestamptz,
+  p_bounce_type text,
+  p_failure_class text,
+  p_suppression_reason text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $compat$
+begin
+  return public.record_delivery_provider_lifecycle_event(
+    p_event_id,
+    p_event_type,
+    p_provider_email_id,
+    p_recipient_email,
+    p_provider_created_at,
+    p_bounce_type,
+    p_failure_class,
+    p_suppression_reason,
+    null
+  );
+end;
+$compat$;
+
+revoke all privileges
+on function public.record_delivery_provider_lifecycle_event(text, text, text, text, timestamptz, text, text, text)
+from public, anon, authenticated;
+grant execute
+on function public.record_delivery_provider_lifecycle_event(text, text, text, text, timestamptz, text, text, text)
+to service_role;
+
+-- Keep the original seven-argument RPC contract for trusted legacy callers.
+create or replace function public.record_delivery_provider_lifecycle_event(
+  p_event_id text,
+  p_event_type text,
+  p_provider_email_id text,
+  p_recipient_email text,
+  p_provider_created_at timestamptz,
+  p_bounce_type text default null,
+  p_failure_class text default null
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $legacy$
+declare
+  v_existing_provider_created_at timestamptz;
+  v_suppression_reason text;
+begin
+  select e.provider_created_at into v_existing_provider_created_at
+  from public.delivery_provider_events e
+  where e.event_id = p_event_id;
+
+  if p_event_type = 'email.suppressed' then
+    v_suppression_reason := 'provider_suppressed';
+  end if;
+
+  return public.record_delivery_provider_lifecycle_event(
+    p_event_id,
+    p_event_type,
+    p_provider_email_id,
+    p_recipient_email,
+    coalesce(v_existing_provider_created_at, p_provider_created_at, clock_timestamp()),
+    p_bounce_type,
+    p_failure_class,
+    v_suppression_reason,
+    null
+  );
+end;
+$legacy$;
+
+revoke all privileges
+on function public.record_delivery_provider_lifecycle_event(text, text, text, text, timestamptz, text, text)
+from public, anon, authenticated;
+grant execute
+on function public.record_delivery_provider_lifecycle_event(text, text, text, text, timestamptz, text, text)
+to service_role;
+
+-- Preserve the original five-argument suppression RPC as a narrow wrapper.
+create or replace function public.record_delivery_provider_event(
+  p_event_id text,
+  p_event_type text,
+  p_provider_email_id text,
+  p_recipient_email text,
+  p_bounce_type text default null
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $legacy$
+begin
+  if p_event_type not in ('email.bounced', 'email.complained', 'email.suppressed') then
+    raise exception 'Unsupported legacy provider event type.' using errcode = '22023';
+  end if;
+
+  return public.record_delivery_provider_lifecycle_event(
+    p_event_id,
+    p_event_type,
+    p_provider_email_id,
+    p_recipient_email,
+    clock_timestamp(),
+    p_bounce_type,
+    null
+  );
+end;
+$legacy$;
+
+revoke all privileges
+on function public.record_delivery_provider_event(text, text, text, text, text)
+from public, anon, authenticated;
+grant execute
+on function public.record_delivery_provider_event(text, text, text, text, text)
+to service_role;
+
+notify pgrst, 'reload schema';
+commit;
+-- Correct lease expiry checks after ledger-row lock waits.
+-- Migration 020 remains immutable; this additive migration replaces its four
+-- transport-sensitive transitions using wall-clock time after row locking.
+begin;
+do $$
+begin
+  if to_regprocedure('public.authorize_delivery_job(uuid,uuid)') is null
+    or to_regprocedure('public.retry_delivery_job(uuid,uuid,timestamptz,text)') is null
+    or to_regprocedure('public.mark_delivery_sent(uuid,uuid,text)') is null
+    or to_regprocedure('public.mark_delivery_failed(uuid,uuid,text)') is null then
+    raise exception 'Migration 028 requires the reviewed delivery reliability RPCs.';
+  end if;
+end;
+$$;
+
+create or replace function public.authorize_delivery_job(p_job_id uuid, p_claim_token uuid)
+returns boolean language plpgsql security definer
+set search_path = public, auth, pg_temp
+as $authorize$
+declare
+  v_job public.delivery_ledger%rowtype;
+  v_authorized boolean := false;
+  v_now timestamptz;
+begin
+  if p_job_id is null or p_claim_token is null then
+    raise exception 'A job ID and claim token are required.' using errcode = '22023';
+  end if;
+  select * into v_job from public.delivery_ledger dl where dl.id = p_job_id for update;
+  -- now() is fixed at transaction start and is unsafe after a row-lock wait.
+  v_now := clock_timestamp();
+  if not found or v_job.state <> 'claimed'
+     or v_job.claim_token is distinct from p_claim_token
+     or v_job.claim_expires_at is null or v_job.claim_expires_at <= v_now then
+    raise exception 'Delivery claim is not authorized.' using errcode = '42501';
+  end if;
+
+  if v_job.kind = 'daily_reminder' then
+    select exists (
+      select 1 from public.daily_reminder_preferences drp
+      join public.profiles p on p.user_id = drp.user_id and p.is_suspended = false
+      join pg_catalog.pg_timezone_names tz on tz.name = drp.timezone
+      where drp.user_id = v_job.user_id and drp.daily_enabled = true
+        and v_job.delivery_key = 'daily:' || timezone(drp.timezone, v_job.scheduled_for)::date::text
+        and v_job.scheduled_for = (
+          (timezone(drp.timezone, v_job.scheduled_for)::date + drp.reminder_time)
+          at time zone drp.timezone
+        )
+    ) into v_authorized;
+  elsif v_job.kind = 'weekly_newsletter' then
+    select exists (
+      select 1 from public.newsletter_preferences np
+      join public.profiles p on p.user_id = np.user_id and p.is_suspended = false
+      join auth.users u on u.id = np.user_id
+        and u.email_confirmed_at is not null and nullif(btrim(u.email), '') is not null
+      join public.weekly_goodness_features f
+        on v_job.delivery_key = 'weekly:' || f.week_start::text
+      where np.user_id = v_job.user_id and np.weekly_enabled = true and np.consented_at is not null
+    ) into v_authorized;
+  else
+    raise exception 'Unsupported delivery kind.' using errcode = '22023';
+  end if;
+
+  -- Authorization reads may themselves take time; recheck before any result.
+  v_now := clock_timestamp();
+  if v_job.claim_expires_at <= v_now then
+    raise exception 'Delivery claim is not authorized.' using errcode = '42501';
+  end if;
+  if not v_authorized then
+    update public.delivery_ledger set
+      state = 'cancelled', cancelled_at = clock_timestamp(),
+      claim_token = null, claim_expires_at = null, next_attempt_at = null,
+      error_code = 'authorization_revoked', updated_at = clock_timestamp()
+    where id = v_job.id and state = 'claimed' and claim_token = p_claim_token
+      and claim_expires_at > clock_timestamp();
+    if not found then
+      raise exception 'Delivery claim is not authorized.' using errcode = '42501';
+    end if;
+    return false;
+  end if;
+  return true;
+end;
+$authorize$;
+revoke all privileges on function public.authorize_delivery_job(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.authorize_delivery_job(uuid, uuid) to service_role;
+
+create or replace function public.retry_delivery_job(
+  p_job_id uuid, p_claim_token uuid, p_retry_at timestamptz, p_error_code text
+)
+returns boolean language plpgsql security definer
+set search_path = public, auth, pg_temp
+as $retry$
+declare
+  v_job public.delivery_ledger%rowtype;
+  v_error_code text := btrim(coalesce(p_error_code, ''));
+  v_now timestamptz;
+begin
+  if p_job_id is null or p_claim_token is null or p_retry_at is null then
+    raise exception 'A job ID, claim token, and retry time are required.' using errcode = '22023';
+  end if;
+  if char_length(v_error_code) < 1 or char_length(v_error_code) > 100 then
+    raise exception 'A bounded error code is required.' using errcode = '22023';
+  end if;
+  select * into v_job from public.delivery_ledger dl where dl.id = p_job_id for update;
+  v_now := clock_timestamp();
+  if not found or v_job.state <> 'claimed'
+     or v_job.claim_token is distinct from p_claim_token
+     or v_job.claim_expires_at is null or v_job.claim_expires_at <= v_now then
+    raise exception 'Delivery claim is not authorized.' using errcode = '42501';
+  end if;
+  if p_retry_at <= v_now or p_retry_at > v_now + interval '24 hours' then
+    raise exception 'Retry time must be within the next 24 hours.' using errcode = '22023';
+  end if;
+  if v_job.attempt_count >= 5 then
+    update public.delivery_ledger set
+      state = 'failed', failed_at = clock_timestamp(),
+      claim_token = null, claim_expires_at = null, next_attempt_at = null,
+      error_code = 'retry_exhausted', updated_at = clock_timestamp()
+    where id = v_job.id and state = 'claimed' and claim_token = p_claim_token
+      and claim_expires_at > clock_timestamp();
+    if not found then
+      raise exception 'Delivery claim is not authorized.' using errcode = '42501';
+    end if;
+    return false;
+  end if;
+  update public.delivery_ledger set
+    state = 'queued', claim_token = null, claim_expires_at = null,
+    next_attempt_at = p_retry_at, error_code = v_error_code, updated_at = clock_timestamp()
+  where id = v_job.id and state = 'claimed' and claim_token = p_claim_token
+    and claim_expires_at > clock_timestamp();
+  if not found then
+    raise exception 'Delivery claim is not authorized.' using errcode = '42501';
+  end if;
+  return true;
+end;
+$retry$;
+revoke all privileges on function public.retry_delivery_job(uuid, uuid, timestamptz, text)
+from public, anon, authenticated;
+grant execute on function public.retry_delivery_job(uuid, uuid, timestamptz, text) to service_role;
+
+create or replace function public.mark_delivery_sent(
+  p_job_id uuid, p_claim_token uuid, p_provider_result_id text default null
+)
+returns boolean language plpgsql security definer
+set search_path = public, auth, pg_temp
+as $sent$
+declare
+  v_job public.delivery_ledger%rowtype;
+  v_now timestamptz;
+begin
+  if p_provider_result_id is not null and char_length(p_provider_result_id) > 255 then
+    raise exception 'Provider result identifier is too long.' using errcode = '22023';
+  end if;
+  select * into v_job from public.delivery_ledger dl where dl.id = p_job_id for update;
+  v_now := clock_timestamp();
+  if not found or v_job.state <> 'claimed'
+     or v_job.claim_token is distinct from p_claim_token
+     or v_job.claim_expires_at is null or v_job.claim_expires_at <= v_now then
+    raise exception 'Delivery claim is not authorized.' using errcode = '42501';
+  end if;
+  update public.delivery_ledger set
+    state = 'sent', sent_at = clock_timestamp(),
+    claim_token = null, claim_expires_at = null, next_attempt_at = null,
+    provider_result_id = nullif(btrim(p_provider_result_id), ''),
+    error_code = null, updated_at = clock_timestamp()
+  where id = v_job.id and state = 'claimed' and claim_token = p_claim_token
+    and claim_expires_at > clock_timestamp();
+  if not found then
+    raise exception 'Delivery claim is not authorized.' using errcode = '42501';
+  end if;
+  return true;
+end;
+$sent$;
+revoke all privileges on function public.mark_delivery_sent(uuid, uuid, text)
+from public, anon, authenticated;
+grant execute on function public.mark_delivery_sent(uuid, uuid, text) to service_role;
+
+create or replace function public.mark_delivery_failed(
+  p_job_id uuid, p_claim_token uuid, p_error_code text
+)
+returns boolean language plpgsql security definer
+set search_path = public, auth, pg_temp
+as $failed$
+declare
+  v_job public.delivery_ledger%rowtype;
+  v_error_code text := btrim(coalesce(p_error_code, ''));
+  v_now timestamptz;
+begin
+  if char_length(v_error_code) < 1 or char_length(v_error_code) > 100 then
+    raise exception 'A bounded error code is required.' using errcode = '22023';
+  end if;
+  select * into v_job from public.delivery_ledger dl where dl.id = p_job_id for update;
+  v_now := clock_timestamp();
+  if not found or v_job.state <> 'claimed'
+     or v_job.claim_token is distinct from p_claim_token
+     or v_job.claim_expires_at is null or v_job.claim_expires_at <= v_now then
+    raise exception 'Delivery claim is not authorized.' using errcode = '42501';
+  end if;
+  update public.delivery_ledger set
+    state = 'failed', failed_at = clock_timestamp(),
+    claim_token = null, claim_expires_at = null, next_attempt_at = null,
+    error_code = v_error_code, updated_at = clock_timestamp()
+  where id = v_job.id and state = 'claimed' and claim_token = p_claim_token
+    and claim_expires_at > clock_timestamp();
+  if not found then
+    raise exception 'Delivery claim is not authorized.' using errcode = '42501';
+  end if;
+  return true;
+end;
+$failed$;
+revoke all privileges on function public.mark_delivery_failed(uuid, uuid, text)
+from public, anon, authenticated;
+grant execute on function public.mark_delivery_failed(uuid, uuid, text) to service_role;
+
+notify pgrst, 'reload schema';
+commit;
+-- Restrict fingerprint-less provider RPCs to existing historical replays.
+-- Migration 027 remains immutable; new events require the fingerprinted 9-argument RPC.
+begin;
+
+do $c226$
+declare
+  v_oid oid; v_source text; v_hash text; v_crypto_schema text;
+  v_definer boolean; v_config text[]; v_language text; v_comment text;
+begin
+  if to_regprocedure('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)') is null
+    or to_regprocedure('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text)') is null
+    or to_regprocedure('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text)') is null
+    or to_regprocedure('public.record_delivery_provider_event(text,text,text,text,text)') is null then
+    raise exception 'Migration 029 requires the reviewed provider lifecycle and legacy RPC overloads from migration 027.';
+  end if;
+  if to_regprocedure('public._record_delivery_provider_lifecycle_event_fingerprinted_impl(text,text,text,text,timestamptz,text,text,text,text)') is not null then
+    raise exception 'Migration 029 refuses an existing private implementation with an unknown origin.';
+  end if;
+  v_oid := to_regprocedure('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)');
+  select p.prosrc,p.prosecdef,p.proconfig,l.lanname,obj_description(p.oid,'pg_proc')
+  into v_source,v_definer,v_config,v_language,v_comment
+  from pg_catalog.pg_proc p join pg_catalog.pg_language l on l.oid=p.prolang where p.oid=v_oid;
+  if v_source is null or v_language <> 'plpgsql' or v_definer is distinct from true
+    or v_config is distinct from array['search_path=public, auth, pg_temp']::text[]
+    or v_comment is distinct from 'deedlight:027:provider-lifecycle-integrity-and-suppression-reasons:v1' then
+    raise exception 'Migration 029 refuses an unrecognized migration-027 provider lifecycle implementation.';
+  end if;
+  select n.nspname into v_crypto_schema
+  from pg_catalog.pg_extension e join pg_catalog.pg_namespace n on n.oid=e.extnamespace
+  where e.extname='pgcrypto';
+  if v_crypto_schema is null then
+    raise exception 'Migration 029 requires pgcrypto to verify the migration-027 implementation identity.';
+  end if;
+  execute format('select encode(%I.digest(convert_to($1, ''UTF8''), ''sha256''), ''hex'')',v_crypto_schema)
+  into v_hash using v_source;
+  if v_hash is distinct from '8dbfc65b93677f9928114561d372dad69f16c9c746dadf80551c662161ba3ed5' then
+    raise exception 'Migration 029 refuses an unrecognized migration-027 provider lifecycle implementation.';
+  end if;
+end;
+$c226$;
+
+-- Keep the reviewed 027 lifecycle implementation intact under a private name.
+-- The public canonical RPC below becomes the only entry point to this implementation.
+alter function public.record_delivery_provider_lifecycle_event(
+  text, text, text, text, timestamptz, text, text, text, text
+) rename to _record_delivery_provider_lifecycle_event_fingerprinted_impl;
+
+revoke all privileges
+on function public._record_delivery_provider_lifecycle_event_fingerprinted_impl(
+  text, text, text, text, timestamptz, text, text, text, text
+)
+from public, anon, authenticated, service_role;
+
+comment on function public._record_delivery_provider_lifecycle_event_fingerprinted_impl(
+  text, text, text, text, timestamptz, text, text, text, text
+)
+is 'Private migration-027 lifecycle implementation; invoke only through the fingerprint-enforcing canonical RPC.';
+
+create or replace function public.record_delivery_provider_lifecycle_event(
+  p_event_id text,
+  p_event_type text,
+  p_provider_email_id text,
+  p_recipient_email text,
+  p_provider_created_at timestamptz,
+  p_bounce_type text,
+  p_failure_class text,
+  p_suppression_reason text,
+  p_payload_fingerprint text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $canonical$
+declare
+  v_existing public.delivery_provider_events%rowtype;
+  v_email text;
+begin
+  if p_payload_fingerprint is null then
+    if p_event_id is null or char_length(p_event_id) not between 1 and 255
+      or p_provider_email_id is null or char_length(p_provider_email_id) not between 1 and 255
+      or p_recipient_email is null or char_length(p_recipient_email) > 320 then
+      raise exception 'A valid event ID, provider email ID and recipient are required for historical replay.'
+        using errcode = '22023';
+    end if;
+
+    v_email := lower(btrim(p_recipient_email));
+    if char_length(v_email) not between 3 and 320 then
+      raise exception 'Invalid delivery provider recipient.' using errcode = '22023';
+    end if;
+
+    -- Match the canonical implementation's lock order before inspecting the
+    -- event row. This serializes NULL-digest replays against concurrent inserts.
+    perform pg_catalog.pg_advisory_xact_lock(20261119, hashtext(v_email));
+    perform pg_catalog.pg_advisory_xact_lock(20261126, hashtext(p_provider_email_id));
+
+    select e.* into v_existing
+    from public.delivery_provider_events e
+    where e.event_id = p_event_id
+    for update;
+
+    if not found then
+      raise exception 'Fingerprint-less provider events cannot be inserted; use the fingerprinted canonical RPC.'
+        using errcode = '42501';
+    end if;
+
+    -- A stored NULL digest is the historical compatibility case. A stored
+    -- non-NULL digest must take the implementation's conflict/anomaly path:
+    -- the legacy caller cannot prove an exact replay without the raw-body hash.
+  end if;
+
+  return public._record_delivery_provider_lifecycle_event_fingerprinted_impl(
+    p_event_id,
+    p_event_type,
+    p_provider_email_id,
+    p_recipient_email,
+    p_provider_created_at,
+    p_bounce_type,
+    p_failure_class,
+    p_suppression_reason,
+    p_payload_fingerprint
+  );
+end;
+$canonical$;
+
+revoke all privileges
+on function public.record_delivery_provider_lifecycle_event(
+  text, text, text, text, timestamptz, text, text, text, text
+)
+from public, anon, authenticated;
+grant execute
+on function public.record_delivery_provider_lifecycle_event(
+  text, text, text, text, timestamptz, text, text, text, text
+)
+to service_role;
+
+comment on function public.record_delivery_provider_lifecycle_event(
+  text, text, text, text, timestamptz, text, text, text, text
+)
+is 'deedlight:029:fingerprint-required-for-new-provider-events:v1';
+
+-- Reassert the service-only legacy RPC boundary. Their existing wrappers
+-- pass NULL to the canonical entry point and therefore cannot create rows.
+revoke all privileges
+on function public.record_delivery_provider_lifecycle_event(
+  text, text, text, text, timestamptz, text, text, text
+)
+from public, anon, authenticated;
+grant execute
+on function public.record_delivery_provider_lifecycle_event(
+  text, text, text, text, timestamptz, text, text, text
+)
+to service_role;
+
+revoke all privileges
+on function public.record_delivery_provider_lifecycle_event(
+  text, text, text, text, timestamptz, text, text
+)
+from public, anon, authenticated;
+grant execute
+on function public.record_delivery_provider_lifecycle_event(
+  text, text, text, text, timestamptz, text, text
+)
+to service_role;
+
+revoke all privileges
+on function public.record_delivery_provider_event(text, text, text, text, text)
+from public, anon, authenticated;
+grant execute
+on function public.record_delivery_provider_event(text, text, text, text, text)
+to service_role;
+
+notify pgrst, 'reload schema';
+commit;
+-- Make provider idempotency timing database-authoritative and validate Resend receipts.
+begin;
+do $migration_030_preflight$
+declare
+  v_crypto_schema text;
+  v_authorize_oid oid := to_regprocedure('public.authorize_delivery_job(uuid,uuid)');
+  v_failed_oid oid := to_regprocedure('public.mark_delivery_failed(uuid,uuid,text)');
+  v_authorize_source text;
+  v_failed_source text;
+  v_authorize_hash text;
+  v_failed_hash text;
+  v_authorize_definer boolean;
+  v_failed_definer boolean;
+  v_authorize_config text[];
+  v_failed_config text[];
+  v_authorize_language text;
+  v_failed_language text;
+begin
+  if v_authorize_oid is null
+    or v_failed_oid is null
+    or to_regprocedure('public.retry_delivery_job(uuid,uuid,timestamptz,text)') is null
+    or to_regprocedure('public.mark_delivery_sent(uuid,uuid,text)') is null
+    or not exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'delivery_ledger'
+        and column_name = 'transport_started_at'
+    ) then
+    raise exception 'Migration 030 requires the exact hardened migration-028 authorize_delivery_job and mark_delivery_failed implementations.';
+  end if;
+
+  select n.nspname into v_crypto_schema
+  from pg_catalog.pg_extension e
+  join pg_catalog.pg_namespace n on n.oid = e.extnamespace
+  where e.extname = 'pgcrypto';
+
+  if v_crypto_schema is null then
+    raise exception 'Migration 030 requires pgcrypto to attest migration-028 function source.';
+  end if;
+
+  select p.prosrc, p.prosecdef, p.proconfig, l.lanname
+  into v_authorize_source, v_authorize_definer, v_authorize_config, v_authorize_language
+  from pg_catalog.pg_proc p
+  join pg_catalog.pg_language l on l.oid = p.prolang
+  where p.oid = v_authorize_oid;
+
+  select p.prosrc, p.prosecdef, p.proconfig, l.lanname
+  into v_failed_source, v_failed_definer, v_failed_config, v_failed_language
+  from pg_catalog.pg_proc p
+  join pg_catalog.pg_language l on l.oid = p.prolang
+  where p.oid = v_failed_oid;
+
+  execute format(
+    'select encode(%I.digest(convert_to($1, ''UTF8''), ''sha256''), ''hex'')',
+    v_crypto_schema
+  ) into v_authorize_hash using v_authorize_source;
+
+  execute format(
+    'select encode(%I.digest(convert_to($1, ''UTF8''), ''sha256''), ''hex'')',
+    v_crypto_schema
+  ) into v_failed_hash using v_failed_source;
+
+  if v_authorize_hash is distinct from 'dea4d0ecb1518edec6c60f1ec998669af65b2164a547cffe67f5cbdaa8644215'
+    or v_failed_hash is distinct from 'c7830ca2281fa85e4466fa45c32c1067dba4c9766eeeb26d26dcdb3b46b72b78'
+    or v_authorize_language is distinct from 'plpgsql'
+    or v_failed_language is distinct from 'plpgsql'
+    or v_authorize_definer is distinct from true
+    or v_failed_definer is distinct from true
+    or v_authorize_config is distinct from array['search_path=public, auth, pg_temp']::text[]
+    or v_failed_config is distinct from array['search_path=public, auth, pg_temp']::text[] then
+    raise exception 'Migration 030 requires the exact hardened migration-028 authorize_delivery_job and mark_delivery_failed implementations.';
+  end if;
+
+  if has_function_privilege('anon', v_authorize_oid, 'EXECUTE')
+    or has_function_privilege('authenticated', v_authorize_oid, 'EXECUTE')
+    or not has_function_privilege('service_role', v_authorize_oid, 'EXECUTE')
+    or has_function_privilege('anon', v_failed_oid, 'EXECUTE')
+    or has_function_privilege('authenticated', v_failed_oid, 'EXECUTE')
+    or not has_function_privilege('service_role', v_failed_oid, 'EXECUTE')
+    or exists (
+      select 1
+      from pg_catalog.pg_proc p
+      cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+      where p.oid in (v_authorize_oid, v_failed_oid)
+        and a.grantee = 0
+        and a.privilege_type = 'EXECUTE'
+    ) then
+    raise exception 'Migration 030 requires migration-028 service-role-only RPC privileges.';
+  end if;
+end;
+$migration_030_preflight$;
+
+drop function if exists public.authorize_delivery_idempotency_window(uuid,uuid);
+create function public.authorize_delivery_idempotency_window(p_job_id uuid,p_claim_token uuid)
+returns text language plpgsql security definer
+set search_path = public, auth, pg_temp
+as $idempotency$
+declare v_job public.delivery_ledger%rowtype; v_now timestamptz;
+begin
+  if p_job_id is null or p_claim_token is null then raise exception 'A job ID and claim token are required.' using errcode='22023'; end if;
+  -- Re-run the full consent/profile/claim authorization after transport start and immediately before send.
+  if public.authorize_delivery_job(p_job_id,p_claim_token) is not true then return 'cancelled'; end if;
+  select * into v_job from public.delivery_ledger dl where dl.id=p_job_id for update;
+  v_now := clock_timestamp();
+  if not found or v_job.state <> 'claimed' or v_job.claim_token is distinct from p_claim_token
+    or v_job.claim_expires_at is null or v_job.claim_expires_at <= v_now or v_job.transport_started_at is null then
+    raise exception 'Delivery claim is not authorized for provider transport.' using errcode='42501';
+  end if;
+  if v_job.transport_started_at + interval '23 hours' <= v_now + interval '30 seconds' then
+    update public.delivery_ledger set state='failed',failed_at=clock_timestamp(),claim_token=null,
+      claim_expires_at=null,next_attempt_at=null,error_code='provider_idempotency_window_expired',updated_at=clock_timestamp()
+    where id=v_job.id and state='claimed' and claim_token=p_claim_token and claim_expires_at > clock_timestamp();
+    if not found then raise exception 'Delivery claim is not authorized for provider transport.' using errcode='42501'; end if;
+    return 'expired';
+  end if;
+  return 'authorized';
+end;
+$idempotency$;
+revoke all privileges on function public.authorize_delivery_idempotency_window(uuid,uuid) from public,anon,authenticated;
+grant execute on function public.authorize_delivery_idempotency_window(uuid,uuid) to service_role;
+comment on function public.authorize_delivery_idempotency_window(uuid,uuid)
+is 'deedlight:030:database-authoritative-provider-idempotency-horizon:v1';
+
+create or replace function public.retry_delivery_job(p_job_id uuid,p_claim_token uuid,p_error_code text)
+returns boolean language plpgsql security definer
+set search_path = public, auth, pg_temp
+as $retry$
+declare v_job public.delivery_ledger%rowtype; v_error text:=btrim(coalesce(p_error_code,'')); v_now timestamptz; v_retry_at timestamptz;
+begin
+  if p_job_id is null or p_claim_token is null then raise exception 'A job ID and claim token are required.' using errcode='22023'; end if;
+  if char_length(v_error)<1 or char_length(v_error)>100 then raise exception 'A bounded error code is required.' using errcode='22023'; end if;
+  select * into v_job from public.delivery_ledger dl where dl.id=p_job_id for update;
+  v_now:=clock_timestamp();
+  if not found or v_job.state<>'claimed' or v_job.claim_token is distinct from p_claim_token
+    or v_job.claim_expires_at is null or v_job.claim_expires_at<=v_now or v_job.transport_started_at is null then
+    raise exception 'Delivery claim is not authorized for retry.' using errcode='42501';
+  end if;
+  if v_job.attempt_count>=5 then
+    update public.delivery_ledger set state='failed',failed_at=clock_timestamp(),claim_token=null,claim_expires_at=null,
+      next_attempt_at=null,error_code='retry_exhausted',updated_at=clock_timestamp()
+    where id=v_job.id and state='claimed' and claim_token=p_claim_token and claim_expires_at>clock_timestamp();
+    if not found then raise exception 'Delivery claim is not authorized for retry.' using errcode='42501'; end if;
+    return false;
+  end if;
+  v_retry_at:=v_now+interval '5 minutes';
+  if v_job.transport_started_at+interval '23 hours'<=v_retry_at+interval '30 seconds' then
+    update public.delivery_ledger set state='failed',failed_at=clock_timestamp(),claim_token=null,claim_expires_at=null,
+      next_attempt_at=null,error_code='provider_idempotency_window_expired',updated_at=clock_timestamp()
+    where id=v_job.id and state='claimed' and claim_token=p_claim_token and claim_expires_at>clock_timestamp();
+    if not found then raise exception 'Delivery claim is not authorized for retry.' using errcode='42501'; end if;
+    return false;
+  end if;
+  update public.delivery_ledger set state='queued',claim_token=null,claim_expires_at=null,next_attempt_at=v_retry_at,
+    error_code=v_error,updated_at=clock_timestamp()
+  where id=v_job.id and state='claimed' and claim_token=p_claim_token and claim_expires_at>clock_timestamp()
+    and transport_started_at+interval '23 hours'>clock_timestamp()+interval '5 minutes 30 seconds';
+  if not found then
+    update public.delivery_ledger set state='failed',failed_at=clock_timestamp(),claim_token=null,claim_expires_at=null,
+      next_attempt_at=null,error_code='provider_idempotency_window_expired',updated_at=clock_timestamp()
+    where id=v_job.id and state='claimed' and claim_token=p_claim_token and claim_expires_at>clock_timestamp()
+      and transport_started_at+interval '23 hours'<=clock_timestamp()+interval '5 minutes 30 seconds';
+    if found then return false; end if;
+    raise exception 'Delivery claim is not authorized for retry.' using errcode='42501';
+  end if;
+  return true;
+end;
+$retry$;
+revoke all privileges on function public.retry_delivery_job(uuid,uuid,text) from public,anon,authenticated;
+grant execute on function public.retry_delivery_job(uuid,uuid,text) to service_role;
+comment on function public.retry_delivery_job(uuid,uuid,text)
+is 'deedlight:030:database-authoritative-retry-time-and-provider-horizon:v1';
+
+create or replace function public.retry_delivery_job(p_job_id uuid,p_claim_token uuid,p_retry_at timestamptz,p_error_code text)
+returns boolean language plpgsql security definer
+set search_path = public, auth, pg_temp
+as $legacy_retry$
+begin return public.retry_delivery_job(p_job_id,p_claim_token,p_error_code); end;
+$legacy_retry$;
+revoke all privileges on function public.retry_delivery_job(uuid,uuid,timestamptz,text) from public,anon,authenticated;
+grant execute on function public.retry_delivery_job(uuid,uuid,timestamptz,text) to service_role;
+comment on function public.retry_delivery_job(uuid,uuid,timestamptz,text)
+is 'deedlight:030:legacy-retry-timestamp-ignored:v1';
+
+create or replace function public.mark_delivery_sent(p_job_id uuid,p_claim_token uuid,p_provider_result_id text default null)
+returns boolean language plpgsql security definer
+set search_path = public, auth, pg_temp
+as $sent$
+declare v_job public.delivery_ledger%rowtype; v_now timestamptz;
+begin
+  select * into v_job from public.delivery_ledger dl where dl.id=p_job_id for update;
+  v_now:=clock_timestamp();
+  if not found or v_job.state<>'claimed' or v_job.claim_token is distinct from p_claim_token
+    or v_job.claim_expires_at is null or v_job.claim_expires_at<=v_now or v_job.transport_started_at is null then
+    raise exception 'Delivery claim is not authorized for sent transition.' using errcode='42501';
+  end if;
+  if p_provider_result_id is null or char_length(p_provider_result_id)<>36
+    or p_provider_result_id<>btrim(p_provider_result_id)
+    or p_provider_result_id !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
+    raise exception 'A valid Resend email identifier is required.' using errcode='22023';
+  end if;
+  update public.delivery_ledger set state='sent',sent_at=clock_timestamp(),claim_token=null,claim_expires_at=null,
+    next_attempt_at=null,provider_result_id=p_provider_result_id,error_code=null,updated_at=clock_timestamp()
+  where id=v_job.id and state='claimed' and claim_token=p_claim_token and claim_expires_at>clock_timestamp()
+    and transport_started_at is not null;
+  if not found then raise exception 'Delivery claim is not authorized for sent transition.' using errcode='42501'; end if;
+  return true;
+end;
+$sent$;
+revoke all privileges on function public.mark_delivery_sent(uuid,uuid,text) from public,anon,authenticated;
+grant execute on function public.mark_delivery_sent(uuid,uuid,text) to service_role;
+comment on function public.mark_delivery_sent(uuid,uuid,text)
+is 'deedlight:030:validated-resend-receipt-and-transport-evidence:v1';
+notify pgrst,'reload schema';
+commit;
