@@ -123,3 +123,25 @@ test("accepts a complete transitive membership path with attributes for every no
   path.roleAttributes[1].role="fixture_other_role";
   assert.throws(()=>validateProductionOwnerManifest(manifest,approvals,projectRef),/role mismatch/);
 });
+
+
+test("rejects inconsistent owner attributes between Query 8A and membership paths", () => {
+  const {manifest,approvals}=fixture();
+  const path={roles:["fixture_owner_only","fixture_parent"],inheritOptions:[true],setOptions:[true],
+    roleAttributes:[{role:"fixture_owner_only",...attrs()},{role:"fixture_parent",...attrs()}],
+    effective:{member:true,inheritsPrivileges:true,canSetRole:true}};
+  const canonicalPath=JSON.stringify({roles:path.roles,inheritOptions:path.inheritOptions,setOptions:path.setOptions,
+    roleAttributes:path.roleAttributes,effective:path.effective});
+  manifest.owners[0].membershipGraph.paths=[path];
+  manifest.evidence.query8b.rowCount=1;
+  const approvedDigest=digest({complete:true,paths:[canonicalPath]});
+  for (const approval of approvals.approvals.filter((item)=>item.scope==="membership_graph")) approval.approvedValueSha256=approvedDigest;
+  path.roleAttributes[0].rolinherit=false;
+  assert.throws(()=>validateProductionOwnerManifest(manifest,approvals,projectRef),/owner attributes disagree/);
+});
+
+test("rejects duplicate immutable approval references", () => {
+  const {manifest,approvals}=fixture();
+  approvals.approvals[1].recordRef=approvals.approvals[0].recordRef;
+  assert.throws(()=>validateProductionOwnerManifest(manifest,approvals,projectRef),/duplicate approval recordRef/);
+});
