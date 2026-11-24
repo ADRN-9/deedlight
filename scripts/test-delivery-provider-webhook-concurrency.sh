@@ -34,7 +34,7 @@ wait_bounded() {
   while (( SECONDS < deadline )); do
     state="$(ps -o stat= -p "$pid" 2>/dev/null | tr -d '[:space:]' || true)"
     if [[ -z "$state" || "$state" == Z* ]]; then
-      wait "$pid" || status=$?
+      wait_bounded "$pid" "pid" || status=$?
       untrack_child "$pid"
       return "$status"
     fi
@@ -45,13 +45,13 @@ wait_bounded() {
   kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
   sleep 1
   kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
-  wait "$pid" 2>/dev/null || true
+  wait_bounded "$pid" "pid" 2>/dev/null || true
   untrack_child "$pid"
   return 124
 }
 
 tmp="$(mktemp -d)"
-suite_pid=$
+suite_pid="${BASHPID}"
 ( sleep "$suite_timeout_seconds"; kill -TERM "$suite_pid" 2>/dev/null ) &
 watchdog_pid=$!
 
@@ -146,7 +146,7 @@ exact_result="$(psql_service_scalar "select public.record_delivery_provider_life
   'concurrent-exact@example.test', '2027-03-02T09:00:00Z', 'Permanent', null,
   null, repeat('e', 64)
 )")"
-wait "$exact_pid"
+wait_bounded "$exact_pid" "exact_pid"
 [[ "$exact_result" == "f" ]]
 exact_event_count="$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_concurrent_exact_duplicate'")"
 exact_suppression="$(psql_scalar "select reason || ':' || provider_event_id from public.delivery_provider_suppressions where recipient_email='concurrent-exact@example.test'")"
@@ -180,7 +180,7 @@ duplicate_result="$(psql_service_scalar "select public.record_delivery_provider_
   'attacker-concurrent@example.test', '2027-03-02T10:01:00Z', null, null,
   null, repeat('a', 64)
 )")"
-wait "$duplicate_pid"
+wait_bounded "$duplicate_pid" "duplicate_pid"
 [[ "$duplicate_result" == "__NULL__" ]]
 count="$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_concurrent_duplicate'")"
 suppression="$(psql_scalar "select reason || ':' || provider_event_id from public.delivery_provider_suppressions where recipient_email='concurrent-duplicate@example.test'")"
@@ -232,7 +232,7 @@ if [[ "$cross_recipient_waiting" != "1" ]]; then
   echo "Cross-recipient callback did not wait on the provider-email-ID advisory lock." >&2
   exit 1
 fi
-wait "$cross_recipient_first_pid"
+wait_bounded "$cross_recipient_first_pid" "cross_recipient_first_pid"
 if ! wait "$cross_recipient_second_pid"; then
   cat "$tmp/cross-recipient-second.log"
   echo "Cross-recipient provider email ID conflict did not persist its evidence." >&2
@@ -282,7 +282,7 @@ historical_result="$(psql_service_scalar "select public.record_delivery_provider
   'historical-026-complaint@example.test', '2027-03-01T09:15:00Z', null, null,
   null, repeat('e', 64)
 )")"
-wait "$historical_pid"
+wait_bounded "$historical_pid" "historical_pid"
 historical_fingerprint="$(psql_scalar "select coalesce(payload_fingerprint, '__NULL__') from public.delivery_provider_events where event_id='evt_historical_026_complaint'")"
 historical_anomalies="$(psql_scalar "select count(*) from public.delivery_provider_integrity_anomalies where event_id='evt_historical_026_complaint'")"
 historical_suppression="$(psql_scalar "select reason || ':' || provider_event_id from public.delivery_provider_suppressions where recipient_email='historical-026-complaint@example.test'")"
@@ -338,7 +338,7 @@ SQL
     '$second_id', 'email.suppressed', '$second_provider_id', '$recipient',
     '$second_time', null, null, '$second_reason', repeat('2', 64)
   )")"
-  wait "$first_pid"
+  wait_bounded "$first_pid" "first_pid"
   suppression_state="$(psql_scalar "select reason || ':' || provider_event_id from public.delivery_provider_suppressions where recipient_email='$recipient'")"
   event_count="$(psql_scalar "select count(*) from public.delivery_provider_events where recipient_email='$recipient'")"
   anomaly_count="$(psql_scalar "select count(*) from public.delivery_provider_integrity_anomalies where event_id in ('$first_id','$second_id')")"
@@ -393,7 +393,7 @@ SQL
   track_child "terminal_pid"
   wait_for_marker "$terminal_pid" "$log" "TERMINAL_EVENT_LOCK_HELD"
   psql_service_scalar "select public.record_delivery_provider_lifecycle_event('$second_id','$second_type','$provider_id','$recipient','$second_time',$second_bounce,null,null,repeat('2',64))" >"$result"
-  wait "$terminal_pid"
+  wait_bounded "$terminal_pid" "terminal_pid"
   terminal_result="$(cat "$result")"
   [[ "$terminal_result" == "__NULL__" ]]
   status="$(psql_scalar "select status from public.delivery_provider_lifecycle where provider_email_id='$provider_id'")"
@@ -429,7 +429,7 @@ delivered_pid=$!
 track_child "delivered_pid"
 wait_for_marker "$delivered_pid" "$tmp/delivered-first.log" "DELIVERED_EVENT_LOCK_HELD"
 psql_service_scalar "select public.record_delivery_provider_lifecycle_event('evt_concurrent_delayed','email.delivery_delayed','resend-concurrent-order','concurrent-order@example.test','2027-03-02T10:05:00Z',null,null,null,repeat('4',64))" >"$tmp/delayed-result"
-wait "$delivered_pid"
+wait_bounded "$delivered_pid" "delivered_pid"
 grep -qx 't' "$tmp/delayed-result"
 status="$(psql_scalar "select status from public.delivery_provider_lifecycle where provider_email_id='resend-concurrent-order'")"
 [[ "$status" == "email.delivered" ]]
@@ -490,7 +490,7 @@ end;
 $$;
 reset role;
 SQL
-wait "$suppression_pid"
+wait_bounded "$suppression_pid" "suppression_pid"
 result="$(psql_scalar "select state || ':' || (transport_started_at is null)::text from public.delivery_ledger where user_id='00000000-0000-0000-0000-000000020006'")"
 [[ "$result" == "cancelled:true" ]]
 echo "Shared suppression-first transport authorization: PASS"
@@ -540,7 +540,7 @@ transport_pid=$!
 track_child "transport_pid"
 wait_for_marker "$transport_pid" "$tmp/transport-first.log" "TRANSPORT_LOCK_HELD"
 psql_service_scalar "select public.record_delivery_provider_lifecycle_event('evt_suppression_race_after_transport','email.complained','resend-suppression-race-after','transport-race@example.test','2027-03-02T10:21:00Z',null,null,null,repeat('6',64))" >"$tmp/suppression-after-result"
-wait "$transport_pid"
+wait_bounded "$transport_pid" "transport_pid"
 grep -qx 't' "$tmp/suppression-after-result"
 result="$(psql_scalar "select (transport_started_at is not null)::text || ':' || (select count(*)::text from public.delivery_provider_suppressions where recipient_email='transport-race@example.test') from public.delivery_ledger where user_id='00000000-0000-0000-0000-000000020007'")"
 [[ "$result" == "true:1" ]]
@@ -569,7 +569,7 @@ suppression_duplicate_result="$(psql_service_scalar "select public.record_delive
   'concurrent-suppression-duplicate@example.test','manual',null,
   '2026-11-22T17:00:00Z','2026-11-22T17:01:00Z',repeat('a',64)
 )")"
-wait "$suppression_duplicate_pid"
+wait_bounded "$suppression_duplicate_pid" "suppression_duplicate_pid"
 [[ "$suppression_duplicate_result" == "f" ]]
 suppression_duplicate_count="$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_concurrent_suppression_duplicate'")"
 suppression_duplicate_state="$(psql_scalar "select is_active::text from public.delivery_provider_suppression_state where recipient_email='concurrent-suppression-duplicate@example.test'")"
@@ -599,7 +599,7 @@ suppression_conflict_result="$(psql_service_scalar "select public.record_deliver
   'concurrent-suppression-conflict@example.test','manual',null,
   '2026-11-22T18:00:00Z','2026-11-22T18:02:00Z',repeat('c',64)
 )")"
-wait "$suppression_conflict_pid"
+wait_bounded "$suppression_conflict_pid" "suppression_conflict_pid"
 [[ "$suppression_conflict_result" == "__NULL__" ]]
 suppression_conflict_anomaly="$(psql_scalar "select count(*) from public.delivery_provider_integrity_anomalies where event_id='evt_concurrent_suppression_conflict' and anomaly_type='duplicate_event_id_conflict'")"
 suppression_conflict_state="$(psql_scalar "select is_active::text from public.delivery_provider_suppression_state where recipient_email='concurrent-suppression-conflict@example.test'")"
@@ -642,7 +642,7 @@ if [[ "$cross_id_waiting" != "1" ]]; then
   echo "Cross-recipient suppression callback did not wait on the suppression-ID advisory lock." >&2
   exit 1
 fi
-wait "$suppression_cross_first_pid"
+wait_bounded "$suppression_cross_first_pid" "suppression_cross_first_pid"
 if ! wait "$suppression_cross_second_pid"; then
   cat "$tmp/suppression-cross-second.log"
   echo "Cross-recipient suppression ID conflict did not persist its evidence." >&2
@@ -707,7 +707,7 @@ if [[ "$cross_stream_waiting" != "1" ]]; then
   echo "Older email.suppressed did not wait on the provider suppression address lock." >&2
   exit 1
 fi
-wait "$cross_stream_removal_pid"
+wait_bounded "$cross_stream_removal_pid" "cross_stream_removal_pid"
 if ! wait "$cross_stream_lifecycle_pid"; then
   cat "$tmp/cross-stream-lifecycle-second.log"
   exit 1
@@ -762,7 +762,7 @@ if [[ "$cross_stream_waiting" != "1" ]]; then
   echo "Later provider suppression events did not wait on the lifecycle address lock." >&2
   exit 1
 fi
-wait "$cross_stream_lifecycle_first_pid"
+wait_bounded "$cross_stream_lifecycle_first_pid" "cross_stream_lifecycle_first_pid"
 if ! wait "$cross_stream_removal_second_pid"; then
   cat "$tmp/cross-stream-removal-second.log"
   exit 1
@@ -818,7 +818,7 @@ if [[ "$c331_waiting" != "1" ]]; then
   echo "Newer lifecycle event did not wait on the recipient advisory lock." >&2
   exit 1
 fi
-wait "$c331_removal_first_pid"
+wait_bounded "$c331_removal_first_pid" "c331_removal_first_pid"
 if ! wait "$c331_lifecycle_second_pid"; then
   cat "$tmp/c331-lifecycle-second.log"
   exit 1
@@ -875,7 +875,7 @@ if [[ "$c331_waiting" != "1" ]]; then
   echo "Older manual suppression add did not wait on the recipient advisory lock." >&2
   exit 1
 fi
-wait "$c331_lifecycle_first_pid"
+wait_bounded "$c331_lifecycle_first_pid" "c331_lifecycle_first_pid"
 if ! wait "$c331_removal_second_pid"; then
   cat "$tmp/c331-removal-second.log"
   exit 1
@@ -923,7 +923,7 @@ if [[ "$c356_waiting" != "1" ]]; then
   echo "Simultaneous first insert did not wait on the global event-ID advisory lock." >&2
   exit 1
 fi
-wait "$c356_first_pid"
+wait_bounded "$c356_first_pid" "c356_first_pid"
 if ! wait "$c356_second_pid"; then
   cat "$tmp/c356-simultaneous-second.log"
   exit 1
@@ -965,7 +965,7 @@ if [[ "$c356_legacy_waiting" != "1" ]]; then
   echo "Legacy seven-argument wrapper did not wait on the event-ID lock before reading." >&2
   exit 1
 fi
-wait "$c356_legacy_first_pid"
+wait_bounded "$c356_legacy_first_pid" "c356_legacy_first_pid"
 if ! wait "$c356_legacy_second_pid"; then cat "$tmp/c356-legacy-lock-second.log"; exit 1; fi
 [[ "$(tr -d '\r\n' <"$tmp/c356-legacy-lock-second.log")" == "f" ]]
 [[ "$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_historical_026_complaint'")" == "1" ]]
@@ -1001,7 +1001,7 @@ if [[ "$c356_compat_waiting" != "1" ]]; then
   echo "Eight-argument compatibility wrapper did not wait on the event-ID lock." >&2
   exit 1
 fi
-wait "$c356_compat_first_pid"
+wait_bounded "$c356_compat_first_pid" "c356_compat_first_pid"
 if ! wait "$c356_compat_second_pid"; then cat "$tmp/c356-compat-lock-second.log"; exit 1; fi
 [[ "$(tr -d '\r\n' <"$tmp/c356-compat-lock-second.log")" == "f" ]]
 [[ "$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_historical_025_suppressed'")" == "1" ]]
@@ -1037,7 +1037,7 @@ if [[ "$c356_legacy_event_waiting" != "1" ]]; then
   echo "Five-argument legacy event wrapper did not wait on the event-ID lock." >&2
   exit 1
 fi
-wait "$c356_legacy_event_first_pid"
+wait_bounded "$c356_legacy_event_first_pid" "c356_legacy_event_first_pid"
 if ! wait "$c356_legacy_event_second_pid"; then cat "$tmp/c356-legacy-event-second.log"; exit 1; fi
 [[ "$(tr -d '\r\n' <"$tmp/c356-legacy-event-second.log")" == "__NULL__" ]]
 [[ "$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_historical_025_suppressed'")" == "1" ]]
@@ -1080,7 +1080,7 @@ if [[ "$c356_suppression_waiting" != "1" ]]; then
   echo "Suppression callback did not wait on the shared event-ID lock." >&2
   exit 1
 fi
-wait "$c356_suppression_first_pid"
+wait_bounded "$c356_suppression_first_pid" "c356_suppression_first_pid"
 if ! wait "$c356_suppression_second_pid"; then
   cat "$tmp/c356-suppression-second.log"
   exit 1
