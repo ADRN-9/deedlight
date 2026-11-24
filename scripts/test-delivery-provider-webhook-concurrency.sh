@@ -1097,7 +1097,7 @@ echo "Concurrent suppression first-insert event-ID conflict: PASS"
 run_psql >"$tmp/c362-lock-holder.log" 2>&1 <<'SQL' &
 begin;
 select pg_catalog.pg_advisory_xact_lock(20261118, pg_catalog.hashtext('evt_c362_bounded_lock_timeout'));
-\\echo C362_LOCK_TIMEOUT_HOLDER_READY
+\echo C362_LOCK_TIMEOUT_HOLDER_READY
 select pg_sleep(3);
 rollback;
 SQL
