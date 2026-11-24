@@ -662,3 +662,65 @@ const concurrencyScenarioBody = concurrencyTests.slice(concurrencyTests.indexOf(
 assert(!/^[ \\t]*wait "[A-Za-z_][A-Za-z0-9_]*"$/m.test(concurrencyScenarioBody),
   "Concurrency scenario child waits must use the bounded wait helper.");
 console.log("Resend webhook authenticity, provider-integrity administration, bounded signatures, suppression ordering and privacy assertions: PASS");
+
+const productionOwnershipAudit = read("docs/PRODUCTION_READ_ONLY_MIGRATION_AUDIT.md");
+const expectedSecurityDefinerOwnershipSignatures = [
+  "public.is_admin()",
+  "public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)",
+  "public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text)",
+  "public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text)",
+  "public.record_delivery_provider_event(text,text,text,text,text)",
+  "public.record_delivery_provider_suppression_event(text,text,text,text,text,text,timestamptz,timestamptz,text)",
+  "public._record_delivery_provider_integrity_conflict(text,text,text,text,text,text,text,timestamptz,text,text,text,text,text,timestamptz,text,text,text)",
+  "public._record_delivery_provider_lifecycle_event_pre037_impl(text,text,text,text,timestamptz,text,text,text,text)",
+  "public._record_delivery_provider_suppression_event_pre037_impl(text,text,text,text,text,text,timestamptz,timestamptz,text)",
+  "public._deny_delivery_provider_integrity_audit_mutation()",
+  "public.admin_list_delivery_provider_integrity_conflicts(text,integer)",
+  "public.admin_list_delivery_provider_integrity_evidence(bigint,integer)",
+  "public.admin_list_delivery_provider_integrity_history(bigint,integer)",
+  "public.admin_resolve_delivery_provider_integrity_conflict(bigint,text)",
+  "public.admin_list_delivery_provider_integrity_conflicts_page(text,integer,timestamptz,bigint)",
+  "public.admin_get_delivery_provider_integrity_conflict(bigint)",
+  "public.admin_list_delivery_provider_integrity_evidence_page(bigint,integer,timestamptz,bigint)",
+  "public.admin_list_delivery_provider_integrity_history_page(bigint,integer,timestamptz,bigint)",
+];
+assert.equal(expectedSecurityDefinerOwnershipSignatures.length, 18,
+  "The Production ownership audit must cover exactly 18 reviewed SECURITY DEFINER signatures.");
+assert(productionOwnershipAudit.includes("### Query 8A — exact SECURITY DEFINER ownership inventory (18 signatures)"));
+assert(productionOwnershipAudit.includes("### Query 8B — direct and transitive memberships of function owners"));
+for (const signature of expectedSecurityDefinerOwnershipSignatures) {
+  const literal = "('" + signature + "')";
+  assert.equal(
+    productionOwnershipAudit.split(literal).length - 1,
+    2,
+    "Production ownership audit must inventory each exact signature in both metadata queries: " + signature,
+  );
+}
+for (const value of [
+  "pg_catalog.to_regprocedure(expected.signature)",
+  "procedure.prosecdef",
+  "procedure.proconfig",
+  "procedure.proacl",
+  "procedure.proowner",
+  "pg_catalog.pg_get_userbyid(procedure.proowner)",
+  "owner_role.rolsuper",
+  "owner_role.rolinherit",
+  "owner_role.rolcreaterole",
+  "owner_role.rolcreatedb",
+  "owner_role.rolcanlogin",
+  "owner_role.rolreplication",
+  "owner_role.rolbypassrls",
+  "'MISSING_FUNCTION'",
+  "'MISSING_OWNER_ROLE'",
+  "'NOT_SECURITY_DEFINER'",
+  "WITH RECURSIVE",
+  "pg_catalog.pg_auth_members",
+  "membership.inherit_option",
+  "membership.set_option",
+  "'MEMBER'",
+  "'USAGE'",
+  "'SET'",
+  "transaction_read_only = on",
+  "xaipiovflxomcbfwtwmu",
+]) assert(productionOwnershipAudit.includes(value),
+  "Production ownership audit is missing a required owner-evidence assertion: " + value);
