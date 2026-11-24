@@ -6,7 +6,7 @@
 **PR #22 branch:** `security/private-daily-journey-admin-isolation-c408`  
 **Synchronization commit:** `c5bf9d205934e089d310fbc6677ddc5014314689`; tree `ed49efef679ae00b28f22e458256ae26671ada96`.  
 **Merge parents:** prior PR #22 HEAD `ff53e43e9cee7da4189d0d06b576934589f6bfcb`; PR #10 HEAD `6a3660bbe2fd6beb2ddada43d5e77ff5ac9f3793`.  
-**PR state:** OPEN / DRAFT / UNMERGED at the post-sync check.  
+**PR state:** OPEN / DRAFT / UNMERGED at the post-sync check; base branch `security/delivery-transport-consent-gates` at `6a3660bbe2fd6beb2ddada43d5e77ff5ac9f3793`.  
 **Formal reviews:** the current submitted-review query returned zero reviews. No formal approval is established.
 
 The merge was a normal two-parent commit; it did not rewrite history. PR #10's only commit beyond the shared base added `docs/DELIVERY_RELIABILITY_AUDIT_CYCLE_344.md`. Migration 036 remains present with blob `61a1fbf48b4557873ba6016e74fd3995bc62ba14`. The synchronized source tree contains 37 numbered migrations and 36 unique version prefixes; the duplicate 007 bodies remain distinct. No migration 037 was added.
