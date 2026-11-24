@@ -355,3 +355,8 @@ A future catalog verifier must be a separately reviewed, read-only operation, no
 ### Cycle 384 verifier operational safeguards
 
 The production CLI does not accept a caller-supplied verification clock; it uses the current system time for expiry and key-validity checks. The exported API's `asOf` injection exists for deterministic tests and must not be used to backdate a Production acceptance. The trusted registry also requires a read-only execution-principal allowlist, not merely a caller-provided `roleReadOnly` boolean. Approval nonces must be unique and canonical, in addition to unique approval IDs. The local artifact reader uses no-follow file opens for the final path component and verifies regular-file type and size after opening.
+
+
+### Cycle 384 test evidence
+
+The exact code baseline `6a17d571c4e61f19ce6f80dc6e192c97afae5d64` passed [GitHub Actions run 45498933812](https://github.com/ADRN-9/deedlight/actions/runs/45498933812): 9/9 jobs. The ownership job reports 10/10 structural manifest tests, 25/25 cryptographic approval/evidence tests, and PASS for the preserved PostgreSQL 16 Query 8A/8B behavior harness. The new suite includes independently signed fixture bundles, manifest and evidence tampering, approval artifact hash tampering, approval substitution/replay, policy-version binding, Ed25519 signature verification, key/approval revocation, expiry, missing/unsupported trust keys, untrusted collector/read-only principal, incomplete provenance, zero-row attestation, path traversal/symlink rejection, and a separate negative fixture for each privileged intermediate role attribute. Fixture keys are ephemeral and do not establish Production identity or approval.
