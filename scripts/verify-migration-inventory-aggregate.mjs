@@ -147,7 +147,7 @@ export function buildAggregate(rootDir, manifest) {
   const lines = [
     "-- DeedLight SQL Editor aggregate v1",
     "-- Deterministically generated from immutable Git-blob-pinned migration sources and the maintained bootstrap seed.",
-    `-- Inventory SHA-256: ${sha256(inventoryBytes)}`,
+    `-- Inventory Git blob SHA-1: ${gitBlobSha1(inventoryBytes)}`,
     "-- BEGIN SOURCE PROVENANCE",
   ];
   for (const item of manifest.migrations) {
