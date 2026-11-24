@@ -244,6 +244,7 @@ test("places the pinned compatibility step after 037 and before immutable 038", 
     const migration038Start = aggregate.indexOf("-- fixture source: 202611240038_delivery_provider_integrity_lock_order_pagination.sql");
     assert.ok(migration037Start >= 0 && compatibilityStart > migration037Start && migration038Start > compatibilityStart);
     assert.ok(aggregate.includes(compatibilityBytes.toString("utf8")));
+    assert.equal(aggregate.split(compatibilityBytes.toString("utf8")).length - 1, 1);
     assert.match(aggregate, /COMPATIBILITY supabase\/bootstrap\/migration_038_admin_compatibility\.sql blob=[a-f0-9]{40}/);
   } finally { f.cleanup(); }
 });
