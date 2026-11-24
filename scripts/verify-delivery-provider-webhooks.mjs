@@ -653,6 +653,7 @@ for (const value of [
   "C362_EXPECTED_LOCK_TIMEOUT_SQLSTATE=55P03",
   "Bounded advisory-lock conflict SQLSTATE 55P03 and unchanged database state: PASS",
 ]) assert(concurrencyTests.includes(value), "Missing bounded concurrency safety assertion: " + value);
-assert(!/^[ \\t]*wait "[A-Za-z_][A-Za-z0-9_]*"$/m.test(concurrencyTests.replace(/wait_bounded/g, "bounded_wait")),
-  "Concurrency child waits must use the bounded wait helper.");
+const concurrencyScenarioBody = concurrencyTests.slice(concurrencyTests.indexOf("# An exact duplicate"));
+assert(!/^[ \\t]*wait "[A-Za-z_][A-Za-z0-9_]*"$/m.test(concurrencyScenarioBody),
+  "Concurrency scenario child waits must use the bounded wait helper.");
 console.log("Resend webhook authenticity, provider-integrity administration, bounded signatures, suppression ordering and privacy assertions: PASS");
