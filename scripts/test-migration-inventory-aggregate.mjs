@@ -11,6 +11,7 @@ import {
 } from "./verify-migration-inventory-aggregate.mjs";
 
 const sourceManifest = JSON.parse(readFileSync(new URL("../supabase/migration-inventory.json", import.meta.url), "utf8"));
+const compatibilityBytes = readFileSync(new URL("../supabase/bootstrap/migration_038_admin_compatibility.sql", import.meta.url));
 const seedFixture = Buffer.from([
   "insert into public.themes (slug) values ('fixture') on conflict (slug) do update set slug = excluded.slug;",
   "insert into public.daily_posts (slug) values ('fixture') on conflict (slug) do update set slug = excluded.slug;",
@@ -21,6 +22,8 @@ const seedFixture = Buffer.from([
 function fixture() {
   const root = mkdtempSync(path.join(os.tmpdir(), "deedlight-migration-"));
   mkdirSync(path.join(root, "supabase/migrations"), { recursive: true });
+  mkdirSync(path.join(root, "supabase/bootstrap"), { recursive: true });
+  writeFileSync(path.join(root, "supabase/bootstrap/migration_038_admin_compatibility.sql"), compatibilityBytes);
   const migrations = sourceManifest.migrations.map((item) => {
     const bytes = Buffer.from(`-- fixture source: ${path.basename(item.path)}\nselect '${path.basename(item.path)}';\n`);
     writeFileSync(path.join(root, item.path), bytes);
@@ -230,4 +233,34 @@ test("rejects duplicate seed content in the aggregate", () => {
     writeFileSync(path.join(f.root, "supabase/run_in_sql_editor_all.sql"), changed);
     expectAggregateFailure(f, /SQL aggregate differs/);
   } finally { f.cleanup(); }
+});
+
+test("places the pinned compatibility step after 037 and before immutable 038", () => {
+  const f = fixture();
+  try {
+    const aggregate = f.aggregate.toString("utf8");
+    const compatibilityStart = aggregate.indexOf("-- BEGIN MIGRATION 038 ADMIN COMPATIBILITY");
+    const migration037Start = aggregate.indexOf("202611240037_delivery_provider_integrity_conflict_evidence.sql");
+    const migration038Start = aggregate.indexOf("202611240038_delivery_provider_integrity_lock_order_pagination.sql");
+    assert.ok(migration037Start >= 0 && compatibilityStart > migration037Start && migration038Start > compatibilityStart);
+    assert.ok(aggregate.includes(compatibilityBytes.toString("utf8")));
+    assert.match(aggregate, /COMPATIBILITY supabase\/bootstrap\/migration_038_admin_compatibility\.sql blob=[a-f0-9]{40}/);
+  } finally { f.cleanup(); }
+});
+
+test("rejects a modified Migration 038 compatibility artifact", () => {
+  const f = fixture();
+  try {
+    writeFileSync(path.join(f.root, "supabase/bootstrap/migration_038_admin_compatibility.sql"), Buffer.concat([compatibilityBytes, Buffer.from("\\n-- unreviewed")]));
+    assert.throws(() => buildAggregate(f.root, f.manifest), /compatibility artifact Git blob SHA-1 differs/);
+  } finally { f.cleanup(); }
+});
+
+test("compatibility artifact keeps fail-closed suspension and exact-source guards", () => {
+  const source = compatibilityBytes.toString("utf8");
+  assert.match(source, /profiles\.is_suspended to remain NOT NULL/);
+  assert.match(source, /4fb49052b2e525d8b355123d430df7e536a4da5207fd6ef3d21f3b2d770e98e0/);
+  assert.match(source, /85e6838cf8feec05bcfe9e9051e5192bc8f0d42f7a53cb6c0450067d70bba74b/);
+  assert.match(source, /security definer/i);
+  assert.match(source, /is_suspended = false/);
 });
