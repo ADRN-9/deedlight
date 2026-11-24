@@ -156,7 +156,6 @@ end;
 $c356_signature_atomicity$;
 alter function public.record_delivery_provider_lifecycle_event_c356_drift(text,text,text,text,timestamptz,text,text,text,text)
   rename to record_delivery_provider_lifecycle_event;
-drop table public.c356_provider_preflight_snapshot;
 
 \ir ../supabase/migrations/202611240038_delivery_provider_integrity_lock_order_pagination.sql
 \ir test-delivery-provider-suppressions.sql
