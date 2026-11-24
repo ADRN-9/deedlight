@@ -42,7 +42,7 @@
 -- SOURCE 202611240037 202611240037_delivery_provider_integrity_conflict_evidence.sql blob=ac0449b50a881e3a895ef40a8eee28bea95a6ec0 bytes=44182
 -- SOURCE 202611240038 202611240038_delivery_provider_integrity_lock_order_pagination.sql blob=38951751fc5abeb79b75c4e37e55da01262a18b8 bytes=43748
 -- BOOTSTRAP SEED supabase/seed.sql blob=e85554aed1553dec407e83966a1b0093f5d1e9a3 bytes=2574 upserts=3
--- COMPATIBILITY supabase/bootstrap/migration_038_admin_compatibility.sql blob=67f950183e9b2111ee6b6837813f7115ec336e2e bytes=4691 placement=after-202611240037-before-202611240038
+-- COMPATIBILITY supabase/bootstrap/migration_038_admin_compatibility.sql blob=0e8574eb1e40baaf22a0d95eac276d96914f9778 bytes=4700 placement=after-202611240037-before-202611240038
 -- END SOURCE PROVENANCE
 -- BEGIN MIGRATION SQL
 create extension if not exists pgcrypto;
@@ -10477,7 +10477,7 @@ declare
 begin
   select n.nspname into v_crypto_schema
   from pg_catalog.pg_extension e
-  join pg_catalog.pg_namespace n on n.oid = e.oid
+  join pg_catalog.pg_namespace n on n.oid = e.extnamespace
   where e.extname = 'pgcrypto';
 
   select p.prosrc, p.prosecdef, p.proconfig
