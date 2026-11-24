@@ -121,12 +121,16 @@ begin
     where tgrelid='public.delivery_provider_integrity_conflict_evidence'::regclass
       and tgname='delivery_provider_integrity_conflict_evidence_immutable'
       and tgfoid=to_regprocedure('public._deny_delivery_provider_integrity_audit_mutation()')
+      and tgtype = 27
+      and tgenabled in ('O', 'A')
       and not tgisinternal
   ) or not exists (
     select 1 from pg_catalog.pg_trigger
     where tgrelid='public.delivery_provider_integrity_conflict_history'::regclass
       and tgname='delivery_provider_integrity_conflict_history_immutable'
       and tgfoid=to_regprocedure('public._deny_delivery_provider_integrity_audit_mutation()')
+      and tgtype = 27
+      and tgenabled in ('O', 'A')
       and not tgisinternal
   ) then
     raise exception 'Migration 038 requires both append-only audit triggers.';
