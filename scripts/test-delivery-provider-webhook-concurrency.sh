@@ -35,7 +35,7 @@ wait_bounded() {
   while (( SECONDS < deadline )); do
     state="$(ps -o stat= -p "$pid" 2>/dev/null | tr -d '[:space:]' || true)"
     if [[ -z "$state" || "$state" == Z* ]]; then
-      wait_bounded "$pid" "pid" || status=$?
+      wait "$pid" || status=$?
       untrack_child "$pid"
       return "$status"
     fi
@@ -46,7 +46,7 @@ wait_bounded() {
   kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
   sleep 1
   kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
-  wait_bounded "$pid" "pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
   untrack_child "$pid"
   return 124
 }
