@@ -902,3 +902,91 @@ Any unchecked item means **OWNERSHIP EVIDENCE NOT ACCEPTED**. Do not author an e
 | Independent acceptance | NOT PERFORMED |
 
 **Disposition: OUTSTANDING. Production remains NO-GO.** The absence of authorized evidence is not evidence that the Production ownership graph is empty or safe.
+
+
+---
+
+## Cycle 380 — Production ownership evidence acquisition result
+
+**Collection date:** 2026-11-24  
+**Collection time:** 2026-11-24T13:22:00-08:00 (21:22:00Z), recorded from the task session's supplied local clock  
+**Collector:** DeedLight engineering agent, Cycle 380  
+**Disposition:** ACCESS NOT AUTHORIZED / EVIDENCE NOT COLLECTED / PRODUCTION NO-GO
+
+### 1. Supabase connector discovery
+
+The available connected Supabase accounts were inspected using the read-only project-list operation:
+
+| Connected account | Projects returned | DeedLight Production project found |
+|---|---|---|
+| Primary | `vxsgfzybbwitmkgovkjx` — HelpMeToHoliday-Staging (INACTIVE) | No |
+| GiftPary supabase | `vnvpqullsrbyztkcyvzw` — admin@giftparty.org's Project (INACTIVE); `yrlzzsfgfpabdcypwvvk` — giftparty-staging (ACTIVE_HEALTHY) | No |
+
+The previously documented DeedLight Production project reference is `xaipiovflxomcbfwtwmu`. It was not present in either connected account's project list.
+
+A read-only project metadata lookup for `xaipiovflxomcbfwtwmu` was then attempted through each connected account. Both calls returned an explicit permission error: `MCP error -32600: You do not have permission to perform this action`.
+
+### 2. Database access and evidence status
+
+- [x] Connected Supabase account/project discovery attempted.
+- [x] DeedLight Production project reference compared against both account project lists.
+- [x] Read-only project metadata lookup attempted against both available account links.
+- [x] Both metadata lookups explicitly denied for lack of permission.
+- [ ] Authorized read-only Production DBA session established.
+- [ ] Production read-only identity and its privilege restrictions verified.
+- [ ] Production Query 8A executed and exported.
+- [ ] Production Query 8B executed and exported.
+- [ ] Exact 18-row Query 8A inventory verified.
+- [ ] Every distinct owner reconciled against complete Query 8B membership output.
+- [ ] Named DBA/security approvals collected for every owner, attribute and membership path.
+- [ ] Immutable protected evidence references, hashes and approval timestamps collected.
+
+**No Production SQL was executed.** In particular, `execute_sql` was not called against the Production project. The connector's available links do not establish authorized Production DBA access, and the explicit metadata permission denials preclude treating the project as accessible. No attempt was made to elevate permissions, switch identities, use another project, or obtain credentials.
+
+The connector's project lists and metadata-denial responses are access-discovery evidence only. They are not Query 8A/8B evidence, do not establish the live schema, and do not establish an empty membership graph. No Query 8B output exists for this cycle; its state remains **NOT COLLECTED / UNKNOWN**, not zero rows.
+
+### 3. Ownership approval status
+
+No Production owner, role attribute or membership path can be approved from the available evidence. Consequently:
+
+- Expected owner mapping: NOT ESTABLISHED.
+- Approved owner attributes: NOT ESTABLISHED.
+- Permitted direct/transitive membership paths: NOT ESTABLISHED.
+- Explicit empty-graph approvals: NOT ESTABLISHED.
+- Named Production DBA/security approvers and approval timestamps: NOT RECEIVED.
+- Protected Production evidence references and cryptographic hashes: NOT RECEIVED.
+
+The Cycle 378 acceptance checklist and future enforcement design remain the governing procedure. Synthetic PostgreSQL fixture identities remain test-only and must not be used as Production expectations.
+
+### 4. GitHub preservation and exact-head evidence
+
+Independently rechecked during Cycle 380:
+
+- PR #22 remains OPEN / DRAFT / UNMERGED.
+- Branch: `security/private-daily-journey-admin-isolation-c408`.
+- HEAD remains `356decbc866fa156c8177b76d5b52c349a90138f`.
+- Base: `security/delivery-transport-consent-gates` at `6a3660bbe2fd6beb2ddada43d5e77ff5ac9f3793`.
+- Ancestry: 146 ahead, 0 behind.
+- Exact-head workflow [45488857461](https://github.com/ADRN-9/deedlight/actions/runs/45488857461) remains completed SUCCESS on that exact SHA.
+- Formal submitted reviews: 0.
+- Audit checklist blob at starting HEAD: `0118d4c915a01e37a54e5c4c8bd31e69fe12c76d`.
+- Enforcement design blob at starting HEAD: `2bfc80c2b2e65e9007c7bad4335d62822206b68a`.
+- Migration 038 blob at starting HEAD: `38951751fc5abeb79b75c4e37e55da01262a18b8`.
+
+No changes to migration 038, ownership tests, enforcement implementation, Production database, deployment or PR merge state were made for this evidence-acquisition cycle. The only repository change for Cycle 380 is this audit-status record.
+
+### 5. Cycle 381 handoff and readiness decision
+
+**Implementation readiness: BLOCKED — no authorized Production database access or authoritative ownership evidence.**
+
+The next prerequisite is an explicitly authorized, least-privilege read-only Production DBA connection to project `xaipiovflxomcbfwtwmu`, or delivery by an authorized DBA of the complete, provenance-preserving Query 8A and Query 8B exports plus the privilege attestation and approvals. A project reference alone, an inaccessible connector, a staging database, or a synthetic fixture is not a substitute.
+
+Once authorized access or evidence is supplied:
+1. Verify target project identity and read-only session/role privileges before querying.
+2. Collect exact Query 8A and Query 8B with complete exports and collection metadata.
+3. Require exactly 18 exact Query 8A signatures and reconcile all distinct owners against all complete Query 8B paths and edge options.
+4. Preserve a successful, explicitly attested zero-row Query 8B result if that is what the query returns; treat all failed, missing or partial results as UNKNOWN.
+5. Obtain named DBA and security approvals for every signature-to-owner mapping, owner attribute, membership path and effective privilege, with timestamps/timezones and protected evidence references.
+6. Have an independent reviewer verify provenance, completeness, hashes and approval coverage before authoring any expected-owner manifest.
+
+Until every gate passes, do not implement expected-owner enforcement, modify migration 038, perform Production database operations, deploy or merge. Keep PR #22 OPEN / DRAFT / UNMERGED and Production NO-GO.
