@@ -211,7 +211,7 @@ commit;
 reset role;
 SQL
 exact_pid=$!
-track_child "$1"
+track_child "$exact_pid"
 wait_for_marker "$exact_pid" "$tmp/exact-first.log" "EXACT_DUPLICATE_EVENT_LOCK_HELD"
 exact_result="$(psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
   'evt_concurrent_exact_duplicate', 'email.bounced', 'resend-concurrent-exact',
@@ -245,7 +245,7 @@ commit;
 reset role;
 SQL
 duplicate_pid=$!
-track_child "$1"
+track_child "$duplicate_pid"
 wait_for_marker "$duplicate_pid" "$tmp/duplicate-first.log" "DUPLICATE_EVENT_LOCK_HELD"
 duplicate_result="$(psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
   'evt_concurrent_duplicate', 'email.complained', 'different-provider-id',
@@ -283,7 +283,7 @@ commit;
 reset role;
 SQL
 cross_recipient_first_pid=$!
-track_child "$1"
+track_child "$cross_recipient_first_pid"
 wait_for_marker "$cross_recipient_first_pid" "$tmp/cross-recipient-first.log" "CROSS_RECIPIENT_PROVIDER_ID_LOCK_HELD"
 
 psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
@@ -292,7 +292,7 @@ psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
   null, repeat('d', 64)
 )" >"$tmp/cross-recipient-second.log" 2>&1 &
 cross_recipient_second_pid=$!
-track_child "$1"
+track_child "$cross_recipient_second_pid"
 cross_recipient_waiting="0"
 if wait_for_advisory_lock "$cross_recipient_second_pid" "$tmp/cross-recipient-second.log" "evt_cross_recipient_second" "cross-recipient provider email ID"; then
   cross_recipient_waiting="1"
@@ -345,7 +345,7 @@ commit;
 reset role;
 SQL
 historical_pid=$!
-track_child "$1"
+track_child "$historical_pid"
 wait_for_marker "$historical_pid" "$tmp/historical-first.log" "HISTORICAL_EVENT_LOCK_HELD"
 historical_result="$(psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
   'evt_historical_026_complaint', 'email.complained', 'resend-historical-026-complaint',
@@ -496,7 +496,7 @@ commit;
 reset role;
 SQL
 delivered_pid=$!
-track_child "$1"
+track_child "$delivered_pid"
 wait_for_marker "$delivered_pid" "$tmp/delivered-first.log" "DELIVERED_EVENT_LOCK_HELD"
 psql_service_scalar "select public.record_delivery_provider_lifecycle_event('evt_concurrent_delayed','email.delivery_delayed','resend-concurrent-order','concurrent-order@example.test','2027-03-02T10:05:00Z',null,null,null,repeat('4',64))" >"$tmp/delayed-result"
 wait_bounded "$delivered_pid" "delivered_pid"
@@ -542,7 +542,7 @@ commit;
 reset role;
 SQL
 suppression_pid=$!
-track_child "$1"
+track_child "$suppression_pid"
 wait_for_marker "$suppression_pid" "$tmp/suppression-first.log" "SUPPRESSION_LOCK_HELD"
 run_psql <<'SQL'
 set role service_role;
@@ -607,7 +607,7 @@ commit;
 reset role;
 SQL
 transport_pid=$!
-track_child "$1"
+track_child "$transport_pid"
 wait_for_marker "$transport_pid" "$tmp/transport-first.log" "TRANSPORT_LOCK_HELD"
 psql_service_scalar "select public.record_delivery_provider_lifecycle_event('evt_suppression_race_after_transport','email.complained','resend-suppression-race-after','transport-race@example.test','2027-03-02T10:21:00Z',null,null,null,repeat('6',64))" >"$tmp/suppression-after-result"
 wait_bounded "$transport_pid" "transport_pid"
@@ -632,7 +632,7 @@ commit;
 reset role;
 SQL
 suppression_duplicate_pid=$!
-track_child "$1"
+track_child "$suppression_duplicate_pid"
 wait_for_marker "$suppression_duplicate_pid" "$tmp/suppression-duplicate-first.log" "SUPPRESSION_DUPLICATE_LOCK_HELD"
 suppression_duplicate_result="$(psql_service_scalar "select public.record_delivery_provider_suppression_event(
   'evt_concurrent_suppression_duplicate','suppression.added','sup_concurrent_duplicate',
@@ -662,7 +662,7 @@ commit;
 reset role;
 SQL
 suppression_conflict_pid=$!
-track_child "$1"
+track_child "$suppression_conflict_pid"
 wait_for_marker "$suppression_conflict_pid" "$tmp/suppression-conflict-first.log" "SUPPRESSION_CONFLICT_LOCK_HELD"
 suppression_conflict_result="$(psql_service_scalar "select public.record_delivery_provider_suppression_event(
   'evt_concurrent_suppression_conflict','suppression.removed','sup_concurrent_conflict',
@@ -692,7 +692,7 @@ commit;
 reset role;
 SQL
 suppression_cross_first_pid=$!
-track_child "$1"
+track_child "$suppression_cross_first_pid"
 wait_for_marker "$suppression_cross_first_pid" "$tmp/suppression-cross-first.log" "SUPPRESSION_CROSS_ID_LOCK_HELD"
 psql_service_scalar "select public.record_delivery_provider_suppression_event(
   'evt_concurrent_suppression_cross_second','suppression.removed','sup_concurrent_cross',
@@ -700,7 +700,7 @@ psql_service_scalar "select public.record_delivery_provider_suppression_event(
   '2026-11-22T19:00:00Z','2026-11-22T19:02:00Z',repeat('e',64)
 )" >"$tmp/suppression-cross-second.log" 2>&1 &
 suppression_cross_second_pid=$!
-track_child "$1"
+track_child "$suppression_cross_second_pid"
 cross_id_waiting="0"
 if wait_for_advisory_lock "$suppression_cross_second_pid" "$tmp/suppression-cross-second.log" "sup_concurrent_cross" "cross-recipient suppression ID"; then
   cross_id_waiting="1"
@@ -751,7 +751,7 @@ commit;
 reset role;
 SQL
 cross_stream_removal_pid=$!
-track_child "$1"
+track_child "$cross_stream_removal_pid"
 wait_for_marker "$cross_stream_removal_pid" "$tmp/cross-stream-removal-first.log" "C323_CROSS_STREAM_REMOVAL_FIRST_LOCK_HELD"
 run_psql >"$tmp/cross-stream-lifecycle-second.log" 2>&1 <<'SQL' &
 set role service_role;
@@ -763,7 +763,7 @@ select public.record_delivery_provider_lifecycle_event(
 reset role;
 SQL
 cross_stream_lifecycle_pid=$!
-track_child "$1"
+track_child "$cross_stream_lifecycle_pid"
 cross_stream_waiting="0"
 if wait_for_advisory_lock "$cross_stream_lifecycle_pid" "$tmp/cross-stream-lifecycle-second.log" "evt_c323_concurrent_old_email_suppressed" "cross-stream older lifecycle"; then
   cross_stream_waiting="1"
@@ -799,7 +799,7 @@ commit;
 reset role;
 SQL
 cross_stream_lifecycle_first_pid=$!
-track_child "$1"
+track_child "$cross_stream_lifecycle_first_pid"
 wait_for_marker "$cross_stream_lifecycle_first_pid" "$tmp/cross-stream-lifecycle-first.log" "C323_CROSS_STREAM_LIFECYCLE_FIRST_LOCK_HELD"
 run_psql >"$tmp/cross-stream-removal-second.log" 2>&1 <<'SQL' &
 set role service_role;
@@ -816,7 +816,7 @@ select public.record_delivery_provider_suppression_event(
 reset role;
 SQL
 cross_stream_removal_second_pid=$!
-track_child "$1"
+track_child "$cross_stream_removal_second_pid"
 cross_stream_waiting="0"
 if wait_for_advisory_lock "$cross_stream_removal_second_pid" "$tmp/cross-stream-removal-second.log" "evt_c323_concurrent_later_add" "cross-stream later suppression"; then
   cross_stream_waiting="1"
@@ -856,7 +856,7 @@ commit;
 reset role;
 SQL
 c331_removal_first_pid=$!
-track_child "$1"
+track_child "$c331_removal_first_pid"
 wait_for_marker "$c331_removal_first_pid" "$tmp/c331-removal-first.log" "C331_CROSS_STREAM_OLDER_REMOVAL_FIRST_LOCK_HELD"
 run_psql >"$tmp/c331-lifecycle-second.log" 2>&1 <<'SQL' &
 begin;
@@ -870,7 +870,7 @@ commit;
 reset role;
 SQL
 c331_lifecycle_second_pid=$!
-track_child "$1"
+track_child "$c331_lifecycle_second_pid"
 c331_waiting="0"
 if wait_for_advisory_lock "$c331_lifecycle_second_pid" "$tmp/c331-lifecycle-second.log" "evt_c331_concurrent_newer_lifecycle_after_removal" "C331 newer lifecycle"; then
   c331_waiting="1"
@@ -906,7 +906,7 @@ commit;
 reset role;
 SQL
 c331_lifecycle_first_pid=$!
-track_child "$1"
+track_child "$c331_lifecycle_first_pid"
 wait_for_marker "$c331_lifecycle_first_pid" "$tmp/c331-lifecycle-first.log" "C331_CROSS_STREAM_NEWER_LIFECYCLE_FIRST_LOCK_HELD"
 run_psql >"$tmp/c331-removal-second.log" 2>&1 <<'SQL' &
 begin;
@@ -925,7 +925,7 @@ commit;
 reset role;
 SQL
 c331_removal_second_pid=$!
-track_child "$1"
+track_child "$c331_removal_second_pid"
 c331_waiting="0"
 if wait_for_advisory_lock "$c331_removal_second_pid" "$tmp/c331-removal-second.log" "evt_c331_concurrent_old_manual_add" "C331 older manual suppression"; then
   c331_waiting="1"
@@ -963,7 +963,7 @@ commit;
 reset role;
 SQL
 c356_first_pid=$!
-track_child "$1"
+track_child "$c356_first_pid"
 wait_for_marker "$c356_first_pid" "$tmp/c356-simultaneous-first.log" "C356_SIMULTANEOUS_FIRST_INSERT_EVENT_LOCK_HELD"
 psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
   'evt_c356_simultaneous_first_insert','email.complained','resend-c356-second-insert',
@@ -971,7 +971,7 @@ psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
   null,repeat('2',64)
 )" >"$tmp/c356-simultaneous-second.log" 2>&1 &
 c356_second_pid=$!
-track_child "$1"
+track_child "$c356_second_pid"
 c356_waiting="0"
 if wait_for_advisory_lock "$c356_second_pid" "$tmp/c356-simultaneous-second.log" "evt_c356_simultaneous_first_insert" "C356 simultaneous first insert"; then
   c356_waiting="1"
@@ -1004,14 +1004,14 @@ commit;
 reset role;
 SQL
 c356_legacy_first_pid=$!
-track_child "$1"
+track_child "$c356_legacy_first_pid"
 wait_for_marker "$c356_legacy_first_pid" "$tmp/c356-legacy-lock-first.log" "C356_LEGACY_EVENT_LOCK_HELD"
 psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
   'evt_historical_026_complaint','email.complained','resend-historical-026-complaint',
   'historical-026-complaint@example.test','2027-03-01T09:15:00Z',null,null
 )" >"$tmp/c356-legacy-lock-second.log" 2>&1 &
 c356_legacy_second_pid=$!
-track_child "$1"
+track_child "$c356_legacy_second_pid"
 c356_legacy_waiting="0"
 if wait_for_advisory_lock "$c356_legacy_second_pid" "$tmp/c356-legacy-lock-second.log" "evt_historical_026_complaint" "C356 legacy seven-argument wrapper"; then
   c356_legacy_waiting="1"
@@ -1038,14 +1038,14 @@ commit;
 reset role;
 SQL
 c356_compat_first_pid=$!
-track_child "$1"
+track_child "$c356_compat_first_pid"
 wait_for_marker "$c356_compat_first_pid" "$tmp/c356-compat-lock-first.log" "C356_COMPAT_EVENT_LOCK_HELD"
 psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
   'evt_historical_025_suppressed','email.suppressed','resend-historical-025-suppressed',
   'historical-025-suppressed@example.test','2027-03-01T09:00:00Z',null,null,'provider_suppressed'
 )" >"$tmp/c356-compat-lock-second.log" 2>&1 &
 c356_compat_second_pid=$!
-track_child "$1"
+track_child "$c356_compat_second_pid"
 c356_compat_waiting="0"
 if wait_for_advisory_lock "$c356_compat_second_pid" "$tmp/c356-compat-lock-second.log" "evt_historical_025_suppressed" "C356 eight-argument compatibility wrapper"; then
   c356_compat_waiting="1"
@@ -1072,14 +1072,14 @@ commit;
 reset role;
 SQL
 c356_legacy_event_first_pid=$!
-track_child "$1"
+track_child "$c356_legacy_event_first_pid"
 wait_for_marker "$c356_legacy_event_first_pid" "$tmp/c356-legacy-event-first.log" "C356_LEGACY_EVENT_WRAPPER_LOCK_HELD"
 psql_service_scalar "select public.record_delivery_provider_event(
   'evt_historical_025_suppressed','email.suppressed','resend-c356-legacy-event-attacker',
   'c356-legacy-event-attacker@example.test',null
 )" >"$tmp/c356-legacy-event-second.log" 2>&1 &
 c356_legacy_event_second_pid=$!
-track_child "$1"
+track_child "$c356_legacy_event_second_pid"
 c356_legacy_event_waiting="0"
 if wait_for_advisory_lock "$c356_legacy_event_second_pid" "$tmp/c356-legacy-event-second.log" "evt_historical_025_suppressed" "C356 five-argument legacy event wrapper"; then
   c356_legacy_event_waiting="1"
@@ -1112,7 +1112,7 @@ commit;
 reset role;
 SQL
 c356_suppression_first_pid=$!
-track_child "$1"
+track_child "$c356_suppression_first_pid"
 wait_for_marker "$c356_suppression_first_pid" "$tmp/c356-suppression-first.log" "C356_SUPPRESSION_FIRST_INSERT_EVENT_LOCK_HELD"
 psql_service_scalar "select public.record_delivery_provider_suppression_event(
   'evt_c356_suppression_first_insert','suppression.removed','sup-c356-second',
@@ -1120,7 +1120,7 @@ psql_service_scalar "select public.record_delivery_provider_suppression_event(
   '2027-03-02T15:20:00Z','2027-03-02T15:22:00Z',repeat('4',64)
 )" >"$tmp/c356-suppression-second.log" 2>&1 &
 c356_suppression_second_pid=$!
-track_child "$1"
+track_child "$c356_suppression_second_pid"
 c356_suppression_waiting="0"
 if wait_for_advisory_lock "$c356_suppression_second_pid" "$tmp/c356-suppression-second.log" "evt_c356_suppression_first_insert" "C356 suppression first insert"; then
   c356_suppression_waiting="1"
