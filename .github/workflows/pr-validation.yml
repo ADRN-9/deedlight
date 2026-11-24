@@ -558,5 +558,5 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y postgresql-client
 
-      - name: Execute complete SQL Editor aggregate against disposable PostgreSQL 16
+      - name: Execute aggregate through migration 037 and assert migration 038 fails closed on source drift
         run: bash scripts/test-migration-aggregate-postgres.sh
