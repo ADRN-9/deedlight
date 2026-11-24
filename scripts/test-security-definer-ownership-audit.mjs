@@ -142,13 +142,9 @@ for (const r of inventory) {
   }
   assert.deepEqual(r.function_settings_search_path, ['search_path=pg_catalog'],
     'Every synthetic SECURITY DEFINER function must have an explicit restricted search_path');
-  assert.equal(r.owner_is_superuser, false);
   assert.equal(r.owner_role_inherits_memberships, ownerFor(index) !== ownerB);
-  assert.equal(r.owner_can_create_roles, false);
-  assert.equal(r.owner_can_create_databases, false);
   assert.equal(r.owner_can_login, false);
-  assert.equal(r.owner_can_replicate, false);
-  assert.equal(r.owner_bypasses_rls, false);
+  assertOwnerPrivilegesFailClosed(r);
 }
 const bySignature = new Map(inventory.map((r) => [r.expected_identity_signature, r]));
 function assertOwnerPrivilegesFailClosed(row) {
