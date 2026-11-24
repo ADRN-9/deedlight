@@ -360,3 +360,8 @@ The production CLI does not accept a caller-supplied verification clock; it uses
 ### Cycle 384 test evidence
 
 The exact code baseline `6a17d571c4e61f19ce6f80dc6e192c97afae5d64` passed [GitHub Actions run 45498933812](https://github.com/ADRN-9/deedlight/actions/runs/45498933812): 9/9 jobs. The ownership job reports 10/10 structural manifest tests, 25/25 cryptographic approval/evidence tests, and PASS for the preserved PostgreSQL 16 Query 8A/8B behavior harness. The new suite includes independently signed fixture bundles, manifest and evidence tampering, approval artifact hash tampering, approval substitution/replay, policy-version binding, Ed25519 signature verification, key/approval revocation, expiry, missing/unsupported trust keys, untrusted collector/read-only principal, incomplete provenance, zero-row attestation, path traversal/symlink rejection, and a separate negative fixture for each privileged intermediate role attribute. Fixture keys are ephemeral and do not establish Production identity or approval.
+
+
+### Final Cycle 384 Query 8B substitution test
+
+The final implementation/test commit `9edd8cc2aa6ef0cf03c06b8c65e0ceeba70ba8b9` passed [CI run 45500035896](https://github.com/ADRN-9/deedlight/actions/runs/45500035896), 9/9 jobs. The cryptographic/evidence suite now has 26 passing tests, including independent Query 8A and Query 8B raw-result substitution checks; the existing 10 structural tests and disposable PostgreSQL 16 Query 8A/8B behavior harness also pass.
