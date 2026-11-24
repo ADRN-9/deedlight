@@ -818,11 +818,7 @@ echo "Concurrent simultaneous first-insert event-ID conflict: PASS"
 "${psql_cmd[@]}" >"$tmp/c356-legacy-lock-first.log" 2>&1 <<'SQL' &
 begin;
 set role service_role;
-select pg_catalog.pg_advisory_xact_lock(20261118, pg_catalog.hashtext('evt_c356_legacy_wrapper_lock'));
-select public.record_delivery_provider_lifecycle_event(
-  'evt_c356_legacy_wrapper_lock','email.sent','resend-c356-legacy-wrapper',
-  'c356-legacy-wrapper@example.test','2027-03-02T15:10:00Z',null,null,null,null
-);
+select pg_catalog.pg_advisory_xact_lock(20261118, pg_catalog.hashtext('evt_historical_026_complaint'));
 \echo C356_LEGACY_EVENT_LOCK_HELD
 select pg_sleep(2);
 commit;
@@ -831,13 +827,13 @@ SQL
 c356_legacy_first_pid=$!
 wait_for_marker "$c356_legacy_first_pid" "$tmp/c356-legacy-lock-first.log" "C356_LEGACY_EVENT_LOCK_HELD"
 psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
-  'evt_c356_legacy_wrapper_lock','email.sent','resend-c356-legacy-wrapper',
-  'c356-legacy-wrapper@example.test','2027-03-02T15:10:00Z',null,null
+  'evt_historical_026_complaint','email.complained','resend-historical-026-complaint',
+  'historical-026-complaint@example.test','2027-03-01T09:15:00Z',null,null
 )" >"$tmp/c356-legacy-lock-second.log" 2>&1 &
 c356_legacy_second_pid=$!
 c356_legacy_waiting="0"
 for _ in {1..100}; do
-  c356_legacy_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%evt_c356_legacy_wrapper_lock%'")"
+  c356_legacy_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%evt_historical_026_complaint%'")"
   if [[ "$c356_legacy_waiting" == "1" ]]; then break; fi
   sleep 0.05
 done
@@ -849,18 +845,14 @@ fi
 wait "$c356_legacy_first_pid"
 if ! wait "$c356_legacy_second_pid"; then cat "$tmp/c356-legacy-lock-second.log"; exit 1; fi
 [[ "$(tr -d '\r\n' <"$tmp/c356-legacy-lock-second.log")" == "f" ]]
-[[ "$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_c356_legacy_wrapper_lock'")" == "1" ]]
+[[ "$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_historical_026_complaint'")" == "1" ]]
 echo "Legacy seven-argument lifecycle wrapper event-ID-first locking: PASS"
 
-# The eight-argument compatibility wrapper uses the same lock order.
+# The eight-argument compatibility wrapper uses the same lock order on a historical fingerprint-less row.
 "${psql_cmd[@]}" >"$tmp/c356-compat-lock-first.log" 2>&1 <<'SQL' &
 begin;
 set role service_role;
-select pg_catalog.pg_advisory_xact_lock(20261118, pg_catalog.hashtext('evt_c356_compat_wrapper_lock'));
-select public.record_delivery_provider_lifecycle_event(
-  'evt_c356_compat_wrapper_lock','email.sent','resend-c356-compat-wrapper',
-  'c356-compat-wrapper@example.test','2027-03-02T15:15:00Z',null,null,null,null
-);
+select pg_catalog.pg_advisory_xact_lock(20261118, pg_catalog.hashtext('evt_historical_025_suppressed'));
 \echo C356_COMPAT_EVENT_LOCK_HELD
 select pg_sleep(2);
 commit;
@@ -869,13 +861,13 @@ SQL
 c356_compat_first_pid=$!
 wait_for_marker "$c356_compat_first_pid" "$tmp/c356-compat-lock-first.log" "C356_COMPAT_EVENT_LOCK_HELD"
 psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
-  'evt_c356_compat_wrapper_lock','email.sent','resend-c356-compat-wrapper',
-  'c356-compat-wrapper@example.test','2027-03-02T15:15:00Z',null,null,null
+  'evt_historical_025_suppressed','email.suppressed','resend-historical-025-suppressed',
+  'historical-025-suppressed@example.test','2027-03-01T09:00:00Z',null,null,'provider_suppressed'
 )" >"$tmp/c356-compat-lock-second.log" 2>&1 &
 c356_compat_second_pid=$!
 c356_compat_waiting="0"
 for _ in {1..100}; do
-  c356_compat_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%evt_c356_compat_wrapper_lock%'")"
+  c356_compat_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%evt_historical_025_suppressed%'")"
   if [[ "$c356_compat_waiting" == "1" ]]; then break; fi
   sleep 0.05
 done
@@ -887,18 +879,14 @@ fi
 wait "$c356_compat_first_pid"
 if ! wait "$c356_compat_second_pid"; then cat "$tmp/c356-compat-lock-second.log"; exit 1; fi
 [[ "$(tr -d '\r\n' <"$tmp/c356-compat-lock-second.log")" == "f" ]]
-[[ "$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_c356_compat_wrapper_lock'")" == "1" ]]
+[[ "$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_historical_025_suppressed'")" == "1" ]]
 echo "Legacy eight-argument compatibility wrapper event-ID-first locking: PASS"
 
-# The five-argument record_delivery_provider_event wrapper also locks before delegating.
+# The five-argument record_delivery_provider_event wrapper locks before delegating and preserves the historical event.
 "${psql_cmd[@]}" >"$tmp/c356-legacy-event-first.log" 2>&1 <<'SQL' &
 begin;
 set role service_role;
-select pg_catalog.pg_advisory_xact_lock(20261118, pg_catalog.hashtext('evt_c356_legacy_event_wrapper'));
-select public.record_delivery_provider_lifecycle_event(
-  'evt_c356_legacy_event_wrapper','email.sent','resend-c356-legacy-event-wrapper',
-  'c356-legacy-event-wrapper@example.test','2027-03-02T15:20:00Z',null,null,null,null
-);
+select pg_catalog.pg_advisory_xact_lock(20261118, pg_catalog.hashtext('evt_historical_025_suppressed'));
 \echo C356_LEGACY_EVENT_WRAPPER_LOCK_HELD
 select pg_sleep(2);
 commit;
@@ -907,13 +895,13 @@ SQL
 c356_legacy_event_first_pid=$!
 wait_for_marker "$c356_legacy_event_first_pid" "$tmp/c356-legacy-event-first.log" "C356_LEGACY_EVENT_WRAPPER_LOCK_HELD"
 psql_service_scalar "select public.record_delivery_provider_event(
-  'evt_c356_legacy_event_wrapper','email.complained','resend-c356-legacy-event-attacker',
+  'evt_historical_025_suppressed','email.suppressed','resend-c356-legacy-event-attacker',
   'c356-legacy-event-attacker@example.test',null
 )" >"$tmp/c356-legacy-event-second.log" 2>&1 &
 c356_legacy_event_second_pid=$!
 c356_legacy_event_waiting="0"
 for _ in {1..100}; do
-  c356_legacy_event_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%evt_c356_legacy_event_wrapper%'")"
+  c356_legacy_event_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%evt_historical_025_suppressed%'")"
   if [[ "$c356_legacy_event_waiting" == "1" ]]; then break; fi
   sleep 0.05
 done
@@ -925,9 +913,9 @@ fi
 wait "$c356_legacy_event_first_pid"
 if ! wait "$c356_legacy_event_second_pid"; then cat "$tmp/c356-legacy-event-second.log"; exit 1; fi
 [[ "$(tr -d '\r\n' <"$tmp/c356-legacy-event-second.log")" == "__NULL__" ]]
-[[ "$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_c356_legacy_event_wrapper'")" == "1" ]]
+[[ "$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_historical_025_suppressed'")" == "1" ]]
 [[ "$(psql_scalar "select count(*) from public.delivery_provider_events where recipient_email='c356-legacy-event-attacker@example.test'")" == "0" ]]
-[[ "$(psql_scalar "select count(*) from public.delivery_provider_integrity_conflict_evidence where event_id='evt_c356_legacy_event_wrapper' and recipient_email='c356-legacy-event-attacker@example.test'")" == "1" ]]
+[[ "$(psql_scalar "select count(*) from public.delivery_provider_integrity_conflict_evidence where event_id='evt_historical_025_suppressed' and recipient_email='c356-legacy-event-attacker@example.test' and stored_recipient_email='historical-025-suppressed@example.test'")" == "1" ]]
 echo "Five-argument legacy event wrapper event-ID-first locking: PASS"
 # Suppression-list first inserts share the same global event-ID lock namespace as lifecycle events.
 "${psql_cmd[@]}" >"$tmp/c356-suppression-first.log" 2>&1 <<'SQL' &
