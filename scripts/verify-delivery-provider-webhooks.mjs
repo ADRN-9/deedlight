@@ -745,6 +745,8 @@ assert(webhookConcurrencyScript.includes('lock_timeout=${lock_timeout_seconds}s'
 assert(webhookConcurrencyScript.includes('cleanup_deadline=$((SECONDS + 15))')
   && webhookConcurrencyScript.includes('Timed out removing temporary concurrency-test resources'),
   "Cleanup must have a finite process-reap and temporary-resource deadline.");
+assert(webhookConcurrencyScript.includes('if [[ -f "$file" ]] && grep -q "$marker" "$file"; then return 0; fi'),
+  "Marker synchronization must tolerate the brief interval before a background process creates its redirected log file.");
 assert(webhookConcurrencyScript.includes('wait_for_advisory_lock()')
   && webhookConcurrencyScript.includes('wait_for_marker()')
   && !webhookConcurrencyScript.includes('for _ in {1..100}'),
