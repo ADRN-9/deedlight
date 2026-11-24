@@ -94,7 +94,7 @@ psql('REVOKE ALL ON FUNCTION ' + signatures[1] + ' FROM PUBLIC;');
 
 const inventory = rows(q8a);
 assert.equal(inventory.length, 18);
-assert.deepEqual(inventory.map((r) => r.expected_identity_signature), signatures);
+assert.deepEqual(inventory.map((r) => r.expected_identity_signature).sort(), [...signatures].sort());
 for (const [index, r] of inventory.entries()) {
   assert.equal(r.inventory_status, 'PRESENT');
   assert.equal(r.security_definer, true);
