@@ -52,7 +52,8 @@ function psql(sql) {
 }
 
 function rows(sql) {
-  return JSON.parse(psql("SELECT COALESCE(json_agg(row_to_json(r)), '[]'::json) FROM (" + sql + ") r;") || '[]');
+  const query = sql.replace(/;\\s*$/, "");
+  return JSON.parse(psql("SELECT COALESCE(json_agg(row_to_json(r)), '[]'::json) FROM (" + query + ") r;") || '[]');
 }
 
 const markdown = readFileSync('docs/PRODUCTION_READ_ONLY_MIGRATION_AUDIT.md', 'utf8');
