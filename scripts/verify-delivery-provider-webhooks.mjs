@@ -790,6 +790,9 @@ for (const value of [
   "Controlled PostgreSQL deadlock SQLSTATE 40P01, survivor commit and final database state: PASS",
 ]) assert(deadlockRegression.includes(value),
   "The controlled PostgreSQL deadlock regression is missing required behavior: " + value);
+assert(deadlockRegression.includes('deadlock_victim="B"\n  deadlock_survivor="A"')
+  && deadlockRegression.includes('deadlock_victim="A"\n  deadlock_survivor="B"'),
+  "The successful transaction must be identified as survivor and the nonzero transaction as deadlock victim.");
 assert(deadlockRegression.indexOf("set local deadlock_timeout") < deadlockRegression.indexOf("set local lock_timeout"),
   "Deadlock detection must be configured to run before the transaction lock timeout.");
 assert(!deadlockRegression.includes("set_config('lock_timeout', '250ms'"),
