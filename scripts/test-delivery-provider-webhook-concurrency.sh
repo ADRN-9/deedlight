@@ -234,7 +234,7 @@ if [[ "$cross_recipient_waiting" != "1" ]]; then
   exit 1
 fi
 wait_bounded "$cross_recipient_first_pid" "cross_recipient_first_pid"
-if ! wait "$cross_recipient_second_pid"; then
+if ! wait_bounded "$cross_recipient_second_pid" "cross_recipient_second_pid"; then
   cat "$tmp/cross-recipient-second.log"
   echo "Cross-recipient provider email ID conflict did not persist its evidence." >&2
   exit 1
@@ -644,7 +644,7 @@ if [[ "$cross_id_waiting" != "1" ]]; then
   exit 1
 fi
 wait_bounded "$suppression_cross_first_pid" "suppression_cross_first_pid"
-if ! wait "$suppression_cross_second_pid"; then
+if ! wait_bounded "$suppression_cross_second_pid" "suppression_cross_second_pid"; then
   cat "$tmp/suppression-cross-second.log"
   echo "Cross-recipient suppression ID conflict did not persist its evidence." >&2
   exit 1
@@ -709,7 +709,7 @@ if [[ "$cross_stream_waiting" != "1" ]]; then
   exit 1
 fi
 wait_bounded "$cross_stream_removal_pid" "cross_stream_removal_pid"
-if ! wait "$cross_stream_lifecycle_pid"; then
+if ! wait_bounded "$cross_stream_lifecycle_pid" "cross_stream_lifecycle_pid"; then
   cat "$tmp/cross-stream-lifecycle-second.log"
   exit 1
 fi
@@ -764,7 +764,7 @@ if [[ "$cross_stream_waiting" != "1" ]]; then
   exit 1
 fi
 wait_bounded "$cross_stream_lifecycle_first_pid" "cross_stream_lifecycle_first_pid"
-if ! wait "$cross_stream_removal_second_pid"; then
+if ! wait_bounded "$cross_stream_removal_second_pid" "cross_stream_removal_second_pid"; then
   cat "$tmp/cross-stream-removal-second.log"
   exit 1
 fi
@@ -820,7 +820,7 @@ if [[ "$c331_waiting" != "1" ]]; then
   exit 1
 fi
 wait_bounded "$c331_removal_first_pid" "c331_removal_first_pid"
-if ! wait "$c331_lifecycle_second_pid"; then
+if ! wait_bounded "$c331_lifecycle_second_pid" "c331_lifecycle_second_pid"; then
   cat "$tmp/c331-lifecycle-second.log"
   exit 1
 fi
@@ -877,7 +877,7 @@ if [[ "$c331_waiting" != "1" ]]; then
   exit 1
 fi
 wait_bounded "$c331_lifecycle_first_pid" "c331_lifecycle_first_pid"
-if ! wait "$c331_removal_second_pid"; then
+if ! wait_bounded "$c331_removal_second_pid" "c331_removal_second_pid"; then
   cat "$tmp/c331-removal-second.log"
   exit 1
 fi
@@ -925,7 +925,7 @@ if [[ "$c356_waiting" != "1" ]]; then
   exit 1
 fi
 wait_bounded "$c356_first_pid" "c356_first_pid"
-if ! wait "$c356_second_pid"; then
+if ! wait_bounded "$c356_second_pid" "c356_second_pid"; then
   cat "$tmp/c356-simultaneous-second.log"
   exit 1
 fi
@@ -967,7 +967,7 @@ if [[ "$c356_legacy_waiting" != "1" ]]; then
   exit 1
 fi
 wait_bounded "$c356_legacy_first_pid" "c356_legacy_first_pid"
-if ! wait "$c356_legacy_second_pid"; then cat "$tmp/c356-legacy-lock-second.log"; exit 1; fi
+if ! wait_bounded "$c356_legacy_second_pid" "c356_legacy_second_pid"; then cat "$tmp/c356-legacy-lock-second.log"; exit 1; fi
 [[ "$(tr -d '\r\n' <"$tmp/c356-legacy-lock-second.log")" == "f" ]]
 [[ "$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_historical_026_complaint'")" == "1" ]]
 echo "Legacy seven-argument lifecycle wrapper event-ID-first locking: PASS"
@@ -1003,7 +1003,7 @@ if [[ "$c356_compat_waiting" != "1" ]]; then
   exit 1
 fi
 wait_bounded "$c356_compat_first_pid" "c356_compat_first_pid"
-if ! wait "$c356_compat_second_pid"; then cat "$tmp/c356-compat-lock-second.log"; exit 1; fi
+if ! wait_bounded "$c356_compat_second_pid" "c356_compat_second_pid"; then cat "$tmp/c356-compat-lock-second.log"; exit 1; fi
 [[ "$(tr -d '\r\n' <"$tmp/c356-compat-lock-second.log")" == "f" ]]
 [[ "$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_historical_025_suppressed'")" == "1" ]]
 echo "Legacy eight-argument compatibility wrapper event-ID-first locking: PASS"
@@ -1039,7 +1039,7 @@ if [[ "$c356_legacy_event_waiting" != "1" ]]; then
   exit 1
 fi
 wait_bounded "$c356_legacy_event_first_pid" "c356_legacy_event_first_pid"
-if ! wait "$c356_legacy_event_second_pid"; then cat "$tmp/c356-legacy-event-second.log"; exit 1; fi
+if ! wait_bounded "$c356_legacy_event_second_pid" "c356_legacy_event_second_pid"; then cat "$tmp/c356-legacy-event-second.log"; exit 1; fi
 [[ "$(tr -d '\r\n' <"$tmp/c356-legacy-event-second.log")" == "__NULL__" ]]
 [[ "$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_historical_025_suppressed'")" == "1" ]]
 [[ "$(psql_scalar "select count(*) from public.delivery_provider_events where recipient_email='c356-legacy-event-attacker@example.test'")" == "0" ]]
@@ -1082,7 +1082,7 @@ if [[ "$c356_suppression_waiting" != "1" ]]; then
   exit 1
 fi
 wait_bounded "$c356_suppression_first_pid" "c356_suppression_first_pid"
-if ! wait "$c356_suppression_second_pid"; then
+if ! wait_bounded "$c356_suppression_second_pid" "c356_suppression_second_pid"; then
   cat "$tmp/c356-suppression-second.log"
   exit 1
 fi
