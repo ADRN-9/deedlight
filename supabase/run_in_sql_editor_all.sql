@@ -44,52 +44,6 @@
 -- BOOTSTRAP SEED supabase/seed.sql blob=e85554aed1553dec407e83966a1b0093f5d1e9a3 bytes=2574 upserts=3
 -- END SOURCE PROVENANCE
 -- BEGIN MIGRATION SQL
--- DeedLight SQL Editor aggregate v1
--- Deterministically generated from Git-blob-pinned migration sources and the maintained bootstrap seed.
--- Inventory Git blob SHA-1: 95d514a0bd97ff448c9507252eb1f5e69a507442
--- BEGIN SOURCE PROVENANCE
--- SOURCE 202607210001 202607210001_initial_schema.sql blob=a244ab0df3e766b0f36e29a222b3160f9f74c502 bytes=13648
--- SOURCE 202607210002 202607210002_rls_policies.sql blob=f96b482c0d1cf396baae5b91d7c96112f7e88284 bytes=5885
--- SOURCE 202607220003 202607220003_sprint3_offerings_review.sql blob=74e02f2e60b82cf07a6aac5f8cf57dcdb6fe1382 bytes=1064
--- SOURCE 202607260004 202607260004_sprint4_reactions.sql blob=c25dce46ecf69d082fcdbea2bb931b6acd9180fc bytes=4983
--- SOURCE 202607260005 202607260005_sprint5_moderation.sql blob=b48b4b8b3eea9fb55b68068011fa1371559228c2 bytes=5775
--- SOURCE 202607260006 202607260006_sprint5_admin_edit_hide_hotfix.sql blob=9e163de5119c3813724341b7a9eabeba6fdc2970 bytes=2008
--- SOURCE 202607260007 202607260007_sprint6_daily_deedlight.sql blob=e0c2379255003b8c7bc85a1fab781e23051f5e47 bytes=9545
--- SOURCE 202607260007 202607260007_sprint7_pwa_daily_engagement.sql blob=8b051cfce05ea75b1ee7a726864e2ad760f6fe5f bytes=6279
--- SOURCE 202607270008 202607270008_sprint8_short_video_studio.sql blob=5b583bd99562e14db554943d034c748ce302f5ee bytes=1890
--- SOURCE 202608060009 202608060009_sprint9_profiles_privacy.sql blob=6594ce6daa0183944fcc548885d6514e8adb9436 bytes=6031
--- SOURCE 202608100010 202608100010_sprint9_2_community_identity_consistency.sql blob=774708b7705d88a5a1e0da97e72a9d1b47c8884c bytes=3294
--- SOURCE 202608100011 202608100011_sprint9_3_moderation_aware_members.sql blob=1d1b7b844b88077351d2658af4be2b2db92eda97 bytes=12225
--- SOURCE 202608110012 202608110012_sprint10_1_daily_deed_completion.sql blob=0973f72e39ce07b41e053a20f1b781c394578877 bytes=4462
--- SOURCE 202608110013 202608110013_sprint10_2_saved_lights_gentle_rhythm.sql blob=5fd2f4a796a8a1dfd6237ccf36d1ab62c1dc1714 bytes=2769
--- SOURCE 202608120014 202608120014_sprint10_3_gentle_reminder_preferences.sql blob=2af1a6a2aa5cffc6ef6d08849b6f71fab44a54d0 bytes=2523
--- SOURCE 202608130015 202608130015_sprint11_2_weekly_goodness.sql blob=394c774032d8206c0b7a373640859c2a331667a9 bytes=8089
--- SOURCE 202608130016 202608130016_sprint11_3_invitations_newsletter_foundation.sql blob=8d68ed19859e1a820af52a43c110a38b6a460d48 bytes=12951
--- SOURCE 202608130017 202608130017_sprint12_1_offering_ownership_engagement.sql blob=bc23b12fe454c1f49b096fd2c7199e3a2aea5bb4 bytes=11901
--- SOURCE 202608140018 202608140018_sprint12_1_owner_removal_guard_hotfix.sql blob=0ea7eaf04d5c99e4c5a25893aae7694affdd44bc bytes=2780
--- SOURCE 202609230019 202609230019_sprint12_2_gentle_delivery_foundation.sql blob=1403b9324e786a2b724176875a70ffce92961d9b bytes=15845
--- SOURCE 202609230020 202609230020_delivery_reliability_hardening.sql blob=554615da3d15fc4c0d395691103d3be5676856fa bytes=13642
--- SOURCE 202609230021 202609230021_gentle_delivery_transport.sql blob=e50a06bd3a5ed386c54e789435c64b2bb4a54ab9 bytes=3417
--- SOURCE 202609240022 202609240022_auth_pgcrypto_schema_qualification.sql blob=f42afb3474f80c7d95cf5b47023b82cf5a948d4d bytes=1214
--- SOURCE 202611120023 202611120023_delivery_consent_linearization.sql blob=75f5086feab2cbda381066cb9094390190c3332f bytes=9411
--- SOURCE 202611120024 202611120024_delivery_identity_lease_capacity.sql blob=240271fd75081c062627cfc3d40bdc0c5feda049 bytes=12329
--- SOURCE 202611190025 202611190025_delivery_provider_webhooks.sql blob=e97c5c0ad645dfe43f11a88f01b030fa23dd5822 bytes=17132
--- SOURCE 202611190026 202611190026_delivery_provider_lifecycle.sql blob=6a06d780ad65babf2293a2746c68913758313af8 bytes=13857
--- SOURCE 202611200027 202611200027_delivery_provider_integrity.sql blob=a1469938ea13b5cb9d7cd883772bc60e4a058026 bytes=20879
--- SOURCE 202611210028 202611210028_delivery_claim_lock_expiry.sql blob=09d1927fba81d711bb37d214609931d2da2173a1 bytes=9643
--- SOURCE 202611210029 202611210029_delivery_legacy_replay_guard.sql blob=872fc49ec47e49b17e96ecf6ccaf5c8eb0e6322a bytes=7476
--- SOURCE 202611210030 202611210030_delivery_idempotency_receipt_guard.sql blob=c5e3955c4e0dde708a8ffdc9c420807c4241fa32 bytes=12214
--- SOURCE 202611220031 202611220031_delivery_final_recipient_suppression_gate.sql blob=26d69a0a4e73bc7cfd05814f3f6129bc199da02b bytes=6477
--- SOURCE 202611220032 202611220032_resend_suppression_list_sync.sql blob=6a0c0193d85ece99335f8715a65243ac42617f97 bytes=14118
--- SOURCE 202611220033 202611220033_delivery_cross_stream_suppression_order.sql blob=1cd0c2db5415a37b9a31ed8ef7de54db9019a88f bytes=4647
--- SOURCE 202611230034 202611230034_delivery_suppression_timestamp_order.sql blob=4ec8aa578ad851918f4c4b2535c476b4ceb40f1d bytes=11255
--- SOURCE 202611230035 202611230035_private_offering_base_table_rls.sql blob=3d0ce8dfd4abb88fccccd23c5ffb9c35f699c098 bytes=564
--- SOURCE 202611230036 202611230036_private_daily_reflection_admin_isolation.sql blob=61a1fbf48b4557873ba6016e74fd3995bc62ba14 bytes=2042
--- SOURCE 202611240037 202611240037_delivery_provider_integrity_conflict_evidence.sql blob=ac0449b50a881e3a895ef40a8eee28bea95a6ec0 bytes=44182
--- SOURCE 202611240038 202611240038_delivery_provider_integrity_lock_order_pagination.sql blob=38951751fc5abeb79b75c4e37e55da01262a18b8 bytes=43748
--- BOOTSTRAP SEED supabase/seed.sql blob=e85554aed1553dec407e83966a1b0093f5d1e9a3 bytes=2574 upserts=3
--- END SOURCE PROVENANCE
--- BEGIN MIGRATION SQL
 create extension if not exists pgcrypto;
 
 create or replace function public.set_updated_at()
@@ -467,9 +421,7 @@ $$;
 alter table public.profiles enable row level security;
 alter table public.themes enable row level security;
 alter table public.daily_posts enable row level security;
-alter tab
--- BEGIN BOOTSTRAP SEED (three idempotent upserts)
-le public.offerings enable row level security;
+alter table public.offerings enable row level security;
 alter table public.reactions enable row level security;
 alter table public.reflections enable row level security;
 alter table public.reports enable row level security;
@@ -545,7 +497,156 @@ create policy "reactions_admin_all" on public.reactions
 for all using (public.is_admin())
 with check (public.is_admin());
 
-create policy "reflections_public_visible_read" on public.r
+create policy "reflections_public_visible_read" on public.reflections
+for select using (
+  status = 'visible'
+  and exists (select 1 from public.offerings o where o.id = offering_id and o.status = 'approved')
+);
+
+create policy "reflections_own_insert" on public.reflections
+for insert with check (
+  user_id = auth.uid()
+  and exists (select 1 from public.offerings o where o.id = offering_id and o.status = 'approved' and o.allow_reflections = true)
+);
+
+create policy "reflections_own_update" on public.reflections
+for update using (user_id = auth.uid())
+with check (user_id = auth.uid());
+
+create policy "reflections_admin_all" on public.reflections
+for all using (public.is_admin())
+with check (public.is_admin());
+
+create policy "reports_own_insert" on public.reports
+for insert with check (reported_by = auth.uid());
+
+create policy "reports_admin_all" on public.reports
+for all using (public.is_admin())
+with check (public.is_admin());
+
+create policy "badges_public_read" on public.badges
+for select using (true);
+
+create policy "badges_admin_all" on public.badges
+for all using (public.is_admin())
+with check (public.is_admin());
+
+create policy "user_badges_public_read" on public.user_badges
+for select using (true);
+
+create policy "user_badges_admin_all" on public.user_badges
+for all using (public.is_admin())
+with check (public.is_admin());
+
+create policy "saved_lights_own_all" on public.saved_lights
+for all using (user_id = auth.uid())
+with check (user_id = auth.uid());
+
+create policy "daily_deed_completions_own_all" on public.daily_deed_completions
+for all using (user_id = auth.uid())
+with check (user_id = auth.uid());
+
+-- Storage buckets. Safe to re-run.
+insert into storage.buckets (id, name, public)
+values
+  ('daily-lights', 'daily-lights', true),
+  ('offerings-media', 'offerings-media', true),
+  ('profile-avatars', 'profile-avatars', true),
+  ('admin-assets', 'admin-assets', false),
+  ('share-cards', 'share-cards', true)
+on conflict (id) do nothing;
+
+create policy "storage_public_read_public_buckets" on storage.objects
+for select using (bucket_id in ('daily-lights','offerings-media','profile-avatars','share-cards'));
+
+create policy "storage_user_upload_offering_media" on storage.objects
+for insert with check (
+  bucket_id = 'offerings-media'
+  and auth.uid()::text = (storage.foldername(name))[1]
+);
+
+create policy "storage_user_update_own_offering_media" on storage.objects
+for update using (
+  bucket_id = 'offerings-media'
+  and auth.uid()::text = (storage.foldername(name))[1]
+) with check (
+  bucket_id = 'offerings-media'
+  and auth.uid()::text = (storage.foldername(name))[1]
+);
+
+create policy "storage_user_upload_own_avatar" on storage.objects
+for insert with check (
+  bucket_id = 'profile-avatars'
+  and auth.uid()::text = (storage.foldername(name))[1]
+);
+
+create policy "storage_admin_all" on storage.objects
+for all using (public.is_admin())
+with check (public.is_admin());
+
+-- BEGIN BOOTSTRAP SEED (three idempotent upserts)
+insert into public.themes (slug, name, description, icon_name, accent_color)
+values
+  ('kindness', 'Kindness', 'Small acts that make life softer.', 'hand-heart', '#C9826B'),
+  ('courage', 'Courage', 'Protecting dignity and truth with gentleness.', 'shield-flame', '#D9A441'),
+  ('mercy', 'Mercy', 'Choosing compassion over cruelty.', 'open-palm', '#DCE9F5'),
+  ('honesty', 'Honesty', 'Clear, truthful, trustworthy goodness.', 'gem-light', '#DCE9F5'),
+  ('patience', 'Patience', 'Goodness that waits without bitterness.', 'hourglass-leaf', '#A8BFA3'),
+  ('gratitude', 'Gratitude', 'Remembering goodness received.', 'hands-heart', '#C9826B'),
+  ('beauty', 'Beauty', 'Moments that restore hope.', 'flower-sun', '#F4C76B'),
+  ('justice', 'Justice', 'Fairness carried with dignity.', 'balanced-light', '#D9A441'),
+  ('humility', 'Humility', 'Goodness without showing off.', 'small-candle', '#FFF8EA'),
+  ('community', 'Community', 'Many small lights together.', 'circle-lights', '#A8BFA3')
+on conflict (slug) do update set
+  name = excluded.name,
+  description = excluded.description,
+  icon_name = excluded.icon_name,
+  accent_color = excluded.accent_color;
+
+insert into public.daily_posts (
+  date,
+  slug,
+  title,
+  theme_id,
+  reflection,
+  daily_action,
+  reflection_question,
+  status,
+  published_at
+)
+values (
+  current_date,
+  'protect-someones-dignity',
+  'Protect someone’s dignity',
+  (select id from public.themes where slug = 'courage'),
+  'Beauty is not only found in nature. Sometimes beauty appears when one person refuses to join cruelty.',
+  'Say one gentle sentence in defense of someone who is being judged unfairly.',
+  'Did I make one place safer for goodness today?',
+  'published',
+  now()
+)
+on conflict (date) do update set
+  title = excluded.title,
+  theme_id = excluded.theme_id,
+  reflection = excluded.reflection,
+  daily_action = excluded.daily_action,
+  reflection_question = excluded.reflection_question,
+  status = excluded.status,
+  published_at = excluded.published_at;
+
+insert into public.badges (slug, name, description, icon_name, level_name)
+values
+  ('quiet-helper-spark', 'Quiet Helper', 'Shared humble or anonymous goodness.', 'moon-hand', 'Spark'),
+  ('kindness-carrier-spark', 'Kindness Carrier', 'Carried repeated acts of kindness.', 'hand-heart', 'Spark'),
+  ('beauty-reminder-spark', 'Beauty Reminder', 'Shared beauty that restored hope.', 'flower-sun', 'Spark')
+on conflict (slug) do update set
+  name = excluded.name,
+  description = excluded.description,
+  icon_name = excluded.icon_name,
+  level_name = excluded.level_name;
+
+
+
 -- END BOOTSTRAP SEED
 -- Sprint 3 support migration: safe to run after Sprint 1 schema.
 -- It improves public view safety and adds useful indexes for admin review queues.
@@ -11368,7 +11469,5 @@ comment on function public.admin_list_delivery_provider_integrity_history_page(b
 
 notify pgrst, 'reload schema';
 commit;
-
--- END MIGRATION SQL
 
 -- END MIGRATION SQL
