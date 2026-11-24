@@ -1687,6 +1687,19 @@ end;
 $c356_case_page_one$;
 commit;
 
+-- Create the canonical row required by the evidence FK before adding its conflicting observation.
+select public.record_delivery_provider_lifecycle_event(
+  'evt_c356_page_case_a_canonical',
+  'email.delivered',
+  'resend-c356-page-case-a-canonical',
+  'c356-page-case-a@example.test',
+  clock_timestamp(),
+  null,
+  null,
+  null,
+  repeat('a', 64)
+);
+
 -- New evidence moves case A's last_detected_at forward after page one has been read.
 select public._record_delivery_provider_integrity_conflict(
   'c356-page-case-a@example.test',
