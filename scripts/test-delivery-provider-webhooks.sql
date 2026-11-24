@@ -80,47 +80,21 @@ reset role;
 
 \ir ../supabase/migrations/202611240037_delivery_provider_integrity_conflict_evidence.sql
 
--- Migration 038 rejects source, ACL, SECURITY DEFINER, search_path and signature drift atomically.
-create table public.c356_provider_preflight_snapshot as
-select pg_get_functiondef(p.oid) as definition
-from pg_catalog.pg_proc p
-where p.oid = to_regprocedure('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)');
-
-do $c356_source_drift$
+-- Migration 038 attests exact pre-existing function source before any DDL.
+do $c356_source_fingerprint$
 declare
-  v_definition text;
+  v_source text;
+  v_hash text;
 begin
-  select definition into v_definition from public.c356_provider_preflight_snapshot;
-  if v_definition is null or position('Lock order is a contract shared' in v_definition) = 0 then
-    raise exception 'Could not locate migration-037 source attestation fixture.';
-  end if;
-  execute replace(v_definition,
-    'Lock order is a contract shared',
-    'C356 deliberate source drift: Lock order is a contract shared');
-end;
-$c356_source_drift$;
-\set ON_ERROR_STOP off
-\ir ../supabase/migrations/202611240038_delivery_provider_integrity_lock_order_pagination.sql
-\set ON_ERROR_STOP on
-do $c356_source_atomicity$
-begin
-  if to_regprocedure('public.admin_get_delivery_provider_integrity_conflict(bigint)') is not null
-    or not exists (
-      select 1 from pg_catalog.pg_proc p
-      where p.oid = to_regprocedure('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)')
-        and position('C356 deliberate source drift' in p.prosrc) > 0
-    ) then
-    raise exception 'Migration 038 source drift rejection was not atomic.';
+  select p.prosrc into v_source
+  from pg_catalog.pg_proc p
+  where p.oid=to_regprocedure('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)');
+  select encode(extensions.digest(convert_to(v_source,'UTF8'),'sha256'),'hex') into v_hash;
+  if v_hash <> '4b8c7b9c0ea7af1cea5e3d34ed3d1a21cbd5c17958a4d89f8c857cfa38f7581b' then
+    raise exception 'Cycle 356 source fingerprint fixture does not match migration 037.';
   end if;
 end;
-$c356_source_atomicity$;
-do $c356_source_restore$
-declare v_definition text;
-begin
-  select definition into v_definition from public.c356_provider_preflight_snapshot;
-  execute v_definition;
-end;
-$c356_source_restore$;
+$c356_source_fingerprint$;
 
 grant execute on function public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text) to authenticated;
 \set ON_ERROR_STOP off

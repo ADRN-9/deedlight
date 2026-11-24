@@ -33,7 +33,7 @@ begin
     or to_regprocedure('public.admin_list_delivery_provider_integrity_evidence_page(bigint,integer,timestamptz,bigint)') is not null
     or to_regprocedure('public.admin_list_delivery_provider_integrity_history_page(bigint,integer,timestamptz,bigint)') is not null
     or to_regclass('public.delivery_provider_integrity_cases_state_cursor_idx') is not null
-    or to_regclass('public.delivery_provider_integrity_conflict_history_reopened_cursor_idx') is not null then
+    or to_regclass('public.delivery_provider_integrity_history_reopened_idx') is not null then
     raise exception 'Migration 038 refuses pre-existing pagination objects with an unknown origin.';
   end if;
 
@@ -138,7 +138,7 @@ $migration_038_preflight$;
 create index delivery_provider_integrity_cases_state_cursor_idx
   on public.delivery_provider_integrity_cases (state, last_detected_at desc, conflict_id desc);
 
-create index delivery_provider_integrity_conflict_history_reopened_cursor_idx
+create index delivery_provider_integrity_history_reopened_idx
   on public.delivery_provider_integrity_conflict_history (conflict_id, created_at desc, history_id desc)
   where action = 'reopened';
 
@@ -367,36 +367,6 @@ begin
   v_email := lower(btrim(p_recipient_email));
   if char_length(v_email) not between 3 and 320
     or v_email !~ '^[^[:space:]@]+@[^[:space:]@]+[.][^[:space:]@]+$' then
-    raise exception 'Invalid legacy delivery provider recipient.' using errcode = '22023';
-  end if;
-
-  -- The legacy timestamp lookup must happen only after the global event lock.
-  perform pg_catalog.pg_advisory_xact_lock(20261118, pg_catalog.hashtext(p_event_id));
-  perform pg_catalog.pg_advisory_xact_lock(20261119, pg_catalog.hashtext(v_email));
-  perform pg_catalog.pg_advisory_xact_lock(20261126, pg_catalog.hashtext(p_provider_email_id));
-
-  select e.provider_created_at into v_existing_provider_created_at
-  from public.delivery_provider_events e
-  where e.event_id = p_event_id
-  for update;
-
-  if p_event_type = 'email.suppressed' then
-    v_suppression_reason := 'provider_suppressed';
-  end if;
-
-  return public.record_delivery_provider_lifecycle_event(
-    p_event_id,
-    p_event_type,
-    p_provider_email_id,
-    p_recipient_email,
-    coalesce(v_existing_provider_created_at, p_provider_created_at, clock_timestamp()),
-    p_bounce_type,
-    p_failure_class,
-    v_suppression_reason,
-    null
-  );
-end;
-$legacy_037$; then
     raise exception 'Invalid legacy delivery provider recipient.' using errcode = '22023';
   end if;
 

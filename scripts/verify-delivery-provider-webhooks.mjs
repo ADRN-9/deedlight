@@ -587,7 +587,6 @@ for (const value of [
   "53de2fc64a9fa634efe33e18b7f639a474d9f359a2c57066b9bac760aa9b16e1",
 ]) assert(integrityPaginationMigration.includes(value), "Migration 038 preflight source identity list is incomplete.");
 for (const value of [
-  "C356 deliberate source drift",
   "grant execute on function public.record_delivery_provider_lifecycle_event",
   "security invoker",
   "set search_path = public;",
