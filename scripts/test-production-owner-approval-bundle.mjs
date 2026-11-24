@@ -70,7 +70,7 @@ function fixture({ withPath = false, intermediateAttribute = null, policyVersion
     queryId:"8A", projectRef:PROJECT, querySucceeded:true, complete:true, truncated:false,
     transactionReadOnly:true, roleReadOnly:true, executionPrincipal:"deedlight_audit_reader",
     collectorIdentity:"fixture-collector", executionId:"fixture-execution-8a", queryVersion:"fixture-query-8a-v1",
-    executedAt:"2026-11-24T00:00:00.000Z", serverVersionNum:160004, rowCount:18,
+    executedAt:"2026-11-24T00:00:00.000Z", collectedAt:"2026-11-24T00:00:00.000Z", ref:"fixture://query-8a/evidence", serverVersionNum:160004, rowCount:18,
     queryPath:"sql/query-8a.sql", querySha256:files["sql/query-8a.sql"],
     artifactPath:"evidence/query-8a.json", sha256:files["evidence/query-8a.json"],
   };
@@ -78,7 +78,7 @@ function fixture({ withPath = false, intermediateAttribute = null, policyVersion
     queryId:"8B", projectRef:PROJECT, querySucceeded:true, complete:true, truncated:false,
     transactionReadOnly:true, roleReadOnly:true, executionPrincipal:"deedlight_audit_reader",
     collectorIdentity:"fixture-collector", executionId:"fixture-execution-8b", queryVersion:"fixture-query-8b-v1",
-    executedAt:"2026-11-24T00:00:01.000Z", serverVersionNum:160004, rowCount:query8bRows.length,
+    executedAt:"2026-11-24T00:00:01.000Z", collectedAt:"2026-11-24T00:00:01.000Z", ref:"fixture://query-8b/evidence", serverVersionNum:160004, rowCount:query8bRows.length,
     queryPath:"sql/query-8b.sql", querySha256:files["sql/query-8b.sql"],
     artifactPath:"evidence/query-8b.json", sha256:files["evidence/query-8b.json"],
     queriedOwnerRoles:["fixture_owner_only"], distinctOwnerCount:1,
