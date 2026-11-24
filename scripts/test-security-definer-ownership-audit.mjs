@@ -84,6 +84,14 @@ const transitiveRole = 'deedlight_audit_transitive';
 const unexpected = 'deedlight_audit_unexpected_bypassrls';
 const login = 'deedlight_audit_login';
 const loginPassword = 'fixture-only-password';
+const appRoles = ['anon', 'authenticated', 'service_role'];
+const privilegedRoles = [
+  ['deedlight_audit_superuser', 'rolsuper'],
+  ['deedlight_audit_createrole', 'rolcreaterole'],
+  ['deedlight_audit_createdb', 'rolcreatedb'],
+  ['deedlight_audit_replication', 'rolreplication'],
+  ['deedlight_audit_bypassrls', 'rolbypassrls'],
+];
 
 psql([
   'CREATE ROLE ' + ownerA + ' NOLOGIN INHERIT;',
@@ -92,6 +100,11 @@ psql([
   'CREATE ROLE ' + parent + ' NOLOGIN INHERIT;',
   'CREATE ROLE ' + transitiveRole + ' NOLOGIN INHERIT;',
   'CREATE ROLE ' + unexpected + ' NOLOGIN BYPASSRLS;',
+  ...appRoles.map((role) => 'CREATE ROLE ' + role + ' NOLOGIN;'),
+  ...privilegedRoles.map(([role, attribute]) => 'CREATE ROLE ' + role + ' NOLOGIN ' + ({
+    rolsuper: 'SUPERUSER', rolcreaterole: 'CREATEROLE', rolcreatedb: 'CREATEDB',
+    rolreplication: 'REPLICATION', rolbypassrls: 'BYPASSRLS',
+  })[attribute] + ';'),
   'CREATE ROLE ' + login + ' LOGIN PASSWORD ' + quoteLiteral(loginPassword) + ';',
   'GRANT ' + ownerA + ' TO ' + login + ' WITH INHERIT FALSE, SET TRUE;',
   'GRANT CREATE ON SCHEMA public TO ' + ownerA + ', ' + ownerB + ', ' + ownerEmpty + ';',
@@ -106,7 +119,10 @@ for (const [index, signature] of signatures.entries()) {
   psql('CREATE FUNCTION ' + signature + ' RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog AS $$ BEGIN RETURN; END; $$;');
   psql('ALTER FUNCTION ' + signature + ' OWNER TO ' + ownerFor(index) + ';');
 }
-psql('REVOKE ALL ON FUNCTION ' + signatures[1] + ' FROM PUBLIC;');
+psql([
+  'REVOKE ALL ON FUNCTION ' + signatures[1] + ' FROM PUBLIC;',
+  'GRANT EXECUTE ON FUNCTION ' + signatures[1] + ' TO service_role;',
+].join('\\n'));
 
 const inventory = rows(q8a);
 assert.equal(inventory.length, 18);
@@ -135,11 +151,36 @@ for (const r of inventory) {
   assert.equal(r.owner_bypasses_rls, false);
 }
 const bySignature = new Map(inventory.map((r) => [r.expected_identity_signature, r]));
+function assertOwnerPrivilegesFailClosed(row) {
+  for (const field of ['owner_is_superuser', 'owner_can_create_roles', 'owner_can_create_databases',
+    'owner_can_replicate', 'owner_bypasses_rls']) {
+    assert.equal(row[field], false, 'Unauthorized function-owner privilege: ' + field);
+  }
+}
+for (const [role, attribute] of privilegedRoles) {
+  psql('ALTER FUNCTION ' + signatures[0] + ' OWNER TO ' + role + ';');
+  const row = rows(q8a).find((r) => r.expected_identity_signature === signatures[0]);
+  const field = ({rolsuper:'owner_is_superuser',rolcreaterole:'owner_can_create_roles',
+    rolcreatedb:'owner_can_create_databases',rolreplication:'owner_can_replicate',
+    rolbypassrls:'owner_bypasses_rls'})[attribute];
+  assert.equal(row.function_owner, role);
+  assert.equal(row[field], true, 'Query 8A must expose synthetic privileged owner flag: ' + attribute);
+  assert.throws(() => assertOwnerPrivilegesFailClosed(row), assert.AssertionError,
+    'Unauthorized synthetic owner must fail closed: ' + attribute);
+  psql('ALTER FUNCTION ' + signatures[0] + ' OWNER TO ' + ownerA + ';');
+}
 assert.equal(bySignature.get(signatures[0]).explicit_function_acl, null, 'Default ACL should leave proacl NULL');
 assert.match(bySignature.get(signatures[0]).effective_defaulted_function_acl, /=X\//, 'Default ACL must include PUBLIC EXECUTE');
 assert.notEqual(bySignature.get(signatures[1]).explicit_function_acl, null, 'REVOKE must materialize an explicit ACL');
 assert.doesNotMatch(bySignature.get(signatures[1]).effective_defaulted_function_acl, /,=X\//, 'Explicit ACL must preserve revoked PUBLIC EXECUTE');
-console.log('Query 8A: exact signatures, SECURITY DEFINER, owners, role attributes, explicit/default ACLs PASS');
+for (const role of appRoles) {
+  assert.equal(psql("SELECT has_function_privilege(" + quoteLiteral(role) + ", " + quoteLiteral(signatures[0]) + ", 'EXECUTE');"), 't',
+    'Default PUBLIC EXECUTE must be effective for ' + role);
+}
+assert.equal(psql("SELECT has_function_privilege('anon', " + quoteLiteral(signatures[1]) + ", 'EXECUTE');"), 'f');
+assert.equal(psql("SELECT has_function_privilege('authenticated', " + quoteLiteral(signatures[1]) + ", 'EXECUTE');"), 'f');
+assert.equal(psql("SELECT has_function_privilege('service_role', " + quoteLiteral(signatures[1]) + ", 'EXECUTE');"), 't');
+console.log('Query 8A: exact signatures, ownership, role attributes, ACLs and effective EXECUTE privileges PASS');
 
 const missingOwnerSql = q8a.replace('ON owner_role.oid = procedure.proowner', 'ON false');
 assert.notEqual(missingOwnerSql, q8a);
@@ -177,6 +218,7 @@ assert.deepEqual(transitive.membership_edge_set_options, [true, true]);
 assert.equal(transitive.owner_is_member, true);
 assert.equal(transitive.owner_inherits_privileges, false);
 assert.equal(transitive.owner_can_set_role, true);
+psql('SET ROLE ' + ownerA + '; SET ROLE ' + parent + '; SET ROLE ' + transitiveRole + '; RESET ROLE;', login, loginPassword);
 
 const unexpectedPath = path(ownerB, unexpected);
 assert.ok(unexpectedPath, 'Unexpected membership must remain visible for review');
@@ -205,6 +247,15 @@ assert.equal(restoredOptions.owner_inherits_privileges, true);
 assert.equal(restoredOptions.owner_can_set_role, true);
 psql('SET ROLE ' + ownerA + '; SET ROLE ' + parent + '; RESET ROLE;');
 
+psql('GRANT ' + transitiveRole + ' TO ' + parent + ' WITH INHERIT FALSE, SET FALSE;');
+const transitiveSetDisabled = rows(q8b).find((r) => r.function_owner === ownerA && r.granted_role === transitiveRole);
+assert.ok(transitiveSetDisabled);
+assert.equal(transitiveSetDisabled.owner_can_set_role, false);
+psqlFails('SET ROLE ' + ownerA + '; SET ROLE ' + parent + '; SET ROLE ' + transitiveRole + ';',
+  /permission denied to set role/, login, loginPassword);
+psql('GRANT ' + transitiveRole + ' TO ' + parent + ' WITH INHERIT FALSE, SET TRUE;');
+assert.equal(rows(q8b).find((r) => r.function_owner === ownerA && r.granted_role === transitiveRole).owner_can_set_role, true);
+psql('SET ROLE ' + ownerA + '; SET ROLE ' + parent + '; SET ROLE ' + transitiveRole + '; RESET ROLE;', login, loginPassword);
 psql('REVOKE ' + parent + ' FROM ' + ownerA + ';');
 const revokedMemberships = rows(q8b);
 assert.equal(revokedMemberships.some((r) => r.function_owner === ownerA && r.granted_role === parent), false);
@@ -222,6 +273,7 @@ psql([
   'REVOKE ' + unexpected + ' FROM ' + ownerB + ';',
   'REVOKE ' + ownerA + ' FROM ' + login + ';',
   'REVOKE CREATE ON SCHEMA public FROM ' + ownerA + ', ' + ownerB + ', ' + ownerEmpty + ';',
-  'DROP ROLE ' + [ownerA, ownerB, ownerEmpty, parent, transitiveRole, unexpected, login].join(', ') + ';',
+  'DROP ROLE ' + [ownerA, ownerB, ownerEmpty, parent, transitiveRole, unexpected, login,
+    ...appRoles, ...privilegedRoles.map(([role]) => role)].join(', ') + ';',
 ].join('\n'));
 console.log('Disposable PostgreSQL 16 SECURITY DEFINER ownership audit behavior: PASS');
