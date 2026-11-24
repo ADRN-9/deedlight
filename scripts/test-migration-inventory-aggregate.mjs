@@ -129,7 +129,7 @@ test("rejects truncated inventory JSON and incomplete inventory arrays", () => {
   try {
     writeFileSync(path.join(f.root, "supabase/migration-inventory.json"), '{"schemaVersion":1,"migrations":[');
     assert.throws(() => JSON.parse(readFileSync(path.join(f.root, "supabase/migration-inventory.json"), "utf8")));
-    assert.throws(() => verifyMigrationInventory(f.root, { ...f.manifest, migrations: f.manifest.migrations.slice(0, 38) }), /truncated/);
+    assert.throws(() => verifyMigrationInventory(f.root, { ...f.manifest, migrations: f.manifest.migrations.slice(0, 38) }, f.inventoryBlobSha1), /truncated/);
   } finally { f.cleanup(); }
 });
 
