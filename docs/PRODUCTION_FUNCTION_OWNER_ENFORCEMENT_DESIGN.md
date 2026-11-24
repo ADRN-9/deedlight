@@ -350,3 +350,8 @@ A future catalog verifier must be a separately reviewed, read-only operation, no
 4. Independently review the trust root, approval artifacts, manifest digest, and evidence custody before accepting any signature.
 5. Implement the separate read-only bidirectional live-catalog comparison only after authoritative evidence exists.
 6. Preserve migration 038, PR #22's base on PR #10, and Production NO-GO. No merge, retarget, deployment, Production SQL, or ownership change is authorized.
+
+
+### Cycle 384 verifier operational safeguards
+
+The production CLI does not accept a caller-supplied verification clock; it uses the current system time for expiry and key-validity checks. The exported API's `asOf` injection exists for deterministic tests and must not be used to backdate a Production acceptance. The trusted registry also requires a read-only execution-principal allowlist, not merely a caller-provided `roleReadOnly` boolean. Approval nonces must be unique and canonical, in addition to unique approval IDs. The local artifact reader uses no-follow file opens for the final path component and verifies regular-file type and size after opening.
