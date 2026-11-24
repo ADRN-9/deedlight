@@ -18,9 +18,11 @@ suite_timeout_seconds=840
 child_pids=()
 
 run_psql() {
-  PGCONNECT_TIMEOUT="$connect_timeout_seconds" \
-  PGOPTIONS="${PGOPTIONS:+${PGOPTIONS} }-c lock_timeout=${lock_timeout_seconds}s -c statement_timeout=${statement_timeout_seconds}s -c idle_in_transaction_session_timeout=${statement_timeout_seconds}s" \
-  setsid timeout --verbose --signal=TERM --kill-after=5s "${command_timeout_seconds}s" "${psql_cmd[@]}" "$@"
+  local options="${PGOPTIONS:+${PGOPTIONS} }-c lock_timeout=${lock_timeout_seconds}s -c statement_timeout=${statement_timeout_seconds}s -c idle_in_transaction_session_timeout=${statement_timeout_seconds}s"
+  if [[ "$BASHPID" != "$" ]]; then
+    exec env PGCONNECT_TIMEOUT="$connect_timeout_seconds" PGOPTIONS="$options" setsid timeout --verbose --signal=TERM --kill-after=5s "${command_timeout_seconds}s" "${psql_cmd[@]}" "$@"
+  fi
+  PGCONNECT_TIMEOUT="$connect_timeout_seconds" PGOPTIONS="$options" setsid timeout --verbose --signal=TERM --kill-after=5s "${command_timeout_seconds}s" "${psql_cmd[@]}" "$@"
 }
 
 track_child() {
@@ -69,7 +71,6 @@ wait_bounded() {
   done
 
   echo "Child did not become reapable after SIGKILL: $label (pid $pid)" >&2
-  untrack_child "$pid"
   return 124
 }
 
