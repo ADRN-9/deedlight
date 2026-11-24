@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { EXPECTED_SIGNATURES } from "./verify-production-function-owner-manifest.mjs";
+import { EXPECTED_SIGNATURES, productionOwnerPolicyValueDigest } from "./verify-production-function-owner-manifest.mjs";
 import { canonicalJson, verifyProductionOwnerApprovalBundle } from "./verify-production-owner-approval-bundle.mjs";
 
 const PROJECT = "xaipiovflxomcbfwtwmu";
@@ -106,13 +106,13 @@ function fixture({ withPath = false, intermediateAttribute = null, policyVersion
   const signApproval = (payload, privateKey) => ({
     payload, signature:sign(null,Buffer.from(canonicalJson(payload)),privateKey).toString("base64"),
   });
-  const add = (scope,subject,ownerRole,approvedValue,privateKey,identityId,approverRole,index) => {
+  const add = (scope,subject,ownerRole,approvedValue,privateKey,identityId,approverRole,index,approvedValueSha256Override = null) => {
     const payload = {
       approvalId:"fixture-approval-"+String(index).padStart(3,"0"),
       nonce:randomBytes(16).toString("hex"),
       scope,subject,ownerRole,projectRef:PROJECT,policyVersion:manifest.policyVersion,
       manifestSha256,query8aSha256:q8a.sha256,query8bSha256:q8b.sha256,
-      approvedValueSha256:hash(Buffer.from(canonicalJson(approvedValue))),
+      approvedValueSha256:approvedValueSha256Override ?? hash(Buffer.from(canonicalJson(approvedValue))),
       approverIdentity:identityId,approverRole,keyId:identityId+"-key",
       approved:true,approvedAt:"2026-11-24T00:01:00.000Z",expiresAt:"2026-11-24T00:30:00.000Z",
     };
@@ -128,8 +128,9 @@ function fixture({ withPath = false, intermediateAttribute = null, policyVersion
     ["owner_attributes",ownerAttributes],
     ["membership_graph",{complete:true,paths:manifest.owners[0].membershipGraph.paths.map((p)=>JSON.stringify(canonicalPath(p))).sort()}],
   ]) {
-    add(scope,"fixture_owner_only","fixture_owner_only",approvedValue,dba.privateKey,"fixture-dba","production_dba",++index);
-    add(scope,"fixture_owner_only","fixture_owner_only",approvedValue,security.privateKey,"fixture-security","security",++index);
+    const approvedDigest=productionOwnerPolicyValueDigest(scope,"fixture_owner_only","fixture_owner_only",manifest);
+    add(scope,"fixture_owner_only","fixture_owner_only",approvedValue,dba.privateKey,"fixture-dba","production_dba",++index,approvedDigest);
+    add(scope,"fixture_owner_only","fixture_owner_only",approvedValue,security.privateKey,"fixture-security","security",++index,approvedDigest);
   }
   const approvalDocument = {schemaVersion:1,projectRef:PROJECT,policyVersion:manifest.policyVersion,approvals};
   const approvalHash = writeCanonical(root,"approvals.json",approvalDocument);
