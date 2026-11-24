@@ -135,3 +135,8 @@ Only after those approvals should a separate implementation proposal define the 
 - A preceding attempt (run 45485532106) failed at the fixture SQL batch boundary because the generated SQL used a literal backslash-n separator. The separator was corrected to a real newline; the successful exact-head run above validates the correction. The failed attempt is not counted as a pass.
 
 The evidence document update itself will receive its own exact-head CI run; the run above is evidence for commit `bd0bc119...`, not for any later documentation-only commit.
+
+
+### PR #22 description synchronization
+
+The PR description was refreshed after Cycle 376 to identify the current branch/head, base, ancestry, complete 29-path diff inventory, and the successful PostgreSQL 16/CI evidence for commit `bd0bc119de3367cf963536c02b62af44100d4c30`. The documentation-only synchronization commit that contains this note is separately subject to exact-head CI; do not conflate the prior tested code commit with a later head.
