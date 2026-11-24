@@ -545,6 +545,8 @@ assert(integrityPaginationMigration.includes("Migration 038 rejected private hel
 assert(integrityPaginationMigration.includes("Migration 038 rejected provider-integrity table privacy drift"));
 assert(integrityPaginationMigration.includes("delivery_provider_integrity_conflict_evidence_immutable"));
 assert(integrityPaginationMigration.includes("delivery_provider_integrity_conflict_history_immutable"));
+assert((integrityPaginationMigration.match(/tgtype = 27/g) ?? []).length === 2);
+assert((integrityPaginationMigration.match(/tgenabled in \('O', 'A'\)/g) ?? []).length === 2);
 assert(integrityPaginationMigration.includes("admin_list_delivery_provider_integrity_conflicts_page"));
 assert(integrityPaginationMigration.includes("admin_get_delivery_provider_integrity_conflict"));
 assert(integrityPaginationMigration.includes("admin_list_delivery_provider_integrity_evidence_page"));
@@ -567,6 +569,10 @@ function assertProviderLockOrder(tag, correlationNamespace) {
   const eventLock = body.indexOf("pg_advisory_xact_lock(20261118, pg_catalog.hashtext(p_event_id))");
   const recipientLock = body.indexOf("pg_advisory_xact_lock(20261119, pg_catalog.hashtext(v_email))");
   const correlationLock = body.indexOf("pg_advisory_xact_lock(" + correlationNamespace + ", pg_catalog.hashtext(");
+  if (tag === "legacy_037") {
+    const timestampLookup = body.indexOf("select e.provider_created_at into v_existing_provider_created_at");
+    assert(correlationLock >= 0 && correlationLock < timestampLookup, "Legacy timestamp lookup must follow event, recipient and provider locks.");
+  }
   assert(eventLock >= 0 && eventLock < recipientLock && recipientLock < correlationLock,
     "Provider lock order must be event ID, recipient, then correlation in " + tag);
 }
@@ -589,6 +595,16 @@ for (const value of [
 ]) assert(integrityPaginationMigration.includes(value), "Migration 038 preflight source identity list is incomplete.");
 assert(databaseTests.includes("Cycle 356 source fingerprint fixture does not match migration 037."));
 for (const value of [
+  "rollback;",
+  "Administrator UPDATE of provider-integrity evidence was not denied.",
+  "Administrator DELETE of provider-integrity evidence was not denied.",
+  "Administrator UPDATE of provider-integrity history was not denied.",
+  "Administrator DELETE of provider-integrity history was not denied.",
+  "Non-admin authenticated member resolved a provider-integrity case.",
+  "Case pagination accepted a partial cursor.",
+  "History pagination accepted a partial cursor.",
+]) assert(databaseTests.toLowerCase().includes(value.toLowerCase()), "Missing Cycle 356 pagination/privacy regression: " + value);
+for (const value of [
   "grant execute on function public.record_delivery_provider_lifecycle_event",
   "security invoker",
   "set search_path = public;",
@@ -604,7 +620,11 @@ for (const value of [
 assert(concurrencyTests.includes("C356_SIMULTANEOUS_FIRST_INSERT_EVENT_LOCK_HELD"));
 assert(concurrencyTests.includes("Concurrent simultaneous first-insert event-ID conflict: PASS"));
 assert(concurrencyTests.includes("C356_LEGACY_EVENT_LOCK_HELD"));
-assert(concurrencyTests.includes("Legacy lifecycle wrapper event-ID-first locking: PASS"));
+assert(concurrencyTests.includes("C356_COMPAT_EVENT_LOCK_HELD"));
+assert(concurrencyTests.includes("C356_LEGACY_EVENT_WRAPPER_LOCK_HELD"));
+assert(concurrencyTests.includes("Legacy seven-argument lifecycle wrapper event-ID-first locking: PASS"));
+assert(concurrencyTests.includes("Legacy eight-argument compatibility wrapper event-ID-first locking: PASS"));
+assert(concurrencyTests.includes("Five-argument legacy event wrapper event-ID-first locking: PASS"));
 assert(concurrencyTests.includes("C356_SUPPRESSION_FIRST_INSERT_EVENT_LOCK_HELD"));
 assert(concurrencyTests.includes("Concurrent suppression first-insert event-ID conflict: PASS"));
 console.log("Resend webhook authenticity, provider-integrity administration, bounded signatures, suppression ordering and privacy assertions: PASS");
