@@ -262,3 +262,91 @@ The fixture suite tests the mechanics only. It cannot satisfy Query 8A/8B, autho
 ### Query 8B evidence shape clarification
 
 Cycle 382 extended the Query 8B SELECT result with `membership_path_role_attributes`, an ordered array containing the seven role attributes for every role node in the path, including the owner and intermediate roles. Endpoint-only role attributes are insufficient to validate transitive paths. The manifest validator requires each path role-attribute record to name the corresponding role node and rejects positional/name mismatches. Query 8B's row count is the count of returned owner-to-endpoint membership paths; each path retains its full ordered role sequence and edge option arrays.
+
+
+---
+
+## Cycle 384 — cryptographic approval and evidence verification
+
+**Implementation status:** repository verifier and disposable fixture tests added. **Production acceptance remains BLOCKED / NO-GO.** No Production key, identity, approval, owner mapping, or evidence artifact has been created or assumed.
+
+### New executable artifacts
+
+- `scripts/verify-production-owner-approval-bundle.mjs` exports `verifyProductionOwnerApprovalBundle` and provides a CLI.
+- `scripts/test-production-owner-approval-bundle.mjs` creates ephemeral Ed25519 keypairs and fixture identities at test runtime. No fixture private key or public key is a Production trust anchor.
+- The ownership-audit CI job runs the new test suite before the existing PostgreSQL 16 ownership-audit harness.
+
+Invocation after the Production authority and protected evidence bundle exist:
+
+```sh
+node scripts/verify-production-owner-approval-bundle.mjs \
+  --artifact-root /protected/deedlight-owner-evidence \
+  --manifest manifest.json \
+  --approvals approvals.json \
+  --trust-root trusted-identity-registry.json
+```
+
+The artifact root is an explicitly provisioned local protected directory. All artifact references are normalized relative paths under that root. The verifier performs no HTTP, DNS, URL fetching, database connection, or arbitrary remote-reference resolution. It rejects absolute paths, traversal, backslashes, symlinks, non-regular files, non-canonical JSON, and artifacts larger than 25 MiB. The CLI accepts no URL-based artifact locator. The trust root and its delivery channel must be provisioned out-of-band by the approved evidence custodian; putting a trust root in this PR would defeat the trust boundary.
+
+### Approval cryptography and identity boundary
+
+Only Ed25519 signatures are supported. Each individual signed approval payload must bind:
+
+- Unique approval ID and nonce.
+- Exact Production project reference.
+- Individual policy version.
+- SHA-256 of the complete canonical immutable manifest.
+- Actual Query 8A and Query 8B result SHA-256 values.
+- Scope, subject, owner role, and exact approved-value digest.
+- Trusted identity ID, trusted key ID, and asserted approver role.
+- Explicit approval decision, approval timestamp, and expiration timestamp.
+
+The verifier checks the signature over canonical payload bytes against an explicitly supplied trusted key registry. The registry binds key IDs to identity IDs and active key material; a separate identity record must authorize the asserted `production_dba` or `security` role. Key validity intervals, identity activation, key revocation, approval revocation, expiration, and consumed approval IDs are checked. Unsupported algorithms and absent trusted keys fail closed. Approvals are still required in the exact DBA/security pairs enforced by the existing manifest validator.
+
+**Trust boundary:** a valid Ed25519 signature proves control of a private key, not a person's legal identity or authority by itself. A human-controlled Production/security authority must authenticate approvers, approve identity-to-role assignments, securely provision public keys, and distribute the trusted registry through an independent protected channel. The repository contains no Production public keys or identities. No authorized approval authority or trust registry was available for this cycle, so no Production signature could be verified and Production acceptance remains blocked.
+
+### Approval artifact and evidence byte integrity
+
+The trusted registry contains an explicit SHA-256 index for the complete approval artifact, both exact SQL query files, and both raw query-result files. The verifier hashes the bytes actually read from disk and compares them to that independently provisioned index. It also compares result bytes with the hashes embedded in the manifest and signed by every approval. Approval artifact tampering, evidence substitution, SQL substitution, malformed canonical JSON, missing files, and hash mismatch all fail closed.
+
+Query execution metadata must include exact project reference, query ID/version, execution ID, collector identity, execution principal, PostgreSQL server version, timestamp with timezone, successful/complete/untruncated status, explicit read-only transaction and role attestations, result row count, SQL path/hash, and raw result path/hash. Collector identities and read-only execution-principal names must both be explicitly allowlisted in the trusted registry. The SQL and result artifacts must be indexed by the trusted evidence custodian.
+
+Query 8A bytes are parsed and checked for all 18 exact signatures, `PRESENT`, SECURITY DEFINER true, resolved owners, and all seven role attributes. Query 8B bytes are parsed and reconciled to the exact distinct Query 8A owner set. Every actual path, intermediate role attribute, INHERIT/SET edge option, and effective MEMBER/USAGE/SET result must equal the approved manifest graph. The query SQL itself is hashed and checked for the required 18-signature or recursive-membership inventory.
+
+A zero-row Query 8B result is accepted only when the actual result file is an empty array and the manifest includes a successful zero-row attestation bound to the exact execution ID, query hash, result hash, collector identity, timestamp, all-owner coverage, and reason. An absent result, failed query, truncated result, or unqueried owner cannot be represented as an empty graph.
+
+### Replay, expiry and revocation
+
+Duplicate approval IDs within one artifact, approvals signed for a different manifest or policy version, expired/not-yet-valid approvals, revoked key IDs, revoked approval IDs, and IDs already listed as consumed by the trusted authority are rejected. The verifier is deliberately read-only: it does not mutate a consumption ledger. The protected authority must atomically record approval IDs as consumed in its trusted registry after the separately approved acceptance event. Without that authoritative consumption update, the verifier cannot claim global one-time-use semantics across separate verifier invocations.
+
+### Artifact handling and SSRF boundary
+
+No arbitrary URL is fetched. A URI-looking legacy evidence reference is not resolved by this verifier and is not a substitute for local evidence bytes. Files must be staged into the protected artifact root by an authorized evidence custodian; the trust registry records their exact relative paths and hashes. The implementation rejects path traversal and symlinks and caps each file at 25 MiB. The trust registry itself is a trust anchor and must be delivered out-of-band with protected write access; an attacker able to replace both the registry and bundle is outside the verifier's local trust boundary and must be addressed by the custodian's access controls and independent verification.
+
+### Separate read-only live catalog comparison design
+
+A future catalog verifier must be a separately reviewed, read-only operation, not part of this approval-bundle verifier:
+
+1. The DBA independently confirms the exact project reference `xaipiovflxomcbfwtwmu`, PostgreSQL 16+, the named read-only collector, catalog visibility, and a read-only transaction. Use one repeatable-read, read-only transaction for Query 8A and Query 8B where the approved connection permits it; capture transaction/server identity and timestamps.
+2. Query 8A produces the live 18-signature set. Normalize by exact identity signature and compare expected-to-actual and actual-to-expected. Report missing signatures, unexpected signatures, SECURITY DEFINER drift, owner-role drift, and each of the seven owner-attribute differences. Never silently drop unresolved functions or owners.
+3. Query 8B produces the complete live owner membership graph. Normalize each owner-to-granted-role path as ordered role names, every edge INHERIT/SET option, every path-node attribute tuple, and effective MEMBER/USAGE/SET booleans. Compare both directions (expected EXCEPT actual and actual EXCEPT expected, or equivalent canonical set comparison) so both missing approved paths and unexpected live paths are detected. Preserve multiple distinct paths to the same endpoint.
+4. Explicitly include every distinct Query 8A owner in the Query 8B coverage declaration. A zero-row graph is a valid empty graph only if the query succeeded, was complete/untruncated, queried every owner, and its zero-row attestation is accepted. Unknown or missing owners are not empty.
+5. Return a read-only drift report with exact evidence hashes and counts. Any mismatch, incomplete result, unknown role, privileged attribute, unsupported catalog version, or uncertain project identity fails closed. The verifier must never execute ALTER OWNER, GRANT, REVOKE, CREATE ROLE, migration SQL, or any other mutation.
+6. Independent DBA and security review must approve the expected manifest and the drift report before a separate enforcement implementation is considered. Migration 038 remains unchanged until that later approved contract exists.
+
+### Cycle 384 acceptance disposition and blockers
+
+- **P0 — Production authority/trust bootstrap absent:** no human-authorized DBA/security identity registry, trusted Ed25519 public keys, collector registry, read-only principal allowlist, or protected trust-root delivery channel is available. Exact dependency: the DeedLight Production organization/project administrator and security owner must authenticate named approvers, designate the collector, approve their roles, provision public keys, define key rotation/revocation, and establish protected trust-root/evidence custody.
+- **P0 — Query 8A/8B Production evidence absent:** the last verified access investigation (Cycle 382, 2026-11-24) found both connected Supabase accounts unable to discover or read project `xaipiovflxomcbfwtwmu`. Cycle 384 did not acquire new access or execute Production SQL. The 18-row Query 8A result and complete Query 8B membership graph remain NOT COLLECTED.
+- **P1 — Global replay consumption is externally managed:** the verifier rejects duplicate, cross-manifest, expired, revoked and already-consumed approvals; a protected authority must maintain and atomically update the consumed-ID registry. The verifier itself never writes trust state.
+- **P1 — Live catalog drift verifier not implemented:** this cycle specifies the separate read-only bidirectional comparison design but does not query Production or add an owner-enforcement migration.
+- **P2 — Trust-root authenticity is an operational root-of-trust dependency:** the registry is not self-authenticating. Its source, delivery, review and write permissions must be controlled independently of the bundle and repository.
+
+### Cycle 385 handoff
+
+1. Review the verifier and the exact-head CI run; do not claim tests PASS until all jobs complete successfully for the final SHA.
+2. Obtain an explicit human-controlled Production/security authority for approver identity proofing, key provisioning, collector authorization, trust-root distribution, and revocation/consumption operations.
+3. Obtain the authorized read-only Production connection, collect Query 8A/8B, and preserve exact SQL/result bytes plus execution provenance in the protected evidence root.
+4. Independently review the trust root, approval artifacts, manifest digest, and evidence custody before accepting any signature.
+5. Implement the separate read-only bidirectional live-catalog comparison only after authoritative evidence exists.
+6. Preserve migration 038, PR #22's base on PR #10, and Production NO-GO. No merge, retarget, deployment, Production SQL, or ownership change is authorized.
