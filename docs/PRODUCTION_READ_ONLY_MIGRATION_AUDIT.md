@@ -1239,3 +1239,8 @@ The first cryptographic-suite CI attempt reached the existing structural validat
 The CI history included three corrected fixture/integration findings, all retained in the work history: (1) the first run lacked legacy structural evidence `ref`/`collectedAt`; (2) the next run lacked explicit `ownersReconciled`; (3) the transitive-path fixture exposed non-canonical nested JSON property ordering in the old policy-value digest. The validator now canonicalizes nested path attributes before digesting; the privileged-intermediate-role fixtures sign the deliberately unsafe path and verify that the policy validator rejects each privileged attribute. The final exact-head run above passes both suites and the preserved PostgreSQL behavior test. No existing check was weakened.
 
 The final Cycle 384 PR/documentation head will be separately rechecked for ancestry and exact-head CI after this evidence note is committed. No Production trust root or Production approval was introduced by the tests; all fixture keys are ephemeral.
+
+
+### Cycle 384 final evidence-byte substitution coverage
+
+The cryptographic test suite was extended with an explicit Query 8B raw-result byte-substitution negative case (in addition to Query 8A result substitution and Query 8A/8B SQL artifact tampering). Final implementation/test HEAD `9edd8cc2aa6ef0cf03c06b8c65e0ceeba70ba8b9` passed exact-head [CI run 45500035896](https://github.com/ADRN-9/deedlight/actions/runs/45500035896), completed SUCCESS, 9/9 jobs. The ownership job reports the existing structural suite 10/10 PASS, cryptographic/evidence suite 26/26 PASS, and the preserved PostgreSQL 16 Query 8A/8B behavior step PASS. This supersedes the earlier 25-test code-baseline evidence.
