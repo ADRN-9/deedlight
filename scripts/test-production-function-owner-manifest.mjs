@@ -21,7 +21,7 @@ function fixture() {
     schemaVersion:1, projectRef, policyVersion:"fixture-only-v1",
     evidence:{
       query8a:{projectRef,sha256:q8a,ref:"fixture://query-8a/immutable",collectedAt:"2026-11-24T00:00:00Z",complete:true,rowCount:18},
-      query8b:{projectRef,sha256:q8b,ref:"fixture://query-8b/immutable",collectedAt:"2026-11-24T00:00:01Z",complete:true,rowCount:0,ownersReconciled:true},
+      query8b:{projectRef,sha256:q8b,ref:"fixture://query-8b/immutable",collectedAt:"2026-11-24T00:00:01Z",complete:true,rowCount:0,ownersReconciled:true,distinctOwnerCount:1},
     },
     functions,
     owners:[{role:"fixture_owner_only",attributes:attrs(),membershipGraph:{complete:true,paths:[]}}],
