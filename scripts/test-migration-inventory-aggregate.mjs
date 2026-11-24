@@ -55,7 +55,7 @@ function expectAggregateFailure(f, pattern) {
 test("accepts exact 39-file inventory and preserves both distinct 007 sources", () => {
   const f = fixture();
   try {
-    const result = verifyMigrationInventory(f.root, f.manifest);
+    const result = verifyMigrationInventory(f.root, f.manifest, f.inventoryBlobSha1);
     assert.deepEqual(result, { migrationCount: 39, uniqueVersionCount: 38, seedUpsertCount: 3 });
     const a = f.aggregate.toString("utf8");
     for (const name of sourceManifest.intentionalDuplicateVersionGroups["202607260007"]) {
@@ -74,7 +74,7 @@ test("rejects a substituted inventory manifest even when its JSON remains valid"
   const f=fixture();
   try {
     const changed={...f.manifest,bootstrapSeed:{...f.manifest.bootstrapSeed,expectedUpsertCount:2}};
-    writeFileSync(path.join(f.root,"supabase/migration-inventory.json"),JSON.stringify(changed,null,2)+"\\n");
+    writeFileSync(path.join(f.root,"supabase/migration-inventory.json"),JSON.stringify(changed,null,2)+"\n");
     assert.throws(()=>verifyMigrationInventory(f.root,f.manifest,f.inventoryBlobSha1),/inventory manifest Git blob SHA-1/);
   } finally { f.cleanup(); }
 });
@@ -101,7 +101,7 @@ test("detects renamed migration by matching its pinned blob", () => {
   try {
     const target = f.manifest.migrations[4];
     renameSync(path.join(f.root, target.path), path.join(f.root, "supabase/migrations/renamed-migration.sql"));
-    assert.throws(() => verifyMigrationInventory(f.root, f.manifest), /renamed migrations/);
+    assert.throws(() => verifyMigrationInventory(f.root, f.manifest, f.inventoryBlobSha1), /renamed migrations/);
   } finally { f.cleanup(); }
 });
 
@@ -152,7 +152,7 @@ test("rejects duplicated bootstrap seed data", () => {
 test("verifies committed aggregate byte-for-byte", () => {
   const f = fixture();
   try {
-    const result = verifyAggregate(f.root, f.manifest);
+    const result = verifyAggregate(f.root, f.manifest, "supabase/run_in_sql_editor_all.sql", f.inventoryBlobSha1);
     assert.equal(result.aggregateBytes, f.aggregate.length);
     assert.match(result.aggregateSha256, /^[a-f0-9]{64}$/);
   } finally { f.cleanup(); }
