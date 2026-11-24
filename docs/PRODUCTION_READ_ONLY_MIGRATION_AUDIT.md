@@ -990,3 +990,102 @@ Once authorized access or evidence is supplied:
 6. Have an independent reviewer verify provenance, completeness, hashes and approval coverage before authoring any expected-owner manifest.
 
 Until every gate passes, do not implement expected-owner enforcement, modify migration 038, perform Production database operations, deploy or merge. Keep PR #22 OPEN / DRAFT / UNMERGED and Production NO-GO.
+
+
+---
+
+## Cycle 381 — Repository, migration and PR-governance reconciliation
+
+**Verification date:** 2026-11-24  
+**Verified repository:** `ADRN-9/deedlight`  
+**Disposition:** REPOSITORY EVIDENCE RECOVERED; PRODUCTION OWNERSHIP EVIDENCE STILL BLOCKED
+
+### 1. Recovered Cycle 380 execution evidence
+
+Cycle 380's repository change is present in GitHub:
+
+- Commit: [`f2e9bd71334a7413528088de27d4e6b1e15d3a3e`](https://github.com/ADRN-9/deedlight/commit/f2e9bd71334a7413528088de27d4e6b1e15d3a3e)
+- Parent: `356decbc866fa156c8177b76d5b52c349a90138f`
+- Commit message: `docs(security): record production ownership access blocker`
+- Changed file: `docs/PRODUCTION_READ_ONLY_MIGRATION_AUDIT.md` (Cycle 380 access-denial and evidence-gap record).
+- Exact-head CI: [run 45490578964](https://github.com/ADRN-9/deedlight/actions/runs/45490578964), completed SUCCESS on exact SHA `f2e9bd71334a7413528088de27d4e6b1e15d3a3e`, all nine jobs successful.
+
+This independently confirms the Cycle 380 repository work and its exact-head CI. The earlier Cycle 380 final response reported the CI as in progress because that was its last observation; GitHub now records it as completed SUCCESS.
+
+### 2. Current PR #22 and ancestry
+
+- PR #22: OPEN / DRAFT / UNMERGED.
+- Head branch: `security/private-daily-journey-admin-isolation-c408`.
+- Current verified HEAD before this Cycle 381 documentation update: `f2e9bd71334a7413528088de27d4e6b1e15d3a3e`.
+- Base branch: `security/delivery-transport-consent-gates`.
+- Base SHA: `6a3660bbe2fd6beb2ddada43d5e77ff5ac9f3793`.
+- GitHub compare: 147 commits ahead, 0 behind; merge base equals the base SHA.
+- PR metadata and paginated changed-file listing both report 30 changed files (before this Cycle 381 documentation update).
+
+The live branch ref resolves to the same HEAD SHA as PR #22. No branch movement or force-push was observed.
+
+### 3. Reconciliation of the historical Cycle 376/378/380 references
+
+The reported commits are real and lie on the current PR #22 line:
+
+- `5e4f6559a02f9e9772caf4b67ce1ae635eb15f74`: “docs(security): record final cycle 376 exact-head CI”.
+- `356decbc866fa156c8177b76d5b52c349a90138f`: “docs(security): design approved function owner enforcement”; its parent is `d7a38f92e0367062698355e0ccb406fe1761b0a3`.
+- `f2e9bd71334a7413528088de27d4e6b1e15d3a3e`: Cycle 380 access-blocker record; its parent is exactly `356decbc866fa156c8177b76d5b52c349a90138f`.
+
+GitHub compare from `5e4f6559a02f9e9772caf4b67ce1ae635eb15f74` to `356decbc866fa156c8177b76d5b52c349a90138f` reports 2 commits ahead, 0 behind, and two documentation changes: the owner-enforcement design was added and the Production audit checklist was extended. This is consistent with the recorded cycle progression; these are successive revisions, not conflicting current HEAD claims.
+
+### 4. Migration 038 integrity
+
+Path: `supabase/migrations/202611240038_delivery_provider_integrity_lock_order_pagination.sql`
+
+GitHub returned the same file blob SHA at all three relevant PR #22 revisions:
+
+- `5e4f6559a02f9e9772caf4b67ce1ae635eb15f74`
+- `356decbc866fa156c8177b76d5b52c349a90138f`
+- `f2e9bd71334a7413528088de27d4e6b1e15d3a3e`
+
+Blob SHA at each: `38951751fc5abeb79b75c4e37e55da01262a18b8`; file size returned: 43,748 bytes. The path-specific GitHub commit history returns nine commits touching this file; the latest listed path commit is `8220d3953a3b7f906fb52dd1946d4be450d5cc7d` (“fix(db): stabilize provider integrity case pagination”, 2026-11-24T16:58:36Z). The three later documentation checkpoints retain the same blob. Thus migration 038 was not modified by Cycle 380 or the present Cycle 381 repository verification.
+
+**Important scope distinction:** GitHub returned NOT FOUND for this path at PR #22's base SHA `6a3660bbe2fd6beb2ddada43d5e77ff5ac9f3793`. The migration is part of PR #22's diff relative to PR #10's branch; it is not present at that base. “Unchanged” here means unchanged across the cited PR #22 checkpoints, not that the migration is already part of PR #10 or Production. No Production application is inferred.
+
+### 5. PR #10 / #11 / #22 governance and merge targets
+
+The live PR metadata establishes three different branch relationships:
+
+| PR | Head | Base / target | State |
+|---|---|---|---|
+| #10 | `security/delivery-transport-consent-gates` at `6a3660bbe2fd6beb2ddada43d5e77ff5ac9f3793` | `main` at `ce82b3fdf1a73510de70e3729a487d4ae00e66e3` | OPEN / DRAFT / UNMERGED |
+| #11 | `security/deedlight-audit-fixtures-c18` at `f5ed62e4417921c8bee1a376fed8bac35897e809` | `main` at `ce82b3fdf1a73510de70e3729a487d4ae00e66e3` | OPEN / DRAFT / UNMERGED |
+| #22 | `security/private-daily-journey-admin-isolation-c408` at current PR HEAD | `security/delivery-transport-consent-gates` at PR #10's exact head | OPEN / DRAFT / UNMERGED |
+
+PR #10's head is PR #22's base, and PR #22's compare reports that exact base as its merge base. PR #22 is therefore stacked on PR #10's branch, not currently targeted directly at `main`.
+
+PR #11 is a separate audit-fixture branch targeting `main`; it is not PR #22's base and is not an ancestor in the PR #22 base relationship. Its metadata and scope do not confer Production authorization or satisfy the missing Query 8A/8B evidence requirement.
+
+**Governance conclusion:** the repository's current declared targets are authoritative for this inspection: PR #10 and PR #11 target `main`; PR #22 targets PR #10's head branch. No PR is merged, and all three remain draft. Do not retarget, merge, or infer that one draft is approved based solely on these references. Any later sequencing or retargeting requires explicit maintainer/Manager authorization and the applicable reviews. No merge was performed.
+
+### 6. Production DBA access recheck and outstanding dependencies
+
+Cycle 381 repeated Supabase project discovery on both available account links. The returned projects remain unrelated staging projects; neither list contains `xaipiovflxomcbfwtwmu`. Read-only metadata lookup against that Production reference again returned explicit permission denial on both links (`MCP error -32600: You do not have permission to perform this action`).
+
+No authorized read-only Production DBA session is available through these connections. No Production SQL was run. Query 8A and Query 8B remain NOT COLLECTED. The Query 8B membership graph remains UNKNOWN, not empty. The exact 18 signatures, complete direct/transitive membership graph, INHERIT/SET/effective privilege evidence, owner approvals, named DBA/security approvers, timestamps and protected evidence references all remain outstanding.
+
+### 7. Independent work that can proceed without Production identity assumptions
+
+Repository-only work may continue on PR #22 without changing migration 038 or claiming Production readiness:
+
+- Maintain and independently review PostgreSQL behavior fixtures and security-definer ownership audit test coverage.
+- Verify that the existing ownership audit rejects unexpected privileged owners/role attributes and membership paths in test fixtures, while keeping fixture identities explicitly non-Production.
+- Review documentation and test coverage for completeness, fail-closed behavior, and exact-head CI.
+- Continue non-Production code review of Daily Journey administrator isolation and provider-integrity administration.
+
+Expected-owner enforcement bound to Production identities, any Production role changes or migration execution, Production deployment, and merge/rollout remain blocked pending authoritative evidence and approvals.
+
+### 8. Cycle 382 handoff
+
+1. Keep PR #22 OPEN / DRAFT / UNMERGED and preserve its stacked relationship to PR #10 unless an authorized maintainer explicitly changes sequencing.
+2. Keep PR #10 and PR #11 OPEN / DRAFT / UNMERGED; both currently target `main`.
+3. Keep migration 038 unchanged; its blob is `38951751fc5abeb79b75c4e37e55da01262a18b8` at the Cycle 380 HEAD and earlier Cycle 376/378 checkpoints.
+4. Continue repository-only test/review work that does not require guessing Production owners.
+5. Obtain an authorized least-privilege Production DBA connection or complete signed-off Query 8A/8B evidence, then independently verify provenance, completeness and approvals before any expected-owner enforcement implementation.
+6. Maintain Production NO-GO. Do not deploy, merge, run Production SQL, or modify migration 038 as part of this handoff.
