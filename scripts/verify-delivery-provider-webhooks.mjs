@@ -726,8 +726,8 @@ for (const value of [
   "Production ownership audit is missing a required owner-evidence assertion: " + value);
 
 const webhookConcurrencyScript = read("scripts/test-delivery-provider-webhook-concurrency.sh");
-const trackedWebhookChildren = [...webhookConcurrencyScript.matchAll(/^(\\s*)([A-Za-z_][A-Za-z0-9_]*_pid)=\\$!\\n\\1track_child "\\$\\2"$/gm)];
-const webhookChildRegistrations = [...webhookConcurrencyScript.matchAll(/^\\s*track_child "\\$([A-Za-z_][A-Za-z0-9_]*_pid)"$/gm)];
+const trackedWebhookChildren = [...webhookConcurrencyScript.matchAll(/^(\s*)([A-Za-z_][A-Za-z0-9_]*_pid)=\$!\n\1track_child "\$\2"$/gm)];
+const webhookChildRegistrations = [...webhookConcurrencyScript.matchAll(/^\s*track_child "\$([A-Za-z_][A-Za-z0-9_]*_pid)"$/gm)];
 assert.equal(trackedWebhookChildren.length, webhookChildRegistrations.length,
   "Every tracked webhook child must register the actual PID immediately after launch.");
 assert(trackedWebhookChildren.length >= 30, "The complete webhook concurrency child inventory must remain tracked.");
