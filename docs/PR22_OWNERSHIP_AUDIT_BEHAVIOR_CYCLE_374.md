@@ -123,3 +123,15 @@ Only after those approvals should a separate implementation proposal define the 
 3. Keep the four lexical negative fixtures and 18-signature Query 8A/8B inventory unchanged.
 4. Obtain authoritative Production DBA Query 8A/8B evidence and explicit owner/membership approval before proposing any expected-owner enforcement.
 5. Keep PR #22 OPEN / DRAFT / UNMERGED. Production remains NO-GO; no migrations, deployments, merges, credentials or Production changes are authorized by this handoff.
+
+
+### Cycle 376 CI execution evidence
+
+- Tested commit: `bd0bc119de3367cf963536c02b62af44100d4c30`.
+- Exact-head workflow: [PR Validation run 45485733922](https://github.com/ADRN-9/deedlight/actions/runs/45485733922) — completed SUCCESS with all 9 jobs successful.
+- The dedicated `security_definer_ownership_audit_database_behavior` job executed Query 8A/8B against disposable PostgreSQL 16 and logged PASS for the exact 18 signatures, SECURITY DEFINER/owner/role attributes, explicit/default ACLs and effective EXECUTE privileges; missing function/owner/non-definer branches; recursive membership and effective SET; option mutation, revocation and restoration; and final suite completion.
+- The same run passed `validate`, provider webhook behavior and concurrency, provider migration ordering, privacy authorization, delivery reliability, consent/transport concurrency, Sprint 12.2 and auth pgcrypto behavior.
+- `validate` passed existing security assertions, ESLint, TypeScript, Next.js production build with non-Production configuration, and Cloudflare packaging with non-Production configuration.
+- A preceding attempt (run 45485532106) failed at the fixture SQL batch boundary because the generated SQL used a literal backslash-n separator. The separator was corrected to a real newline; the successful exact-head run above validates the correction. The failed attempt is not counted as a pass.
+
+The evidence document update itself will receive its own exact-head CI run; the run above is evidence for commit `bd0bc119...`, not for any later documentation-only commit.
