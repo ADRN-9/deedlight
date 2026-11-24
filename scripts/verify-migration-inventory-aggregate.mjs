@@ -11,6 +11,8 @@ import path from "node:path";
 const INVENTORY_RELATIVE = "supabase/migration-inventory.json";
 const AGGREGATE_RELATIVE = "supabase/run_in_sql_editor_all.sql";
 const SEED_RELATIVE = "supabase/seed.sql";
+const COMPATIBILITY_RELATIVE = "supabase/bootstrap/migration_038_admin_compatibility.sql";
+const EXPECTED_COMPATIBILITY_BLOB_SHA1 = "67f950183e9b2111ee6b6837813f7115ec336e2e";
 const EXPECTED_INVENTORY_BLOB_SHA1 = "95d514a0bd97ff448c9507252eb1f5e69a507442";
 const EXPECTED_DUPLICATES = {
   "202607260007": [
@@ -122,6 +124,8 @@ export function verifyMigrationInventory(rootDir, manifest, expectedInventoryBlo
     }
   }
   const seed = safeFile(rootDir, SEED_RELATIVE, "bootstrap seed");
+  const compatibility = safeFile(rootDir, COMPATIBILITY_RELATIVE, "Migration 038 compatibility artifact");
+  assert(gitBlobSha1(compatibility) === EXPECTED_COMPATIBILITY_BLOB_SHA1, "Migration 038 compatibility artifact Git blob SHA-1 differs from its pinned value");
   const seedHash = gitBlobSha1(seed);
   const seedText = seed.toString("utf8");
   const upsertCount = (seedText.match(/\binsert\s+into\b/gi) ?? []).length;
@@ -156,8 +160,10 @@ export function buildAggregate(rootDir, manifest, expectedInventoryBlobSha1 = EX
   for (const item of manifest.migrations) {
     lines.push(`-- SOURCE ${item.version} ${path.basename(item.path)} blob=${item.blobSha1} bytes=${item.byteLength}`);
   }
+  const compatibility = safeFile(rootDir, COMPATIBILITY_RELATIVE, "Migration 038 compatibility artifact");
   lines.push(
     `-- BOOTSTRAP SEED ${SEED_RELATIVE} blob=${manifest.bootstrapSeed.blobSha1} bytes=${manifest.bootstrapSeed.byteLength} upserts=3`,
+    `-- COMPATIBILITY ${COMPATIBILITY_RELATIVE} blob=${EXPECTED_COMPATIBILITY_BLOB_SHA1} bytes=${compatibility.length} placement=after-202611240037-before-202611240038`,
     "-- END SOURCE PROVENANCE",
     "-- BEGIN MIGRATION SQL",
   );
@@ -166,6 +172,11 @@ export function buildAggregate(rootDir, manifest, expectedInventoryBlobSha1 = EX
   for (let index = 0; index < manifest.migrations.length; index += 1) {
     const item = manifest.migrations[index];
     chunks.push(safeFile(rootDir, item.path, path.basename(item.path)));
+    if (item.version === "202611240037") {
+      chunks.push(Buffer.from("\\n-- BEGIN MIGRATION 038 ADMIN COMPATIBILITY\\n"));
+      chunks.push(compatibility);
+      chunks.push(Buffer.from("\\n-- END MIGRATION 038 ADMIN COMPATIBILITY\\n"));
+    }
     if (index === 1) {
       chunks.push(Buffer.from("\n-- BEGIN BOOTSTRAP SEED (three idempotent upserts)\n"));
       chunks.push(seed);
