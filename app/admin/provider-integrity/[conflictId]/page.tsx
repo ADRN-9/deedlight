@@ -8,20 +8,22 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 type IntegrityCase = {
-  conflict_id: number | string;
+  conflict_id: string;
   recipient_email: string;
   anomaly_type: string;
   state: "open" | "resolved";
   first_detected_at: string;
   last_detected_at: string;
   evidence_count: number;
+  history_count: number;
   resolved_at: string | null;
   resolved_by: string | null;
   resolution_note: string | null;
+  latest_reopened: { created_at: string; note: string; evidence_id: string } | null;
 };
 
 type IntegrityEvidence = {
-  evidence_id: number | string;
+  evidence_id: string;
   observed_at: string;
   recipient_email: string;
   event_id: string;
@@ -43,12 +45,35 @@ type IntegrityEvidence = {
 };
 
 type IntegrityHistory = {
-  history_id: number | string;
+  history_id: string;
   action: "resolved" | "reopened";
   actor_id: string | null;
   note: string;
-  evidence_id: number | string | null;
+  evidence_id: string | null;
   created_at: string;
+};
+
+type EvidencePage = {
+  total_count: number;
+  has_more: boolean;
+  next_cursor: { observed_at: string; evidence_id: string } | null;
+  items: IntegrityEvidence[];
+};
+
+type HistoryPage = {
+  total_count: number;
+  has_more: boolean;
+  next_cursor: { created_at: string; history_id: string } | null;
+  items: IntegrityHistory[];
+};
+
+type DetailSearch = {
+  updated?: string;
+  error?: string;
+  evidence_before_observed_at?: string;
+  evidence_before_evidence_id?: string;
+  history_before_created_at?: string;
+  history_before_history_id?: string;
 };
 
 const anomalyLabels: Record<string, string> = {
@@ -71,6 +96,39 @@ function formatDate(value: string | null) {
       }).format(date) + " UTC";
 }
 
+function validCursor(date?: string, id?: string) {
+  if (!date && !id) return true;
+  return Boolean(
+    date &&
+      Number.isFinite(Date.parse(date)) &&
+      id &&
+      /^[1-9]\d{0,18}$/.test(id) &&
+      !(id.length === 19 && id > "9223372036854775807"),
+  );
+}
+
+function queryHref(
+  path: string,
+  current: DetailSearch,
+  updates: Record<string, string | null>,
+) {
+  const params = new URLSearchParams();
+  const values = {
+    evidence_before_observed_at: current.evidence_before_observed_at,
+    evidence_before_evidence_id: current.evidence_before_evidence_id,
+    history_before_created_at: current.history_before_created_at,
+    history_before_history_id: current.history_before_history_id,
+    ...updates,
+  };
+
+  for (const [key, value] of Object.entries(values)) {
+    if (value) params.set(key, value);
+  }
+
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
+}
+
 function Field({ label, value }: { label: string; value: string | null }) {
   if (!value) return null;
   return (
@@ -88,7 +146,7 @@ export default async function AdminProviderIntegrityDetailPage({
   searchParams,
 }: {
   params: Promise<{ conflictId: string }>;
-  searchParams: Promise<{ updated?: string; error?: string }>;
+  searchParams: Promise<DetailSearch>;
 }) {
   const { conflictId } = await params;
   const notices = await searchParams;
@@ -98,22 +156,36 @@ export default async function AdminProviderIntegrityDetailPage({
     notFound();
   }
 
-  const { supabase } = await requireDatabaseAdmin(
-    `/admin/provider-integrity/${conflictId}`,
+  const evidenceCursorValid = validCursor(
+    notices.evidence_before_observed_at,
+    notices.evidence_before_evidence_id,
+  );
+  const historyCursorValid = validCursor(
+    notices.history_before_created_at,
+    notices.history_before_history_id,
+  );
+  if (!evidenceCursorValid || !historyCursorValid) {
+    return (
+      <section className="mx-auto max-w-5xl px-4 py-12 sm:px-6">
+        <AdminStatusMessage type="error" title="Invalid integrity history cursor">
+          The requested page cursor is malformed. No private case evidence was
+          loaded. Return to the newest records and continue from there.
+        </AdminStatusMessage>
+        <Link href={`/admin/provider-integrity/${conflictId}`} className="mt-6 inline-flex text-sm font-extrabold text-[#8D681D] underline">
+          Return to newest evidence and history
+        </Link>
+      </section>
+    );
+  }
+
+  const detailPath = `/admin/provider-integrity/${conflictId}`;
+  const { supabase } = await requireDatabaseAdmin(detailPath);
+  const { data: caseData, error: caseError } = await supabase.rpc(
+    "admin_get_delivery_provider_integrity_conflict",
+    { p_conflict_id: conflictId },
   );
 
-  const [openCaseResult, resolvedCaseResult] = await Promise.all([
-    supabase.rpc("admin_list_delivery_provider_integrity_conflicts", {
-      p_state: "open",
-      p_limit: 200,
-    }),
-    supabase.rpc("admin_list_delivery_provider_integrity_conflicts", {
-      p_state: "resolved",
-      p_limit: 200,
-    }),
-  ]);
-
-  if (openCaseResult.error || resolvedCaseResult.error) {
+  if (caseError) {
     return (
       <section className="mx-auto max-w-5xl px-4 py-12 sm:px-6">
         <AdminStatusMessage type="error" title="Integrity case unavailable">
@@ -127,28 +199,25 @@ export default async function AdminProviderIntegrityDetailPage({
     );
   }
 
-  const cases = [
-    ...(openCaseResult.data ?? []),
-    ...(resolvedCaseResult.data ?? []),
-  ] as unknown as IntegrityCase[];
-  const integrityCase = cases.find(
-    (item) => String(item.conflict_id) === conflictId,
-  );
-
+  const integrityCase = caseData as IntegrityCase | null;
   if (!integrityCase) notFound();
 
   const [evidenceResult, historyResult] = await Promise.all([
-    supabase.rpc("admin_list_delivery_provider_integrity_evidence", {
+    supabase.rpc("admin_list_delivery_provider_integrity_evidence_page", {
       p_conflict_id: conflictId,
-      p_limit: 500,
+      p_limit: 50,
+      p_before_observed_at: notices.evidence_before_observed_at ?? null,
+      p_before_evidence_id: notices.evidence_before_evidence_id ?? null,
     }),
-    supabase.rpc("admin_list_delivery_provider_integrity_history", {
+    supabase.rpc("admin_list_delivery_provider_integrity_history_page", {
       p_conflict_id: conflictId,
-      p_limit: 500,
+      p_limit: 50,
+      p_before_created_at: notices.history_before_created_at ?? null,
+      p_before_history_id: notices.history_before_history_id ?? null,
     }),
   ]);
 
-  if (evidenceResult.error || historyResult.error) {
+  if (evidenceResult.error || historyResult.error || !evidenceResult.data || !historyResult.data) {
     return (
       <section className="mx-auto max-w-5xl px-4 py-12 sm:px-6">
         <AdminStatusMessage type="error" title="Integrity evidence unavailable">
@@ -156,17 +225,38 @@ export default async function AdminProviderIntegrityDetailPage({
           Nothing has been changed. Refresh or ask another database
           administrator to check the authorization and migration state.
         </AdminStatusMessage>
-        <Link href="/admin/provider-integrity" className="mt-6 inline-flex text-sm font-extrabold text-[#8D681D] underline">
-          Back to provider integrity
+        <Link href={detailPath} className="mt-6 inline-flex text-sm font-extrabold text-[#8D681D] underline">
+          Return to newest evidence and history
         </Link>
       </section>
     );
   }
 
-  const evidence = (evidenceResult.data ?? []) as unknown as IntegrityEvidence[];
-  const history = (historyResult.data ?? []) as unknown as IntegrityHistory[];
-  const reopened = integrityCase.state === "open" &&
-    history.some((item) => item.action === "reopened");
+  const evidencePage = evidenceResult.data as EvidencePage;
+  const historyPage = historyResult.data as HistoryPage;
+  const evidence = evidencePage.items ?? [];
+  const history = historyPage.items ?? [];
+  const reopened = integrityCase.state === "open" && integrityCase.latest_reopened !== null;
+  const evidenceNextHref = evidencePage.next_cursor
+    ? queryHref(detailPath, notices, {
+        evidence_before_observed_at: evidencePage.next_cursor.observed_at,
+        evidence_before_evidence_id: evidencePage.next_cursor.evidence_id,
+      })
+    : null;
+  const historyNextHref = historyPage.next_cursor
+    ? queryHref(detailPath, notices, {
+        history_before_created_at: historyPage.next_cursor.created_at,
+        history_before_history_id: historyPage.next_cursor.history_id,
+      })
+    : null;
+  const newestEvidenceHref = queryHref(detailPath, notices, {
+    evidence_before_observed_at: null,
+    evidence_before_evidence_id: null,
+  });
+  const newestHistoryHref = queryHref(detailPath, notices, {
+    history_before_created_at: null,
+    history_before_history_id: null,
+  });
 
   return (
     <section className="mx-auto max-w-6xl px-4 py-12 sm:px-6">
@@ -222,12 +312,16 @@ export default async function AdminProviderIntegrityDetailPage({
         </div>
       ) : null}
 
-      {reopened ? (
+      {reopened && integrityCase.latest_reopened ? (
         <div className="mb-6">
           <AdminStatusMessage type="warning" title="Reopened after new provider evidence">
-            This case was previously resolved. New distinct conflict evidence
-            arrived afterward, so the case is open again. The earlier
-            resolution and its audit entry remain preserved below.
+            New distinct conflict evidence reopened this case on{" "}
+            {formatDate(integrityCase.latest_reopened.created_at)}. The latest
+            reopening note and evidence reference remain visible here even
+            when older history pages are being inspected.
+            <p className="mt-2 whitespace-pre-wrap text-sm leading-6">
+              {integrityCase.latest_reopened.note}
+            </p>
           </AdminStatusMessage>
         </div>
       ) : null}
@@ -238,7 +332,10 @@ export default async function AdminProviderIntegrityDetailPage({
             {integrityCase.state === "open" ? "Open · review required" : "Resolved"}
           </span>
           <span className="rounded-full bg-[#FFF8EA] px-3 py-1 text-xs font-extrabold uppercase tracking-[0.14em] text-[#8D681D]">
-            {integrityCase.evidence_count} total evidence record{integrityCase.evidence_count === 1 ? "" : "s"}
+            {integrityCase.evidence_count} total evidence records
+          </span>
+          <span className="rounded-full bg-[#FFF8EA] px-3 py-1 text-xs font-extrabold uppercase tracking-[0.14em] text-[#8D681D]">
+            {integrityCase.history_count} total audit actions
           </span>
         </div>
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -298,44 +395,36 @@ export default async function AdminProviderIntegrityDetailPage({
         </div>
       )}
 
-      {integrityCase.evidence_count > evidence.length ? (
-        <div className="mt-6">
-          <AdminStatusMessage type="warning" title="Evidence display limit reached">
-            Showing the newest {evidence.length} of {integrityCase.evidence_count}
-            evidence records. The underlying append-only evidence remains intact.
-          </AdminStatusMessage>
-        </div>
-      ) : null}
-      {history.length === 500 ? (
-        <div className="mt-6">
-          <AdminStatusMessage type="warning" title="History display limit reached">
-            This view is limited to 500 recorded audit actions. The underlying
-            append-only history remains intact; do not treat this view as a
-            complete history when the limit is reached.
-          </AdminStatusMessage>
-        </div>
-      ) : null}
-
       <section className="mt-8">
-        <div className="mb-4">
-          <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#8D681D]">
-            Immutable provider evidence
-          </p>
-          <h2 className="mt-2 font-[var(--font-heading)] text-3xl font-semibold">
-            Evidence records
-          </h2>
-          <p className="mt-2 text-sm leading-7 text-[#7C715F]">
-            Normalized event fields and fingerprints only. Original webhook
-            request bodies and provider diagnostics are not exposed here.
-          </p>
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#8D681D]">
+              Immutable provider evidence
+            </p>
+            <h2 className="mt-2 font-[var(--font-heading)] text-3xl font-semibold">
+              Evidence records
+            </h2>
+            <p className="mt-2 text-sm leading-7 text-[#7C715F]">
+              Showing {evidence.length} of {evidencePage.total_count} records · newest first
+            </p>
+          </div>
+          {notices.evidence_before_observed_at ? (
+            <Link href={newestEvidenceHref} className="focus-ring text-sm font-extrabold text-[#8D681D] underline">
+              Newest evidence
+            </Link>
+          ) : null}
         </div>
+        <p className="mb-4 text-sm leading-7 text-[#7C715F]">
+          Normalized event fields and fingerprints only. Original webhook
+          request bodies and provider diagnostics are not exposed here.
+        </p>
         {evidence.length ? (
           <div className="grid gap-4">
             {evidence.map((item) => (
-              <article key={String(item.evidence_id)} className="deed-card p-5 sm:p-6">
+              <article key={item.evidence_id} className="deed-card p-5 sm:p-6">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <p className="font-extrabold text-[#26231F]">
-                    {item.event_type} · evidence #{String(item.evidence_id)}
+                    {item.event_type} · evidence #{item.evidence_id}
                   </p>
                   <span className="text-xs font-bold text-[#7C715F]">
                     {formatDate(item.observed_at)}
@@ -363,24 +452,41 @@ export default async function AdminProviderIntegrityDetailPage({
           </div>
         ) : (
           <div className="deed-card p-6 text-sm text-[#7C715F]">
-            No evidence rows were returned for this case.
+            No evidence rows were returned for this page.
           </div>
         )}
+        {evidenceNextHref ? (
+          <div className="mt-5 flex justify-end">
+            <Link href={evidenceNextHref} className="focus-ring rounded-full border border-[rgba(217,164,65,0.35)] bg-white px-6 py-3 text-sm font-extrabold text-[#26231F]">
+              Load older evidence
+            </Link>
+          </div>
+        ) : null}
       </section>
 
       <section className="mt-8">
-        <div className="mb-4">
-          <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#8D681D]">
-            Append-only audit
-          </p>
-          <h2 className="mt-2 font-[var(--font-heading)] text-3xl font-semibold">
-            Resolution and reopening history
-          </h2>
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#8D681D]">
+              Append-only audit
+            </p>
+            <h2 className="mt-2 font-[var(--font-heading)] text-3xl font-semibold">
+              Resolution and reopening history
+            </h2>
+            <p className="mt-2 text-sm leading-7 text-[#7C715F]">
+              Showing {history.length} of {historyPage.total_count} actions · newest first
+            </p>
+          </div>
+          {notices.history_before_created_at ? (
+            <Link href={newestHistoryHref} className="focus-ring text-sm font-extrabold text-[#8D681D] underline">
+              Newest history
+            </Link>
+          ) : null}
         </div>
         {history.length ? (
           <ol className="space-y-3">
             {history.map((item) => (
-              <li key={String(item.history_id)} className="deed-card p-5">
+              <li key={item.history_id} className="deed-card p-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <p className="font-extrabold text-[#26231F]">
                     {item.action === "reopened"
@@ -396,7 +502,7 @@ export default async function AdminProviderIntegrityDetailPage({
                 </p>
                 {item.evidence_id ? (
                   <p className="mt-2 text-xs font-bold text-[#7C715F]">
-                    Evidence #{String(item.evidence_id)}
+                    Evidence #{item.evidence_id}
                   </p>
                 ) : null}
               </li>
@@ -407,6 +513,13 @@ export default async function AdminProviderIntegrityDetailPage({
             No resolution or reopening actions have been recorded.
           </div>
         )}
+        {historyNextHref ? (
+          <div className="mt-5 flex justify-end">
+            <Link href={historyNextHref} className="focus-ring rounded-full border border-[rgba(217,164,65,0.35)] bg-white px-6 py-3 text-sm font-extrabold text-[#26231F]">
+              Load older history
+            </Link>
+          </div>
+        ) : null}
       </section>
     </section>
   );

@@ -82,6 +82,9 @@ jobs:
           scripts/test-delivery-webhook.mjs
           scripts/verify-delivery-reliability.mjs
           scripts/verify-delivery-provider-webhooks.mjs
+          app/admin/provider-integrity/page.tsx
+          app/admin/provider-integrity/actions.ts
+          'app/admin/provider-integrity/[conflictId]/page.tsx'
 
       - name: Auth pgcrypto schema-qualification assertions
         run: node scripts/verify-auth-pgcrypto-schema-qualification.mjs
