@@ -100,7 +100,15 @@ function canonicalPath(path, owner) {
     effective: path.effective,
   });
 }
-function approvalsFor(approvals, scope, subject, ownerRole, q8aHash, q8bHash, projectRef) {
+function canonicalize(value) {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === "object") return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])]));
+  return value;
+}
+function valueDigest(value) {
+  return createHash("sha256").update(JSON.stringify(canonicalize(value))).digest("hex");
+}
+function approvalsFor(approvals, scope, subject, ownerRole, approvedValueSha256, q8aHash, q8bHash, projectRef) {
   const matching = approvals.filter((item) => item.scope === scope && item.subject === subject
     && item.ownerRole === ownerRole);
   if (matching.length !== 2) fail(scope + " requires exactly two approvals for " + subject);
@@ -108,7 +116,8 @@ function approvalsFor(approvals, scope, subject, ownerRole, q8aHash, q8bHash, pr
   const seenPeople = new Set();
   for (const item of matching) {
     object(item, "approval record");
-    if (item.projectRef !== projectRef || item.query8aSha256 !== q8aHash || item.query8bSha256 !== q8bHash) {
+    if (item.projectRef !== projectRef || item.query8aSha256 !== q8aHash || item.query8bSha256 !== q8bHash
+        || item.approvedValueSha256 !== approvedValueSha256) {
       fail(scope + " approval is not bound to the exact Production project and evidence hashes");
     }
     if (!APPROVER_ROLES.includes(item.approverRole) || seenRoles.has(item.approverRole)) {
@@ -157,7 +166,8 @@ export function validateProductionOwnerManifest(manifest, approvalsDocument, exp
     if (item.securityDefiner !== true) fail("function must be explicitly SECURITY DEFINER: " + signature);
     const owner = nonEmpty(item.expectedOwnerRole, "expectedOwnerRole");
     functionOwners.set(signature, owner);
-    approvalsFor(approvalsDocument.approvals, "function_owner", signature, owner, q8aHash, q8bHash, projectRef);
+    approvalsFor(approvalsDocument.approvals, "function_owner", signature, owner,
+      valueDigest({ identitySignature: signature, expectedOwnerRole: owner, securityDefiner: true }), q8aHash, q8bHash, projectRef);
   }
   for (const signature of EXPECTED_SIGNATURES) {
     if (!functionOwners.has(signature)) fail("missing exact function signature: " + signature);
@@ -175,12 +185,19 @@ export function validateProductionOwnerManifest(manifest, approvalsDocument, exp
     object(owner.membershipGraph, "membership graph for " + role);
     if (owner.membershipGraph.complete !== true) fail("membership graph must explicitly attest complete=true for " + role);
     if (!Array.isArray(owner.membershipGraph.paths)) fail("membership graph paths must be an explicit array for " + role);
-    const paths = owner.membershipGraph.paths.map((path) => canonicalPath(path, role));
+    const paths = owner.membershipGraph.paths.map((path) => {
+      const canonical = canonicalPath(path, role);
+      const parsed = JSON.parse(canonical);
+      if (new Set(parsed.roles).size !== parsed.roles.length) fail("membership path contains a cycle for " + role);
+      return canonical;
+    });
     if (new Set(paths).size !== paths.length) fail("duplicate membership path for " + role);
     observedPathCount += paths.length;
     owners.set(role, owner);
-    approvalsFor(approvalsDocument.approvals, "owner_attributes", role, role, q8aHash, q8bHash, projectRef);
-    approvalsFor(approvalsDocument.approvals, "membership_graph", role, role, q8aHash, q8bHash, projectRef);
+    approvalsFor(approvalsDocument.approvals, "owner_attributes", role, role,
+      valueDigest(owner.attributes), q8aHash, q8bHash, projectRef);
+    approvalsFor(approvalsDocument.approvals, "membership_graph", role, role,
+      valueDigest({ complete: true, paths: [...paths].sort() }), q8aHash, q8bHash, projectRef);
   }
   if (distinctOwners.length !== owners.size || distinctOwners.some((role) => !owners.has(role))) {
     fail("owner records must exactly equal the distinct owners in the 18 function mappings");
