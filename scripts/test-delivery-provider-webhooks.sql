@@ -48,7 +48,8 @@ security definer
 set search_path = public
 as $is_admin_fixture$
   select exists (
-    select 1 from public.profiles
+    select 1
+    from public.profiles
     where user_id = auth.uid()
       and role = 'admin'
       and is_suspended = false

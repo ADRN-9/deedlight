@@ -576,6 +576,7 @@ assertProviderLockOrder("compat_038", 20261126);
 assertProviderLockOrder("legacy_038", 20261126);
 assertProviderLockOrder("suppression_037", 20261127);
 for (const value of [
+  "85e6838cf8feec05bcfe9e9051e5192bc8f0d42f7a53cb6c0450067d70bba74b",
   "4b8c7b9c0ea7af1cea5e3d34ed3d1a21cbd5c17958a4d89f8c857cfa38f7581b",
   "9be2593c7187516b0ca4a413f9443b02fd8f4ea9b02f539f1b5b504eb53eb694",
   "abca9b6c4ccd2e51dc7b0523d18b4e6931a082baa3b260fe308b78e0e7563536",

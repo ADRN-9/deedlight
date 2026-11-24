@@ -9547,6 +9547,7 @@ begin
 
   for v_expected in
     select * from (values
+      ('public.is_admin()', '85e6838cf8feec05bcfe9e9051e5192bc8f0d42f7a53cb6c0450067d70bba74b', 'search_path=public', 'public'),
       ('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)', '4b8c7b9c0ea7af1cea5e3d34ed3d1a21cbd5c17958a4d89f8c857cfa38f7581b', 'search_path=public, auth, pg_temp', 'service_role'),
       ('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text)', '9be2593c7187516b0ca4a413f9443b02fd8f4ea9b02f539f1b5b504eb53eb694', 'search_path=public, auth, pg_temp', 'service_role'),
       ('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text)', 'abca9b6c4ccd2e51dc7b0523d18b4e6931a082baa3b260fe308b78e0e7563536', 'search_path=public, auth, pg_temp', 'service_role'),
@@ -9597,6 +9598,12 @@ begin
         or has_function_privilege('service_role', v_oid, 'EXECUTE')
         or not has_function_privilege('authenticated', v_oid, 'EXECUTE') then
         raise exception 'Migration 038 rejected administrator RPC grants for %.', v_expected.signature;
+      end if;
+    elsif v_expected.access_role = 'public' then
+      if not has_function_privilege('anon', v_oid, 'EXECUTE')
+        or not has_function_privilege('authenticated', v_oid, 'EXECUTE')
+        or not has_function_privilege('service_role', v_oid, 'EXECUTE') then
+        raise exception 'Migration 038 rejected is_admin() public execution contract drift.';
       end if;
     elsif v_expected.access_role = 'private' then
       if has_function_privilege('anon', v_oid, 'EXECUTE')
