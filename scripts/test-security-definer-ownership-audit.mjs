@@ -87,7 +87,7 @@ psql([
 const ownerFor = (index) => index === 1 ? ownerEmpty
   : index === signatures.length - 1 ? ownerB : ownerA;
 for (const [index, signature] of signatures.entries()) {
-  psql('CREATE FUNCTION ' + signature + ' RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$ BEGIN RETURN; END; $$;');
+  psql('CREATE FUNCTION ' + signature + ' RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog AS $ BEGIN RETURN; END; $;');
   psql('ALTER FUNCTION ' + signature + ' OWNER TO ' + ownerFor(index) + ';');
 }
 psql('REVOKE ALL ON FUNCTION ' + signatures[1] + ' FROM PUBLIC;');
@@ -108,6 +108,15 @@ for (const r of inventory) {
     'owner_can_create_databases', 'owner_can_login', 'owner_can_replicate', 'owner_bypasses_rls']) {
     assert.notEqual(r[field], null, 'Missing owner attribute: ' + field);
   }
+  assert.deepEqual(r.function_settings_search_path, ['search_path=pg_catalog'],
+    'Every synthetic SECURITY DEFINER function must have an explicit restricted search_path');
+  assert.equal(r.owner_is_superuser, false);
+  assert.equal(r.owner_role_inherits_memberships, ownerFor(index) !== ownerB);
+  assert.equal(r.owner_can_create_roles, false);
+  assert.equal(r.owner_can_create_databases, false);
+  assert.equal(r.owner_can_login, false);
+  assert.equal(r.owner_can_replicate, false);
+  assert.equal(r.owner_bypasses_rls, false);
 }
 const bySignature = new Map(inventory.map((r) => [r.expected_identity_signature, r]));
 assert.equal(bySignature.get(signatures[0]).explicit_function_acl, null, 'Default ACL should leave proacl NULL');
