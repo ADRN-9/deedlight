@@ -645,9 +645,9 @@ assert(concurrencyTests.includes("Concurrent suppression first-insert event-ID c
 for (const value of [
   "command_timeout_seconds=25",
   "wait_timeout_seconds=32",
-  "reap_deadline=$((SECONDS + 5))",
+  "reap_deadline=$((SECONDS + reap_timeout_seconds))",
   "suite_timeout_seconds=840",
-  "timeout --signal=TERM --kill-after=5s",
+  "timeout --verbose --signal=TERM --kill-after=5s",
   "wait_bounded()",
   "track_child()",
   "trap cleanup EXIT",
