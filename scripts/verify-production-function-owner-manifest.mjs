@@ -111,6 +111,19 @@ function canonicalize(value) {
 function valueDigest(value) {
   return createHash("sha256").update(JSON.stringify(canonicalize(value))).digest("hex");
 }
+export function productionOwnerPolicyValueDigest(scope, subject, ownerRole, manifest) {
+  if (scope === "function_owner") {
+    return valueDigest({ identitySignature: subject, expectedOwnerRole: ownerRole, securityDefiner: true });
+  }
+  const owner = manifest.owners?.find((item) => item.role === ownerRole);
+  if (!owner) fail("cannot calculate approved policy digest for an unknown owner");
+  if (scope === "owner_attributes") return valueDigest(owner.attributes);
+  if (scope === "membership_graph") {
+    const paths = owner.membershipGraph.paths.map((path) => canonicalPath(path, ownerRole));
+    return valueDigest({ complete: true, paths: [...paths].sort() });
+  }
+  fail("unsupported approval scope for policy digest");
+}
 function approvalsFor(approvals, scope, subject, ownerRole, approvedValueSha256, q8aHash, q8bHash, projectRef) {
   const matching = approvals.filter((item) => item.scope === scope && item.subject === subject
     && item.ownerRole === ownerRole);
@@ -180,7 +193,7 @@ export function validateProductionOwnerManifest(manifest, approvalsDocument, exp
     const owner = nonEmpty(item.expectedOwnerRole, "expectedOwnerRole");
     functionOwners.set(signature, owner);
     approvalsFor(approvalsDocument.approvals, "function_owner", signature, owner,
-      valueDigest({ identitySignature: signature, expectedOwnerRole: owner, securityDefiner: true }), q8aHash, q8bHash, projectRef);
+      productionOwnerPolicyValueDigest("function_owner", signature, owner, manifest), q8aHash, q8bHash, projectRef);
   }
   for (const signature of EXPECTED_SIGNATURES) {
     if (!functionOwners.has(signature)) fail("missing exact function signature: " + signature);
@@ -211,9 +224,9 @@ export function validateProductionOwnerManifest(manifest, approvalsDocument, exp
     observedPathCount += paths.length;
     owners.set(role, owner);
     approvalsFor(approvalsDocument.approvals, "owner_attributes", role, role,
-      valueDigest(owner.attributes), q8aHash, q8bHash, projectRef);
+      productionOwnerPolicyValueDigest("owner_attributes", role, role, manifest), q8aHash, q8bHash, projectRef);
     approvalsFor(approvalsDocument.approvals, "membership_graph", role, role,
-      valueDigest({ complete: true, paths: [...paths].sort() }), q8aHash, q8bHash, projectRef);
+      productionOwnerPolicyValueDigest("membership_graph", role, role, manifest), q8aHash, q8bHash, projectRef);
   }
   if (manifest.evidence.query8b.distinctOwnerCount !== distinctOwners.length) fail("Query 8B distinctOwnerCount does not match the function-owner inventory");
   if (distinctOwners.length !== owners.size || distinctOwners.some((role) => !owners.has(role))) {
