@@ -119,9 +119,11 @@ function approvalsFor(approvals, scope, subject, ownerRole, approvedValueSha256,
   const seenPeople = new Set();
   for (const item of matching) {
     object(item, "approval record");
-    if (item.projectRef !== projectRef || item.query8aSha256 !== q8aHash || item.query8bSha256 !== q8bHash
-        || item.approvedValueSha256 !== approvedValueSha256) {
+    if (item.projectRef !== projectRef || item.query8aSha256 !== q8aHash || item.query8bSha256 !== q8bHash) {
       fail(scope + " approval is not bound to the exact Production project and evidence hashes");
+    }
+    if (item.approvedValueSha256 !== approvedValueSha256) {
+      fail(scope + " approval digest does not match the exact approved policy value");
     }
     if (!APPROVER_ROLES.includes(item.approverRole) || seenRoles.has(item.approverRole)) {
       fail(scope + " requires one distinct DBA and one distinct security approver");
