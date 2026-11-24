@@ -690,9 +690,9 @@ assert.equal(expectedSecurityDefinerOwnershipSignatures.length, 18,
 function extractOwnershipSqlBlock(markdown, heading) {
   const headingIndex = markdown.indexOf(heading);
   assert(headingIndex >= 0, "Missing ownership audit section: " + heading);
-  const nextHeadingIndex = markdown.indexOf("\\n### ", headingIndex + heading.length);
+  const nextHeadingIndex = markdown.indexOf("\n### ", headingIndex + heading.length);
   const section = markdown.slice(headingIndex, nextHeadingIndex < 0 ? undefined : nextHeadingIndex);
-  const blocks = [...section.matchAll(/```sql\\s*\\n([\\s\\S]*?)\\n```/gi)];
+  const blocks = [...section.matchAll(/```sql\s*\n([\s\S]*?)\n```/gi)];
   assert.equal(blocks.length, 1, "Ownership audit section must contain exactly one fenced SQL block: " + heading);
   return blocks[0][1].trim();
 }
@@ -754,9 +754,9 @@ function validateOwnershipQuery8B(query) {
     "granted_role.rolsuper",
     "granted_role.rolbypassrls",
   ]) assert(query.includes(value), "Query 8B is missing required recursive/effective-privilege structure: " + value);
-  assert.equal((query.match(/JOIN pg_catalog\\.pg_auth_members AS membership/g) ?? []).length, 2,
+  assert.equal((query.match(/JOIN pg_catalog\.pg_auth_members AS membership/g) ?? []).length, 2,
     "Query 8B must traverse both direct and recursive membership edges.");
-  assert.equal((query.match(/pg_catalog\\.pg_has_role\\(/g) ?? []).length, 3,
+  assert.equal((query.match(/pg_catalog\.pg_has_role\(/g) ?? []).length, 3,
     "Query 8B must independently report MEMBER, USAGE and SET effective privileges.");
 }
 
@@ -777,7 +777,7 @@ assert.throws(
     "procedure.proowner AS owner_role_oid,",
     "NULL::oid AS owner_role_oid,",
   )),
-  /Query 8A is missing required ownership\\/ACL structure: procedure\\.proowner AS owner_role_oid/,
+  (error) => error.message.includes("procedure.proowner AS owner_role_oid"),
   "Removing the function-owner catalog identity must fail verification.",
 );
 assert.throws(
@@ -785,7 +785,7 @@ assert.throws(
     "procedure.proacl::text AS explicit_function_acl,",
     "NULL::text AS explicit_function_acl,",
   )),
-  /Query 8A is missing required ownership\\/ACL structure: procedure\\.proacl::text AS explicit_function_acl/,
+  (error) => error.message.includes("procedure.proacl::text AS explicit_function_acl"),
   "Removing the explicit function ACL evidence must fail verification.",
 );
 assert.throws(
@@ -793,15 +793,15 @@ assert.throws(
     "WITH RECURSIVE expected(signature) AS",
     "WITH expected(signature) AS",
   )),
-  /Query 8B is missing required recursive\\/effective-privilege structure: WITH RECURSIVE/,
+  (error) => error.message.includes("WITH RECURSIVE"),
   "Removing recursive membership traversal must fail verification.",
 );
 assert.throws(
   () => validateOwnershipQuery8B(ownershipQuery8B.replace(
-    "pg_catalog.pg_has_role(\\n    membership_walk.owner_oid, membership_walk.granted_role_oid, 'SET'\\n  ) AS owner_can_set_role,",
+    "pg_catalog.pg_has_role(\n    membership_walk.owner_oid, membership_walk.granted_role_oid, 'SET'\n  ) AS owner_can_set_role,",
     "false AS owner_can_set_role,",
   )),
-  /Query 8B is missing required recursive\\/effective-privilege structure: 'SET'/,
+  (error) => error.message.includes("'SET'"),
   "Removing the effective SET ROLE privilege check must fail verification.",
 );
 
