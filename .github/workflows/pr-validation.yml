@@ -498,6 +498,9 @@ jobs:
       - name: Validate fail-closed Production owner manifest mechanics with fixture-only identities
         run: node --test scripts/test-production-function-owner-manifest.mjs
 
+      - name: Verify signed Production owner approvals and evidence with ephemeral fixture keys
+        run: node --test scripts/test-production-owner-approval-bundle.mjs
+
       - name: Install PostgreSQL client
         run: |
           sudo apt-get update
