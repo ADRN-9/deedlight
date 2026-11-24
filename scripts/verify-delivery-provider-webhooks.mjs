@@ -719,6 +719,7 @@ function validateOwnershipQuery8A(query) {
     "procedure.proconfig",
     "procedure.proacl::text AS explicit_function_acl",
     "pg_catalog.acldefault('f', procedure.proowner)",
+    "COALESCE(\n      procedure.proacl,\n      pg_catalog.acldefault('f', procedure.proowner)\n    )::text AS effective_defaulted_function_acl",
     "owner_role.rolsuper",
     "owner_role.rolinherit",
     "owner_role.rolcreaterole",
