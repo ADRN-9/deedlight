@@ -102,12 +102,18 @@ export default async function AdminProviderIntegrityDetailPage({
     `/admin/provider-integrity/${conflictId}`,
   );
 
-  const { data: caseRows, error: caseError } = await supabase.rpc(
-    "admin_list_delivery_provider_integrity_conflicts",
-    { p_state: "all", p_limit: 200 },
-  );
+  const [openCaseResult, resolvedCaseResult] = await Promise.all([
+    supabase.rpc("admin_list_delivery_provider_integrity_conflicts", {
+      p_state: "open",
+      p_limit: 200,
+    }),
+    supabase.rpc("admin_list_delivery_provider_integrity_conflicts", {
+      p_state: "resolved",
+      p_limit: 200,
+    }),
+  ]);
 
-  if (caseError) {
+  if (openCaseResult.error || resolvedCaseResult.error) {
     return (
       <section className="mx-auto max-w-5xl px-4 py-12 sm:px-6">
         <AdminStatusMessage type="error" title="Integrity case unavailable">
@@ -121,7 +127,10 @@ export default async function AdminProviderIntegrityDetailPage({
     );
   }
 
-  const cases = (caseRows ?? []) as unknown as IntegrityCase[];
+  const cases = [
+    ...(openCaseResult.data ?? []),
+    ...(resolvedCaseResult.data ?? []),
+  ] as unknown as IntegrityCase[];
   const integrityCase = cases.find(
     (item) => String(item.conflict_id) === conflictId,
   );
@@ -229,7 +238,7 @@ export default async function AdminProviderIntegrityDetailPage({
             {integrityCase.state === "open" ? "Open · review required" : "Resolved"}
           </span>
           <span className="rounded-full bg-[#FFF8EA] px-3 py-1 text-xs font-extrabold uppercase tracking-[0.14em] text-[#8D681D]">
-            {evidence.length} evidence record{evidence.length === 1 ? "" : "s"}
+            {integrityCase.evidence_count} total evidence record{integrityCase.evidence_count === 1 ? "" : "s"}
           </span>
         </div>
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -288,6 +297,24 @@ export default async function AdminProviderIntegrityDetailPage({
           </AdminStatusMessage>
         </div>
       )}
+
+      {integrityCase.evidence_count > evidence.length ? (
+        <div className="mt-6">
+          <AdminStatusMessage type="warning" title="Evidence display limit reached">
+            Showing the newest {evidence.length} of {integrityCase.evidence_count}
+            evidence records. The underlying append-only evidence remains intact.
+          </AdminStatusMessage>
+        </div>
+      ) : null}
+      {history.length === 500 ? (
+        <div className="mt-6">
+          <AdminStatusMessage type="warning" title="History display limit reached">
+            This view is limited to 500 recorded audit actions. The underlying
+            append-only history remains intact; do not treat this view as a
+            complete history when the limit is reached.
+          </AdminStatusMessage>
+        </div>
+      ) : null}
 
       <section className="mt-8">
         <div className="mb-4">
