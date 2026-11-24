@@ -513,15 +513,11 @@ reset role;
 SQL
 suppression_cross_first_pid=$!
 wait_for_marker "$suppression_cross_first_pid" "$tmp/suppression-cross-first.log" "SUPPRESSION_CROSS_ID_LOCK_HELD"
-"${psql_cmd[@]}" >"$tmp/suppression-cross-second.log" 2>&1 <<'SQL' &
-set role service_role;
-select public.record_delivery_provider_suppression_event(
+psql_service_scalar "select public.record_delivery_provider_suppression_event(
   'evt_concurrent_suppression_cross_second','suppression.removed','sup_concurrent_cross',
   'concurrent-suppression-second@example.test','manual',null,
   '2026-11-22T19:00:00Z','2026-11-22T19:02:00Z',repeat('e',64)
-);
-reset role;
-SQL
+)" >"$tmp/suppression-cross-second.log" 2>&1 &
 suppression_cross_second_pid=$!
 cross_id_waiting="0"
 for _ in {1..100}; do
