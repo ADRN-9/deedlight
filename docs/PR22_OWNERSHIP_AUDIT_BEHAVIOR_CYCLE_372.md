@@ -48,8 +48,8 @@ A dedicated `security_definer_ownership_audit_database_behavior` job uses `postg
 
 The exact-head push workflow completed successfully:
 
-- **Workflow run:** [45478035937](https://github.com/ADRN-9/deedlight/actions/runs/45478035937)
-- **Validated HEAD:** `84cc6864a84c7f10e02ff88c10563c2e3a52c3fb`
+- **Workflow run:** [45478435965](https://github.com/ADRN-9/deedlight/actions/runs/45478035937)
+- **Validated HEAD:** `83184756ff3fd7826790959ce94e634cfdf4be8c`
 - **Conclusion:** SUCCESS — all nine jobs passed.
 - **Ownership audit job:** `security_definer_ownership_audit_database_behavior` — PASS on PostgreSQL 16.16.
 - Its logs explicitly report Query 8A identity/owner/ACL assertions, missing-function/missing-owner/non-definer branches, Query 8B membership/INHERIT/SET/effective-privilege assertions, and final disposable PostgreSQL PASS.
