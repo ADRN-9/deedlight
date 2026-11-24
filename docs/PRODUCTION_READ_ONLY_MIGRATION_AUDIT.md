@@ -1227,3 +1227,15 @@ No public keys, identities, Production approvals, owner mappings, or trust root 
 ### Cycle 384 CI correction note
 
 The first cryptographic-suite CI attempt reached the existing structural validator and exposed missing legacy evidence metadata (`ref` and `collectedAt`) in the new disposable fixtures. The fixtures were corrected to satisfy the existing evidence contract; no production validator requirement was weakened. A later code review also removed a CLI-supplied clock override so Production expiry checks always use the current system time, added trusted read-only execution-principal allowlisting and nonce replay rejection, and retained the API clock injection solely for deterministic test cases. The exact final SHA and workflow result must be recorded after the final documentation commit.
+
+
+### Cycle 384 final code and CI evidence
+
+- Cryptographic verifier implementation/test baseline: `6a17d571c4e61f19ce6f80dc6e192c97afae5d64`.
+- Exact-head [PR Validation run 45498933812](https://github.com/ADRN-9/deedlight/actions/runs/45498933812): completed SUCCESS, all 9/9 jobs.
+- `security_definer_ownership_audit_database_behavior`: PASS. Existing structural owner-manifest suite: 10 tests, 10 pass, 0 fail. New cryptographic approval/evidence suite: 25 tests, 25 pass, 0 fail. Existing actual Query 8A/Query 8B disposable PostgreSQL 16 behavior test step: PASS.
+- All other workflow jobs passed: `validate`, `delivery_provider_webhook_database_behavior`, `delivery_reliability_database_behavior`, `privacy_authorization_database_behavior`, `auth_pgcrypto_database_behavior`, `gentle_delivery_transport_database_behavior`, `delivery_migration_order_database_behavior`, and `sprint12_2_database_behavior`.
+
+The CI history included three corrected fixture/integration findings, all retained in the work history: (1) the first run lacked legacy structural evidence `ref`/`collectedAt`; (2) the next run lacked explicit `ownersReconciled`; (3) the transitive-path fixture exposed non-canonical nested JSON property ordering in the old policy-value digest. The validator now canonicalizes nested path attributes before digesting; the privileged-intermediate-role fixtures sign the deliberately unsafe path and verify that the policy validator rejects each privileged attribute. The final exact-head run above passes both suites and the preserved PostgreSQL behavior test. No existing check was weakened.
+
+The final Cycle 384 PR/documentation head will be separately rechecked for ancestry and exact-head CI after this evidence note is committed. No Production trust root or Production approval was introduced by the tests; all fixture keys are ephemeral.
