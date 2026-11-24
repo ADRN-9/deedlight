@@ -408,3 +408,12 @@ test("rejects an execution principal absent from the trusted read-only registry"
     assert.throws(()=>run(f),/trusted read-only execution principal registry is missing/);
   } finally { cleanup(f); }
 });
+
+
+test("rejects Query 8B evidence-byte substitution",()=>{
+  const f=fixture();
+  try {
+    writeCanonical(f.root,"evidence/query-8b.json",[{function_owner:"substituted_owner"}]);
+    assert.throws(()=>run(f),/trusted artifact hash/);
+  } finally { cleanup(f); }
+});
