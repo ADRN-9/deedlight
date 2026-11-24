@@ -261,6 +261,7 @@ function verifyApprovals(approvalsDocument, trust, manifest, manifestDigest, q8a
   }
   if (keys.size === 0) fail("no active supported trusted approval keys are available");
   const seenApprovalIds = new Set();
+  const seenNonces = new Set();
   const mapped = [];
   for (const envelope of approvalsDocument.approvals) {
     object(envelope, "signed approval envelope");
@@ -268,6 +269,9 @@ function verifyApprovals(approvalsDocument, trust, manifest, manifestDigest, q8a
     const approvalId = requiredString(payload.approvalId, "approvalId");
     if (seenApprovalIds.has(approvalId)) fail("approval replay/duplicate approvalId detected");
     seenApprovalIds.add(approvalId);
+    const nonce = requiredString(payload.nonce, "approval nonce");
+    if (!/^[a-f0-9]{32,128}$/.test(nonce) || seenNonces.has(nonce)) fail("approval nonce is invalid or replayed");
+    seenNonces.add(nonce);
     if (trust.revokedApprovalIds.includes(approvalId)) fail("approval has been revoked");
     if (trust.consumedApprovalIds.includes(approvalId)) fail("approval replay detected: approvalId has already been consumed");
     const keyId = requiredString(payload.keyId, "approval keyId");
@@ -321,7 +325,7 @@ export function verifyProductionOwnerApprovalBundle({
       || !Array.isArray(trust.collectors) || !Array.isArray(trust.executionPrincipals)
       || !Array.isArray(trust.revokedKeyIds)
       || !Array.isArray(trust.revokedApprovalIds) || !Array.isArray(trust.consumedApprovalIds)
-      || !trust.artifacts || typeof trust.artifacts !== "object") {
+      || !trust.artifacts || typeof trust.artifacts !== "object" || Array.isArray(trust.artifacts)) {
     fail("trusted identity registry is incomplete");
   }
   const manifestFile = safeArtifact(rootDir, manifestPath, "manifest");
@@ -366,15 +370,14 @@ if (process.argv[1] && import.meta.url === new URL("file://" + process.argv[1]).
   const manifestPath = value("--manifest");
   const approvalsPath = value("--approvals");
   const trustPath = value("--trust-root");
-  const asOf = value("--as-of") ?? new Date().toISOString();
   if (!rootDir || !manifestPath || !approvalsPath || !trustPath
-      || args.some((item, index) => item.startsWith("--") && !["--artifact-root","--manifest","--approvals","--trust-root","--as-of"].includes(item))
-      || args.length < 8 || args.length > 10) {
-    console.error("Usage: node scripts/verify-production-owner-approval-bundle.mjs --artifact-root <protected-directory> --manifest <relative-manifest.json> --approvals <relative-approvals.json> --trust-root <relative-trust-root.json> [--as-of <ISO-8601>]");
+      || args.some((item) => item.startsWith("--") && !["--artifact-root","--manifest","--approvals","--trust-root"].includes(item))
+      || args.length !== 8) {
+    console.error("Usage: node scripts/verify-production-owner-approval-bundle.mjs --artifact-root <protected-directory> --manifest <relative-manifest.json> --approvals <relative-approvals.json> --trust-root <relative-trust-root.json> ");
     process.exitCode = 2;
   } else {
     try {
-      const result = verifyProductionOwnerApprovalBundle({ rootDir, manifestPath, approvalsPath, trustPath, asOf });
+      const result = verifyProductionOwnerApprovalBundle({ rootDir, manifestPath, approvalsPath, trustPath });
       console.log("Cryptographic Production owner approval and evidence verification PASS:", JSON.stringify(result));
     } catch (error) {
       console.error(error instanceof Error ? error.message : "Production approval bundle verification failed");
