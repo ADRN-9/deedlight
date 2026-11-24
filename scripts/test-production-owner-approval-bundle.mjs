@@ -81,7 +81,7 @@ function fixture({ withPath = false, intermediateAttribute = null, policyVersion
     executedAt:"2026-11-24T00:00:01.000Z", collectedAt:"2026-11-24T00:00:01.000Z", ref:"fixture://query-8b/evidence", serverVersionNum:160004, rowCount:query8bRows.length,
     queryPath:"sql/query-8b.sql", querySha256:files["sql/query-8b.sql"],
     artifactPath:"evidence/query-8b.json", sha256:files["evidence/query-8b.json"],
-    queriedOwnerRoles:["fixture_owner_only"], distinctOwnerCount:1,
+    queriedOwnerRoles:["fixture_owner_only"], distinctOwnerCount:1, ownersReconciled:true,
     zeroRowsAttestation:query8bRows.length === 0 ? {
       successful:true,rowCount:0,allOwnersQueried:true,executionId:"fixture-execution-8b",
       querySha256:files["sql/query-8b.sql"],resultSha256:files["evidence/query-8b.json"],
