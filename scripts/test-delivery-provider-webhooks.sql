@@ -1380,14 +1380,26 @@ begin
 end;
 $c353_reopen_assertions$;
 
--- Authenticated non-admins cannot list or resolve private provider conflicts.
+-- Authenticated non-admins cannot inspect or resolve private provider conflicts.
+select set_config(
+  'test.provider_integrity_case_id',
+  (
+    select conflict_id::text
+    from public.delivery_provider_integrity_cases
+    where recipient_email = 'integrity-reopen@example.test'
+      and anomaly_type = 'duplicate_event_id_conflict'
+  ),
+  false
+);
 begin;
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000020005', true);
-do $c353_non_admin$
+do $c354_non_admin$
 declare
-  v_denied boolean := false;
+  v_case_id bigint := current_setting('test.provider_integrity_case_id')::bigint;
+  v_denied boolean;
 begin
+  v_denied := false;
   begin
     perform * from public.admin_list_delivery_provider_integrity_conflicts('all', 100);
   exception when sqlstate '42501' then
@@ -1396,8 +1408,41 @@ begin
   if not v_denied then
     raise exception 'Non-admin authenticated member accessed provider-integrity cases.';
   end if;
+
+  v_denied := false;
+  begin
+    perform * from public.admin_list_delivery_provider_integrity_evidence(v_case_id, 100);
+  exception when sqlstate '42501' then
+    v_denied := true;
+  end;
+  if not v_denied then
+    raise exception 'Non-admin authenticated member accessed provider-integrity evidence.';
+  end if;
+
+  v_denied := false;
+  begin
+    perform * from public.admin_list_delivery_provider_integrity_history(v_case_id, 100);
+  exception when sqlstate '42501' then
+    v_denied := true;
+  end;
+  if not v_denied then
+    raise exception 'Non-admin authenticated member accessed provider-integrity resolution history.';
+  end if;
+
+  v_denied := false;
+  begin
+    perform public.admin_resolve_delivery_provider_integrity_conflict(
+      v_case_id,
+      'Attempted unauthorized provider-integrity resolution.'
+    );
+  exception when sqlstate '42501' then
+    v_denied := true;
+  end;
+  if not v_denied then
+    raise exception 'Non-admin authenticated member resolved a provider-integrity case.';
+  end if;
 end;
-$c353_non_admin$;
+$c354_non_admin$;
 commit;
 reset role;
 
@@ -1424,6 +1469,12 @@ begin
   if has_function_privilege('anon', 'public.admin_list_delivery_provider_integrity_conflicts(text,integer)', 'EXECUTE')
     or has_function_privilege('service_role', 'public.admin_list_delivery_provider_integrity_conflicts(text,integer)', 'EXECUTE')
     or not has_function_privilege('authenticated', 'public.admin_list_delivery_provider_integrity_conflicts(text,integer)', 'EXECUTE')
+    or has_function_privilege('anon', 'public.admin_list_delivery_provider_integrity_evidence(bigint,integer)', 'EXECUTE')
+    or has_function_privilege('service_role', 'public.admin_list_delivery_provider_integrity_evidence(bigint,integer)', 'EXECUTE')
+    or not has_function_privilege('authenticated', 'public.admin_list_delivery_provider_integrity_evidence(bigint,integer)', 'EXECUTE')
+    or has_function_privilege('anon', 'public.admin_list_delivery_provider_integrity_history(bigint,integer)', 'EXECUTE')
+    or has_function_privilege('service_role', 'public.admin_list_delivery_provider_integrity_history(bigint,integer)', 'EXECUTE')
+    or not has_function_privilege('authenticated', 'public.admin_list_delivery_provider_integrity_history(bigint,integer)', 'EXECUTE')
     or has_function_privilege('anon', 'public.admin_resolve_delivery_provider_integrity_conflict(bigint,text)', 'EXECUTE')
     or has_function_privilege('service_role', 'public.admin_resolve_delivery_provider_integrity_conflict(bigint,text)', 'EXECUTE')
     or not has_function_privilege('authenticated', 'public.admin_resolve_delivery_provider_integrity_conflict(bigint,text)', 'EXECUTE') then

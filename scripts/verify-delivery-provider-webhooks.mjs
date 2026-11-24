@@ -11,6 +11,11 @@ const suppressionSyncMigration = read("supabase/migrations/202611220032_resend_s
 const crossStreamMigration = read("supabase/migrations/202611220033_delivery_cross_stream_suppression_order.sql");
 const suppressionTimestampMigration = read("supabase/migrations/202611230034_delivery_suppression_timestamp_order.sql");
 const integrityEvidenceMigration = read("supabase/migrations/202611240037_delivery_provider_integrity_conflict_evidence.sql");
+const providerIntegrityListPage = read("app/admin/provider-integrity/page.tsx");
+const providerIntegrityDetailPage = read("app/admin/provider-integrity/[conflictId]/page.tsx");
+const providerIntegrityActions = read("app/admin/provider-integrity/actions.ts");
+const adminLayout = read("app/admin/layout.tsx");
+const adminHome = read("app/admin/page.tsx");
 const providerDocs = read("docs/DELIVERY_PROVIDER_WEBHOOKS.md");
 const leaseMigration = read("supabase/migrations/202611210028_delivery_claim_lock_expiry.sql");
 const idempotencyMigration = read("supabase/migrations/202611210030_delivery_idempotency_receipt_guard.sql");
@@ -493,4 +498,31 @@ assert(suppressionTests.includes("'cross_stream_older_removal_after_newer_lifecy
 assert(concurrencyTests.includes("Concurrent older removal-first timestamp ordering: PASS"));
 assert(concurrencyTests.includes("Concurrent newer lifecycle-first timestamp ordering: PASS"));
 assert(databaseTests.includes("Cross-stream stale manual removal bypassed final transport authorization."));
-console.log("Resend webhook authenticity, bounded signatures, cross-stream suppression ordering, migration-028 attestation and privacy assertions: PASS");
+
+assert(providerIntegrityListPage.includes('requireDatabaseAdmin("/admin/provider-integrity")'));
+assert(providerIntegrityListPage.includes('"admin_list_delivery_provider_integrity_conflicts"'));
+assert(providerIntegrityListPage.includes('{ p_state: "open", p_limit: 200 }'));
+assert(providerIntegrityListPage.includes("Private administrator workspace"));
+assert(!/service_role|SUPABASE_SERVICE_ROLE_KEY|delivery_provider_integrity_conflict_evidence/.test(providerIntegrityListPage),
+  "Provider-integrity discovery must use the guarded RPC, not privileged credentials or direct evidence tables.");
+assert(providerIntegrityDetailPage.includes("requireDatabaseAdmin"));
+assert(providerIntegrityDetailPage.includes('"admin_list_delivery_provider_integrity_conflicts"'));
+assert(providerIntegrityDetailPage.includes('"admin_list_delivery_provider_integrity_evidence"'));
+assert(providerIntegrityDetailPage.includes('"admin_list_delivery_provider_integrity_history"'));
+assert(providerIntegrityDetailPage.includes("Reopened after new provider evidence"));
+assert(providerIntegrityDetailPage.includes("Raw webhook"));
+assert(!/service_role|SUPABASE_SERVICE_ROLE_KEY|\.from\(["']delivery_provider_integrity_/.test(providerIntegrityDetailPage),
+  "Provider-integrity detail must use the guarded admin RPCs only.");
+assert(providerIntegrityActions.includes("requireDatabaseAdmin"));
+assert(providerIntegrityActions.includes('"admin_resolve_delivery_provider_integrity_conflict"'));
+assert(providerIntegrityActions.includes("note.length < 12 || note.length > 2000"));
+assert(providerIntegrityActions.includes("data !== true"));
+assert(adminLayout.includes('href: "/admin/provider-integrity", label: "Provider Integrity", databaseAdminOnly: true'));
+assert(adminHome.includes('href="/admin/provider-integrity"'));
+assert(/perform \* from public\.admin_list_delivery_provider_integrity_evidence\(v_case_id, 100\)[\s\S]*?sqlstate '42501'/i.test(databaseTests),
+  "Authenticated non-admins must be denied evidence RPC access.");
+assert(/perform \* from public\.admin_list_delivery_provider_integrity_history\(v_case_id, 100\)[\s\S]*?sqlstate '42501'/i.test(databaseTests),
+  "Authenticated non-admins must be denied history RPC access.");
+assert(/admin_resolve_delivery_provider_integrity_conflict\(v_case_id,[\s\S]*?sqlstate '42501'/i.test(databaseTests),
+  "Authenticated non-admins must be denied provider-integrity resolution.");
+console.log("Resend webhook authenticity, provider-integrity administration, bounded signatures, suppression ordering and privacy assertions: PASS");

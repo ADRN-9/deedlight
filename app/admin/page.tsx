@@ -190,15 +190,24 @@ export default async function AdminHomePage({
           tone="stone"
         />
         {isDatabaseAdmin ? (
-          <AdminCard
-            href="/admin/members"
-            eyebrow="Community safety"
-            title="Members"
-            description="Review member contribution context and apply auditable suspension or restore actions."
-            metric={totalMembers}
-            metricLabel={`${suspendedMembers ?? 0} suspended`}
-            tone="stone"
-          />
+          <>
+            <AdminCard
+              href="/admin/members"
+              eyebrow="Community safety"
+              title="Members"
+              description="Review member contribution context and apply auditable suspension or restore actions."
+              metric={totalMembers}
+              metricLabel={`${suspendedMembers ?? 0} suspended`}
+              tone="stone"
+            />
+            <AdminCard
+              href="/admin/provider-integrity"
+              eyebrow="Delivery safety"
+              title="Provider Integrity"
+              description="Inspect private provider conflict evidence, resolution history, and reopened delivery-integrity cases."
+              tone="stone"
+            />
+          </>
         ) : null}
         <AdminCard
           href="/videos"
