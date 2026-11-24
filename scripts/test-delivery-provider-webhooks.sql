@@ -1522,6 +1522,23 @@ end;
 $c356_pagination_seed$;
 
 -- Administrators can retrieve cases directly and traverse every page without skips or duplicates.
+select set_config('test.c356_case_id', (
+  select conflict_id::text from public.delivery_provider_integrity_cases
+  where recipient_email='integrity-reopen@example.test'
+    and anomaly_type='duplicate_event_id_conflict'
+), false);
+select set_config('test.c356_open_count', (
+  select count(*)::text from public.delivery_provider_integrity_cases where state='open'
+), false);
+select set_config('test.c356_evidence_count', (
+  select count(*)::text from public.delivery_provider_integrity_conflict_evidence
+  where conflict_id=current_setting('test.c356_case_id')::bigint
+), false);
+select set_config('test.c356_history_count', (
+  select count(*)::text from public.delivery_provider_integrity_conflict_history
+  where conflict_id=current_setting('test.c356_case_id')::bigint
+), false);
+
 begin;
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000020008', true);
@@ -1546,20 +1563,16 @@ declare
   v_case_count bigint;
   v_iteration integer;
 begin
-  select conflict_id into v_case_id
-  from public.delivery_provider_integrity_cases
-  where recipient_email='integrity-reopen@example.test'
-    and anomaly_type='duplicate_event_id_conflict';
+  v_case_id := current_setting('test.c356_case_id')::bigint;
+  v_case_count := current_setting('test.c356_open_count')::bigint;
+  v_evidence_count := current_setting('test.c356_evidence_count')::bigint;
+  v_history_count := current_setting('test.c356_history_count')::bigint;
 
   v_detail := public.admin_get_delivery_provider_integrity_conflict(v_case_id);
   if v_detail is null
     or v_detail->>'conflict_id' <> v_case_id::text
-    or (v_detail->>'evidence_count')::bigint <> (
-      select count(*) from public.delivery_provider_integrity_conflict_evidence where conflict_id=v_case_id
-    )
-    or (v_detail->>'history_count')::bigint <> (
-      select count(*) from public.delivery_provider_integrity_conflict_history where conflict_id=v_case_id
-    )
+    or (v_detail->>'evidence_count')::bigint <> v_evidence_count
+    or (v_detail->>'history_count')::bigint <> v_history_count
     or v_detail->'latest_reopened'->>'note' <> 'Cycle 356 pagination fixture latest reopening.' then
     raise exception 'Direct administrator case retrieval did not return accurate counts and latest reopening.';
   end if;
@@ -1573,7 +1586,6 @@ begin
     v_page := public.admin_list_delivery_provider_integrity_conflicts_page('open', 2, v_cursor_at, v_cursor_id);
     if v_total is null then
       v_total := (v_page->>'total_count')::bigint;
-      select count(*) into v_case_count from public.delivery_provider_integrity_cases where state='open';
       if v_total <> v_case_count then raise exception 'Case page total_count is not exact.'; end if;
     elsif (v_page->>'total_count')::bigint <> v_total then
       raise exception 'Case page total_count changed during stable traversal.';
@@ -1602,9 +1614,6 @@ begin
   end loop;
   if v_seen <> v_total then raise exception 'Case keyset traversal did not cover the exact total count.'; end if;
 
-  select count(*) into v_evidence_count
-  from public.delivery_provider_integrity_conflict_evidence
-  where conflict_id=v_case_id;
   v_total := null;
   v_seen := 0;
   v_seen_ids := array[]::text[];
@@ -1630,9 +1639,6 @@ begin
   end loop;
   if v_seen <> v_evidence_count then raise exception 'Evidence keyset traversal omitted audit rows.'; end if;
 
-  select count(*) into v_history_count
-  from public.delivery_provider_integrity_conflict_history
-  where conflict_id=v_case_id;
   v_total := null;
   v_seen := 0;
   v_seen_ids := array[]::text[];
