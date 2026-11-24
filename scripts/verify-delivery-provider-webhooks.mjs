@@ -652,6 +652,9 @@ for (const value of [
   "trap cleanup EXIT",
   "C362_EXPECTED_LOCK_TIMEOUT_SQLSTATE=55P03",
   "Bounded advisory-lock conflict SQLSTATE 55P03 and unchanged database state: PASS",
+  "command -v setsid",
+  "Timeout supervisor terminates a TERM-resistant child: PASS",
+  "Bounded wait terminates and reaps a TERM-resistant child: PASS",
 ]) assert(concurrencyTests.includes(value), "Missing bounded concurrency safety assertion: " + value);
 const concurrencyScenarioBody = concurrencyTests.slice(concurrencyTests.indexOf("# An exact duplicate"));
 assert(!/^[ \\t]*wait "[A-Za-z_][A-Za-z0-9_]*"$/m.test(concurrencyScenarioBody),
