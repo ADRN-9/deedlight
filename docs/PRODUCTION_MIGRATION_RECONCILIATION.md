@@ -1,3 +1,70 @@
+# Cycle 390 — Sprint 6 / Migration 038 administrator fingerprint compatibility
+
+**Verified starting HEAD:** `f95ccb9b7bb37eb625dace69e41d2655fb85025d`  
+**PR #22:** OPEN / DRAFT / UNMERGED  
+**PR #22 base:** PR #10 branch `security/delivery-transport-consent-gates` at `6a3660bbe2fd6beb2ddada43d5e77ff5ac9f3793`  
+**Stack verification:** 223 commits ahead, 0 behind; merge base exactly equals PR #10 head.  
+**Production:** NO-GO. No Production SQL, migration history, deploy, merge, or retarget operation was performed.
+
+## Finding: exact source mismatch
+
+The two historical Sprint 6/7 files sharing prefix `202607260007` are distinct and unchanged. Sprint 6 migration 007 explicitly replaces `public.is_admin()` with this SQL body:
+
+```sql
+select exists (
+  select 1
+  from public.profiles
+  where user_id = auth.uid()
+    and role = 'admin'
+    and coalesce(is_suspended, false) = false
+);
+```
+
+The initial schema migration 001 declares `profiles.is_suspended boolean not null default false`. Sprint 6's `coalesce(is_suspended, false) = false` therefore has the same truth table as the earlier migration 002 source `is_suspended = false` for every valid row under the schema's enforced NOT NULL constraint. It is not source-identical, however.
+
+Migration 038 intentionally fingerprints `pg_proc.prosrc`, not a normalized SQL AST or full `pg_get_functiondef`. Its approved `public.is_admin()` SHA-256 is `85e6838cf8feec05bcfe9e9051e5192bc8f0d42f7a53cb6c0450067d70bba74b`, which matches the migration 002 body. The Sprint 6 COALESCE body hashes to `4fb49052b2e525d8b355123d430df7e536a4da5207fd6ef3d21f3b2d770e98e0`. Consequently, after migrations 001–037 the Migration 038 preflight rejects the exact historical Sprint 6 helper as an unreviewed source. This is a deliberate exact-source mismatch, not an authorization failure or a difference in behavior while the NOT NULL invariant holds.
+
+Migration 038 also requires `SECURITY DEFINER`, exactly `search_path=public`, and the existing public execution grant contract for `is_admin()`. Its checks are not weakened or changed by this work.
+
+## Approved aggregate-only compatibility bridge
+
+An explicit, separately pinned bootstrap artifact now sits after immutable migration 037 and immediately before immutable migration 038:
+
+`supabase/bootstrap/migration_038_admin_compatibility.sql`
+
+It is not a historical migration and is not added to the 39-file migration inventory. The aggregate generator pins its Git blob SHA-1 and includes it with provenance. Its preflight:
+- requires `public.profiles`, `public.is_admin()`, and pgcrypto;
+- requires the live `profiles.is_suspended` column to be catalog-verified NOT NULL and rejects any NULL row;
+- requires the exact known Sprint 6 COALESCE `prosrc` hash, `SECURITY DEFINER`, and `search_path=public`;
+- requires existing execute grants for anon, authenticated and service_role;
+- fails closed on any unknown source, context, privilege, or schema state.
+
+Only after all checks pass does it replace the helper body with the exact previously reviewed migration-002 source, preserving the same administrator predicate (`role = 'admin'` and `is_suspended = false`). It then verifies the exact Migration 038 source hash, definer/search_path and grants again. The NOT NULL precondition is essential: if the column were nullable, replacing COALESCE with direct equality would change NULL semantics and the bridge must not run.
+
+This is deliberately not a rewrite of either 007 file, nor of migrations 036–038. The artifact is a deterministic aggregate bootstrap compatibility step. The generator inserts it only after version 037 and before version 038 and rejects artifact-byte drift. The source migrations remain immutable and independently pinned.
+
+## PostgreSQL 16 regression coverage
+
+The disposable PostgreSQL harness now executes the complete aggregate through Migration 038, then verifies:
+- Migration 038 pagination functions and the 037 provider-integrity objects exist;
+- all three bootstrap seed upserts have executed in their intended position;
+- `profiles.is_suspended` remains NOT NULL;
+- `public.is_admin()` has the exact 038 fingerprint and expected execute grants;
+- an unsuspended admin is authorized, a suspended admin is denied, a normal member is denied, and an anonymous/no-subject request is denied;
+- dropping NOT NULL causes the compatibility artifact to fail closed;
+- an unexpected replacement `is_admin()` body causes the compatibility artifact to fail closed;
+- restoring the exact Sprint 6 body allows the bridge to run reproducibly.
+
+The inventory fixture suite additionally verifies that the compatibility artifact is included exactly once between synthetic 037 and 038 bodies and rejects any changed artifact blob. No SQL is parsed by splitting on semicolons.
+
+## Decision and limitations
+
+The incompatibility is safely resolvable for the aggregate's known schema path because migration 001 establishes `is_suspended NOT NULL`, Sprint 6 changes only the expression's NULL handling, and the bridge proves that invariant plus the exact known source and authorization context before replacing the function. The bridge does not silently accept an unknown function definition or nullable suspension state.
+
+This does **not** establish that Production has the same schema, source body, column constraint, ACLs, or migration history. The aggregate's disposable PostgreSQL result is repository-level execution evidence only. Production remains NO-GO until separately authorized, read-only Production evidence establishes the schema and migration-history state and the outstanding delivery rollout gates are completed.
+
+---
+
 # Cycle 389 — Current repository inventory and SQL aggregate integrity
 
 **Current source snapshot before Cycle 389 changes:** `afb63b53650222d901b0b32835678d138ac0761e`  
