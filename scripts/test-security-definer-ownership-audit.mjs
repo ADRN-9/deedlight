@@ -95,7 +95,9 @@ psql('REVOKE ALL ON FUNCTION ' + signatures[1] + ' FROM PUBLIC;');
 const inventory = rows(q8a);
 assert.equal(inventory.length, 18);
 assert.deepEqual(inventory.map((r) => r.expected_identity_signature).sort(), [...signatures].sort());
-for (const [index, r] of inventory.entries()) {
+for (const r of inventory) {
+  const index = signatures.indexOf(r.expected_identity_signature);
+  assert.notEqual(index, -1, 'Unexpected function identity returned');
   assert.equal(r.inventory_status, 'PRESENT');
   assert.equal(r.security_definer, true);
   assert.equal(r.function_owner, ownerFor(index));
@@ -107,10 +109,11 @@ for (const [index, r] of inventory.entries()) {
     assert.notEqual(r[field], null, 'Missing owner attribute: ' + field);
   }
 }
-assert.equal(inventory[0].explicit_function_acl, null, 'Default ACL should leave proacl NULL');
-assert.match(inventory[0].effective_defaulted_function_acl, /=X\//, 'Default ACL must include PUBLIC EXECUTE');
-assert.notEqual(inventory[1].explicit_function_acl, null, 'REVOKE must materialize an explicit ACL');
-assert.doesNotMatch(inventory[1].effective_defaulted_function_acl, /,=X\//, 'Explicit ACL must preserve revoked PUBLIC EXECUTE');
+const bySignature = new Map(inventory.map((r) => [r.expected_identity_signature, r]));
+assert.equal(bySignature.get(signatures[0]).explicit_function_acl, null, 'Default ACL should leave proacl NULL');
+assert.match(bySignature.get(signatures[0]).effective_defaulted_function_acl, /=X\//, 'Default ACL must include PUBLIC EXECUTE');
+assert.notEqual(bySignature.get(signatures[1]).explicit_function_acl, null, 'REVOKE must materialize an explicit ACL');
+assert.doesNotMatch(bySignature.get(signatures[1]).effective_defaulted_function_acl, /,=X\//, 'Explicit ACL must preserve revoked PUBLIC EXECUTE');
 console.log('Query 8A: exact signatures, SECURITY DEFINER, owners, role attributes, explicit/default ACLs PASS');
 
 const missingOwnerSql = q8a.replace('ON owner_role.oid = procedure.proowner', 'ON false');
