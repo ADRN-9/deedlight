@@ -724,3 +724,42 @@ for (const value of [
   "xaipiovflxomcbfwtwmu",
 ]) assert(productionOwnershipAudit.includes(value),
   "Production ownership audit is missing a required owner-evidence assertion: " + value);
+
+const webhookConcurrencyScript = read("scripts/test-delivery-provider-webhook-concurrency.sh");
+const trackedWebhookChildren = [...webhookConcurrencyScript.matchAll(/^(\\s*)([A-Za-z_][A-Za-z0-9_]*_pid)=\\$!\\n\\1track_child "\\$\\2"$/gm)];
+const webhookChildRegistrations = [...webhookConcurrencyScript.matchAll(/^\\s*track_child "\\$([A-Za-z_][A-Za-z0-9_]*_pid)"$/gm)];
+assert.equal(trackedWebhookChildren.length, webhookChildRegistrations.length,
+  "Every tracked webhook child must register the actual PID immediately after launch.");
+assert(trackedWebhookChildren.length >= 30, "The complete webhook concurrency child inventory must remain tracked.");
+assert(!webhookConcurrencyScript.includes('track_child "$1"'),
+  "Webhook concurrency cleanup must not register a literal placeholder instead of a PID.");
+assert(webhookConcurrencyScript.includes('setsid timeout --verbose --signal=TERM --kill-after=5s'),
+  "Each PostgreSQL command must run in a supervised process group with an explicit execution deadline.");
+assert(webhookConcurrencyScript.includes('PGCONNECT_TIMEOUT="$connect_timeout_seconds"'),
+  "PostgreSQL connection establishment must have an explicit timeout.");
+assert(webhookConcurrencyScript.includes('lock_timeout=${lock_timeout_seconds}s')
+  && webhookConcurrencyScript.includes('statement_timeout=${statement_timeout_seconds}s'),
+  "PostgreSQL lock acquisition and statement execution must be bounded.");
+assert(webhookConcurrencyScript.includes('cleanup_deadline=$((SECONDS + 15))')
+  && webhookConcurrencyScript.includes('Timed out removing temporary concurrency-test resources'),
+  "Cleanup must have a finite process-reap and temporary-resource deadline.");
+assert(webhookConcurrencyScript.includes('wait_for_advisory_lock()')
+  && webhookConcurrencyScript.includes('wait_for_marker()')
+  && !webhookConcurrencyScript.includes('for _ in {1..100}'),
+  "Synchronization marker and advisory-lock observation waits must be deadline-based.");
+for (const marker of [
+  "evt_cross_recipient_second",
+  "sup_concurrent_cross",
+  "evt_c323_concurrent_old_email_suppressed",
+  "evt_c323_concurrent_later_add",
+  "evt_c331_concurrent_newer_lifecycle_after_removal",
+  "evt_c331_concurrent_old_manual_add",
+  "evt_c356_simultaneous_first_insert",
+  "evt_historical_026_complaint",
+  "evt_historical_025_suppressed",
+  "evt_c356_suppression_first_insert",
+]) assert(webhookConcurrencyScript.includes(marker),
+  "A required provider lock-order or legacy-wrapper concurrency scenario was removed: " + marker);
+assert(webhookConcurrencyScript.includes("C362_EXPECTED_LOCK_TIMEOUT_SQLSTATE=55P03")
+  && webhookConcurrencyScript.includes("Bounded advisory-lock conflict SQLSTATE 55P03 and unchanged database state: PASS"),
+  "The controlled lock-timeout regression and fail-closed state assertion must remain.");
