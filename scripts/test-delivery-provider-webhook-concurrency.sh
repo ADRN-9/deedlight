@@ -30,7 +30,7 @@ untrack_child() {
 }
 
 wait_bounded() {
-  local pid="$1" label="$2" deadline state status=0
+  local pid="$1" label="$2" deadline reap_deadline state status=0
   deadline=$((SECONDS + wait_timeout_seconds))
   while (( SECONDS < deadline )); do
     state="$(ps -o stat= -p "$pid" 2>/dev/null | tr -d '[:space:]' || true)"
@@ -46,7 +46,19 @@ wait_bounded() {
   kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
   sleep 1
   kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
-  wait "$pid" 2>/dev/null || true
+
+  reap_deadline=$((SECONDS + 5))
+  while (( SECONDS < reap_deadline )); do
+    state="$(ps -o stat= -p "$pid" 2>/dev/null | tr -d '[:space:]' || true)"
+    if [[ -z "$state" || "$state" == Z* ]]; then
+      wait "$pid" 2>/dev/null || true
+      untrack_child "$pid"
+      return 124
+    fi
+    sleep 0.1
+  done
+
+  echo "Child did not become reapable after SIGKILL: $label (pid $pid)" >&2
   untrack_child "$pid"
   return 124
 }
