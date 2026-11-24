@@ -16,6 +16,7 @@ reap_timeout_seconds=5
 marker_timeout_seconds=10
 suite_timeout_seconds=840
 child_pids=()
+suite_complete=0
 
 run_psql() {
   local options="${PGOPTIONS:+${PGOPTIONS} }-c lock_timeout=${lock_timeout_seconds}s -c statement_timeout=${statement_timeout_seconds}s -c idle_in_transaction_session_timeout=${statement_timeout_seconds}s"
@@ -83,6 +84,10 @@ cleanup() {
   local status=$? pid state cleanup_deadline
   trap - EXIT
   set +e
+  if [[ "$status" == "0" && "$suite_complete" != "1" ]]; then
+    echo "Concurrency suite exited before completing all scenarios; refusing a false PASS." >&2
+    status=124
+  fi
   wait_timeout_seconds=2
   reap_timeout_seconds=2
   kill -TERM -- "-$watchdog_pid" 2>/dev/null || kill -TERM "$watchdog_pid" 2>/dev/null || true
@@ -1194,4 +1199,5 @@ fi
 wait_bounded "$c362_lock_holder_pid" "c362 lock-timeout holder"
 [[ "$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_c362_bounded_lock_timeout'")" == "0" ]]
 echo "Bounded advisory-lock conflict SQLSTATE 55P03 and unchanged database state: PASS"
-echo "Concurrency test process deadlines, bounded waits, and cleanup watchdog: ENABLED"
+suite_complete=1
+echo "Concurrency test process deadlines, bounded waits, and cleanup watchdog: PASS"
