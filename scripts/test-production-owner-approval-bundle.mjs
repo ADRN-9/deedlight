@@ -197,7 +197,7 @@ test("accepts actual Query 8B bytes and a complete transitive membership path",(
 test("rejects manifest tampering and cross-manifest approval replay",()=>{
   const f=fixture();
   try {
-    f.manifest.functions[0].expectedOwnerRole="substituted_role";
+    f.manifest.functions[0].securityDefiner=false;
     saveManifest(f);
     assert.throws(()=>run(f),/manifest digest/);
   } finally { cleanup(f); }
@@ -280,7 +280,7 @@ test("fails closed when trusted keys are absent or the approval mechanism is uns
   } finally { cleanup(f); }
   const g=fixture();
   try {
-    g.trust.keys[0].algorithm="RSA-PSS";
+    for (const key of g.trust.keys) key.algorithm="RSA-PSS";
     writeCanonical(g.root,"trust.json",g.trust);
     assert.throws(()=>run(g),/no active supported trusted approval keys/);
   } finally { cleanup(g); }
@@ -303,7 +303,7 @@ test("rejects missing evidence provenance, incomplete execution and non-read-onl
   try {
     h.manifest.evidence.query8a.transactionReadOnly=false;
     saveManifest(h);
-    assert.throws(()=>run(h),/successful, complete, untruncated/);
+    assert.throws(()=>run(h),/read-only transaction and read-only execution role/);
   } finally { cleanup(h); }
 });
 
