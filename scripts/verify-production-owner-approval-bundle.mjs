@@ -56,9 +56,10 @@ function safeArtifact(root, relativePath, label) {
   if (path.isAbsolute(relativePath) || relativePath.includes("\\") || relativePath.split("/").some((part) => !part || part === "." || part === "..")) {
     fail(label + " path must be a normalized relative path inside the artifact root");
   }
-  const rootInfo = lstatSync(root);
+  const rootPath = path.resolve(root);
+  const rootInfo = lstatSync(rootPath);
   if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) fail("artifact root must be a real directory, not a symlink");
-  const rootReal = realpathSync(root);
+  const rootReal = realpathSync(rootPath);
   const parts = relativePath.split("/");
   let current = rootReal;
   for (let index = 0; index < parts.length; index += 1) {
@@ -373,7 +374,7 @@ if (process.argv[1] && import.meta.url === new URL("file://" + process.argv[1]).
   if (!rootDir || !manifestPath || !approvalsPath || !trustPath
       || args.some((item) => item.startsWith("--") && !["--artifact-root","--manifest","--approvals","--trust-root"].includes(item))
       || args.length !== 8) {
-    console.error("Usage: node scripts/verify-production-owner-approval-bundle.mjs --artifact-root <protected-directory> --manifest <relative-manifest.json> --approvals <relative-approvals.json> --trust-root <relative-trust-root.json> ");
+    console.error("Usage: node scripts/verify-production-owner-approval-bundle.mjs --artifact-root <protected-directory> --manifest <relative-manifest.json> --approvals <relative-approvals.json> --trust-root <relative-trust-root.json>");
     process.exitCode = 2;
   } else {
     try {
