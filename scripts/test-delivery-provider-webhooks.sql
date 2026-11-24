@@ -97,6 +97,50 @@ begin
 end;
 $c356_source_fingerprint$;
 
+-- Migration 038 must reject an unexpected function body atomically.
+create table public.c356_provider_preflight_snapshot as
+select pg_get_functiondef(p.oid) as definition
+from pg_catalog.pg_proc p
+where p.oid=to_regprocedure('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)');
+
+do $c356_source_drift$
+declare
+  v_definition text;
+begin
+  select definition into v_definition from public.c356_provider_preflight_snapshot;
+  if v_definition is null or position('Lock order is a contract shared' in v_definition) = 0 then
+    raise exception 'Could not locate reviewed provider function source for deliberate drift test.';
+  end if;
+  execute replace(v_definition,
+    'Lock order is a contract shared',
+    'C356 deliberate source drift: Lock order is a contract shared');
+end;
+$c356_source_drift$;
+\set ON_ERROR_STOP off
+\ir ../supabase/migrations/202611240038_delivery_provider_integrity_lock_order_pagination.sql
+rollback;
+\set ON_ERROR_STOP on
+do $c356_source_atomicity$
+begin
+  if to_regprocedure('public.admin_get_delivery_provider_integrity_conflict(bigint)') is not null
+    or not exists (
+      select 1 from pg_catalog.pg_proc p
+      where p.oid=to_regprocedure('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)')
+        and position('C356 deliberate source drift' in p.prosrc) > 0
+    ) then
+    raise exception 'Migration 038 source drift rejection was not atomic.';
+  end if;
+end;
+$c356_source_atomicity$;
+do $c356_source_restore$
+declare
+  v_definition text;
+begin
+  select definition into v_definition from public.c356_provider_preflight_snapshot;
+  execute v_definition;
+end;
+$c356_source_restore$;
+drop table public.c356_provider_preflight_snapshot;
 grant execute on function public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text) to authenticated;
 \set ON_ERROR_STOP off
 \ir ../supabase/migrations/202611240038_delivery_provider_integrity_lock_order_pagination.sql

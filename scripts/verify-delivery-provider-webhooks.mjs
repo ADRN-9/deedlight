@@ -596,6 +596,8 @@ for (const value of [
   "53de2fc64a9fa634efe33e18b7f639a474d9f359a2c57066b9bac760aa9b16e1",
 ]) assert(integrityPaginationMigration.includes(value), "Migration 038 preflight source identity list is incomplete.");
 assert(databaseTests.includes("Cycle 356 source fingerprint fixture does not match migration 037."));
+assert(databaseTests.includes("C356 deliberate source drift"));
+assert(databaseTests.includes("Migration 038 source drift rejection was not atomic."));
 for (const value of [
   "rollback;",
   "Administrator UPDATE of provider-integrity evidence was not denied.",
