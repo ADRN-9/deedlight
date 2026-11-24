@@ -1,30 +1,36 @@
 # DeedLight Production migration-history reconciliation
 
-**Authoritative current snapshot:** C410 documentation reconciliation  
+**Authoritative source inventory snapshot:** C421 synchronization tree (the C410 reviewer and Production evidence below remains historical)  
 **Repository:** ADRN-9/deedlight  
 **PR:** #22 — OPEN / DRAFT / UNMERGED  
 **Branch:** security/private-daily-journey-admin-isolation-c408  
-**Source HEAD inspected:** 6d0e8fcc397a61bb7aaf0c1858b1147c5f81dae1  
-**Source tree:** 1d8cc21b2e3a51826b593fae3fca106cc829e3d7  
+**Source HEAD inspected for the C421 inventory refresh:** c5bf9d205934e089d310fbc6677ddc5014314689  
+**Source tree:** ed49efef679ae00b28f22e458256ae26671ada96  
 **PR base:** security/delivery-transport-consent-gates at cfe05475dbe7822f96be639fd2c777a6062aedc4  
-**Snapshot date:** 2026-11-23  
+**Snapshot date:** 2026-11-24  
 **Inventory:** 37 migration files; 36 unique filename version prefixes  
 **Disposition:** INCOMPLETE — Production read-only access unavailable; every migration and schema effect remains UNKNOWN
 
-> This C410 section is the authoritative current inventory for the source HEAD above. Historical C404/C240/C245/C247 sections retained below describe earlier snapshots and are archival only. Do not use their older inventories or blob hashes as current source evidence.
+> This C421 section is the authoritative source inventory for the synchronization tree above. Historical C404/C240/C245/C247/C410 sections retained below describe earlier evidence snapshots. Do not use their older HEAD/tree references as current branch state.
+
+## C421 synchronization addendum
+
+PR #22 was synchronized with the latest PR #10 branch using a normal two-parent merge commit. The merge commit is `c5bf9d205934e089d310fbc6677ddc5014314689` (tree `ed49efef679ae00b28f22e458256ae26671ada96`); parents are prior PR #22 HEAD `ff53e43e9cee7da4189d0d06b576934589f6bfcb` and PR #10 HEAD `6a3660bbe2fd6beb2ddada43d5e77ff5ac9f3793`. PR #10's single commit beyond the shared base adds only `docs/DELIVERY_RELIABILITY_AUDIT_CYCLE_344.md` (blob `cd02f4ed6548faf84057e1e7c7406ab597778ee2`). No conflicting paths were found; migration 036 and its blob `61a1fbf48b4557873ba6016e74fd3995bc62ba14` are unchanged.
+
+The complete recursive synchronization tree is not truncated and contains 37 numbered migration files and 36 unique version prefixes. All 37 filename/blob rows in the inventory below were compared against that tree; there are zero mismatches, missing entries or extra entries. The two distinct `202607260007` files remain unchanged. No migration 037 was created. All 37 Production classifications and every independently identifiable Production effect remain UNKNOWN. The synchronization and inventory refresh are repository-only evidence, not Production application evidence.
 
 ## Executive result
 
-The recursive Git tree at 6d0e8fcc397a61bb7aaf0c1858b1147c5f81dae1 (tree 1d8cc21b2e3a51826b593fae3fca106cc829e3d7) was complete (not truncated) and contains 37 files under supabase/migrations matching the numbered SQL migration naming pattern. The files contain 36 unique version prefixes because two distinct files share version 202607260007:
+The recursive Git tree at c5bf9d205934e089d310fbc6677ddc5014314689 (tree ed49efef679ae00b28f22e458256ae26671ada96) was complete (not truncated) and contains 37 files under supabase/migrations matching the numbered SQL migration naming pattern. The files contain 36 unique version prefixes because two distinct files share version 202607260007:
 
 - 202607260007_sprint6_daily_deedlight.sql — blob e0c2379255003b8c7bc85a1fab781e23051f5e47
 - 202607260007_sprint7_pwa_daily_engagement.sql — blob 8b051cfce05ea75b1ee7a726864e2ad760f6fe5f
 
 They are separate SQL bodies, not aliases or duplicate copies. Keep both source files unchanged. The collision means a timestamp-keyed Supabase migration history cannot unambiguously record both bodies as separate migration versions. Existing isolated PostgreSQL/Supabase CLI evidence shows order-sensitive behavior; see the retained C247 archive below.
 
-The repository source establishes what the candidate migrations intend to change. It does not establish what has run in Production. No new authorized Production history, catalog, SQL Editor audit, or deployment evidence was collected for C410. Accordingly, all 37 file-level classifications and every independently identifiable effect-level classification remain UNKNOWN. Git presence, comments claiming a Production hotfix, aggregate SQL text, successful disposable-database tests, and CI are not Production execution evidence.
+The repository source establishes what the candidate migrations intend to change. It does not establish what has run in Production. No new authorized Production history, catalog, SQL Editor audit, or deployment evidence was collected for C421. Accordingly, all 37 file-level classifications and every independently identifiable effect-level classification remain UNKNOWN. Git presence, comments claiming a Production hotfix, aggregate SQL text, successful disposable-database tests, and CI are not Production execution evidence.
 
-The inspected PR #22 source HEAD is 6d0e8fcc397a61bb7aaf0c1858b1147c5f81dae1. PR #22 is OPEN / DRAFT / UNMERGED; its base is security/delivery-transport-consent-gates at cfe05475dbe7822f96be639fd2c777a6062aedc4. Exact-head CI run 45174106399 passed 8/8 jobs on this source HEAD. The PR review endpoint returned zero submitted reviews, so independent security acceptance is not established. No migration SQL, Production database, migration history, credentials, scheduler, provider, deployment, or delivery setting was changed for C410.
+The PR #22 source integration snapshot is c5bf9d205934e089d310fbc6677ddc5014314689 (tree ed49efef679ae00b28f22e458256ae26671ada96), a normal merge commit with previous PR #22 HEAD ff53e43e9cee7da4189d0d06b576934589f6bfcb and PR #10 HEAD 6a3660bbe2fd6beb2ddada43d5e77ff5ac9f3793 as parents. PR #22 is OPEN / DRAFT / UNMERGED; its base is security/delivery-transport-consent-gates at cfe05475dbe7822f96be639fd2c777a6062aedc4. Exact-head CI run 45174106399 passed 8/8 jobs on this source HEAD. The PR review endpoint returned zero submitted reviews at the C410 snapshot; a separate post-synchronization query also returned zero, so independent security acceptance is not established. No migration SQL, Production database, migration history, credentials, scheduler, provider, deployment, or delivery setting was changed for C410.
 
 ## Production access and human-only dependency
 
@@ -36,7 +42,7 @@ Until that prerequisite is met, no Production migration may be classified as app
 
 ## Current migration inventory — one row per file
 
-The Git blob SHA is the exact blob returned by the complete recursive Git tree at source HEAD 6d0e8fcc397a61bb7aaf0c1858b1147c5f81dae1. Dependencies below are source-level prerequisites inferred from the migration SQL and established migration-order tests; they are not claims about Production execution order. All Production classifications are UNKNOWN.
+The Git blob SHA is the exact blob returned by the complete recursive Git tree at C421 synchronization HEAD c5bf9d205934e089d310fbc6677ddc5014314689 (tree ed49efef679ae00b28f22e458256ae26671ada96). Dependencies below are source-level prerequisites inferred from the migration SQL and established migration-order tests; they are not claims about Production execution order. All Production classifications are UNKNOWN.
 
 | Version | Exact migration filename | Git blob SHA | Source dependencies | Source-level changes and identifiable effects | Production |
 |---|---|---|---|---|---|
