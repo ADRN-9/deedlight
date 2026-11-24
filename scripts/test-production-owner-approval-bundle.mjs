@@ -148,6 +148,7 @@ function fixture({ withPath = false, intermediateAttribute = null, policyVersion
       {identityId:"fixture-security",active:true,roles:["security"]},
     ],
     collectors:[{identityId:"fixture-collector",active:true}],
+    executionPrincipals:[{name:"deedlight_audit_reader",active:true,readOnly:true}],
     revokedKeyIds:[],revokedApprovalIds:[],consumedApprovalIds:[],
     artifacts:{...files,"approvals.json":approvalHash},
   };
