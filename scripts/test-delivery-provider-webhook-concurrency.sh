@@ -1148,6 +1148,98 @@ fi
 [[ "$(psql_scalar "select count(*) from public.delivery_provider_integrity_conflict_evidence where event_id='evt_c356_suppression_first_insert' and stored_recipient_email='c356-suppression-first@example.test' and recipient_email='c356-suppression-second@example.test'")" == "1" ]]
 echo "Concurrent suppression first-insert event-ID conflict: PASS"
 
+# Two independent transactions hold opposite advisory locks, then request each other's lock.
+# PostgreSQL deadlock detection (200ms) must win over the 8s lock timeout.
+run_psql --command="drop table if exists public.deedlight_webhook_deadlock_regression; create table public.deedlight_webhook_deadlock_regression (transaction_name text primary key, outcome text not null)"
+  >"$tmp/deadlock-state-setup.log" 2>&1
+
+run_psql >"$tmp/deadlock-a.log" 2>&1 <<'SQL' &
+\\set VERBOSITY verbose
+begin;
+set local deadlock_timeout = '200ms';
+set local lock_timeout = '8s';
+set local statement_timeout = '15s';
+set local application_name = 'deedlight-deadlock-a';
+select pg_catalog.pg_advisory_xact_lock(20261119, 1);
+\\echo DEADLOCK_A_LOCK_HELD
+select pg_catalog.pg_sleep(2);
+select pg_catalog.pg_advisory_xact_lock(20261119, 2) /* DEEDLIGHT_DEADLOCK_A_WAIT */;
+\\echo DEADLOCK_A_CROSS_LOCK_ACQUIRED
+insert into public.deedlight_webhook_deadlock_regression values ('A', 'committed');
+commit;
+\\echo DEADLOCK_A_COMMITTED
+SQL
+deadlock_a_pid=$!
+track_child "$deadlock_a_pid"
+
+run_psql >"$tmp/deadlock-b.log" 2>&1 <<'SQL' &
+\\set VERBOSITY verbose
+begin;
+set local deadlock_timeout = '200ms';
+set local lock_timeout = '8s';
+set local statement_timeout = '15s';
+set local application_name = 'deedlight-deadlock-b';
+select pg_catalog.pg_advisory_xact_lock(20261119, 2);
+\\echo DEADLOCK_B_LOCK_HELD
+select pg_catalog.pg_sleep(6);
+select pg_catalog.pg_advisory_xact_lock(20261119, 1) /* DEEDLIGHT_DEADLOCK_B_WAIT */;
+\\echo DEADLOCK_B_CROSS_LOCK_ACQUIRED
+insert into public.deedlight_webhook_deadlock_regression values ('B', 'committed');
+commit;
+\\echo DEADLOCK_B_COMMITTED
+SQL
+deadlock_b_pid=$!
+track_child "$deadlock_b_pid"
+
+wait_for_marker "$deadlock_a_pid" "$tmp/deadlock-a.log" "DEADLOCK_A_LOCK_HELD"
+wait_for_marker "$deadlock_b_pid" "$tmp/deadlock-b.log" "DEADLOCK_B_LOCK_HELD"
+wait_for_advisory_lock "$deadlock_a_pid" "$tmp/deadlock-a.log" "DEEDLIGHT_DEADLOCK_A_WAIT" "deadlock transaction A waiting for B's advisory lock"
+
+set +e
+wait_bounded "$deadlock_a_pid" "deadlock transaction A"
+deadlock_a_status=$?
+wait_bounded "$deadlock_b_pid" "deadlock transaction B"
+deadlock_b_status=$?
+set -e
+
+if [[ "$deadlock_a_status" == "0" && "$deadlock_b_status" != "0" ]]; then
+  deadlock_victim="A"
+  deadlock_survivor="B"
+  deadlock_victim_log="$tmp/deadlock-a.log"
+  deadlock_survivor_log="$tmp/deadlock-b.log"
+elif [[ "$deadlock_b_status" == "0" && "$deadlock_a_status" != "0" ]]; then
+  deadlock_victim="B"
+  deadlock_survivor="A"
+  deadlock_victim_log="$tmp/deadlock-b.log"
+  deadlock_survivor_log="$tmp/deadlock-a.log"
+else
+  cat "$tmp/deadlock-a.log" "$tmp/deadlock-b.log" >&2
+  echo "Expected exactly one committed survivor and one PostgreSQL deadlock victim (A=$deadlock_a_status, B=$deadlock_b_status)." >&2
+  exit 1
+fi
+
+if ! grep -Eq 'ERROR:[[:space:]]+40P01: deadlock detected' "$deadlock_victim_log"
+  || [[ "$(grep -Ec '^ERROR:' "$deadlock_victim_log")" != "1" ]]
+  || grep -Fq '55P03' "$deadlock_victim_log"; then
+  cat "$deadlock_victim_log" >&2
+  echo "The failed transaction did not report exactly one PostgreSQL deadlock error (SQLSTATE 40P01)." >&2
+  exit 1
+fi
+if ! grep -Fq "DEADLOCK_${deadlock_survivor}_CROSS_LOCK_ACQUIRED" "$deadlock_survivor_log"
+  || ! grep -Fq "DEADLOCK_${deadlock_survivor}_COMMITTED" "$deadlock_survivor_log"
+  || grep -Fq 'ERROR:' "$deadlock_survivor_log"; then
+  cat "$deadlock_survivor_log" >&2
+  echo "The surviving transaction did not acquire the released lock and commit cleanly." >&2
+  exit 1
+fi
+
+deadlock_final_state="$(psql_scalar "select transaction_name || ':' || outcome from public.deedlight_webhook_deadlock_regression order by transaction_name")"
+[[ "$deadlock_final_state" == "${deadlock_survivor}:committed" ]]
+deadlock_final_count="$(psql_scalar "select count(*) from public.deedlight_webhook_deadlock_regression")"
+[[ "$deadlock_final_count" == "1" ]]
+run_psql --command="drop table public.deedlight_webhook_deadlock_regression" >"$tmp/deadlock-state-cleanup.log" 2>&1
+echo "Controlled PostgreSQL deadlock SQLSTATE 40P01, survivor commit and final database state: PASS (victim=$deadlock_victim)"
+
 # A controlled event-ID advisory-lock conflict must fail as PostgreSQL lock_not_available (55P03).
 run_psql >"$tmp/c362-lock-holder.log" 2>&1 <<'SQL' &
 begin;
