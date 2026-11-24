@@ -11,6 +11,7 @@ import path from "node:path";
 const INVENTORY_RELATIVE = "supabase/migration-inventory.json";
 const AGGREGATE_RELATIVE = "supabase/run_in_sql_editor_all.sql";
 const SEED_RELATIVE = "supabase/seed.sql";
+const EXPECTED_INVENTORY_BLOB_SHA1 = "95d514a0bd97ff448c9507252eb1f5e69a507442";
 const EXPECTED_DUPLICATES = {
   "202607260007": [
     "202607260007_sprint6_daily_deedlight.sql",
@@ -82,8 +83,10 @@ export function validateInventory(manifest) {
   return true;
 }
 
-export function verifyMigrationInventory(rootDir, manifest) {
+export function verifyMigrationInventory(rootDir, manifest, expectedInventoryBlobSha1 = EXPECTED_INVENTORY_BLOB_SHA1) {
   validateInventory(manifest);
+  const inventoryBytes = readFileSync(path.join(rootDir, INVENTORY_RELATIVE));
+  assert(gitBlobSha1(inventoryBytes) === expectedInventoryBlobSha1, "migration inventory manifest Git blob SHA-1 differs from its pinned value");
   const migrationDir = path.join(rootDir, "supabase/migrations");
   const actualEntries = readdirSync(migrationDir, { withFileTypes: true });
   const actualSql = [];
@@ -141,8 +144,8 @@ export function verifyMigrationInventory(rootDir, manifest) {
   return { migrationCount: actualSql.length, uniqueVersionCount: 38, seedUpsertCount: upsertCount };
 }
 
-export function buildAggregate(rootDir, manifest) {
-  verifyMigrationInventory(rootDir, manifest);
+export function buildAggregate(rootDir, manifest, expectedInventoryBlobSha1 = EXPECTED_INVENTORY_BLOB_SHA1) {
+  verifyMigrationInventory(rootDir, manifest, expectedInventoryBlobSha1);
   const inventoryBytes = readFileSync(path.join(rootDir, INVENTORY_RELATIVE));
   const lines = [
     "-- DeedLight SQL Editor aggregate v1",
@@ -173,8 +176,8 @@ export function buildAggregate(rootDir, manifest) {
   return Buffer.concat(chunks);
 }
 
-export function verifyAggregate(rootDir, manifest, aggregatePath = AGGREGATE_RELATIVE) {
-  const expected = buildAggregate(rootDir, manifest);
+export function verifyAggregate(rootDir, manifest, aggregatePath = AGGREGATE_RELATIVE, expectedInventoryBlobSha1 = EXPECTED_INVENTORY_BLOB_SHA1) {
+  const expected = buildAggregate(rootDir, manifest, expectedInventoryBlobSha1);
   const actual = safeFile(rootDir, aggregatePath, "committed SQL aggregate");
   if (!actual.equals(expected)) {
     let offset = 0;
