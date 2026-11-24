@@ -86,7 +86,7 @@ function trustedArtifact(trust, relativePath, bytes, label) {
   if (typeof expected !== "string") fail(label + " is absent from the trusted artifact hash index");
   if (digest(bytes) !== validHash(expected, label + " trusted hash")) fail(label + " bytes do not match the trusted artifact hash");
 }
-function validateEvidenceMetadata(evidence, queryId, root, trust, projectRef, collectorIds) {
+function validateEvidenceMetadata(evidence, queryId, root, trust, projectRef, collectorIds, executionPrincipals) {
   object(evidence, "Query " + queryId + " evidence metadata");
   if (evidence.queryId !== queryId) fail("Query " + queryId + " queryId mismatch");
   if (evidence.projectRef !== projectRef) fail("Query " + queryId + " project reference mismatch");
@@ -98,6 +98,7 @@ function validateEvidenceMetadata(evidence, queryId, root, trust, projectRef, co
   }
   const executionPrincipal = requiredString(evidence.executionPrincipal, "Query " + queryId + " executionPrincipal").toLowerCase();
   if (FORBIDDEN_EXECUTION_ROLES.has(executionPrincipal)) fail("Query " + queryId + " used a forbidden privileged execution principal");
+  if (!executionPrincipals.has(executionPrincipal)) fail("Query " + queryId + " execution principal is not in the trusted read-only principal registry");
   const collector = requiredString(evidence.collectorIdentity, "Query " + queryId + " collectorIdentity");
   if (!collectorIds.has(collector)) fail("Query " + queryId + " collector is not in the trusted collector registry");
   requiredString(evidence.executionId, "Query " + queryId + " executionId");
@@ -316,7 +317,8 @@ export function verifyProductionOwnerApprovalBundle({
     fail("unsupported or untrusted identity registry format");
   }
   if (!Array.isArray(trust.keys) || !Array.isArray(trust.identities)
-      || !Array.isArray(trust.collectors) || !Array.isArray(trust.revokedKeyIds)
+      || !Array.isArray(trust.collectors) || !Array.isArray(trust.executionPrincipals)
+      || !Array.isArray(trust.revokedKeyIds)
       || !Array.isArray(trust.revokedApprovalIds) || !Array.isArray(trust.consumedApprovalIds)
       || !trust.artifacts || typeof trust.artifacts !== "object") {
     fail("trusted identity registry is incomplete");
@@ -333,8 +335,12 @@ export function verifyProductionOwnerApprovalBundle({
   if (approvalsDocument.policyVersion !== manifest.policyVersion) fail("approval artifact policy substitution detected");
   const collectorIds = new Set(trust.collectors.filter((item) => item && item.active === true).map((item) => item.identityId));
   if (collectorIds.size === 0) fail("trusted collector registry is missing");
-  const q8a = validateEvidenceMetadata(manifest.evidence?.query8a, "8A", rootDir, trust, manifest.projectRef, collectorIds);
-  const q8b = validateEvidenceMetadata(manifest.evidence?.query8b, "8B", rootDir, trust, manifest.projectRef, collectorIds);
+  const executionPrincipals = new Set(trust.executionPrincipals.filter((item) => item && item.active === true && item.readOnly === true)
+    .map((item) => requiredString(item.name, "trusted execution principal name").toLowerCase()));
+  if (executionPrincipals.size === 0) fail("trusted read-only execution principal registry is missing");
+  const q8a = validateEvidenceMetadata(manifest.evidence?.query8a, "8A", rootDir, trust, manifest.projectRef, collectorIds, executionPrincipals);
+  const q8b = validateEvidenceMetadata(manifest.evidence?.query8b, "8B", rootDir, trust, manifest.projectRef, collectorIds, executionPrincipals);
+  if (q8a.collector !== q8b.collector || q8a.executionId === q8b.executionId) fail("Query 8A/8B provenance must use the same trusted collector and distinct execution identifiers");
   validateEvidenceRows(manifest, q8a, q8b);
   const mappedApprovals = verifyApprovals(
     approvalsDocument, trust, manifest, manifestDigest, q8a.resultHash, q8b.resultHash, now,
