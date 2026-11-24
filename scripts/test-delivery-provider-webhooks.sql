@@ -780,6 +780,22 @@ begin
   ) is not true then raise exception 'email.failed was not recorded.'; end if;
 
   if public.record_delivery_provider_lifecycle_event(
+    'evt_c353_failure_conflicting_delivered', 'email.delivered', 'resend-failed-20002',
+    'lifecycle-failed@example.test', '2027-03-01T10:12:00Z',
+    null, null, null, repeat('4', 64)
+  ) is not null then
+    raise exception 'Contradictory delivered event was not recorded as a conflict.';
+  end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_failed_quota', 'email.sent', 'resend-failed-20002',
+    'lifecycle-failed@example.test', '2027-03-01T10:11:00Z',
+    null, null, null, repeat('5', 64)
+  ) is not null then
+    raise exception 'Duplicate event conflict was not recorded.';
+  end if;
+
+  if public.record_delivery_provider_lifecycle_event(
     'evt_precedence_bounce', 'email.bounced', 'resend-precedence-20003',
     'lifecycle-precedence@example.test', '2027-03-01T10:00:00Z',
     'Permanent', null, null, repeat('f', 64)
@@ -946,10 +962,35 @@ begin
   if not exists (
     select 1 from public.delivery_provider_lifecycle
     where provider_email_id = 'resend-failed-20002'
-      and status = 'email.failed'
+      and status = 'integrity_anomaly'
+      and event_id = 'evt_failed_quota'
       and failure_class = 'quota_exceeded'
   ) then
-    raise exception 'Normalized email.failed classification was not persisted.';
+    raise exception 'Conflicting provider events erased the original failure classification or canonical event.';
+  end if;
+
+  if not exists (
+    select 1 from public.delivery_provider_integrity_cases
+    where recipient_email = 'lifecycle-failed@example.test'
+      and anomaly_type = 'contradictory_terminal_outcome'
+      and state = 'open'
+  ) or not exists (
+    select 1 from public.delivery_provider_integrity_conflict_evidence
+    where event_id = 'evt_c353_failure_conflicting_delivered'
+      and stored_event_id = 'evt_failed_quota'
+      and payload_fingerprint = repeat('4', 64)
+  ) or not exists (
+    select 1 from public.delivery_provider_integrity_cases
+    where recipient_email = 'lifecycle-failed@example.test'
+      and anomaly_type = 'duplicate_event_id_conflict'
+      and state = 'open'
+  ) or not exists (
+    select 1 from public.delivery_provider_integrity_conflict_evidence
+    where event_id = 'evt_failed_quota'
+      and stored_event_id = 'evt_failed_quota'
+      and payload_fingerprint = repeat('5', 64)
+  ) then
+    raise exception 'Conflicting provider event evidence or its recipient-scoped cases were not preserved.';
   end if;
   if (select status from public.delivery_provider_lifecycle
       where provider_email_id = 'resend-precedence-20003') <> 'integrity_anomaly'
@@ -1404,5 +1445,6 @@ select jsonb_build_object(
   'exact_conflict_replay_deduplicated','pass',
   'original_event_and_bounce_protection_preserved','pass',
   'non_admin_resolution_denied','pass',
-  'provider_integrity_private_grants','pass'
+  'provider_integrity_private_grants','pass',
+  'conflicting_projection_preserves_original_event','pass'
 ) as delivery_provider_integrity_migration_037_behavior;

@@ -501,6 +501,8 @@ declare
   v_existing public.delivery_provider_events%rowtype;
   v_related public.delivery_provider_events%rowtype;
   v_anomaly public.delivery_provider_integrity_anomalies%rowtype;
+  v_existing_lifecycle public.delivery_provider_lifecycle%rowtype;
+  v_had_lifecycle boolean := false;
   v_result boolean;
 begin
   if p_event_id is null or char_length(p_event_id) not between 1 and 255
@@ -563,6 +565,12 @@ begin
   where e.event_id = p_event_id
   for update;
 
+  select l.* into v_existing_lifecycle
+  from public.delivery_provider_lifecycle l
+  where l.provider_email_id = p_provider_email_id
+  for update;
+  v_had_lifecycle := found;
+
   -- Migration 027 used to raise and roll back on a provider-email-ID recipient
   -- collision. Persist the rejected attempt as private evidence instead, return
   -- NULL (the webhook route maps it to retryable HTTP 503), and keep the original
@@ -586,7 +594,6 @@ begin
     update public.delivery_provider_lifecycle
     set status = 'integrity_anomaly',
         status_rank = 80,
-        failure_class = null,
         updated_at = clock_timestamp()
     where provider_email_id = p_provider_email_id;
 
@@ -632,6 +639,15 @@ begin
         p_bounce_type, p_failure_class, p_suppression_reason, null, null, null,
         p_payload_fingerprint, v_existing.event_id, v_existing.recipient_email
       );
+
+      -- The prior implementation marks the projection anomalous but clears its
+      -- failure classification. Restore the canonical classification snapshot.
+      if v_had_lifecycle then
+        update public.delivery_provider_lifecycle
+        set failure_class = v_existing_lifecycle.failure_class,
+            updated_at = clock_timestamp()
+        where provider_email_id = p_provider_email_id;
+      end if;
     else
       select e.* into v_related
       from public.delivery_provider_events e
@@ -646,6 +662,21 @@ begin
         p_bounce_type, p_failure_class, p_suppression_reason, null, null, null,
         p_payload_fingerprint, v_related.event_id, v_related.recipient_email
       );
+
+      -- The prior implementation projected the conflicting terminal event over
+      -- the canonical one. Keep only the integrity status overlay and restore all
+      -- previously authoritative event/timestamp/classification fields.
+      if v_had_lifecycle then
+        update public.delivery_provider_lifecycle
+        set status = 'integrity_anomaly',
+            status_rank = 80,
+            provider_created_at = v_existing_lifecycle.provider_created_at,
+            received_at = v_existing_lifecycle.received_at,
+            event_id = v_existing_lifecycle.event_id,
+            failure_class = v_existing_lifecycle.failure_class,
+            updated_at = clock_timestamp()
+        where provider_email_id = p_provider_email_id;
+      end if;
     end if;
   end if;
 
