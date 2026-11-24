@@ -55,3 +55,7 @@ The executable suite now tests PostgreSQL's actual session role-switch behavior,
 The first Cycle 374 exact-head PostgreSQL 16 run (workflow 45482525878) exposed a real fixture syntax defect before any catalog assertions: the PL/pgSQL function body used a single-dollar delimiter instead of PostgreSQL's required paired `$$` delimiter. The job failed at the first synthetic function creation; this was not a query or Production finding.
 
 The fixture was corrected to use paired `$$` delimiters. The failed run is retained as evidence and is not represented as a pass. A fresh exact-head CI run is required to validate the correction and the subsequent assertions.
+
+## SET ROLE fixture correction
+
+The first attempted SET ROLE negative assertion ran through the PostgreSQL superuser connection. PostgreSQL superusers can bypass ordinary membership SET restrictions, so that test correctly did not fail. The test now creates a disposable LOGIN role with a non-superuser session, grants it SET access to the synthetic function owner, and tests the owner's membership to the target role from that login session. The SET-enabled path must succeed; after the owner-to-target SET option is disabled, the same path must fail with permission denied. The fixture login and memberships are removed during cleanup.
