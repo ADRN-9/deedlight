@@ -189,7 +189,7 @@ wait_for_marker() {
   local pid="$1" file="$2" marker="$3" deadline
   deadline=$((SECONDS + marker_timeout_seconds))
   while (( SECONDS < deadline )); do
-    if grep -q "$marker" "$file"; then return 0; fi
+    if [[ -f "$file" ]] && grep -q "$marker" "$file"; then return 0; fi
     if ! kill -0 "$pid" 2>/dev/null; then
       cat "$file"
       echo "Child exited before synchronization marker appeared: $marker (pid $pid)." >&2
