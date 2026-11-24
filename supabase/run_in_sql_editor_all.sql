@@ -1333,3 +1333,1480 @@ select
   'idea',
   now()
 where not exists (select 1 from public.daily_posts);
+begin;
+
+create extension if not exists pgcrypto;
+
+create table if not exists public.daily_lights (
+  id uuid primary key default gen_random_uuid(),
+  scheduled_date date not null,
+  status text not null default 'draft',
+  kicker text default 'TODAY’S DEEDLIGHT',
+  title text,
+  theme text,
+  summary text,
+  small_deed text,
+  reflection_prompt text,
+  featured_offering_id uuid references public.offerings(id) on delete set null,
+  video_title text,
+  video_hook text,
+  video_script text,
+  archived_at timestamptz,
+  created_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.daily_lights add column if not exists scheduled_date date;
+alter table public.daily_lights add column if not exists status text default 'draft';
+alter table public.daily_lights add column if not exists kicker text default 'TODAY’S DEEDLIGHT';
+alter table public.daily_lights add column if not exists title text;
+alter table public.daily_lights add column if not exists theme text;
+alter table public.daily_lights add column if not exists summary text;
+alter table public.daily_lights add column if not exists small_deed text;
+alter table public.daily_lights add column if not exists reflection_prompt text;
+alter table public.daily_lights add column if not exists featured_offering_id uuid references public.offerings(id) on delete set null;
+alter table public.daily_lights add column if not exists video_title text;
+alter table public.daily_lights add column if not exists video_hook text;
+alter table public.daily_lights add column if not exists video_script text;
+alter table public.daily_lights add column if not exists archived_at timestamptz;
+alter table public.daily_lights add column if not exists created_by uuid references auth.users(id) on delete set null;
+alter table public.daily_lights add column if not exists created_at timestamptz not null default now();
+alter table public.daily_lights add column if not exists updated_at timestamptz not null default now();
+
+alter table public.daily_lights alter column status set default 'draft';
+alter table public.daily_lights alter column kicker set default 'TODAY’S DEEDLIGHT';
+
+update public.daily_lights
+set status = coalesce(status, 'draft'),
+    kicker = coalesce(kicker, 'TODAY’S DEEDLIGHT'),
+    title = coalesce(title, 'A new light can begin today.'),
+    updated_at = now()
+where status is null or kicker is null or title is null;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'daily_lights_scheduled_date_unique'
+      and conrelid = 'public.daily_lights'::regclass
+  ) then
+    alter table public.daily_lights
+      add constraint daily_lights_scheduled_date_unique unique (scheduled_date);
+  end if;
+end $$;
+
+create table if not exists public.daily_reflections (
+  id uuid primary key default gen_random_uuid(),
+  daily_light_id uuid references public.daily_lights(id) on delete cascade,
+  user_id uuid references auth.users(id) on delete cascade,
+  reflection text,
+  intention text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.daily_reflections add column if not exists daily_light_id uuid references public.daily_lights(id) on delete cascade;
+alter table public.daily_reflections add column if not exists user_id uuid references auth.users(id) on delete cascade;
+alter table public.daily_reflections add column if not exists reflection text;
+alter table public.daily_reflections add column if not exists intention text;
+alter table public.daily_reflections add column if not exists created_at timestamptz not null default now();
+alter table public.daily_reflections add column if not exists updated_at timestamptz not null default now();
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'daily_reflections_daily_light_user_unique'
+      and conrelid = 'public.daily_reflections'::regclass
+  ) then
+    alter table public.daily_reflections
+      add constraint daily_reflections_daily_light_user_unique unique (daily_light_id, user_id);
+  end if;
+end $$;
+
+alter table public.daily_lights enable row level security;
+alter table public.daily_reflections enable row level security;
+
+drop policy if exists "daily lights public read published" on public.daily_lights;
+create policy "daily lights public read published"
+on public.daily_lights
+for select
+to anon, authenticated
+using (status = 'published' or public.is_admin());
+
+drop policy if exists "daily lights admin insert" on public.daily_lights;
+create policy "daily lights admin insert"
+on public.daily_lights
+for insert
+to authenticated
+with check (public.is_admin());
+
+drop policy if exists "daily lights admin update" on public.daily_lights;
+create policy "daily lights admin update"
+on public.daily_lights
+for update
+to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+drop policy if exists "daily lights admin delete" on public.daily_lights;
+create policy "daily lights admin delete"
+on public.daily_lights
+for delete
+to authenticated
+using (public.is_admin());
+
+drop policy if exists "daily reflections select own or admin" on public.daily_reflections;
+create policy "daily reflections select own or admin"
+on public.daily_reflections
+for select
+to authenticated
+using (user_id = auth.uid() or public.is_admin());
+
+drop policy if exists "daily reflections insert own" on public.daily_reflections;
+create policy "daily reflections insert own"
+on public.daily_reflections
+for insert
+to authenticated
+with check (user_id = auth.uid());
+
+drop policy if exists "daily reflections update own or admin" on public.daily_reflections;
+create policy "daily reflections update own or admin"
+on public.daily_reflections
+for update
+to authenticated
+using (user_id = auth.uid() or public.is_admin())
+with check (user_id = auth.uid() or public.is_admin());
+
+grant select on public.daily_lights to anon, authenticated;
+grant insert, update, delete on public.daily_lights to authenticated;
+grant select, insert, update on public.daily_reflections to authenticated;
+grant all on public.daily_lights to service_role;
+grant all on public.daily_reflections to service_role;
+
+commit;
+-- Sprint 8 — Short Video Studio
+-- Adds reusable short-video planning, publishing, and public embed fields to daily_lights.
+
+begin;
+
+alter table public.daily_lights
+  add column if not exists video_status text not null default 'not_started',
+  add column if not exists video_platform text,
+  add column if not exists video_hashtags text,
+  add column if not exists video_notes text,
+  add column if not exists video_asset_url text,
+  add column if not exists tiktok_url text,
+  add column if not exists instagram_url text,
+  add column if not exists short_video_public boolean not null default false,
+  add column if not exists video_posted_at timestamptz;
+
+update public.daily_lights
+set video_status = 'not_started'
+where video_status is null
+   or video_status not in ('not_started', 'planned', 'scripted', 'recorded', 'posted', 'archived');
+
+alter table public.daily_lights
+  alter column video_status set default 'not_started',
+  alter column video_status set not null,
+  alter column short_video_public set default false,
+  alter column short_video_public set not null;
+
+alter table public.daily_lights
+  drop constraint if exists daily_lights_video_status_check;
+
+alter table public.daily_lights
+  add constraint daily_lights_video_status_check
+  check (video_status in ('not_started', 'planned', 'scripted', 'recorded', 'posted', 'archived'));
+
+create index if not exists daily_lights_video_status_idx
+  on public.daily_lights(video_status);
+
+create index if not exists daily_lights_video_public_idx
+  on public.daily_lights(short_video_public)
+  where short_video_public = true;
+
+create index if not exists daily_lights_video_posted_at_idx
+  on public.daily_lights(video_posted_at desc);
+
+grant select on public.daily_lights to anon, authenticated;
+grant insert, update, delete on public.daily_lights to authenticated;
+grant all on public.daily_lights to service_role;
+
+commit;
+-- Sprint 9.1 — Profiles + Community Trust
+-- Migration-first privacy foundation.
+
+begin;
+
+alter table public.profiles
+  add column if not exists is_public boolean not null default false,
+  add column if not exists show_contribution_stats boolean not null default true,
+  add column if not exists default_offering_anonymous boolean not null default false;
+
+-- Existing members receive non-identifying placeholders and may choose a
+-- human-readable username later in profile settings.
+update public.profiles
+set username = 'member-' || encode(gen_random_bytes(8), 'hex')
+where username is null or btrim(username) = '';
+
+update public.profiles
+set username = lower(btrim(username))
+where username is not null;
+
+alter table public.profiles
+  drop constraint if exists profiles_username_key;
+
+drop index if exists public.profiles_username_key;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.profiles'::regclass
+      and conname = 'profiles_username_format_check'
+  ) then
+    alter table public.profiles
+      add constraint profiles_username_format_check
+      check (username ~ '^[a-z0-9][a-z0-9_-]{2,29}$');
+  end if;
+end
+$$;
+
+alter table public.profiles
+  alter column username set not null;
+
+create unique index if not exists profiles_username_lower_key
+  on public.profiles (lower(username));
+
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+begin
+  insert into public.profiles (
+    user_id,
+    username,
+    display_name
+  )
+  values (
+    new.id,
+    'member-' || encode(gen_random_bytes(8), 'hex'),
+    coalesce(
+      nullif(new.raw_user_meta_data->>'display_name', ''),
+      split_part(new.email, '@', 1),
+      'Deedlight member'
+    )
+  )
+  on conflict (user_id) do nothing;
+
+  return new;
+end;
+$$;
+
+-- Direct profile-table access is private. Public pages use profiles_public.
+drop policy if exists "profiles_public_read" on public.profiles;
+drop policy if exists "profiles_select_public" on public.profiles;
+drop policy if exists "profiles_own_read" on public.profiles;
+drop policy if exists "profiles_own_update" on public.profiles;
+drop policy if exists "profiles_update_own" on public.profiles;
+
+create policy "profiles_own_read"
+on public.profiles
+for select
+to authenticated
+using (user_id = auth.uid());
+
+create policy "profiles_own_update"
+on public.profiles
+for update
+to authenticated
+using (user_id = auth.uid())
+with check (user_id = auth.uid());
+
+revoke all privileges on table public.profiles from anon;
+revoke all privileges on table public.profiles from authenticated;
+
+grant select on table public.profiles to authenticated;
+
+grant update (
+  username,
+  display_name,
+  bio,
+  country,
+  is_public,
+  show_contribution_stats,
+  default_offering_anonymous
+) on table public.profiles to authenticated;
+
+drop view if exists public.profiles_public;
+
+create view public.profiles_public
+with (security_barrier = true)
+as
+select
+  p.username,
+  p.display_name,
+  p.bio,
+  p.country,
+  p.is_verified,
+  p.created_at as member_since,
+  p.show_contribution_stats,
+  case
+    when p.show_contribution_stats
+      then coalesce(stats.published_offering_count, 0)
+    else null
+  end as published_offering_count,
+  case
+    when p.show_contribution_stats
+      then coalesce(stats.total_bless_count, 0)
+    else null
+  end as total_bless_count,
+  case
+    when p.show_contribution_stats
+      then coalesce(stats.total_inspired_count, 0)
+    else null
+  end as total_inspired_count,
+  case
+    when p.show_contribution_stats
+      then coalesce(stats.total_carried_forward_count, 0)
+    else null
+  end as total_carried_forward_count
+from public.profiles p
+left join lateral (
+  select
+    count(*)::integer as published_offering_count,
+    coalesce(sum(o.bless_count), 0)::integer
+      as total_bless_count,
+    coalesce(sum(o.inspired_count), 0)::integer
+      as total_inspired_count,
+    coalesce(sum(o.carried_forward_count), 0)::integer
+      as total_carried_forward_count
+  from public.offerings o
+  where o.user_id = p.user_id
+    and o.status = 'approved'
+    and o.is_anonymous = false
+) stats on true
+where p.is_public = true
+  and p.is_suspended = false;
+
+revoke all privileges
+on table public.profiles_public
+from public, anon, authenticated;
+
+grant select
+on table public.profiles_public
+to anon, authenticated, service_role;
+
+-- Anonymous Offerings expose no account UUID or public identity.
+create or replace view public.offerings_public
+with (security_barrier = true)
+as
+select
+  o.id,
+  case
+    when o.is_anonymous then null::uuid
+    else o.user_id
+  end as user_id,
+  o.title,
+  o.body,
+  o.takeaway,
+  o.offering_type,
+  o.media_url,
+  o.media_type,
+  o.is_anonymous,
+  o.allow_reflections,
+  o.location_label,
+  o.bless_count,
+  o.inspired_count,
+  o.carried_forward_count,
+  o.reflection_count,
+  o.bless_score,
+  o.published_at,
+  t.name as theme_name,
+  case
+    when o.is_anonymous
+      or coalesce(p.is_suspended, false)
+    then null::text
+    else p.display_name
+  end as author_name,
+  case
+    when o.is_anonymous
+      or coalesce(p.is_suspended, false)
+      or coalesce(p.is_public, false) = false
+    then null::text
+    else p.username
+  end as author_username
+from public.offerings o
+left join public.themes t on t.id = o.theme_id
+left join public.profiles p on p.user_id = o.user_id
+where o.status = 'approved';
+
+-- Public callers use offerings_public. The base table is available only to
+-- authenticated callers and remains constrained by RLS for own/admin data.
+drop policy if exists "offerings_public_approved_read"
+on public.offerings;
+
+revoke all privileges
+on table public.offerings
+from anon;
+
+revoke all privileges
+on table public.offerings
+from authenticated;
+
+grant select, insert, update
+on table public.offerings
+to authenticated;
+
+revoke all privileges
+on table public.offerings_public
+from public, anon, authenticated;
+
+grant select
+on table public.offerings_public
+to anon, authenticated, service_role;
+
+commit;
+-- Sprint 9.2 — Community Identity Consistency
+-- Keeps public identity projections privacy-minimized and repairs Rising Goodness
+-- after Sprint 9.1 added author_username to offerings_public.
+
+begin;
+
+-- New accounts should never derive a potentially public display name from email.
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+begin
+  insert into public.profiles (
+    user_id,
+    username,
+    display_name
+  )
+  values (
+    new.id,
+    'member-' || encode(gen_random_bytes(8), 'hex'),
+    coalesce(
+      nullif(new.raw_user_meta_data->>'display_name', ''),
+      'Deedlight member'
+    )
+  )
+  on conflict (user_id) do nothing;
+
+  return new;
+end;
+$$;
+
+-- Public Offering projections do not need internal auth/profile UUIDs.
+-- Human-facing attribution is carried only through author_name/author_username.
+create or replace view public.offerings_public
+with (security_barrier = true)
+as
+select
+  o.id,
+  null::uuid as user_id,
+  o.title,
+  o.body,
+  o.takeaway,
+  o.offering_type,
+  o.media_url,
+  o.media_type,
+  o.is_anonymous,
+  o.allow_reflections,
+  o.location_label,
+  o.bless_count,
+  o.inspired_count,
+  o.carried_forward_count,
+  o.reflection_count,
+  o.bless_score,
+  o.published_at,
+  t.name as theme_name,
+  case
+    when o.is_anonymous
+      or coalesce(p.is_suspended, false)
+    then null::text
+    else p.display_name
+  end as author_name,
+  case
+    when o.is_anonymous
+      or coalesce(p.is_suspended, false)
+      or coalesce(p.is_public, false) = false
+    then null::text
+    else p.username
+  end as author_username
+from public.offerings o
+left join public.themes t on t.id = o.theme_id
+left join public.profiles p on p.user_id = o.user_id
+where o.status = 'approved';
+
+revoke all privileges
+on table public.offerings_public
+from public, anon, authenticated;
+
+grant select
+on table public.offerings_public
+to anon, authenticated, service_role;
+
+-- Preserve the existing Rising view column contract and append author_username
+-- at the end, which CREATE OR REPLACE VIEW permits without breaking dependents.
+create or replace view public.offerings_rising
+with (security_barrier = true)
+as
+select
+  op.id,
+  op.user_id,
+  op.title,
+  op.body,
+  op.takeaway,
+  op.offering_type,
+  op.media_url,
+  op.media_type,
+  op.is_anonymous,
+  op.allow_reflections,
+  op.location_label,
+  op.bless_count,
+  op.inspired_count,
+  op.carried_forward_count,
+  op.reflection_count,
+  op.bless_score,
+  op.published_at,
+  op.theme_name,
+  op.author_name,
+  (
+    coalesce(op.bless_score, 0)
+    + case
+        when op.published_at is null then 0
+        when op.published_at > now() - interval '24 hours' then 30
+        when op.published_at > now() - interval '7 days' then 12
+        else 0
+      end
+  )::numeric as rising_score,
+  op.author_username
+from public.offerings_public op;
+
+revoke all privileges
+on table public.offerings_rising
+from public, anon, authenticated;
+
+grant select
+on table public.offerings_rising
+to anon, authenticated, service_role;
+
+-- Revoke direct anonymous base-table access defensively.
+revoke select
+on table public.offerings
+from anon;
+
+-- Refresh the Supabase/PostgREST schema cache after changing public views.
+notify pgrst, 'reload schema';
+
+commit;
+-- Sprint 9.3 — Moderation-aware Members
+-- Adds auditable member suspension/restore controls and closes community-write
+-- suspension gaps without exposing or changing private Daily reflections.
+
+begin;
+
+-- ---------------------------------------------------------------------
+-- 1. Append-only moderation history.
+-- ---------------------------------------------------------------------
+
+create table if not exists public.member_moderation_events (
+  id uuid primary key default gen_random_uuid(),
+  member_user_id uuid not null references auth.users(id) on delete cascade,
+  actor_user_id uuid references auth.users(id) on delete set null,
+  action text not null check (action in ('suspended', 'restored')),
+  reason text not null check (char_length(reason) between 8 and 500),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists member_moderation_events_member_created_idx
+  on public.member_moderation_events(member_user_id, created_at desc);
+
+create index if not exists member_moderation_events_actor_created_idx
+  on public.member_moderation_events(actor_user_id, created_at desc);
+
+alter table public.member_moderation_events enable row level security;
+
+drop policy if exists "member_moderation_events_admin_select"
+on public.member_moderation_events;
+
+create policy "member_moderation_events_admin_select"
+on public.member_moderation_events
+for select
+to authenticated
+using (public.is_admin());
+
+revoke all privileges
+on table public.member_moderation_events
+from public, anon, authenticated;
+
+grant all
+on table public.member_moderation_events
+to service_role;
+
+-- ---------------------------------------------------------------------
+-- 2. Database-admin-only member read APIs.
+--    These projections intentionally contain no email addresses,
+--    reflection text, Daily reflections, or auth/profile row IDs.
+-- ---------------------------------------------------------------------
+
+create or replace function public.admin_list_members(
+  p_state text default 'all'
+)
+returns table (
+  member_user_id uuid,
+  username text,
+  display_name text,
+  role text,
+  is_verified boolean,
+  is_suspended boolean,
+  is_public boolean,
+  member_since timestamptz,
+  offering_count bigint,
+  approved_offering_count bigint,
+  pending_offering_count bigint,
+  open_report_count bigint,
+  last_action text,
+  last_reason text,
+  last_moderated_at timestamptz
+)
+language plpgsql
+stable
+security definer
+set search_path = public, auth, pg_temp
+as $$
+begin
+  if not public.is_admin() then
+    raise exception 'Database-backed admin access is required.'
+      using errcode = '42501';
+  end if;
+
+  if p_state not in ('all', 'active', 'suspended') then
+    raise exception 'Invalid member state filter.'
+      using errcode = '22023';
+  end if;
+
+  return query
+  select
+    p.user_id,
+    p.username,
+    p.display_name,
+    p.role,
+    p.is_verified,
+    p.is_suspended,
+    p.is_public,
+    p.created_at,
+    (
+      select count(*)::bigint
+      from public.offerings o
+      where o.user_id = p.user_id
+    ) as offering_count,
+    (
+      select count(*)::bigint
+      from public.offerings o
+      where o.user_id = p.user_id
+        and o.status = 'approved'
+    ) as approved_offering_count,
+    (
+      select count(*)::bigint
+      from public.offerings o
+      where o.user_id = p.user_id
+        and o.status = 'pending'
+    ) as pending_offering_count,
+    (
+      select count(*)::bigint
+      from public.reports r
+      join public.offerings o
+        on o.id = r.offering_id
+      where o.user_id = p.user_id
+        and r.status in ('open', 'reviewing', 'pending')
+    ) as open_report_count,
+    latest.action,
+    latest.reason,
+    latest.created_at
+  from public.profiles p
+  left join lateral (
+    select
+      e.action,
+      e.reason,
+      e.created_at
+    from public.member_moderation_events e
+    where e.member_user_id = p.user_id
+    order by e.created_at desc
+    limit 1
+  ) latest on true
+  where
+    p_state = 'all'
+    or (p_state = 'active' and p.is_suspended = false)
+    or (p_state = 'suspended' and p.is_suspended = true)
+  order by
+    p.is_suspended desc,
+    p.created_at desc;
+end;
+$$;
+
+revoke all
+on function public.admin_list_members(text)
+from public, anon;
+
+grant execute
+on function public.admin_list_members(text)
+to authenticated;
+
+create or replace function public.admin_get_member_context(
+  p_member_user_id uuid
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_profile jsonb;
+  v_offerings jsonb;
+  v_reports jsonb;
+  v_events jsonb;
+begin
+  if not public.is_admin() then
+    raise exception 'Database-backed admin access is required.'
+      using errcode = '42501';
+  end if;
+
+  select jsonb_build_object(
+    'user_id', p.user_id,
+    'username', p.username,
+    'display_name', p.display_name,
+    'role', p.role,
+    'is_verified', p.is_verified,
+    'is_suspended', p.is_suspended,
+    'is_public', p.is_public,
+    'member_since', p.created_at
+  )
+  into v_profile
+  from public.profiles p
+  where p.user_id = p_member_user_id;
+
+  if v_profile is null then
+    return null;
+  end if;
+
+  -- Deliberately no query to public.reflections or public.daily_reflections.
+  select coalesce(
+    jsonb_agg(
+      jsonb_build_object(
+        'id', o.id,
+        'title', o.title,
+        'status', o.status,
+        'is_anonymous', o.is_anonymous,
+        'open_report_count', coalesce(o.open_report_count, 0),
+        'moderation_note', o.moderation_note,
+        'created_at', o.created_at,
+        'published_at', o.published_at
+      )
+      order by o.created_at desc
+    ),
+    '[]'::jsonb
+  )
+  into v_offerings
+  from public.offerings o
+  where o.user_id = p_member_user_id;
+
+  select coalesce(
+    jsonb_agg(
+      jsonb_build_object(
+        'id', r.id,
+        'offering_id', r.offering_id,
+        'offering_title', o.title,
+        'reason', r.reason,
+        'status', r.status,
+        'details', r.details,
+        'admin_note', r.admin_note,
+        'created_at', r.created_at
+      )
+      order by r.created_at desc
+    ),
+    '[]'::jsonb
+  )
+  into v_reports
+  from public.reports r
+  join public.offerings o
+    on o.id = r.offering_id
+  where o.user_id = p_member_user_id;
+
+  select coalesce(
+    jsonb_agg(
+      jsonb_build_object(
+        'id', e.id,
+        'action', e.action,
+        'reason', e.reason,
+        'actor_name', coalesce(a.display_name, a.username, 'Deedlight admin'),
+        'created_at', e.created_at
+      )
+      order by e.created_at desc
+    ),
+    '[]'::jsonb
+  )
+  into v_events
+  from public.member_moderation_events e
+  left join public.profiles a
+    on a.user_id = e.actor_user_id
+  where e.member_user_id = p_member_user_id;
+
+  return jsonb_build_object(
+    'profile', v_profile,
+    'offerings', v_offerings,
+    'reports', v_reports,
+    'moderation_events', v_events
+  );
+end;
+$$;
+
+revoke all
+on function public.admin_get_member_context(uuid)
+from public, anon;
+
+grant execute
+on function public.admin_get_member_context(uuid)
+to authenticated;
+
+-- ---------------------------------------------------------------------
+-- 3. Auditable suspension mutation.
+--    Only an unsuspended database-role admin may execute it.
+--    Admin accounts cannot be moderated through this member tool.
+-- ---------------------------------------------------------------------
+
+create or replace function public.set_member_suspension(
+  p_member_user_id uuid,
+  p_suspended boolean,
+  p_reason text
+)
+returns void
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_target public.profiles%rowtype;
+  v_actor uuid := auth.uid();
+  v_reason text := btrim(coalesce(p_reason, ''));
+begin
+  if v_actor is null or not public.is_admin() then
+    raise exception 'Database-backed admin access is required.'
+      using errcode = '42501';
+  end if;
+
+  if p_member_user_id is null or p_suspended is null then
+    raise exception 'Member and suspension state are required.'
+      using errcode = '22023';
+  end if;
+
+  if char_length(v_reason) < 8 or char_length(v_reason) > 500 then
+    raise exception 'Moderation reason must be between 8 and 500 characters.'
+      using errcode = '22023';
+  end if;
+
+  select p.*
+  into v_target
+  from public.profiles p
+  where p.user_id = p_member_user_id
+  for update;
+
+  if not found then
+    raise exception 'Member profile not found.'
+      using errcode = '22023';
+  end if;
+
+  if v_target.user_id = v_actor then
+    raise exception 'You cannot suspend or restore your own account from this tool.'
+      using errcode = '42501';
+  end if;
+
+  if v_target.role = 'admin' then
+    raise exception 'Admin accounts are not managed by the member suspension tool.'
+      using errcode = '42501';
+  end if;
+
+  if v_target.is_suspended = p_suspended then
+    if p_suspended then
+      raise exception 'This member is already suspended.'
+        using errcode = '22023';
+    else
+      raise exception 'This member is already active.'
+        using errcode = '22023';
+    end if;
+  end if;
+
+  update public.profiles
+  set is_suspended = p_suspended
+  where user_id = p_member_user_id;
+
+  insert into public.member_moderation_events (
+    member_user_id,
+    actor_user_id,
+    action,
+    reason
+  )
+  values (
+    p_member_user_id,
+    v_actor,
+    case when p_suspended then 'suspended' else 'restored' end,
+    v_reason
+  );
+end;
+$$;
+
+revoke all
+on function public.set_member_suspension(uuid, boolean, text)
+from public, anon;
+
+grant execute
+on function public.set_member_suspension(uuid, boolean, text)
+to authenticated;
+
+-- ---------------------------------------------------------------------
+-- 4. Close the remaining suspension gaps in community writes.
+--    Existing insert/reaction/report policies are already suspension-aware.
+-- ---------------------------------------------------------------------
+
+drop policy if exists "offerings_update_own_or_admin"
+on public.offerings;
+
+create policy "offerings_update_own_or_admin"
+on public.offerings
+for update
+to authenticated
+using (
+  public.is_admin()
+  or (
+    user_id = auth.uid()
+    and status in ('draft', 'needs_edit')
+    and not exists (
+      select 1
+      from public.profiles p
+      where p.user_id = auth.uid()
+        and p.is_suspended = true
+    )
+  )
+)
+with check (
+  public.is_admin()
+  or (
+    user_id = auth.uid()
+    and status in ('draft', 'pending', 'needs_edit')
+    and not exists (
+      select 1
+      from public.profiles p
+      where p.user_id = auth.uid()
+        and p.is_suspended = true
+    )
+  )
+);
+
+drop policy if exists "offerings_user_update_safe_statuses"
+on public.offerings;
+
+create policy "offerings_user_update_safe_statuses"
+on public.offerings
+for update
+to authenticated
+using (
+  user_id = auth.uid()
+  and status in ('draft', 'needs_edit')
+  and not exists (
+    select 1
+    from public.profiles p
+    where p.user_id = auth.uid()
+      and p.is_suspended = true
+  )
+)
+with check (
+  user_id = auth.uid()
+  and status in ('draft', 'pending')
+  and not exists (
+    select 1
+    from public.profiles p
+    where p.user_id = auth.uid()
+      and p.is_suspended = true
+  )
+);
+
+drop policy if exists "reflections_own_insert"
+on public.reflections;
+
+create policy "reflections_own_insert"
+on public.reflections
+for insert
+to authenticated
+with check (
+  user_id = auth.uid()
+  and exists (
+    select 1
+    from public.offerings o
+    where o.id = offering_id
+      and o.status = 'approved'
+      and o.allow_reflections = true
+  )
+  and not exists (
+    select 1
+    from public.profiles p
+    where p.user_id = auth.uid()
+      and p.is_suspended = true
+  )
+);
+
+drop policy if exists "reflections_own_update"
+on public.reflections;
+
+create policy "reflections_own_update"
+on public.reflections
+for update
+to authenticated
+using (
+  user_id = auth.uid()
+  and not exists (
+    select 1
+    from public.profiles p
+    where p.user_id = auth.uid()
+      and p.is_suspended = true
+  )
+)
+with check (
+  user_id = auth.uid()
+  and not exists (
+    select 1
+    from public.profiles p
+    where p.user_id = auth.uid()
+      and p.is_suspended = true
+  )
+);
+
+-- Private Daily reflections intentionally remain member-owned and unchanged.
+
+notify pgrst, 'reload schema';
+
+commit;
+-- Sprint 10.1 — Daily Habit & Retention
+-- "I Did Today's Deed"
+--
+-- Bridges the legacy daily_posts completion model to the current
+-- daily_lights system while keeping personal completion records private.
+
+begin;
+
+-- ============================================================
+-- 1. Connect completion records to current Daily Lights
+-- ============================================================
+
+alter table public.daily_deed_completions
+  add column if not exists daily_light_id uuid
+  references public.daily_lights(id)
+  on delete cascade;
+
+alter table public.daily_deed_completions
+  alter column daily_post_id drop not null;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'daily_deed_completions_has_source'
+      and conrelid = 'public.daily_deed_completions'::regclass
+  ) then
+    alter table public.daily_deed_completions
+      add constraint daily_deed_completions_has_source
+      check (
+        daily_post_id is not null
+        or daily_light_id is not null
+      );
+  end if;
+end
+$$;
+
+create unique index if not exists
+  daily_deed_completions_user_light_unique
+on public.daily_deed_completions (
+  user_id,
+  daily_light_id
+);
+
+create index if not exists
+  daily_deed_completions_light_created_idx
+on public.daily_deed_completions (
+  daily_light_id,
+  created_at desc
+)
+where daily_light_id is not null;
+
+create index if not exists
+  daily_deed_completions_user_created_idx
+on public.daily_deed_completions (
+  user_id,
+  created_at desc
+);
+
+-- ============================================================
+-- 2. Private completion RLS
+-- ============================================================
+
+alter table public.daily_deed_completions
+  enable row level security;
+
+drop policy if exists
+  "daily_deed_completions_own_all"
+on public.daily_deed_completions;
+
+drop policy if exists
+  "daily_deed_completions_select_own"
+on public.daily_deed_completions;
+
+drop policy if exists
+  "daily_deed_completions_insert_own_published"
+on public.daily_deed_completions;
+
+drop policy if exists
+  "daily_deed_completions_delete_own"
+on public.daily_deed_completions;
+
+create policy
+  "daily_deed_completions_select_own"
+on public.daily_deed_completions
+for select
+to authenticated
+using (
+  user_id = auth.uid()
+);
+
+create policy
+  "daily_deed_completions_insert_own_published"
+on public.daily_deed_completions
+for insert
+to authenticated
+with check (
+  user_id = auth.uid()
+  and daily_light_id is not null
+  and exists (
+    select 1
+    from public.daily_lights dl
+    where dl.id = daily_light_id
+      and dl.status = 'published'
+  )
+);
+
+create policy
+  "daily_deed_completions_delete_own"
+on public.daily_deed_completions
+for delete
+to authenticated
+using (
+  user_id = auth.uid()
+);
+
+revoke all privileges
+on table public.daily_deed_completions
+from public, anon, authenticated;
+
+grant select, insert, delete
+on table public.daily_deed_completions
+to authenticated;
+
+grant all
+on table public.daily_deed_completions
+to service_role;
+
+-- ============================================================
+-- 3. Safe anonymous aggregate
+-- ============================================================
+
+drop view if exists
+  public.daily_deed_completion_counts;
+
+create view public.daily_deed_completion_counts
+with (security_barrier = true)
+as
+select
+  c.daily_light_id,
+  count(*)::bigint as completion_count
+from public.daily_deed_completions c
+join public.daily_lights dl
+  on dl.id = c.daily_light_id
+where
+  c.daily_light_id is not null
+  and dl.status = 'published'
+group by
+  c.daily_light_id;
+
+revoke all privileges
+on table public.daily_deed_completion_counts
+from public, anon, authenticated;
+
+grant select
+on table public.daily_deed_completion_counts
+to anon, authenticated, service_role;
+
+-- ============================================================
+-- 4. Repair existing Daily Reflection compatibility
+-- ============================================================
+
+alter table public.daily_reflections
+  alter column daily_post_id drop not null;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'daily_reflections_has_daily_source'
+      and conrelid = 'public.daily_reflections'::regclass
+  ) then
+    alter table public.daily_reflections
+      add constraint daily_reflections_has_daily_source
+      check (
+        daily_post_id is not null
+        or daily_light_id is not null
+      );
+  end if;
+end
+$$;
+
+notify pgrst, 'reload schema';
+
+commit;
+-- Sprint 10.2 — Saved Lights + Gentle Rhythm
+-- Extends the legacy saved_lights table to current Daily Lights and hardens
+-- browser privileges. Saved rows remain private; rhythm remains derived only
+-- from each member's private daily_deed_completions.
+
+begin;
+
+-- ============================================================
+-- 1. Extend legacy saved_lights to current Daily Lights
+-- ============================================================
+
+alter table public.saved_lights
+  add column if not exists daily_light_id uuid
+  references public.daily_lights(id)
+  on delete cascade;
+
+alter table public.saved_lights
+  drop constraint if exists saved_lights_check;
+
+alter table public.saved_lights
+  drop constraint if exists saved_lights_exactly_one_source;
+
+alter table public.saved_lights
+  add constraint saved_lights_exactly_one_source
+  check (
+    num_nonnulls(
+      offering_id,
+      daily_post_id,
+      daily_light_id
+    ) = 1
+  );
+
+create unique index if not exists
+  saved_lights_unique_daily_light
+on public.saved_lights (
+  user_id,
+  daily_light_id
+)
+where daily_light_id is not null;
+
+create index if not exists
+  saved_lights_user_created_idx
+on public.saved_lights (
+  user_id,
+  created_at desc
+);
+
+-- ============================================================
+-- 2. Replace broad legacy RLS with immutable private-save rules
+-- ============================================================
+
+alter table public.saved_lights
+  enable row level security;
+
+drop policy if exists
+  "saved_lights_own_all"
+on public.saved_lights;
+
+drop policy if exists
+  "saved_lights_select_own"
+on public.saved_lights;
+
+drop policy if exists
+  "saved_lights_insert_own_published_daily_light"
+on public.saved_lights;
+
+drop policy if exists
+  "saved_lights_delete_own"
+on public.saved_lights;
+
+create policy
+  "saved_lights_select_own"
+on public.saved_lights
+for select
+to authenticated
+using (
+  user_id = auth.uid()
+);
+
+create policy
+  "saved_lights_insert_own_published_daily_light"
+on public.saved_lights
+for insert
+to authenticated
+with check (
+  user_id = auth.uid()
+  and daily_light_id is not null
+  and offering_id is null
+  and daily_post_id is null
+  and exists (
+    select 1
+    from public.daily_lights dl
+    where dl.id = daily_light_id
+      and dl.status = 'published'
+  )
+);
+
+create policy
+  "saved_lights_delete_own"
+on public.saved_lights
+for delete
+to authenticated
+using (
+  user_id = auth.uid()
+);
+
+-- Saving is immutable: create or remove a row; never update ownership/source.
+revoke all privileges
+on table public.saved_lights
+from public, anon, authenticated;
+
+grant select, insert, delete
+on table public.saved_lights
+to authenticated;
+
+grant all
+on table public.saved_lights
+to service_role;
+
+notify pgrst, 'reload schema';
+
+commit;
+-- Sprint 10.3A — Gentle Daily Reminder Preferences
+-- Stores private, opt-in reminder preferences without introducing delivery transport.
+-- Reminder delivery remains a later infrastructure step.
+
+begin;
+
+create table if not exists public.daily_reminder_preferences (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  daily_enabled boolean not null default false,
+  reminder_time time without time zone not null default '08:00',
+  timezone text not null default 'UTC'
+    check (
+      char_length(timezone) between 1 and 64
+      and timezone ~ '^[A-Za-z0-9_+./-]+$'
+    ),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+drop trigger if exists daily_reminder_preferences_set_updated_at
+on public.daily_reminder_preferences;
+
+create trigger daily_reminder_preferences_set_updated_at
+before update on public.daily_reminder_preferences
+for each row execute function public.set_updated_at();
+
+alter table public.daily_reminder_preferences
+  enable row level security;
+
+drop policy if exists
+  "daily_reminder_preferences_select_own"
+on public.daily_reminder_preferences;
+
+drop policy if exists
+  "daily_reminder_preferences_insert_own"
+on public.daily_reminder_preferences;
+
+drop policy if exists
+  "daily_reminder_preferences_update_own"
+on public.daily_reminder_preferences;
+
+create policy
+  "daily_reminder_preferences_select_own"
+on public.daily_reminder_preferences
+for select
+to authenticated
+using (
+  user_id = auth.uid()
+);
+
+create policy
+  "daily_reminder_preferences_insert_own"
+on public.daily_reminder_preferences
+for insert
+to authenticated
+with check (
+  user_id = auth.uid()
+  and (
+    daily_enabled = false
+    or not exists (
+      select 1
+      from public.profiles p
+      where p.user_id = auth.uid()
+        and p.is_suspended = true
+    )
+  )
+);
+
+create policy
+  "daily_reminder_preferences_update_own"
+on public.daily_reminder_preferences
+for update
+to authenticated
+using (
+  user_id = auth.uid()
+)
+with check (
+  user_id = auth.uid()
+  and (
+    daily_enabled = false
+    or not exists (
+      select 1
+      from public.profiles p
+      where p.user_id = auth.uid()
+        and p.is_suspended = true
+    )
+  )
+);
+
+revoke all privileges
+on table public.daily_reminder_preferences
+from public, anon, authenticated;
+
+grant select, insert, update
+on table public.daily_reminder_preferences
+to authenticated;
+
+grant all
+on table public.daily_reminder_preferences
+to service_role;
+
+notify pgrst, 'reload schema';
+
+commit;
