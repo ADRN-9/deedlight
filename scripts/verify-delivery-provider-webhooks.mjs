@@ -686,44 +686,135 @@ const expectedSecurityDefinerOwnershipSignatures = [
 ];
 assert.equal(expectedSecurityDefinerOwnershipSignatures.length, 18,
   "The Production ownership audit must cover exactly 18 reviewed SECURITY DEFINER signatures.");
-assert(productionOwnershipAudit.includes("### Query 8A — exact SECURITY DEFINER ownership inventory (18 signatures)"));
-assert(productionOwnershipAudit.includes("### Query 8B — direct and transitive memberships of function owners"));
-for (const signature of expectedSecurityDefinerOwnershipSignatures) {
-  const literal = "('" + signature + "')";
-  assert.equal(
-    productionOwnershipAudit.split(literal).length - 1,
-    2,
-    "Production ownership audit must inventory each exact signature in both metadata queries: " + signature,
-  );
+
+function extractOwnershipSqlBlock(markdown, heading) {
+  const headingIndex = markdown.indexOf(heading);
+  assert(headingIndex >= 0, "Missing ownership audit section: " + heading);
+  const nextHeadingIndex = markdown.indexOf("\\n### ", headingIndex + heading.length);
+  const section = markdown.slice(headingIndex, nextHeadingIndex < 0 ? undefined : nextHeadingIndex);
+  const blocks = [...section.matchAll(/```sql\\s*\\n([\\s\\S]*?)\\n```/gi)];
+  assert.equal(blocks.length, 1, "Ownership audit section must contain exactly one fenced SQL block: " + heading);
+  return blocks[0][1].trim();
 }
+
+function assertExactOwnershipInventory(query, label) {
+  assert(query.includes("WITH expected(signature) AS"),
+    label + " must declare the exact expected-signature inventory inside its SQL block.");
+  for (const signature of expectedSecurityDefinerOwnershipSignatures) {
+    const literal = "('" + signature + "')";
+    assert.equal(query.split(literal).length - 1, 1,
+      label + " must contain each exact function signature exactly once: " + signature);
+  }
+}
+
+function validateOwnershipQuery8A(query) {
+  assertExactOwnershipInventory(query, "Query 8A");
+  for (const value of [
+    "pg_catalog.to_regprocedure(expected.signature)",
+    "LEFT JOIN pg_catalog.pg_proc AS procedure",
+    "procedure.proowner AS owner_role_oid",
+    "pg_catalog.pg_get_userbyid(procedure.proowner) AS function_owner",
+    "LEFT JOIN pg_catalog.pg_roles AS owner_role",
+    "procedure.prosecdef",
+    "procedure.proconfig",
+    "procedure.proacl::text AS explicit_function_acl",
+    "pg_catalog.acldefault('f', procedure.proowner)",
+    "owner_role.rolsuper",
+    "owner_role.rolinherit",
+    "owner_role.rolcreaterole",
+    "owner_role.rolcreatedb",
+    "owner_role.rolcanlogin",
+    "owner_role.rolreplication",
+    "owner_role.rolbypassrls",
+    "'MISSING_FUNCTION'",
+    "'MISSING_OWNER_ROLE'",
+    "'NOT_SECURITY_DEFINER'",
+    "'PRESENT'",
+  ]) assert(query.includes(value), "Query 8A is missing required ownership/ACL structure: " + value);
+}
+
+function validateOwnershipQuery8B(query) {
+  assertExactOwnershipInventory(query, "Query 8B");
+  for (const value of [
+    "WITH RECURSIVE expected(signature) AS",
+    "membership_walk(",
+    "UNION ALL",
+    "JOIN pg_catalog.pg_auth_members AS membership",
+    "WHERE NOT membership.roleid = ANY(membership_walk.role_path)",
+    "membership.inherit_option",
+    "membership.set_option",
+    "membership_walk.inherit_path AS membership_edge_inherit_options",
+    "membership_walk.set_path AS membership_edge_set_options",
+    "'MEMBER'",
+    "'USAGE'",
+    "'SET'",
+    "AS owner_is_member",
+    "AS owner_inherits_privileges",
+    "AS owner_can_set_role",
+    "granted_role.rolsuper",
+    "granted_role.rolbypassrls",
+  ]) assert(query.includes(value), "Query 8B is missing required recursive/effective-privilege structure: " + value);
+  assert.equal((query.match(/JOIN pg_catalog\\.pg_auth_members AS membership/g) ?? []).length, 2,
+    "Query 8B must traverse both direct and recursive membership edges.");
+  assert.equal((query.match(/pg_catalog\\.pg_has_role\\(/g) ?? []).length, 3,
+    "Query 8B must independently report MEMBER, USAGE and SET effective privileges.");
+}
+
+const ownershipQuery8A = extractOwnershipSqlBlock(
+  productionOwnershipAudit,
+  "### Query 8A — exact SECURITY DEFINER ownership inventory (18 signatures)",
+);
+const ownershipQuery8B = extractOwnershipSqlBlock(
+  productionOwnershipAudit,
+  "### Query 8B — direct and transitive memberships of function owners",
+);
+validateOwnershipQuery8A(ownershipQuery8A);
+validateOwnershipQuery8B(ownershipQuery8B);
+
+// Negative fixtures mutate the extracted SQL, not surrounding prose or unrelated query blocks.
+assert.throws(
+  () => validateOwnershipQuery8A(ownershipQuery8A.replace(
+    "procedure.proowner AS owner_role_oid,",
+    "NULL::oid AS owner_role_oid,",
+  )),
+  /Query 8A is missing required ownership\\/ACL structure: procedure\\.proowner AS owner_role_oid/,
+  "Removing the function-owner catalog identity must fail verification.",
+);
+assert.throws(
+  () => validateOwnershipQuery8A(ownershipQuery8A.replace(
+    "procedure.proacl::text AS explicit_function_acl,",
+    "NULL::text AS explicit_function_acl,",
+  )),
+  /Query 8A is missing required ownership\\/ACL structure: procedure\\.proacl::text AS explicit_function_acl/,
+  "Removing the explicit function ACL evidence must fail verification.",
+);
+assert.throws(
+  () => validateOwnershipQuery8B(ownershipQuery8B.replace(
+    "WITH RECURSIVE expected(signature) AS",
+    "WITH expected(signature) AS",
+  )),
+  /Query 8B is missing required recursive\\/effective-privilege structure: WITH RECURSIVE/,
+  "Removing recursive membership traversal must fail verification.",
+);
+assert.throws(
+  () => validateOwnershipQuery8B(ownershipQuery8B.replace(
+    "pg_catalog.pg_has_role(\\n    membership_walk.owner_oid, membership_walk.granted_role_oid, 'SET'\\n  ) AS owner_can_set_role,",
+    "false AS owner_can_set_role,",
+  )),
+  /Query 8B is missing required recursive\\/effective-privilege structure: 'SET'/,
+  "Removing the effective SET ROLE privilege check must fail verification.",
+);
+
 for (const value of [
-  "pg_catalog.to_regprocedure(expected.signature)",
-  "procedure.prosecdef",
-  "procedure.proconfig",
-  "procedure.proacl",
-  "procedure.proowner",
-  "pg_catalog.pg_get_userbyid(procedure.proowner)",
-  "owner_role.rolsuper",
-  "owner_role.rolinherit",
-  "owner_role.rolcreaterole",
-  "owner_role.rolcreatedb",
-  "owner_role.rolcanlogin",
-  "owner_role.rolreplication",
-  "owner_role.rolbypassrls",
-  "'MISSING_FUNCTION'",
-  "'MISSING_OWNER_ROLE'",
-  "'NOT_SECURITY_DEFINER'",
-  "WITH RECURSIVE",
-  "pg_catalog.pg_auth_members",
-  "membership.inherit_option",
-  "membership.set_option",
-  "'MEMBER'",
-  "'USAGE'",
-  "'SET'",
   "transaction_read_only = on",
   "xaipiovflxomcbfwtwmu",
+  "exactly 18 rows",
+  "explicitly approves the per-signature expected owner mapping",
 ]) assert(productionOwnershipAudit.includes(value),
-  "Production ownership audit is missing a required owner-evidence assertion: " + value);
+  "Production ownership audit procedure is missing a required safety/approval condition: " + value);
+
+console.log("Production ownership audit SQL extraction, 18-signature inventory, ownership/ACL, recursive membership and effective privilege assertions: PASS");
+console.log("Ownership audit verification is lexical/source-structural only; Query 8A/8B were not executed against PostgreSQL.");
 
 const webhookConcurrencyScript = read("scripts/test-delivery-provider-webhook-concurrency.sh");
 const trackedWebhookChildren = [...webhookConcurrencyScript.matchAll(/^(\s*)([A-Za-z_][A-Za-z0-9_]*_pid)=\$!\n\1track_child "\$\2"$/gm)];
