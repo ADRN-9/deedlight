@@ -510,7 +510,7 @@ assert(providerIntegrityDetailPage.includes('"admin_list_delivery_provider_integ
 assert(providerIntegrityDetailPage.includes('"admin_list_delivery_provider_integrity_evidence"'));
 assert(providerIntegrityDetailPage.includes('"admin_list_delivery_provider_integrity_history"'));
 assert(providerIntegrityDetailPage.includes("Reopened after new provider evidence"));
-assert(providerIntegrityDetailPage.includes("Original webhook request bodies"));
+assert(providerIntegrityDetailPage.includes("Normalized event fields and fingerprints only.") && providerIntegrityDetailPage.includes("request bodies and provider diagnostics are not exposed here."));
 assert(!/service_role|SUPABASE_SERVICE_ROLE_KEY|\.from\(["']delivery_provider_integrity_/.test(providerIntegrityDetailPage),
   "Provider-integrity detail must use the guarded admin RPCs only.");
 assert(providerIntegrityActions.includes("requireDatabaseAdmin"));
