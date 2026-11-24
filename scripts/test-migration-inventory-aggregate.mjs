@@ -240,8 +240,8 @@ test("places the pinned compatibility step after 037 and before immutable 038", 
   try {
     const aggregate = f.aggregate.toString("utf8");
     const compatibilityStart = aggregate.indexOf("-- BEGIN MIGRATION 038 ADMIN COMPATIBILITY");
-    const migration037Start = aggregate.indexOf("202611240037_delivery_provider_integrity_conflict_evidence.sql");
-    const migration038Start = aggregate.indexOf("202611240038_delivery_provider_integrity_lock_order_pagination.sql");
+    const migration037Start = aggregate.indexOf("-- Durable recipient-scoped provider-integrity conflict evidence.");
+    const migration038Start = aggregate.indexOf("-- Forward-only hardening for provider event identity serialization and paginated admin review.");
     assert.ok(migration037Start >= 0 && compatibilityStart > migration037Start && migration038Start > compatibilityStart);
     assert.ok(aggregate.includes(compatibilityBytes.toString("utf8")));
     assert.match(aggregate, /COMPATIBILITY supabase\/bootstrap\/migration_038_admin_compatibility\.sql blob=[a-f0-9]{40}/);
