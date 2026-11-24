@@ -82,7 +82,7 @@ set +e
 timeout --signal=TERM --kill-after=1s 1s bash -c 'trap "" TERM; exec sleep 60' >/dev/null 2>&1
 watchdog_probe_status=$?
 set -e
-if [[ "$watchdog_probe_status" != "124" ]]; then
+if [[ "$watchdog_probe_status" != "124" && "$watchdog_probe_status" != "137" ]]; then
   echo "Timeout supervisor self-test failed (status $watchdog_probe_status)." >&2
   exit 1
 fi
