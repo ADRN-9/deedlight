@@ -642,4 +642,17 @@ assert(concurrencyTests.includes("Legacy eight-argument compatibility wrapper ev
 assert(concurrencyTests.includes("Five-argument legacy event wrapper event-ID-first locking: PASS"));
 assert(concurrencyTests.includes("C356_SUPPRESSION_FIRST_INSERT_EVENT_LOCK_HELD"));
 assert(concurrencyTests.includes("Concurrent suppression first-insert event-ID conflict: PASS"));
+for (const value of [
+  "command_timeout_seconds=25",
+  "wait_timeout_seconds=32",
+  "suite_timeout_seconds=840",
+  "timeout --signal=TERM --kill-after=5s",
+  "wait_bounded()",
+  "track_child()",
+  "trap cleanup EXIT",
+  "C362_EXPECTED_LOCK_TIMEOUT_SQLSTATE=55P03",
+  "Bounded advisory-lock conflict SQLSTATE 55P03 and unchanged database state: PASS",
+]) assert(concurrencyTests.includes(value), "Missing bounded concurrency safety assertion: " + value);
+assert(!/^[ \\t]*wait "[A-Za-z_][A-Za-z0-9_]*"$/m.test(concurrencyTests.replace(/wait_bounded/g, "bounded_wait")),
+  "Concurrency child waits must use the bounded wait helper.");
 console.log("Resend webhook authenticity, provider-integrity administration, bounded signatures, suppression ordering and privacy assertions: PASS");
