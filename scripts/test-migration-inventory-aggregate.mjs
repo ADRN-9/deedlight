@@ -253,7 +253,7 @@ test("rejects a modified Migration 038 compatibility artifact", () => {
   const f = fixture();
   try {
     writeFileSync(path.join(f.root, "supabase/bootstrap/migration_038_admin_compatibility.sql"), Buffer.concat([compatibilityBytes, Buffer.from("\\n-- unreviewed")]));
-    assert.throws(() => buildAggregate(f.root, f.manifest), /compatibility artifact Git blob SHA-1 differs/);
+    assert.throws(() => buildAggregate(f.root, f.manifest, f.inventoryBlobSha1), /compatibility artifact Git blob SHA-1 differs/);
   } finally { f.cleanup(); }
 });
 
