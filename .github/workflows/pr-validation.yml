@@ -451,7 +451,7 @@ jobs:
       - name: Run DeedLight privacy authorization database behavior
         run: bash scripts/test-privacy-authorization-database.sh
 
-  ownership_audit_postgres16_behavior:
+  security_definer_ownership_audit_database_behavior:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
@@ -468,6 +468,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
+      DEEDLIGHT_OWNERSHIP_AUDIT_CI: "1"
       PGHOST: 127.0.0.1
       PGPORT: 5432
       PGUSER: postgres
@@ -477,18 +478,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Fail closed on Production configuration
+      - name: Fail closed on production configuration
         shell: bash
         run: |
           set -euo pipefail
-          test -z "${CLOUDFLARE_API_TOKEN:-}"
-          test -z "${CLOUDFLARE_ACCOUNT_ID:-}"
+          test "${DEEDLIGHT_OWNERSHIP_AUDIT_CI}" = "1"
+          test "${PGHOST}" = "127.0.0.1"
+          test "${PGDATABASE}" = "deedlight_ownership_audit_test"
           test -z "${SUPABASE_SERVICE_ROLE_KEY:-}"
-          test -z "${SUPABASE_ACCESS_TOKEN:-}"
           test -z "${SUPABASE_DB_PASSWORD:-}"
-          test -z "${SUPABASE_PROJECT_REF:-}"
+          test -z "${SUPABASE_ACCESS_TOKEN:-}"
           test -z "${RESEND_API_KEY:-}"
-          test -z "${RESEND_WEBHOOK_SECRET:-}"
 
       - name: Setup Node
         uses: actions/setup-node@v7
@@ -500,5 +500,5 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y postgresql-client
 
-      - name: Execute documented Query 8A and Query 8B against PostgreSQL 16 fixtures
-        run: node scripts/test-ownership-audit-postgres16.mjs
+      - name: Execute actual Query 8A and Query 8B against disposable PostgreSQL 16
+        run: node scripts/test-security-definer-ownership-audit.mjs
