@@ -105,3 +105,25 @@ Until these steps are complete, owner attestation is BLOCKED. No guessed owner m
 ## Production and release boundary
 
 No Production migrations, deployments, merges, scheduler activation, delivery enablement, credentials, or privileged operations were performed. PR #22 remains OPEN and DRAFT. The Production ownership blocker and migration-application uncertainty remain explicit; CI success must not be interpreted as Production proof.
+
+
+## Cycle 368 exact-HEAD validation after regression-harness hardening
+
+The source/documentation HEAD `e8f51fc2aa777bb402c0c12d76a3f4023d1a27be` passed [PR Validation run 45469580272](https://github.com/ADRN-9/deedlight/actions/runs/45469580272), SUCCESS, 8/8 jobs. Every step in all eight jobs completed successfully.
+
+The provider job confirmed the new marker-file existence guard no longer emits the transient missing-log warning. The bounded-wait self-test still intentionally emits its timeout diagnostic while proving TERM/KILL/reap behavior, followed by its explicit PASS marker.
+
+The exact-head run emitted the following decisive evidence:
+
+- Provider-integrity direct retrieval, exact counts, keyset boundaries, administrator append-only denial and newest reopening visibility: PASS.
+- Controlled PostgreSQL deadlock SQLSTATE 40P01, survivor commit and final database state: PASS (victim B).
+- Bounded advisory-lock conflict SQLSTATE 55P03 and unchanged database state: PASS.
+- Concurrency process deadlines, bounded waits and cleanup watchdog: PASS.
+- Migration 036 privacy/authorization assertions and fixture cleanup: PASS.
+- Delivery lease expiry under row-lock contention for all four authorization/retry/sent/failed RPCs: PASS.
+- Synchronized consent revocation/transport races and issue-wide weekly capacity: PASS.
+- TypeScript, Next.js build, Cloudflare packaging, ESLint, static security verifiers and dependency audit: PASS.
+
+The run's eight successful jobs were `validate`, `delivery_provider_webhook_database_behavior`, `delivery_migration_order_database_behavior`, `delivery_reliability_database_behavior`, `privacy_authorization_database_behavior`, `auth_pgcrypto_database_behavior`, `gentle_delivery_transport_database_behavior`, and `sprint12_2_database_behavior`.
+
+This remains disposable CI evidence only. It does not establish Production migration application, live schema, or function ownership.
