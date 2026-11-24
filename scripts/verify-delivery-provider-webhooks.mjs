@@ -766,6 +766,38 @@ assert(webhookConcurrencyScript.includes("suite_complete=1")
   && webhookConcurrencyScript.includes("Concurrency suite exited before completing all scenarios; refusing a false PASS.")
   && webhookConcurrencyScript.includes("Concurrency test process deadlines, bounded waits, and cleanup watchdog: PASS"),
   "The concurrency harness must fail closed if it exits before every scenario reaches the final sentinel.");
+
+const deadlockStart = webhookConcurrencyScript.indexOf("# Two independent transactions hold opposite advisory locks");
+const lockTimeoutStart = webhookConcurrencyScript.indexOf("# A controlled event-ID advisory-lock conflict must fail as PostgreSQL lock_not_available (55P03).");
+assert(deadlockStart >= 0 && lockTimeoutStart > deadlockStart,
+  "The controlled deadlock regression must precede and remain separate from the existing 55P03 regression.");
+const deadlockRegression = webhookConcurrencyScript.slice(deadlockStart, lockTimeoutStart);
+for (const value of [
+  "set local deadlock_timeout = '200ms';",
+  "set local lock_timeout = '8s';",
+  "DEEDLIGHT_DEADLOCK_A_WAIT",
+  "DEEDLIGHT_DEADLOCK_B_WAIT",
+  "DEADLOCK_A_LOCK_HELD",
+  "DEADLOCK_B_LOCK_HELD",
+  "40P01: deadlock detected",
+  "wait_for_advisory_lock",
+  "wait_bounded \"$deadlock_a_pid\"",
+  "wait_bounded \"$deadlock_b_pid\"",
+  "DEADLOCK_$" + "{deadlock_survivor}_CROSS_LOCK_ACQUIRED",
+  "DEADLOCK_$" + "{deadlock_survivor}_COMMITTED",
+  "deedlight_webhook_deadlock_regression",
+  "deadlock_final_count",
+  "Controlled PostgreSQL deadlock SQLSTATE 40P01, survivor commit and final database state: PASS",
+]) assert(deadlockRegression.includes(value),
+  "The controlled PostgreSQL deadlock regression is missing required behavior: " + value);
+assert(deadlockRegression.indexOf("set local deadlock_timeout") < deadlockRegression.indexOf("set local lock_timeout"),
+  "Deadlock detection must be configured to run before the transaction lock timeout.");
+assert(!deadlockRegression.includes("set_config('lock_timeout', '250ms'"),
+  "The deadlock regression must not simulate deadlocks with a short lock timeout.");
+assert(workflow.includes("name: Provider webhook concurrency behavior")
+  && workflow.includes("run: bash scripts/test-delivery-provider-webhook-concurrency.sh"),
+  "The PostgreSQL deadlock regression must remain integrated in the provider database CI job.");
+
 assert(webhookConcurrencyScript.includes("C362_EXPECTED_LOCK_TIMEOUT_SQLSTATE=55P03")
   && webhookConcurrencyScript.includes("Bounded advisory-lock conflict SQLSTATE 55P03 and unchanged database state: PASS"),
   "The controlled lock-timeout regression and fail-closed state assertion must remain.");
