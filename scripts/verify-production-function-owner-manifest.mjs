@@ -95,13 +95,13 @@ function canonicalPath(path, owner) {
   for (const key of ["member", "inheritsPrivileges", "canSetRole"]) {
     if (typeof path.effective[key] !== "boolean") fail("membership path effective." + key + " must be explicit");
   }
-  return JSON.stringify({
+  return JSON.stringify(canonicalize({
     roles: path.roles,
     inheritOptions: path.inheritOptions,
     setOptions: path.setOptions,
     roleAttributes: path.roleAttributes,
     effective: path.effective,
-  });
+  }));
 }
 function canonicalize(value) {
   if (Array.isArray(value)) return value.map(canonicalize);
