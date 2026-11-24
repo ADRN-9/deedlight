@@ -1173,12 +1173,12 @@ $c353_legacy_backfill_assertions$;
 -- prove that a distinct conflicting fingerprint reopens the same recipient case.
 insert into auth.users (id, email, email_confirmed_at)
 values (
-  '00000000-0000-0000-0000-000000020006',
+  '00000000-0000-0000-0000-000000020008',
   'provider-integrity-admin@example.test',
   now()
 );
 insert into public.profiles (user_id, role, is_suspended)
-values ('00000000-0000-0000-0000-000000020006', 'admin', false);
+values ('00000000-0000-0000-0000-000000020008', 'admin', false);
 
 set role service_role;
 do $c353_new_conflict$
@@ -1204,7 +1204,7 @@ reset role;
 
 begin;
 set local role authenticated;
-select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000020006', true);
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000020008', true);
 do $c353_admin_resolution$
 declare
   v_case_id bigint;
