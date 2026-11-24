@@ -1215,7 +1215,7 @@ begin
   end if;
 
   select c.conflict_id into v_case_id
-  from public.delivery_provider_integrity_cases c
+  from public.admin_list_delivery_provider_integrity_conflicts('all', 200) c
   where c.recipient_email = 'integrity-reopen@example.test'
     and c.anomaly_type = 'duplicate_event_id_conflict';
 
