@@ -1222,3 +1222,8 @@ No public keys, identities, Production approvals, owner mappings, or trust root 
 4. Review and verify signed approval artifacts against the complete manifest digest and actual evidence bytes.
 5. Build the separate read-only bidirectional catalog comparison only after accepted Production evidence exists.
 6. Keep migration 038 unchanged, PR #22 OPEN / DRAFT / UNMERGED and stacked on PR #10. No Production SQL, ownership mutation, deployment, merge or retarget.
+
+
+### Cycle 384 CI correction note
+
+The first cryptographic-suite CI attempt reached the existing structural validator and exposed missing legacy evidence metadata (`ref` and `collectedAt`) in the new disposable fixtures. The fixtures were corrected to satisfy the existing evidence contract; no production validator requirement was weakened. A later code review also removed a CLI-supplied clock override so Production expiry checks always use the current system time, added trusted read-only execution-principal allowlisting and nonce replay rejection, and retained the API clock injection solely for deterministic test cases. The exact final SHA and workflow result must be recorded after the final documentation commit.
