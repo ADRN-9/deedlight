@@ -156,6 +156,13 @@ export function validateProductionOwnerManifest(manifest, approvalsDocument, exp
   const q8aHash = manifest.evidence.query8a.sha256;
   const q8bHash = manifest.evidence.query8b.sha256;
   if (!Array.isArray(approvalsDocument.approvals)) fail("approvals must be an explicit array");
+  const approvalRefs = new Set();
+  for (const approval of approvalsDocument.approvals) {
+    object(approval, "approval record");
+    reference(approval.recordRef, "approval recordRef");
+    if (approvalRefs.has(approval.recordRef)) fail("duplicate approval recordRef");
+    approvalRefs.add(approval.recordRef);
+  }
 
   if (!Array.isArray(manifest.functions) || manifest.functions.length !== EXPECTED_SIGNATURES.length) {
     fail("manifest must contain exactly 18 function mappings");
@@ -191,6 +198,9 @@ export function validateProductionOwnerManifest(manifest, approvalsDocument, exp
     if (!Array.isArray(owner.membershipGraph.paths)) fail("membership graph paths must be an explicit array for " + role);
     const paths = owner.membershipGraph.paths.map((path) => {
       const canonical = canonicalPath(path, role);
+      if (JSON.stringify(canonicalize(path.roleAttributes[0])) !== JSON.stringify(canonicalize({ role, ...owner.attributes }))) {
+        fail("membership path owner attributes disagree with Query 8A owner attributes for " + role);
+      }
       const parsed = JSON.parse(canonical);
       if (new Set(parsed.roles).size !== parsed.roles.length) fail("membership path contains a cycle for " + role);
       return canonical;
