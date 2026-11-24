@@ -1158,3 +1158,67 @@ The fixture tests use clearly synthetic fixture identities solely to test mechan
 5. Reconcile every distinct owner and membership path and obtain explicit DBA/security approvals before populating any Production manifest.
 6. Keep migration 038 unchanged; keep PR #22 OPEN / DRAFT / UNMERGED and stacked on PR #10. No retarget, merge, Production SQL mutation, deployment or rollout.
 7. Production ownership enforcement and release remain NO-GO until evidence, approvals, independent review and all applicable release gates pass.
+
+
+---
+
+## Cycle 384 — approval integrity hardening and evidence verification
+
+**Repository-only implementation. Production status remains NO-GO.** Starting HEAD for this cycle was `7e010a9483759dc4dcfd9a79d296087811570547`. No Production database operation, secret retrieval, approval issuance, owner change, deployment, merge, or migration 038 modification occurred.
+
+### New artifacts and CI
+
+- `scripts/verify-production-owner-approval-bundle.mjs`: Ed25519 signed approval, trust-root, evidence-byte and provenance verifier; local-only artifact handling; CLI and exported verification function.
+- `scripts/test-production-owner-approval-bundle.mjs`: disposable fixture suite using ephemeral Ed25519 keypairs generated at test runtime. The fixture identities and keys are not Production identities or trust anchors.
+- `.github/workflows/pr-validation.yml`: the ownership-audit job now runs the cryptographic approval/evidence fixture suite, in addition to the prior structural manifest fixture suite and actual disposable PostgreSQL 16 ownership audit.
+
+### Verified design requirements implemented in code
+
+1. Every individual approval binds its own policy version, exact Production project, complete canonical manifest SHA-256, actual Query 8A/8B result SHA-256 values, exact policy-value digest, scope, subject, owner role, identity, key ID, decision, nonce, timestamp, and expiration.
+2. Ed25519 signatures are verified against a separately supplied trusted key registry. Key-to-identity binding, active identity, asserted DBA/security role, key validity, key revocation and approval revocation are checked. Unsupported algorithms or missing active keys fail closed.
+3. The exact approvals artifact bytes, both SQL query files and both raw query-result files are checked against a SHA-256 index in the out-of-band trusted registry. Actual Query 8A/8B result bytes are parsed and reconciled against the manifest; the SQL bytes are hashed and checked for the required inventory structure.
+4. Evidence metadata requires exact project, query ID/version, execution ID, timestamp, PostgreSQL 16+ server version, trusted collector, trusted read-only execution principal, read-only transaction/role attestations, successful/complete/untruncated state, actual row counts, SQL hashes and raw-result hashes.
+5. Query 8A must contain exactly the 18 expected signatures, all PRESENT and SECURITY DEFINER, with complete owner attributes. Query 8B owner coverage must equal the distinct Query 8A owner set, and each actual membership path, intermediate role attributes, edge INHERIT/SET options, and effective MEMBER/USAGE/SET values must match the manifest.
+6. An empty Query 8B result is accepted only as an actual empty result file with a successful zero-row attestation bound to execution ID, query/result hashes, collector, timestamp, complete owner coverage, and a reason. Missing or incomplete results are not empty graphs.
+7. Duplicate IDs, cross-manifest substitution, invalid signatures, expired/not-yet-valid approvals, revoked keys/approvals, and already-consumed approval IDs are rejected.
+8. Artifact references are local normalized relative paths only. No URL fetching, DNS, network access, or arbitrary remote-reference resolution exists. Path traversal, absolute paths, symlinks, non-regular files, non-canonical JSON, and files over 25 MiB are rejected.
+
+The trusted registry is an explicit out-of-band trust anchor. It must be delivered and protected independently from the repository and evidence bundle. A cryptographic signature proves control of a key, not legal identity; a human authority must authenticate approvers and approve their identity-to-role assignments. The verifier does not mutate the consumed-ID registry; the authority must atomically record consumed approval IDs after a separately approved acceptance event. These boundaries are documented in `docs/PRODUCTION_FUNCTION_OWNER_ENFORCEMENT_DESIGN.md`.
+
+### Production authority dependency — exact blocker
+
+No human-authorized Production/security trust authority or trusted key registry was made available in Cycle 384. The required human-controlled dependency is:
+
+- Production organization/project administrator and security owner to authenticate named DBA and security approvers;
+- explicit identity-to-role assignments and approved Ed25519 public keys, with key validity, rotation and revocation policy;
+- named evidence collector, trusted collector identity and DBA-approved read-only PostgreSQL execution principal;
+- independently delivered protected trust-root registry and protected artifact store with write-controlled hash index;
+- a trusted revocation and consumed-approval ledger owner/process.
+
+No public keys, identities, Production approvals, owner mappings, or trust root were fabricated or committed. The previous Cycle 382 Supabase investigation found both connected account links lacked access to project `xaipiovflxomcbfwtwmu`; Cycle 384 did not acquire new access or execute Production SQL.
+
+### Query 8A/8B status
+
+- Query 8A: NOT COLLECTED from Production; exact 18-row owner inventory and attributes remain outstanding.
+- Query 8B: NOT COLLECTED from Production; complete owner membership paths, every intermediate role attribute, edge options and effective privileges remain outstanding.
+- Query 8B zero rows: only a future successful, complete, all-owner execution with actual empty result bytes and explicit bound attestation may represent an empty graph.
+- Live catalog comparison: a separate read-only bidirectional design is recorded in the owner-enforcement design document. It compares expected and actual function signatures/owners/attributes and both directions of the complete membership graph; it is not implemented as a Production operation in this cycle.
+
+### Severity-ranked findings disposition
+
+| Severity | Finding | Disposition |
+|---|---|---|
+| P0 | No authenticated Production DBA/security trust authority or trusted key registry | BLOCKED — human authority required |
+| P0 | No authorized Query 8A/8B Production evidence | BLOCKED — read-only DBA access required |
+| P1 | Global one-time approval consumption requires external trusted ledger maintenance | Designed; verifier rejects already-consumed IDs; authority operation outstanding |
+| P1 | Live bidirectional Production catalog comparison | Design documented; implementation deferred until evidence exists |
+| P2 | Trust-root authenticity and delivery are outside repository verifier | Explicit out-of-band trust boundary documented |
+
+### Cycle 385 handoff
+
+1. Verify exact-head CI and inspect every job result for the final commit.
+2. Obtain human-controlled identity proofing, approver role authorization, trusted public keys, collector/read-only principal authorization, and protected trust-root delivery.
+3. Obtain exact Production Query 8A/8B bytes and SQL, complete provenance, and independently approved evidence custody.
+4. Review and verify signed approval artifacts against the complete manifest digest and actual evidence bytes.
+5. Build the separate read-only bidirectional catalog comparison only after accepted Production evidence exists.
+6. Keep migration 038 unchanged, PR #22 OPEN / DRAFT / UNMERGED and stacked on PR #10. No Production SQL, ownership mutation, deployment, merge or retarget.
