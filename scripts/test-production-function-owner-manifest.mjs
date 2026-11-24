@@ -103,3 +103,23 @@ test("requires independent DBA and security approvals bound to both evidence has
   c.approvals.approvals[1].approved=false;
   assert.throws(() => validateProductionOwnerManifest(c.manifest,c.approvals,projectRef),/approved=true/);
 });
+
+
+test("accepts a complete transitive membership path with attributes for every node", () => {
+  const {manifest,approvals}=fixture();
+  const ownerAttrs={role:"fixture_owner_only",...attrs()};
+  const parentAttrs={role:"fixture_parent",...attrs()};
+  const path={roles:["fixture_owner_only","fixture_parent"],inheritOptions:[true],setOptions:[true],
+    roleAttributes:[ownerAttrs,parentAttrs],effective:{member:true,inheritsPrivileges:true,canSetRole:true}};
+  const canonicalPath=JSON.stringify({roles:path.roles,inheritOptions:path.inheritOptions,setOptions:path.setOptions,
+    roleAttributes:path.roleAttributes,effective:path.effective});
+  manifest.owners[0].membershipGraph.paths=[path];
+  manifest.evidence.query8b.rowCount=1;
+  const approvedDigest=digest({complete:true,paths:[canonicalPath]});
+  for (const approval of approvals.approvals.filter((item)=>item.scope==="membership_graph")) {
+    approval.approvedValueSha256=approvedDigest;
+  }
+  assert.equal(validateProductionOwnerManifest(manifest,approvals,projectRef).membershipPathCount,1);
+  path.roleAttributes[1].role="fixture_other_role";
+  assert.throws(()=>validateProductionOwnerManifest(manifest,approvals,projectRef),/role mismatch/);
+});
