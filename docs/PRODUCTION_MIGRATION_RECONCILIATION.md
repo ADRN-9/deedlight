@@ -102,6 +102,31 @@ The companion Node test suite includes positive and negative fixtures for missin
 
 The CI database harness uses a disposable PostgreSQL 16 instance with a minimal test-only Supabase compatibility surface. It is not a Production clone and cannot establish Production schema equivalence, migration history, or application status.
 
+## Cycle 389 verification evidence and remaining execution blocker
+
+**Implementation/test HEAD:** `c81b12d216b53e2682c0857646cb1b9646283eb0`  
+**Exact-head GitHub Actions:** [run 45509699401](https://github.com/ADRN-9/deedlight/actions/runs/45509699401) — SUCCESS, 10/10 jobs.  
+**Migration inventory:** 39/39 files; 38 unique prefixes; the two distinct 007 files are independently pinned.  
+**Bootstrap seed:** exact pinned blob; three upserts with conflict handling.  
+**Generated SQL aggregate:** exact byte-for-byte match; 390,310 bytes; SHA-256 `242e86a11c1c7af2eadb064621f0dd3068b9f51cfc7fd542d45b0ba5e8560e4a`.  
+**Negative fixture suite:** 17 tests, 17 passed, 0 failed.  
+**Disposable PostgreSQL 16 harness:** the 001–037 source sequence and all three bootstrap upserts executed; migration 038 rejected the aggregate and its transaction rollback was verified.
+
+### Confirmed source incompatibility blocking full aggregate execution
+
+The disposable PostgreSQL test exposed a real, fail-closed incompatibility; it is not a harness bootstrap issue:
+
+- Migration 038's immutable preflight pins `public.is_admin()` source SHA-256 `85e6838cf8feec05bcfe9e9051e5192bc8f0d42f7a53cb6c0450067d70bba74b`, corresponding to the function body that tests `is_suspended = false`.
+- Sprint 6 migration `202607260007_sprint6_daily_deedlight.sql` replaces that function with a body using `coalesce(is_suspended, false) = false`.
+- No later migration before 038 restores the expected source. Migration 038 therefore raises `Migration 038 rejected unreviewed function source for public.is_admin().` and aborts before its own changes.
+- The CI harness confirms that 037's cases/evidence/history tables and the three seed upserts exist after the failure, and that 038's paginated function was not committed by the aborted transaction.
+
+The two source files are protected by the task instructions and remain unchanged. Do not weaken 038's preflight, edit either 007, insert an unapproved SQL patch into the aggregate, or report full aggregate execution as PASS. The aggregate is complete and byte-verifiable, but its full disposable execution is **BLOCKED by the historical 007/038 source-fingerprint conflict**. A separate, reviewed migration-compatibility decision is required before this aggregate can execute end-to-end. The expected-failure database harness makes this blocker executable and visible in CI instead of silently bypassing it.
+
+### Production disposition
+
+All 39 migrations remain **UNKNOWN** for Production application. This repository-only inventory, aggregate verification and disposable PostgreSQL run do not establish live schema equivalence, applied migration history, or Production behavior. The duplicate `202607260007` version-history ambiguity remains unresolved. Production read-only migration/catalog evidence and a human-approved reconciliation remain prerequisites. No Production SQL, `supabase db push`, migration-history repair, deployment, or merge was performed.
+
 ---
 
 # DeedLight Production migration-history reconciliation
