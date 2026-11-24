@@ -10380,6 +10380,7 @@ comment on function public.admin_resolve_delivery_provider_integrity_conflict(bi
 
 notify pgrst, 'reload schema';
 commit;
+
 -- BEGIN MIGRATION 038 ADMIN COMPATIBILITY
 -- Explicit, fail-closed bridge between historical Sprint 6 migration 007 and Migration 038.
 -- The initial schema declares profiles.is_suspended NOT NULL DEFAULT false.
