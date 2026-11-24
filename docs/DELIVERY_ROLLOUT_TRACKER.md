@@ -23,7 +23,7 @@ The complete recursive tree at synchronization tree `ed49efef679ae00b28f22e45825
 
 ### Review and validation boundary
 
-A current PR #22 formal-review query after synchronization returned zero submitted reviews. No independent approval is established. The exact-head PR #22 CI for the documentation-refreshed final branch is the remaining validation step for this task; no CI result is inferred from the merge commit alone.
+A current PR #22 formal-review query after synchronization returned zero submitted reviews. No independent approval is established. The PR-validation workflow triggers on branch pushes for this feature branch; its pull_request trigger is limited to PRs targeting main. Only a completed run whose head_sha equals the final PR #22 branch HEAD will count as exact-head validation. Earlier pending runs are not PASS evidence.
 
 No Production database operation, deployment, scheduler/Cron activation, provider request, credential operation, PR approval or PR merge was performed. Production remains NO-GO.
 
@@ -35,7 +35,7 @@ No Production database operation, deployment, scheduler/Cron activation, provide
 
 **Inspection baseline:** PR #22 source HEAD 6d0e8fcc397a61bb7aaf0c1858b1147c5f81dae1; tree 1d8cc21b2e3a51826b593fae3fca106cc829e3d7.  
 **Repository:** ADRN-9/deedlight. **PR #22:** OPEN / DRAFT / UNMERGED. **Branch:** security/private-daily-journey-admin-isolation-c408. **Base:** security/delivery-transport-consent-gates at cfe05475dbe7822f96be639fd2c777a6062aedc4.  
-**Current migration inventory:** 37 files, 36 unique version prefixes. Two distinct files share 202607260007. Migration 036 is 202611230036_private_daily_reflection_admin_isolation.sql (blob 61a1fbf48b4557873ba6016e74fd3995bc62ba14). The authoritative inventory and reconciliation procedure are in docs/PRODUCTION_MIGRATION_RECONCILIATION.md (updated C410 Git blob 8888dcba658f45eaaf08fe98b4c6dee119412642).
+**Migration inventory at the C410 snapshot:** 37 files, 36 unique version prefixes. Two distinct files share 202607260007. Migration 036 is 202611230036_private_daily_reflection_admin_isolation.sql (blob 61a1fbf48b4557873ba6016e74fd3995bc62ba14). The authoritative inventory and reconciliation procedure are in docs/PRODUCTION_MIGRATION_RECONCILIATION.md (updated C410 Git blob 8888dcba658f45eaaf08fe98b4c6dee119412642).
 
 ### Assignment and acceptance status
 
