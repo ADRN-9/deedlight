@@ -426,6 +426,21 @@ SELECT
     JOIN pg_catalog.pg_roles AS path_role ON path_role.oid = path.role_oid
     ORDER BY path.position
   ) AS membership_path,
+  ARRAY(
+    SELECT pg_catalog.jsonb_build_object(
+      'role', path_role.rolname,
+      'rolsuper', path_role.rolsuper,
+      'rolinherit', path_role.rolinherit,
+      'rolcreaterole', path_role.rolcreaterole,
+      'rolcreatedb', path_role.rolcreatedb,
+      'rolcanlogin', path_role.rolcanlogin,
+      'rolreplication', path_role.rolreplication,
+      'rolbypassrls', path_role.rolbypassrls
+    )
+    FROM unnest(membership_walk.role_path) WITH ORDINALITY AS path(role_oid, position)
+    JOIN pg_catalog.pg_roles AS path_role ON path_role.oid = path.role_oid
+    ORDER BY path.position
+  ) AS membership_path_role_attributes,
   membership_walk.inherit_path AS membership_edge_inherit_options,
   membership_walk.set_path AS membership_edge_set_options,
   pg_catalog.pg_has_role(
