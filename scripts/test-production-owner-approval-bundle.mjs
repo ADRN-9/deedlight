@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync, randomBytes, sign } from "node:crypto";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -25,7 +25,7 @@ const writeBytes = (root,name,bytes) => {
   return hash(readFileSync(path.join(root,name)));
 };
 
-function fixture({ withPath = false, intermediateAttribute = null } = {}) {
+function fixture({ withPath = false, intermediateAttribute = null, policyVersion = "deedlight-owner-policy-fixture-v1" } = {}) {
   const root = mkdtempSync(path.join(os.tmpdir(),"deedlight-owner-approval-"));
   mkdirSync(path.join(root,"evidence"));
   mkdirSync(path.join(root,"sql"));
@@ -90,7 +90,7 @@ function fixture({ withPath = false, intermediateAttribute = null } = {}) {
     } : null,
   };
   const manifest = {
-    schemaVersion:1, projectRef:PROJECT, policyVersion:"deedlight-owner-policy-fixture-v1",
+    schemaVersion:1, projectRef:PROJECT, policyVersion,
     evidence:{query8a:q8a,query8b:q8b},
     functions:EXPECTED_SIGNATURES.map((identitySignature)=>({
       identitySignature,expectedOwnerRole:"fixture_owner_only",securityDefiner:true,
@@ -355,5 +355,35 @@ test("rejects approval identifiers already recorded as consumed by the trusted a
     f.trust.consumedApprovalIds.push(f.approvalDocument.approvals[0].payload.approvalId);
     writeCanonical(f.root,"trust.json",f.trust);
     assert.throws(()=>run(f),/already been consumed/);
+  } finally { cleanup(f); }
+});
+
+
+test("rejects approval substitution from a different policy manifest",()=>{
+  const f=fixture();
+  const g=fixture({policyVersion:"different-fixture-policy"});
+  try {
+    f.approvalDocument.approvals[0]=structuredClone(g.approvalDocument.approvals[0]);
+    saveApprovalDocument(f);
+    assert.throws(()=>run(f),/individual approval policy-version binding mismatch/);
+  } finally { cleanup(f); cleanup(g); }
+});
+
+test("rejects trusted key revocation",()=>{
+  const f=fixture();
+  try {
+    f.trust.revokedKeyIds.push("fixture-dba-key");
+    writeCanonical(f.root,"trust.json",f.trust);
+    assert.throws(()=>run(f),/missing, inactive, revoked or unsupported trusted key/);
+  } finally { cleanup(f); }
+});
+
+test("rejects a symlinked evidence artifact even when the target is inside the artifact root",()=>{
+  const f=fixture();
+  try {
+    symlinkSync(path.join(f.root,"evidence/query-8a.json"),path.join(f.root,"evidence/linked-query-8a.json"));
+    f.manifest.evidence.query8a.artifactPath="evidence/linked-query-8a.json";
+    saveManifest(f);
+    assert.throws(()=>run(f),/symbolic link/);
   } finally { cleanup(f); }
 });
