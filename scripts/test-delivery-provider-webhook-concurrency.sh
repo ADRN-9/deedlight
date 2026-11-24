@@ -5,6 +5,7 @@ psql_cmd=(psql -X -v ON_ERROR_STOP=1 --host 127.0.0.1 --port 5432 --username pos
 
 command -v timeout >/dev/null 2>&1 || { echo "GNU timeout is required for bounded PostgreSQL tests." >&2; exit 1; }
 command -v ps >/dev/null 2>&1 || { echo "ps is required for bounded child-process supervision." >&2; exit 1; }
+command -v setsid >/dev/null 2>&1 || { echo "setsid is required for watchdog process-group cleanup." >&2; exit 1; }
 
 command_timeout_seconds=25
 wait_timeout_seconds=32
@@ -52,7 +53,7 @@ wait_bounded() {
 
 tmp="$(mktemp -d)"
 suite_pid="${BASHPID}"
-( sleep "$suite_timeout_seconds"; kill -TERM "$suite_pid" 2>/dev/null ) &
+setsid bash -c 'sleep "$1"; kill -TERM "$2" 2>/dev/null' _ "$suite_timeout_seconds" "$suite_pid" &
 watchdog_pid=$!
 
 cleanup() {
