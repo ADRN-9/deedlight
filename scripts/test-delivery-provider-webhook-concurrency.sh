@@ -20,7 +20,7 @@ suite_complete=0
 
 run_psql() {
   local options="${PGOPTIONS:+${PGOPTIONS} }-c lock_timeout=${lock_timeout_seconds}s -c statement_timeout=${statement_timeout_seconds}s -c idle_in_transaction_session_timeout=${statement_timeout_seconds}s"
-  if [[ "$BASHPID" != "$" ]]; then
+  if (( BASH_SUBSHELL > 0 )); then
     exec env PGCONNECT_TIMEOUT="$connect_timeout_seconds" PGOPTIONS="$options" setsid timeout --verbose --signal=TERM --kill-after=5s "${command_timeout_seconds}s" "${psql_cmd[@]}" "$@"
   fi
   PGCONNECT_TIMEOUT="$connect_timeout_seconds" PGOPTIONS="$options" setsid timeout --verbose --signal=TERM --kill-after=5s "${command_timeout_seconds}s" "${psql_cmd[@]}" "$@"
