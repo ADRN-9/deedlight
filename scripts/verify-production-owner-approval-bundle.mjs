@@ -267,6 +267,7 @@ function verifyApprovals(approvalsDocument, trust, manifest, manifestDigest, q8a
     if (seenApprovalIds.has(approvalId)) fail("approval replay/duplicate approvalId detected");
     seenApprovalIds.add(approvalId);
     if (trust.revokedApprovalIds.includes(approvalId)) fail("approval has been revoked");
+    if (trust.consumedApprovalIds.includes(approvalId)) fail("approval replay detected: approvalId has already been consumed");
     const keyId = requiredString(payload.keyId, "approval keyId");
     const key = keys.get(keyId);
     if (!key) fail("approval references a missing, inactive, revoked or unsupported trusted key");
@@ -316,7 +317,8 @@ export function verifyProductionOwnerApprovalBundle({
   }
   if (!Array.isArray(trust.keys) || !Array.isArray(trust.identities)
       || !Array.isArray(trust.collectors) || !Array.isArray(trust.revokedKeyIds)
-      || !Array.isArray(trust.revokedApprovalIds) || !trust.artifacts || typeof trust.artifacts !== "object") {
+      || !Array.isArray(trust.revokedApprovalIds) || !Array.isArray(trust.consumedApprovalIds)
+      || !trust.artifacts || typeof trust.artifacts !== "object") {
     fail("trusted identity registry is incomplete");
   }
   const manifestFile = safeArtifact(rootDir, manifestPath, "manifest");
