@@ -584,6 +584,24 @@ test("migration execution timestamps cannot be later than capture or current tim
   }
 });
 
+test("malformed collector execution receipts fail closed", () => {
+  for (const mutate of [
+    (receipt) => { delete receipt.resultDigest; },
+    (receipt) => { receipt.statementCount = "4"; },
+    (receipt) => { receipt.startedAt = "not-a-timestamp"; },
+    (receipt) => { receipt.completedAt = "2026-11-25T00:31:00.000Z"; },
+  ]) {
+    const f = fixture();
+    try {
+      f.reapprove(undefined, mutate);
+      const report = f.analyze();
+      assert.equal(report.counts.Unknown, 39);
+      assert.equal(report.acceptance, "NOT_ACCEPTED");
+      assert.ok(report.trustProblems.some((reason) => reason.includes("execution receipt")));
+    } finally { f.cleanup(); }
+  }
+});
+
 test("collector attestation must bind the exact project and query bundle", () => {
   const f = fixture();
   try {
