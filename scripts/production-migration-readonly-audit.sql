@@ -17,6 +17,7 @@ DECLARE
   v_project_ref text := current_setting('deedlight.expected_project_ref', true);
   v_repository_sha text := current_setting('deedlight.repository_sha', true);
   v_history_oid oid := to_regclass('supabase_migrations.schema_migrations');
+  v_catalog text;
 BEGIN
   IF current_setting('transaction_read_only') <> 'on' THEN
     RAISE EXCEPTION 'Audit must execute in a read-only transaction.';
@@ -27,6 +28,28 @@ BEGIN
   IF v_repository_sha IS NULL OR v_repository_sha !~ '^[0-9a-f]{40}$' THEN
     RAISE EXCEPTION 'Exact repository SHA is required as collector metadata.';
   END IF;
+  IF EXISTS (
+    SELECT 1 FROM pg_catalog.pg_roles
+    WHERE rolname = current_user
+      AND (rolsuper OR rolcreaterole OR rolcreatedb OR rolbypassrls)
+  ) THEN
+    RAISE EXCEPTION 'Collector role is over-privileged; use a dedicated read-only role.';
+  END IF;
+  IF to_regrole('service_role') IS NOT NULL
+    AND pg_catalog.pg_has_role(current_user, to_regrole('service_role'), 'MEMBER') THEN
+    RAISE EXCEPTION 'Collector role must not inherit or belong to service_role.';
+  END IF;
+  FOREACH v_catalog IN ARRAY ARRAY[
+    'pg_catalog.pg_class', 'pg_catalog.pg_attribute', 'pg_catalog.pg_proc',
+    'pg_catalog.pg_roles', 'pg_catalog.pg_auth_members', 'pg_catalog.pg_policies',
+    'pg_catalog.pg_constraint', 'pg_catalog.pg_indexes', 'pg_catalog.pg_trigger',
+    'pg_catalog.pg_default_acl', 'pg_catalog.pg_extension'
+  ] LOOP
+    IF to_regclass(v_catalog) IS NULL
+      OR NOT has_table_privilege(current_user, to_regclass(v_catalog), 'SELECT') THEN
+      RAISE EXCEPTION 'Required catalog SELECT access unavailable: %', v_catalog;
+    END IF;
+  END LOOP;
   IF v_history_oid IS NULL THEN
     RAISE EXCEPTION 'Required Supabase migration-history table is unavailable.';
   END IF;
@@ -200,8 +223,8 @@ SELECT
   member.rolname AS member_role,
   grantor.rolname AS grantor_role,
   m.admin_option,
-  m.inherit_option,
-  m.set_option
+  to_jsonb(m)->>'inherit_option' AS inherit_option,
+  to_jsonb(m)->>'set_option' AS set_option
 FROM pg_catalog.pg_auth_members m
 JOIN pg_catalog.pg_roles parent ON parent.oid = m.roleid
 JOIN pg_catalog.pg_roles member ON member.oid = m.member
