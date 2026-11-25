@@ -125,14 +125,42 @@ AS $sprint6$
 $sprint6$;
 SQL
 historical_owner_before="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "
-SELECT p.proowner::text || ':' || owner_role.rolname
+SELECT jsonb_build_object(
+  'owner_oid', p.proowner,
+  'owner_name', owner_role.rolname,
+  'acl', p.proacl::text,
+  'effective_acl', COALESCE(p.proacl, pg_catalog.acldefault('f', p.proowner))::text,
+  'default_acl', COALESCE((
+    SELECT jsonb_agg(jsonb_build_object('schema', d.defaclnamespace, 'acl', d.defaclacl::text)
+      ORDER BY d.defaclnamespace)
+    FROM pg_catalog.pg_default_acl d
+    WHERE d.defaclrole = p.proowner
+      AND d.defaclobjtype = 'f'
+      AND (d.defaclnamespace = 0 OR d.defaclnamespace = 'public'::regnamespace)
+  ), '[]'::jsonb),
+  'config', p.proconfig
+)::text
 FROM pg_catalog.pg_proc p
 JOIN pg_catalog.pg_roles owner_role ON owner_role.oid = p.proowner
 WHERE p.oid = 'public.is_admin()'::regprocedure;
 ")"
 psql --no-psqlrc --set ON_ERROR_STOP=1 --file supabase/bootstrap/migration_038_admin_compatibility.sql
 historical_owner_after="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "
-SELECT p.proowner::text || ':' || owner_role.rolname
+SELECT jsonb_build_object(
+  'owner_oid', p.proowner,
+  'owner_name', owner_role.rolname,
+  'acl', p.proacl::text,
+  'effective_acl', COALESCE(p.proacl, pg_catalog.acldefault('f', p.proowner))::text,
+  'default_acl', COALESCE((
+    SELECT jsonb_agg(jsonb_build_object('schema', d.defaclnamespace, 'acl', d.defaclacl::text)
+      ORDER BY d.defaclnamespace)
+    FROM pg_catalog.pg_default_acl d
+    WHERE d.defaclrole = p.proowner
+      AND d.defaclobjtype = 'f'
+      AND (d.defaclnamespace = 0 OR d.defaclnamespace = 'public'::regnamespace)
+  ), '[]'::jsonb),
+  'config', p.proconfig
+)::text
 FROM pg_catalog.pg_proc p
 JOIN pg_catalog.pg_roles owner_role ON owner_role.oid = p.proowner
 WHERE p.oid = 'public.is_admin()'::regprocedure;
