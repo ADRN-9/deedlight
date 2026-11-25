@@ -81,15 +81,15 @@ run_audit() {
   local role_switch="${5:-__NONE__}"
   {
     if [[ "${auth_context}" != "__MISSING__" ]]; then
-      printf "SET deedlight.authenticated_principal = '%s';\\n" "${auth_context}"
+      printf "SET deedlight.authenticated_principal = '%s';\n" "${auth_context}"
     fi
-    printf "SET deedlight.expected_project_ref = '%s';\\n" "${project_ref}"
-    printf "SET deedlight.repository_sha = '%s';\\n" "${repository_sha}"
+    printf "SET deedlight.expected_project_ref = '%s';\n" "${project_ref}"
+    printf "SET deedlight.repository_sha = '%s';\n" "${repository_sha}"
     if [[ "${role_switch}" != "__NONE__" ]]; then
-      printf 'SET ROLE %s;\\n' "${role_switch}"
+      printf 'SET ROLE %s;\n' "${role_switch}"
     fi
-    printf '\\i scripts/production-migration-readonly-audit.sql\\n'
-    printf "SELECT 'AUDIT_TRANSACTION_ROLLED_BACK' WHERE current_setting('transaction_read_only') = 'off';\\n"
+    printf '\\i scripts/production-migration-readonly-audit.sql\n'
+    printf "SELECT 'AUDIT_TRANSACTION_ROLLED_BACK' WHERE current_setting('transaction_read_only') = 'off';\n"
   } | psql_as "${login_role}" -X -v ON_ERROR_STOP=1
 }
 expect_failure() {
@@ -163,13 +163,13 @@ expect_failure privileged_login_set_role_impersonation "Authenticated collector 
 # This is an explicit boundary demonstration, not an accepted collector invocation mode.
 session_authorization_output="$(
   {
-    printf 'SET SESSION AUTHORIZATION deedlight_catalog_auditor;\\n'
-    printf "SELECT session_user || '|' || current_user;\\n"
-    printf "SET deedlight.authenticated_principal = 'deedlight_catalog_auditor';\\n"
-    printf "SET deedlight.expected_project_ref = 'xaipiovflxomcbfwtwmu';\\n"
-    printf "SET deedlight.repository_sha = '0123456789abcdef0123456789abcdef01234567';\\n"
-    printf '\\i scripts/production-migration-readonly-audit.sql\\n'
-    printf "SELECT 'AUDIT_TRANSACTION_ROLLED_BACK' WHERE current_setting('transaction_read_only') = 'off';\\n"
+    printf 'SET SESSION AUTHORIZATION deedlight_catalog_auditor;\n'
+    printf "SELECT session_user || '|' || current_user;\n"
+    printf "SET deedlight.authenticated_principal = 'deedlight_catalog_auditor';\n"
+    printf "SET deedlight.expected_project_ref = 'xaipiovflxomcbfwtwmu';\n"
+    printf "SET deedlight.repository_sha = '0123456789abcdef0123456789abcdef01234567';\n"
+    printf '\\i scripts/production-migration-readonly-audit.sql\n'
+    printf "SELECT 'AUDIT_TRANSACTION_ROLLED_BACK' WHERE current_setting('transaction_read_only') = 'off';\n"
   } | psql_as deedlight_audit_privileged_login -X -v ON_ERROR_STOP=1
 )"
 grep -Fq 'deedlight_catalog_auditor|deedlight_catalog_auditor' <<<"${session_authorization_output}"
