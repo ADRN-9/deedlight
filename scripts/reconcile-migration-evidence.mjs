@@ -175,7 +175,7 @@ function validateCollectorAuthority(claims, provenance, evidenceDigest, authorit
       history: evidence && evidence.history,
       catalog: evidence && evidence.catalog,
       databaseAuthority: authority.databaseAuthority,
-    }))) {
+    })))) {
     problems.push("collector query execution receipt is incomplete or not bound to the exact approved query, project, identity, capture and result");
   }
   const authorityEvidenceDigest = sha256(Buffer.from(canonicalJson(authority)));
