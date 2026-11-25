@@ -251,7 +251,11 @@ test("collector rejects effective application access and role escalation", () =>
   assert.doesNotMatch(runner, /proconfig.*setting_value.*schema-trust\.log/s);
   assert.match(fixture, /REVOKE CREATE ON SCHEMA public FROM PUBLIC/);
   assert.match(fixture, /SET search_path = 'pg_catalog'/);
-  assert.match(fixture, /SET search_path = 'pg_catalog, public'/);
+  assert.doesNotMatch(fixture, /CREATE FUNCTION public\.audit_fixture_privileged_definer_identity\(/);
+  assert.match(runner, /CREATE FUNCTION public\.audit_fixture_privileged_definer_identity\(/);
+  assert.match(runner, /SET search_path = 'pg_catalog, public'/);
+  assert.match(runner, /GRANT EXECUTE ON FUNCTION public\.audit_fixture_privileged_definer_identity\(\) TO deedlight_catalog_auditor;/);
+  assert.equal((fixture.match(/^\s+TO deedlight_catalog_auditor;$/gm) ?? []).length, 1);
 });
 
 test("sequence definitions, ownership, ACLs and index health are captured", () => {
