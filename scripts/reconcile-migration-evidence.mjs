@@ -448,8 +448,9 @@ function classifyOne(item, manifest, evidence, source, mappedEffects) {
   }
   return { status: "Verified unapplied", schemaRepresented: false, historyRecorded: false, reasons: ["complete authenticated history and effect exports show no execution or represented effects"], matchedObjects: 0, historyRows: 0, exactExecutionEstablished: false };
 }
-export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approvals, trustRoots, now = Date.now(), expectedInventoryBlobSha1 = INVENTORY_BLOB_SHA1 }) {
+export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approvals, trustRoots, expectedInventoryBlobSha1 = INVENTORY_BLOB_SHA1 }) {
   const problems = [];
+  const now = Date.now();
   const trustedTrustRootsSha256 = process.env.DEEDLIGHT_MIGRATION_TRUST_ROOTS_SHA256;
   if (!trustRoots || trustRoots.schemaVersion !== 1 || !Array.isArray(trustRoots.keys)) problems.push("external trust-root bundle is missing or malformed");
   else {
