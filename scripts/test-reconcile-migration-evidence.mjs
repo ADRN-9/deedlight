@@ -234,9 +234,13 @@ test("unsigned and forged evidence approvals fail closed", () => {
 
 test("expired approval, revoked signer key and revoked approval ID fail closed", () => {
   const changes = [
-    (f) => { f.approvals.evidenceApproval.expiresAt = "2026-11-25T00:59:00.000Z"; },
+    (f) => {
+      const claims = f.approvals.evidenceApproval.claims;
+      f.approvals.evidenceApproval = artifact("production-evidence-approval", "evidence-approver", claims, { expiresAt: "2026-11-25T00:59:00.000Z" });
+    },
     (f) => { f.trustRoots.keys.find((key) => key.role === "evidence-approver").revokedAt = "2026-11-25T00:00:00.000Z"; },
     (f) => { f.trustRoots.revokedApprovalIds.push(f.approvals.evidenceApproval.approvalId); },
+    (f) => { f.approvals.evidenceApproval.signerId = "untrusted-signer"; },
   ];
   for (const change of changes) {
     const f = fixture();
@@ -252,7 +256,8 @@ test("expired approval, revoked signer key and revoked approval ID fail closed",
 test("approval claims are bound to exact project, evidence, mapping, query, collector and capture timestamp", () => {
   const f = fixture();
   try {
-    f.approvals.evidenceApproval.claims.collectorIdentity = "forged-collector";
+    const claims = f.approvals.evidenceApproval.claims;
+    f.approvals.evidenceApproval = artifact("production-evidence-approval", "evidence-approver", { ...claims, collectorIdentity: "forged-collector" });
     const report = f.analyze();
     assert.equal(report.counts.Unknown, 39);
     assert.ok(report.trustProblems.some((reason) => reason.includes("signature verification failed")));
@@ -299,10 +304,30 @@ test("mapping must account for schema, privileges, ownership, routines, data, de
 
 test("write-capable collector, inherited roles or unproven read-only privilege flags fail closed", () => {
   for (const mutate of [
-    (f) => { f.approvals.collectorAttestation.claims.databaseAuthority.canCreateRole = true; },
-    (f) => { f.approvals.collectorAttestation.claims.databaseAuthority.roleMemberships = ["service_role"]; },
-    (f) => { f.approvals.collectorAttestation.claims.databaseAuthority.effectivePrivileges.push("UPDATE"); },
-    (f) => { f.approvals.collectorAttestation.claims.databaseAuthority.bypassRls = undefined; },
+    (f) => {
+      const claims = f.approvals.collectorAttestation.claims;
+      f.approvals.collectorAttestation = artifact("read-only-collector-attestation", "collector", {
+        ...claims, databaseAuthority: { ...claims.databaseAuthority, canCreateRole: true },
+      });
+    },
+    (f) => {
+      const claims = f.approvals.collectorAttestation.claims;
+      f.approvals.collectorAttestation = artifact("read-only-collector-attestation", "collector", {
+        ...claims, databaseAuthority: { ...claims.databaseAuthority, roleMemberships: ["service_role"] },
+      });
+    },
+    (f) => {
+      const claims = f.approvals.collectorAttestation.claims;
+      f.approvals.collectorAttestation = artifact("read-only-collector-attestation", "collector", {
+        ...claims, databaseAuthority: { ...claims.databaseAuthority, effectivePrivileges: ["CONNECT", "USAGE", "SELECT", "UPDATE"] },
+      });
+    },
+    (f) => {
+      const claims = f.approvals.collectorAttestation.claims;
+      f.approvals.collectorAttestation = artifact("read-only-collector-attestation", "collector", {
+        ...claims, databaseAuthority: { ...claims.databaseAuthority, bypassRls: undefined },
+      });
+    },
   ]) {
     const f = fixture();
     try {
@@ -317,7 +342,10 @@ test("write-capable collector, inherited roles or unproven read-only privilege f
 test("collector attestation must bind the exact project and query bundle", () => {
   const f = fixture();
   try {
-    f.approvals.collectorAttestation.claims.queryBundleSha256 = hash("other-query");
+    const claims = f.approvals.collectorAttestation.claims;
+    f.approvals.collectorAttestation = artifact("read-only-collector-attestation", "collector", {
+      ...claims, queryBundleSha256: hash("other-query"),
+    });
     const report = f.analyze();
     assert.equal(report.counts.Unknown, 39);
   } finally { f.cleanup(); }
@@ -333,6 +361,8 @@ test("history names and exact source execution metadata are required for Applied
     const result = report.classifications.find((entry) => entry.version === "202607260004");
     assert.equal(result.status, "Schema represented but history ambiguous");
     assert.equal(result.exactExecutionEstablished, false);
+    assert.equal(result.schemaRepresented, true);
+    assert.equal(result.historyRecorded, true);
     assert.equal(report.acceptance, "NOT_ACCEPTED");
   } finally { f.cleanup(); }
   const second = fixture();
@@ -443,5 +473,35 @@ test("trust roots must match an independently provisioned digest", () => {
     const report = f.analyze({ trustedTrustRootsSha256: "0".repeat(64) });
     assert.equal(report.counts.Unknown, 39);
     assert.ok(report.trustProblems.some((reason) => reason.includes("independently provisioned trust-root digest")));
+  } finally { f.cleanup(); }
+});
+
+test("history rows without exact names or execution metadata fail closed", () => {
+  const f = fixture();
+  try {
+    delete f.evidence.history.rows[0].name;
+    f.reapprove();
+    const report = f.analyze();
+    assert.equal(report.counts.Unknown, 39);
+  } finally { f.cleanup(); }
+});
+
+test("CLI rejects trust roots stored inside the repository", () => {
+  const f = fixture();
+  try {
+    const inputs = f.writeCliInputs();
+    const script = path.join(repoRoot, "scripts/reconcile-migration-evidence.mjs");
+    const args = [
+      "--evidence=" + inputs.evidencePath,
+      "--approvals=" + inputs.approvalsPath,
+      "--trust-roots=" + path.join(repoRoot, "package.json"),
+    ];
+    const result = spawnSync(process.execPath, [script, ...args], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      env: { ...process.env, DEEDLIGHT_MIGRATION_TRUST_ROOTS_SHA256: inputs.rootsDigest },
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /trust roots must be provisioned outside the repository/);
   } finally { f.cleanup(); }
 });
