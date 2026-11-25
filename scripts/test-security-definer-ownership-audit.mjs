@@ -71,6 +71,9 @@ function rows(sql) {
 const markdown = readFileSync('docs/PRODUCTION_READ_ONLY_MIGRATION_AUDIT.md', 'utf8');
 const q8a = sqlBlock(markdown, '### Query 8A — exact SECURITY DEFINER ownership inventory (18 signatures)');
 const q8b = sqlBlock(markdown, '### Query 8B — direct and transitive memberships of function owners');
+const q12 = sqlBlock(markdown, '### Query 12 — schema ACL entries');
+const q13 = sqlBlock(markdown, '### Query 13 — routine EXECUTE ACL entries');
+const q14 = sqlBlock(markdown, '### Query 14 — default privileges affecting relevant schemas');
 for (const [name, query] of [['8A', q8a], ['8B', q8b]]) {
   const found = [...query.matchAll(/^\s*\('([^']+)'\),?\s*$/gm)].map((m) => m[1]);
   assert.deepEqual(found, signatures, 'Query ' + name + ' signature inventory changed');
@@ -122,6 +125,8 @@ for (const [index, signature] of signatures.entries()) {
 psql([
   'REVOKE ALL ON FUNCTION ' + signatures[1] + ' FROM PUBLIC;',
   'GRANT EXECUTE ON FUNCTION ' + signatures[1] + ' TO service_role;',
+  'ALTER DEFAULT PRIVILEGES FOR ROLE ' + ownerA + ' GRANT EXECUTE ON FUNCTIONS TO authenticated;',
+  'ALTER DEFAULT PRIVILEGES FOR ROLE ' + ownerA + ' GRANT USAGE ON SCHEMAS TO authenticated;',
 ].join('\n'));
 
 const inventory = rows(q8a);
@@ -165,18 +170,51 @@ for (const [role, attribute] of privilegedRoles) {
     'Unauthorized synthetic owner must fail closed: ' + attribute);
   psql('ALTER FUNCTION ' + signatures[0] + ' OWNER TO ' + ownerA + ';');
 }
-assert.equal(bySignature.get(signatures[0]).explicit_function_acl, null, 'Default ACL should leave proacl NULL');
-assert.match(bySignature.get(signatures[0]).effective_defaulted_function_acl, /=X\//, 'Default ACL must include PUBLIC EXECUTE');
-assert.notEqual(bySignature.get(signatures[1]).explicit_function_acl, null, 'REVOKE must materialize an explicit ACL');
-assert.doesNotMatch(bySignature.get(signatures[1]).effective_defaulted_function_acl, /,=X\//, 'Explicit ACL must preserve revoked PUBLIC EXECUTE');
-for (const role of appRoles) {
-  assert.equal(psql("SELECT has_function_privilege(" + quoteLiteral(role) + ", " + quoteLiteral(signatures[0]) + ", 'EXECUTE');"), 't',
-    'Default PUBLIC EXECUTE must be effective for ' + role);
+for (const signature of signatures) {
+  const row = bySignature.get(signature);
+  const isExplicit = signature === signatures[1];
+  assert.equal(row.explicit_function_acl !== null, isExplicit,
+    'Every function must expose its actual explicit-versus-default ACL state: ' + signature);
+  if (isExplicit) {
+    assert.doesNotMatch(row.effective_defaulted_function_acl, /,=X\//,
+      'Explicit ACL must preserve revoked PUBLIC EXECUTE: ' + signature);
+  } else {
+    assert.match(row.effective_defaulted_function_acl, /=X\//,
+      'Default ACL must include PUBLIC EXECUTE: ' + signature);
+  }
+  for (const role of appRoles) {
+    const expected = !isExplicit || role === 'service_role';
+    assert.equal(
+      psql("SELECT has_function_privilege(" + quoteLiteral(role) + ", " + quoteLiteral(signature) + ", 'EXECUTE');"),
+      expected ? 't' : 'f',
+      'Effective EXECUTE privilege mismatch for ' + role + ' on ' + signature,
+    );
+  }
 }
-assert.equal(psql("SELECT has_function_privilege('anon', " + quoteLiteral(signatures[1]) + ", 'EXECUTE');"), 'f');
-assert.equal(psql("SELECT has_function_privilege('authenticated', " + quoteLiteral(signatures[1]) + ", 'EXECUTE');"), 'f');
-assert.equal(psql("SELECT has_function_privilege('service_role', " + quoteLiteral(signatures[1]) + ", 'EXECUTE');"), 't');
-console.log('Query 8A: exact signatures, ownership, role attributes, ACLs and effective EXECUTE privileges PASS');
+const schemaAcl = rows(q12);
+assert.ok(schemaAcl.some((r) => r.schema_name === 'public' && r.grantee === ownerA && r.privilege === 'CREATE'),
+  'Query 12 must expose the synthetic function-owner schema grant');
+assert.equal(psql("SELECT has_schema_privilege('authenticated', 'public', 'CREATE');"), 'f');
+const routineAcl = rows(q13);
+for (const signature of signatures) {
+  const [routineName, argumentText] = signature.slice('public.'.length).split('(');
+  const args = argumentText.slice(0, -1);
+  assert.ok(routineAcl.some((r) => r.schema_name === 'public'
+    && r.routine_name === routineName
+    && r.identity_arguments.replace(/,\\s*/g, ',') === args
+    && r.privilege === 'EXECUTE'),
+  'Query 13 must enumerate EXECUTE ACL entries for every audited signature: ' + signature);
+}
+const defaultAcl = rows(q14);
+assert.ok(defaultAcl.some((r) => r.schema_scope === '(all schemas)'
+  && r.object_creator_role === ownerA && r.object_type === 'f'
+  && r.grantee === 'authenticated' && r.privilege === 'EXECUTE'),
+'Query 14 must expose function default privileges');
+assert.ok(defaultAcl.some((r) => r.schema_scope === '(all schemas)'
+  && r.object_creator_role === ownerA && r.object_type === 'n'
+  && r.grantee === 'authenticated' && r.privilege === 'USAGE'),
+'Query 14 must expose schema default privileges');
+console.log('Queries 8A, 12, 13 and 14: all 18 effective EXECUTE ACLs, schema ACLs, PUBLIC/application grants and function/schema default privileges PASS');
 
 const missingOwnerSql = q8a.replace('ON owner_role.oid = procedure.proowner', 'ON false');
 assert.notEqual(missingOwnerSql, q8a);
@@ -264,6 +302,8 @@ console.log('Query 8B: membership option changes, revoke and transitive-path res
 
 for (const signature of signatures) psql('DROP FUNCTION ' + signature + ';');
 psql([
+  'ALTER DEFAULT PRIVILEGES FOR ROLE ' + ownerA + ' REVOKE EXECUTE ON FUNCTIONS FROM authenticated;',
+  'ALTER DEFAULT PRIVILEGES FOR ROLE ' + ownerA + ' REVOKE USAGE ON SCHEMAS FROM authenticated;',
   'REVOKE ' + parent + ' FROM ' + ownerA + ';',
   'REVOKE ' + transitiveRole + ' FROM ' + parent + ';',
   'REVOKE ' + unexpected + ' FROM ' + ownerB + ';',
