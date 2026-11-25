@@ -78,19 +78,59 @@ ORDER BY n.nspname;
 SQL
 
 psql -X -At -F '|' -v ON_ERROR_STOP=1 >"${tmp_dir}/routine-search-path.log" <<'SQL'
+WITH configured AS (
+  SELECT
+    n.nspname,
+    p.proname,
+    regexp_replace(cfg.setting, '^[^=]*=', '') AS search_path,
+    owner_role.rolcanlogin AS function_owner_can_login,
+    owner_role.rolsuper AS function_owner_is_superuser
+  FROM pg_catalog.pg_proc p
+  JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+  JOIN pg_catalog.pg_roles owner_role ON owner_role.oid = p.proowner
+  CROSS JOIN LATERAL unnest(COALESCE(p.proconfig, ARRAY[]::text[])) cfg(setting)
+  WHERE p.proname = 'audit_fixture_privileged_definer_identity'
+    AND split_part(cfg.setting, '=', 1) = 'search_path'
+)
 SELECT
-  n.nspname,
-  p.proname,
-  regexp_replace(cfg.setting, '^[^=]*=', '') AS search_path,
-  owner_role.rolcanlogin,
-  owner_role.rolsuper
-FROM pg_catalog.pg_proc p
-JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
-JOIN pg_catalog.pg_roles owner_role ON owner_role.oid = p.proowner
-CROSS JOIN LATERAL unnest(COALESCE(p.proconfig, ARRAY[]::text[])) cfg(setting)
-WHERE p.proname = 'audit_fixture_privileged_definer_identity'
-  AND split_part(cfg.setting, '=', 1) = 'search_path';
-SQL
+  configured.nspname,
+  configured.proname,
+  configured.search_path,
+  path_schema.schema_name,
+  path_owner.rolname AS path_schema_owner,
+  path_owner.rolcanlogin AS path_owner_can_login,
+  path_owner.rolsuper AS path_owner_is_superuser,
+  configured.function_owner_can_login,
+  configured.function_owner_is_superuser,
+  EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_roles owner_member
+    WHERE owner_member.rolcanlogin AND NOT owner_member.rolsuper
+      AND path_owner.rolname <> 'pg_database_owner'
+      AND pg_catalog.pg_has_role(owner_member.oid, path_owner.oid, 'MEMBER')
+  ) AS untrusted_owner_member,
+  EXISTS (
+    SELECT 1
+    FROM pg_catalog.aclexplode(
+      COALESCE(path_ns.nspacl, pg_catalog.acldefault('n', path_ns.nspowner))
+    ) acl
+    WHERE acl.grantee = 0 AND acl.privilege_type = 'CREATE'
+  ) AS public_create,
+  EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_roles creator
+    WHERE NOT creator.rolsuper
+      AND creator.oid <> path_ns.nspowner
+      AND pg_catalog.has_schema_privilege(creator.oid, path_ns.oid, 'CREATE')
+      AND NOT pg_catalog.pg_has_role(creator.oid, path_ns.nspowner, 'MEMBER')
+  ) AS untrusted_create_role,
+  configured.search_path ~ '^(pg_catalog|public|extensions|auth|storage)(, ?(pg_catalog|public|extensions|auth|storage))*(, ?pg_temp)?$' AS path_regex_valid
+FROM configured
+CROSS JOIN LATERAL unnest(string_to_array(replace(configured.search_path, ' ', ''), ',')) path_schema(schema_name)
+JOIN pg_catalog.pg_namespace path_ns ON path_ns.nspname = path_schema.schema_name
+JOIN pg_catalog.pg_roles path_owner ON path_owner.oid = path_ns.nspowner
+ORDER BY path_schema.schema_name;
+SQLL
 
 reset_history() {
   psql -X -v ON_ERROR_STOP=1 <<'SQL'
