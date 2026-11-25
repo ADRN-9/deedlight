@@ -221,6 +221,7 @@ psql --no-psqlrc --set ON_ERROR_STOP=1 <<'SQL'
 CREATE ROLE migration_038_fixture_owner NOLOGIN;
 CREATE ROLE migration_038_owner_set_parent NOLOGIN;
 CREATE ROLE migration_038_owner_set_only NOLOGIN;
+CREATE ROLE migration_038_service_set_parent NOLOGIN;
 CREATE ROLE migration_038_service_set_only NOLOGIN;
 GRANT CREATE ON SCHEMA public TO migration_038_fixture_owner;
 ALTER FUNCTION public.is_admin() OWNER TO migration_038_fixture_owner;
@@ -493,7 +494,13 @@ BEGIN
   FOR command IN SELECT * FROM pg_catalog.pg_event_trigger_ddl_commands() LOOP
     IF command.object_type = 'function'
       AND command.object_identity = 'public.is_admin()' THEN
-      EXECUTE 'GRANT service_role TO migration_038_service_set_only WITH INHERIT FALSE, SET TRUE';
+      EXECUTE 'GRANT service_role TO migration_038_service_set_parent WITH INHERIT FALSE, SET TRUE';
+      EXECUTE 'GRANT migration_038_service_set_parent TO migration_038_service_set_only WITH INHERIT FALSE, SET TRUE';
+      IF NOT pg_catalog.pg_has_role('migration_038_service_set_parent', 'service_role', 'SET')
+        OR NOT pg_catalog.pg_has_role('migration_038_service_set_only', 'service_role', 'SET') THEN
+        RAISE EXCEPTION 'service_role SET fixture failed to establish direct and transitive paths';
+      END IF;
+      RAISE NOTICE 'service_role SET fixture direct=t transitive=t';
     END IF;
   END LOOP;
 END;
@@ -511,6 +518,11 @@ if psql --no-psqlrc --set ON_ERROR_STOP=1 --file supabase/bootstrap/migration_03
   echo "Compatibility bridge unexpectedly accepted post-replacement SET-only membership to service_role." >&2
   exit 1
 fi
+if ! grep -Fq "service_role SET fixture direct=t transitive=t" "$compat_log"; then
+  cat "$compat_log"
+  echo "Postflight fixture did not establish direct and transitive SET-only paths to service_role." >&2
+  exit 1
+fi
 if ! grep -Fq "postflight detected unauthorized SET ROLE membership to service_role" "$compat_log"; then
   cat "$compat_log"
   echo "Compatibility bridge failed for an unexpected reason in service_role SET-only postflight test." >&2
@@ -525,8 +537,8 @@ SELECT jsonb_build_object('source', p.prosrc, 'owner_oid', p.proowner, 'acl', p.
 FROM pg_catalog.pg_proc p WHERE p.oid = 'public.is_admin()'::regprocedure;
 ")"
 test "$service_set_before" = "$service_set_after"
-if [ "$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT pg_catalog.pg_has_role('migration_038_service_set_only', 'service_role', 'SET')")" != "f" ]; then
-  echo "Postflight rollback did not remove injected service_role SET ROLE membership." >&2
+if [ "$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT pg_catalog.pg_has_role('migration_038_service_set_parent', 'service_role', 'SET') OR pg_catalog.pg_has_role('migration_038_service_set_only', 'service_role', 'SET')")" != "f" ]; then
+  echo "Postflight rollback did not remove direct and transitive service_role SET ROLE memberships." >&2
   exit 1
 fi
 
@@ -539,6 +551,7 @@ GRANT EXECUTE ON FUNCTION public.is_admin() TO PUBLIC, anon, authenticated, serv
 RESET ROLE;
 REVOKE CREATE ON SCHEMA public FROM migration_038_fixture_owner;
 DROP ROLE migration_038_service_set_only;
+DROP ROLE migration_038_service_set_parent;
 DROP ROLE migration_038_owner_set_only;
 DROP ROLE migration_038_owner_set_parent;
 DROP ROLE migration_038_fixture_owner;
@@ -786,5 +799,6 @@ psql --no-psqlrc --set ON_ERROR_STOP=1 --file supabase/bootstrap/migration_038_a
 echo "Disposable PostgreSQL 16: all 39 migrations, seed, compatibility bridge, and Migration 038 executed."
 echo "PASS: suspension invariant, exact fingerprints, owner preservation, ACL/default-ACL preservation, and admin authorization."
 echo "PASS: unexpected direct/inherited grants, owner SET ROLE paths, missing service_role privileges, and unknown definitions are rejected fail-closed."
-echo "PASS: owner SET ROLE and service_role changes injected after replacement are rejected and transactionally rolled back."
+echo "PASS: explicit anon/authenticated/service_role grants succeed with PUBLIC revoked."
+echo "PASS: owner and direct/transitive service_role SET-only changes injected after replacement are rejected and transactionally rolled back."
 echo "PASS: canonical re-execution is a no-op and injected post-replacement failure rolls back body, owner, ACL, and configuration."
