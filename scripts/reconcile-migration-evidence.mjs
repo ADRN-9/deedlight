@@ -85,7 +85,7 @@ function verifySignedArtifact(artifact, requiredKind, requiredRole, trustRoots, 
     problems.push(requiredKind + " signing key is outside its validity window or revoked");
     return null;
   }
-  if (!artifact.approvalId || (trustRoots.revokedApprovalIds || []).includes(artifact.approvalId)) {
+  if (!artifact.approvalId || (Array.isArray(trustRoots.revokedApprovalIds) && trustRoots.revokedApprovalIds.includes(artifact.approvalId))) {
     problems.push(requiredKind + " approval is missing an ID or has been revoked");
     return null;
   }
@@ -145,8 +145,11 @@ function validateCollectorAuthority(claims, provenance, problems) {
   for (const flag of ["isSuperuser", "canCreateRole", "canCreateDatabase", "bypassRls", "isReplication", "ownsObjects"]) {
     if (db[flag] !== false) problems.push("collector database role is elevated or its " + flag + " status is not proven false");
   }
-  if (!Array.isArray(db.effectivePrivileges) || db.effectivePrivileges.some((privilege) => !READ_ONLY_PRIVILEGES.has(privilege))) {
-    problems.push("collector effective privileges include write/DDL authority or are incomplete");
+  if (!Array.isArray(db.effectivePrivileges)
+    || db.effectivePrivileges.length !== READ_ONLY_PRIVILEGES.size
+    || [...READ_ONLY_PRIVILEGES].some((privilege) => !db.effectivePrivileges.includes(privilege))
+    || db.effectivePrivileges.some((privilege) => !READ_ONLY_PRIVILEGES.has(privilege))) {
+    problems.push("collector effective privileges are not exactly CONNECT, USAGE and SELECT");
   }
   if (!Array.isArray(db.roleMemberships) || db.roleMemberships.length !== 0) {
     problems.push("collector has inherited role memberships or membership evidence is missing");
@@ -265,6 +268,8 @@ function classifyOne(item, manifest, evidence, source, mappedEffects) {
     if (duplicateVersion || rows.length !== 1 || exactRows.length !== 1) {
       return {
         status: "Schema represented but history ambiguous",
+        schemaRepresented: true,
+        historyRecorded: rows.length > 0,
         reasons: [duplicateVersion ? "duplicate migration version cannot establish exact source execution"
           : wrongName ? "history version is associated with a different migration name"
             : rows.length === 0 ? "schema effects exist without a history record"
@@ -274,11 +279,13 @@ function classifyOne(item, manifest, evidence, source, mappedEffects) {
         exactExecutionEstablished: false,
       };
     }
-    return { status: "Applied and verified", reasons: [], matchedObjects: matches.length, historyRows: rows.length, exactExecutionEstablished: true };
+    return { status: "Applied and verified", schemaRepresented: true, historyRecorded: true, reasons: [], matchedObjects: matches.length, historyRows: rows.length, exactExecutionEstablished: true };
   }
   if (matches.length > 0 || mismatches.length > 0 || rows.length > 0) {
     return {
       status: "Partial or drifted",
+      schemaRepresented: matches.length === expected.length,
+      historyRecorded: rows.length > 0,
       reasons: [
         ...(matches.length ? [matches.length + " of " + expected.length + " expected effects match"] : []),
         ...(mismatches.length ? [mismatches.length + " effects have conflicting fingerprints"] : []),
@@ -290,11 +297,22 @@ function classifyOne(item, manifest, evidence, source, mappedEffects) {
       exactExecutionEstablished: false,
     };
   }
-  return { status: "Verified unapplied", reasons: ["complete authenticated history and effect exports show no execution or represented effects"], matchedObjects: 0, historyRows: 0, exactExecutionEstablished: false };
+  return { status: "Verified unapplied", schemaRepresented: false, historyRecorded: false, reasons: ["complete authenticated history and effect exports show no execution or represented effects"], matchedObjects: 0, historyRows: 0, exactExecutionEstablished: false };
 }
-export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approvals, trustRoots, now = Date.now(), expectedInventoryBlobSha1 = INVENTORY_BLOB_SHA1 }) {
+export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approvals, trustRoots, trustedTrustRootsSha256, now = Date.now(), expectedInventoryBlobSha1 = INVENTORY_BLOB_SHA1 }) {
   const problems = [];
   if (!trustRoots || trustRoots.schemaVersion !== 1 || !Array.isArray(trustRoots.keys)) problems.push("external trust-root bundle is missing or malformed");
+  else {
+    const rootDigest = sha256(Buffer.from(canonicalJson(trustRoots)));
+    if (!/^[a-f0-9]{64}$/.test(trustedTrustRootsSha256 || "") || trustedTrustRootsSha256 !== rootDigest) {
+      problems.push("external trust roots do not match the independently provisioned trust-root digest");
+    }
+    const keyIds = trustRoots.keys.map((key) => key.keyId);
+    if (new Set(keyIds).size !== keyIds.length) problems.push("trust-root bundle contains duplicate key IDs");
+    if (trustRoots.revokedApprovalIds !== undefined && !Array.isArray(trustRoots.revokedApprovalIds)) {
+      problems.push("trust-root revoked approval registry is malformed");
+    }
+  }
   let source;
   try { source = validateSourceInventory(rootDir, manifest); }
   catch (error) {
@@ -363,6 +381,7 @@ function main() {
     return [match[1], match[2]];
   }));
   assert(options.evidence && options.approvals && options["trust-roots"], "evidence, approvals and external trust roots are required");
+  assert(/^[a-f0-9]{64}$/.test(process.env.DEEDLIGHT_MIGRATION_TRUST_ROOTS_SHA256 || ""), "DEEDLIGHT_MIGRATION_TRUST_ROOTS_SHA256 must be provisioned independently of repository evidence");
   const rootDir = process.cwd();
   const repoPath = realpathSync(rootDir);
   const trustPath = realpathSync(options["trust-roots"]);
@@ -371,7 +390,7 @@ function main() {
   const evidence = readJson(options.evidence);
   const approvals = readJson(options.approvals);
   const trustRoots = readJson(trustPath);
-  const report = analyzeMigrationEvidence({ rootDir, manifest, evidence, approvals, trustRoots });
+  const report = analyzeMigrationEvidence({ rootDir, manifest, evidence, approvals, trustRoots, trustedTrustRootsSha256: process.env.DEEDLIGHT_MIGRATION_TRUST_ROOTS_SHA256 });
   process.stdout.write(JSON.stringify(report, null, 2) + "\n");
   const mode = options.mode || "accept";
   assert(mode === "accept" || mode === "report", "mode must be accept or report");
