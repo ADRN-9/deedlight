@@ -159,17 +159,41 @@ expect_failure malformed_auth_context "Authenticated collector principal is miss
 expect_failure spoofed_login_identity "Authenticated collector principal is missing" deedlight_audit_spoofed_login deedlight_catalog_auditor
 expect_failure privileged_login_set_role_impersonation "Authenticated collector principal is missing" deedlight_audit_privileged_login deedlight_catalog_auditor xaipiovflxomcbfwtwmu 0123456789abcdef0123456789abcdef01234567 deedlight_catalog_auditor
 
+# A superuser can spoof both SQL-visible identity fields with SET SESSION AUTHORIZATION.
+# This is an explicit boundary demonstration, not an accepted collector invocation mode.
+session_authorization_output="$(
+  {
+    printf 'SET SESSION AUTHORIZATION deedlight_catalog_auditor;\\n'
+    printf "SELECT session_user || '|' || current_user;\\n"
+    printf "SET deedlight.authenticated_principal = 'deedlight_catalog_auditor';\\n"
+    printf "SET deedlight.expected_project_ref = 'xaipiovflxomcbfwtwmu';\\n"
+    printf "SET deedlight.repository_sha = '0123456789abcdef0123456789abcdef01234567';\\n"
+    printf '\\i scripts/production-migration-readonly-audit.sql\\n'
+    printf "SELECT 'AUDIT_TRANSACTION_ROLLED_BACK' WHERE current_setting('transaction_read_only') = 'off';\\n"
+  } | psql_as deedlight_audit_privileged_login -X -v ON_ERROR_STOP=1
+)"
+grep -Fq 'deedlight_catalog_auditor|deedlight_catalog_auditor' <<<"${session_authorization_output}"
+grep -Fq 'audit_fixture_sequence' <<<"${session_authorization_output}"
+grep -Fq 'AUDIT_TRANSACTION_ROLLED_BACK' <<<"${session_authorization_output}"
+echo "LIMITATION: superuser SET SESSION AUTHORIZATION can spoof SQL-visible collector identity; independent connection authentication is mandatory"
+
 # Direct SET ROLE is rejected even when the target role itself has no elevated attributes.
 GRANT deedlight_audit_switch_target TO deedlight_catalog_auditor;
 expect_failure direct_role_switch "SET ROLE is prohibited" deedlight_catalog_auditor deedlight_catalog_auditor xaipiovflxomcbfwtwmu 0123456789abcdef0123456789abcdef01234567 deedlight_audit_switch_target
 REVOKE deedlight_audit_switch_target FROM deedlight_catalog_auditor;
 
 # Nested and predefined-role memberships are rejected for the authenticated principal.
+GRANT pg_read_all_data TO deedlight_audit_nested_leaf;
+GRANT SELECT ON public.audit_fixture_private TO deedlight_audit_nested_leaf;
 GRANT deedlight_audit_nested_leaf TO deedlight_audit_nested_parent;
 GRANT deedlight_audit_nested_parent TO deedlight_catalog_auditor;
-expect_failure nested_role_membership "Authenticated or effective collector role has role membership" 
+expect_failure nested_role_membership "Authenticated or effective collector role has role membership"
+expect_failure nested_privileged_role_membership "Authenticated or effective collector role has role membership"
+expect_failure nested_inherited_application_privilege "Authenticated or effective collector role has role membership"
 REVOKE deedlight_audit_nested_parent FROM deedlight_catalog_auditor;
 REVOKE deedlight_audit_nested_leaf FROM deedlight_audit_nested_parent;
+REVOKE SELECT ON public.audit_fixture_private FROM deedlight_audit_nested_leaf;
+REVOKE pg_read_all_data FROM deedlight_audit_nested_leaf;
 
 GRANT pg_read_all_data TO deedlight_catalog_auditor;
 expect_failure pg_read_all_data_membership "Authenticated or effective collector role has role membership"
