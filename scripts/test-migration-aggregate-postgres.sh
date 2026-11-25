@@ -512,6 +512,10 @@ DROP ROLE migration_038_unexpected_inherited;
 GRANT EXECUTE ON FUNCTION public.is_admin() TO PUBLIC;
 SQL
 
+# First restore the approved Migration 038 source after the intentional historical
+# Sprint 6 preflight/postflight fixtures above. The following execution is the no-op.
+psql --no-psqlrc --set ON_ERROR_STOP=1 --file supabase/bootstrap/migration_038_admin_compatibility.sql
+
 # Canonical Migration 038 execution must be a verified no-op.
 canonical_before="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "
 SELECT jsonb_build_object(
