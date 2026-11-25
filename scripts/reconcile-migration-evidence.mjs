@@ -55,7 +55,7 @@ function validateSourceInventory(rootDir, manifest, expectedInventoryBlobSha1) {
   }
   return source;
 }
-function validateEvidence(evidence, now, trustedEvidenceSha256) {
+function validateEvidence(evidence, now, trustedEvidenceSha256, manifest) {
   const reasons = [];
   if (!evidence || evidence.schemaVersion !== 1) reasons.push("unsupported or missing evidence schema");
   const p = evidence && evidence.provenance;
@@ -152,7 +152,7 @@ function classifyOne(item, manifest, evidence, source) {
 }
 export function analyzeMigrationEvidence({ rootDir, manifest, evidence, trustedEvidenceSha256, expectedInventoryBlobSha1 = EXPECTED_INVENTORY_BLOB_SHA1, now = Date.now() }) {
   const source = validateSourceInventory(rootDir, manifest, expectedInventoryBlobSha1);
-  const evidenceProblems = validateEvidence(evidence, now, trustedEvidenceSha256);
+  const evidenceProblems = validateEvidence(evidence, now, trustedEvidenceSha256, manifest);
   const reports = manifest.migrations.map((item) => {
     if (evidenceProblems.length > 0) return { path: item.path, version: item.version, blobSha1: item.blobSha1, status: "Unknown", reasons: evidenceProblems };
     const result = classifyOne(item, manifest, evidence, source);
