@@ -661,8 +661,12 @@ echo "PASS: lock-timeout transaction abort releases locks and subsequent audit s
 # PostgreSQL notices the closed socket after the active statement finishes, not at client SIGKILL.
 termination_app_name="deedlight_audit_client_termination"
 PGAPPNAME="${termination_app_name}" psql -X -v ON_ERROR_STOP=1 \
-  -c "BEGIN; INSERT INTO public.audit_fixture_termination_marker VALUES (1); LOCK TABLE supabase_migrations.schema_migrations IN ACCESS EXCLUSIVE MODE; SELECT pg_sleep(10); COMMIT;" \
-  >"${tmp_dir}/client-termination.log" 2>&1 &
+  >"${tmp_dir}/client-termination.log" 2>&1 <<'SQL' &
+BEGIN;
+INSERT INTO public.audit_fixture_termination_marker VALUES (1);
+LOCK TABLE supabase_migrations.schema_migrations IN ACCESS EXCLUSIVE MODE;
+SELECT pg_sleep(10);
+SQL
 client_pid="$!"
 printf 'client_pid=%s\\n' "${client_pid}" >"${tmp_dir}/client-termination-stage.log"
 
