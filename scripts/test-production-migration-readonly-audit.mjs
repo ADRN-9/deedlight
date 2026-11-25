@@ -104,6 +104,9 @@ function sqlLexicalError(source) {
 }
 
 test("audit SQL is structurally complete and lexically well formed", () => {
+  const declaration = sql.slice(sql.indexOf("DECLARE"), sql.indexOf("BEGIN", sql.indexOf("DECLARE")));
+  assert.doesNotMatch(declaration, /to_regclass\('supabase_migrations\.schema_migrations'\)/);
+  assert.match(sql, /SET ROLE is prohibited for the migration audit collector\.[\s\S]*?v_history_oid := to_regclass\('supabase_migrations\.schema_migrations'\)/);
   assert.equal(sqlLexicalError(sql), null, sqlLexicalError(sql) ?? undefined);
   assert.equal((sql.match(/^BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;$/gim) ?? []).length, 1);
   assert.equal((sql.match(/^DO \$audit_preflight\$/gm) ?? []).length, 1);
