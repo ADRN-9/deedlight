@@ -124,7 +124,20 @@ AS $sprint6$
   );
 $sprint6$;
 SQL
+historical_owner_before="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "
+SELECT p.proowner::text || ':' || owner_role.rolname
+FROM pg_catalog.pg_proc p
+JOIN pg_catalog.pg_roles owner_role ON owner_role.oid = p.proowner
+WHERE p.oid = 'public.is_admin()'::regprocedure;
+")"
 psql --no-psqlrc --set ON_ERROR_STOP=1 --file supabase/bootstrap/migration_038_admin_compatibility.sql
+historical_owner_after="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "
+SELECT p.proowner::text || ':' || owner_role.rolname
+FROM pg_catalog.pg_proc p
+JOIN pg_catalog.pg_roles owner_role ON owner_role.oid = p.proowner
+WHERE p.oid = 'public.is_admin()'::regprocedure;
+")"
+test "$historical_owner_before" = "$historical_owner_after"
 
 # Positive and negative administrator authorization behavior.
 psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --command "
