@@ -264,6 +264,14 @@ AS 'SELECT 1';
 expect_failure duplicate_routine_search_path "Unexpected or unsafe routine configuration"
 DROP FUNCTION public.audit_fixture_duplicate_search_path();
 
+DROP SCHEMA IF EXISTS deedlight_audit_missing_schema CASCADE;
+CREATE FUNCTION public.audit_fixture_missing_search_path_schema()
+RETURNS integer LANGUAGE sql
+SET search_path = 'pg_catalog, deedlight_audit_missing_schema'
+AS 'SELECT 1';
+expect_failure missing_search_path_schema "Unexpected or unsafe routine configuration"
+DROP FUNCTION public.audit_fixture_missing_search_path_schema();
+
 # row_security and default_transaction_read_only may not be disabled by routines.
 CREATE FUNCTION public.audit_fixture_row_security_off()
 RETURNS integer LANGUAGE sql
