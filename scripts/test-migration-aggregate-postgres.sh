@@ -167,6 +167,160 @@ END
 \$authorization\$;
 "
 
+
+# Unexpected direct ACL grants must be rejected without revoking or normalizing them.
+psql --no-psqlrc --set ON_ERROR_STOP=1 <<'SQL'
+CREATE ROLE migration_038_unexpected_direct NOLOGIN;
+GRANT EXECUTE ON FUNCTION public.is_admin() TO migration_038_unexpected_direct;
+SQL
+if psql --no-psqlrc --set ON_ERROR_STOP=1 --file supabase/bootstrap/migration_038_admin_compatibility.sql >"$compat_log" 2>&1; then
+  echo "Compatibility bridge unexpectedly accepted an extra direct EXECUTE grant." >&2
+  exit 1
+fi
+if ! grep -Fq "unexpected direct function EXECUTE ACL grantee" "$compat_log"; then
+  cat "$compat_log"
+  echo "Compatibility bridge failed for an unexpected reason in direct-ACL test." >&2
+  exit 1
+fi
+psql --no-psqlrc --set ON_ERROR_STOP=1 <<'SQL'
+REVOKE EXECUTE ON FUNCTION public.is_admin() FROM migration_038_unexpected_direct;
+DROP ROLE migration_038_unexpected_direct;
+SQL
+
+# Test inherited EXECUTE separately with PUBLIC absent; do not mistake PUBLIC's
+# intentional broad ACL for a membership-derived privilege.
+psql --no-psqlrc --set ON_ERROR_STOP=1 <<'SQL'
+REVOKE EXECUTE ON FUNCTION public.is_admin() FROM PUBLIC;
+CREATE ROLE migration_038_unexpected_inherited NOLOGIN;
+GRANT authenticated TO migration_038_unexpected_inherited WITH INHERIT TRUE, SET TRUE;
+SQL
+if psql --no-psqlrc --set ON_ERROR_STOP=1 --file supabase/bootstrap/migration_038_admin_compatibility.sql >"$compat_log" 2>&1; then
+  echo "Compatibility bridge unexpectedly accepted inherited EXECUTE through role membership." >&2
+  exit 1
+fi
+if ! grep -Fq "unexpected inherited/effective function EXECUTE privilege" "$compat_log"; then
+  cat "$compat_log"
+  echo "Compatibility bridge failed for an unexpected reason in inherited-ACL test." >&2
+  exit 1
+fi
+psql --no-psqlrc --set ON_ERROR_STOP=1 <<'SQL'
+REVOKE authenticated FROM migration_038_unexpected_inherited;
+DROP ROLE migration_038_unexpected_inherited;
+GRANT EXECUTE ON FUNCTION public.is_admin() TO PUBLIC;
+SQL
+
+# Canonical Migration 038 execution must be a verified no-op.
+canonical_before="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "
+SELECT jsonb_build_object(
+  'source', p.prosrc,
+  'owner_oid', p.proowner,
+  'owner_name', owner_role.rolname,
+  'acl', p.proacl::text,
+  'config', p.proconfig
+)::text
+FROM pg_catalog.pg_proc p
+JOIN pg_catalog.pg_roles owner_role ON owner_role.oid = p.proowner
+WHERE p.oid = 'public.is_admin()'::regprocedure;
+")"
+psql --no-psqlrc --set ON_ERROR_STOP=1 --file supabase/bootstrap/migration_038_admin_compatibility.sql
+canonical_after="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "
+SELECT jsonb_build_object(
+  'source', p.prosrc,
+  'owner_oid', p.proowner,
+  'owner_name', owner_role.rolname,
+  'acl', p.proacl::text,
+  'config', p.proconfig
+)::text
+FROM pg_catalog.pg_proc p
+JOIN pg_catalog.pg_roles owner_role ON owner_role.oid = p.proowner
+WHERE p.oid = 'public.is_admin()'::regprocedure;
+")"
+test "$canonical_before" = "$canonical_after"
+
+# Prepare the exact historical definition, then inject a test-only failure from a
+# PostgreSQL ddl_command_end event trigger after CREATE OR REPLACE has run.
+psql --no-psqlrc --set ON_ERROR_STOP=1 <<'SQL'
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS boolean
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $sprint6$
+  select exists (
+    select 1
+    from public.profiles
+    where user_id = auth.uid()
+      and role = 'admin'
+      and coalesce(is_suspended, false) = false
+  );
+$sprint6$;
+
+CREATE FUNCTION public.__migration_038_test_fail_after_replace()
+RETURNS event_trigger
+LANGUAGE plpgsql
+AS $event$
+DECLARE
+  command record;
+BEGIN
+  FOR command IN SELECT * FROM pg_catalog.pg_event_trigger_ddl_commands() LOOP
+    IF command.object_type = 'function'
+      AND command.object_identity = 'public.is_admin()' THEN
+      RAISE EXCEPTION 'test-only injected post-replacement failure';
+    END IF;
+  END LOOP;
+END;
+$event$;
+
+CREATE EVENT TRIGGER migration_038_test_fail_after_replace
+ON ddl_command_end
+WHEN TAG IN ('CREATE FUNCTION')
+EXECUTE FUNCTION public.__migration_038_test_fail_after_replace();
+SQL
+
+rollback_before="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "
+SELECT jsonb_build_object(
+  'source', p.prosrc,
+  'owner_oid', p.proowner,
+  'owner_name', owner_role.rolname,
+  'acl', p.proacl::text,
+  'config', p.proconfig
+)::text
+FROM pg_catalog.pg_proc p
+JOIN pg_catalog.pg_roles owner_role ON owner_role.oid = p.proowner
+WHERE p.oid = 'public.is_admin()'::regprocedure;
+")"
+if psql --no-psqlrc --set ON_ERROR_STOP=1 --file supabase/bootstrap/migration_038_admin_compatibility.sql >"$compat_log" 2>&1; then
+  echo "Compatibility bridge unexpectedly survived injected post-replacement failure." >&2
+  exit 1
+fi
+if ! grep -Fq "test-only injected post-replacement failure" "$compat_log"; then
+  cat "$compat_log"
+  echo "Compatibility bridge failed before the injected post-replacement failure." >&2
+  exit 1
+fi
+psql --no-psqlrc --set ON_ERROR_STOP=1 <<'SQL'
+DROP EVENT TRIGGER migration_038_test_fail_after_replace;
+DROP FUNCTION public.__migration_038_test_fail_after_replace();
+SQL
+rollback_after="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "
+SELECT jsonb_build_object(
+  'source', p.prosrc,
+  'owner_oid', p.proowner,
+  'owner_name', owner_role.rolname,
+  'acl', p.proacl::text,
+  'config', p.proconfig
+)::text
+FROM pg_catalog.pg_proc p
+JOIN pg_catalog.pg_roles owner_role ON owner_role.oid = p.proowner
+WHERE p.oid = 'public.is_admin()'::regprocedure;
+")"
+test "$rollback_before" = "$rollback_after"
+
+# The exact historical source remains recoverable after rollback.
+psql --no-psqlrc --set ON_ERROR_STOP=1 --file supabase/bootstrap/migration_038_admin_compatibility.sql
+psql --no-psqlrc --set ON_ERROR_STOP=1 --file supabase/bootstrap/migration_038_admin_compatibility.sql
+
 echo "Disposable PostgreSQL 16: all 39 migrations, seed, compatibility bridge, and Migration 038 executed."
-echo "PASS: NOT NULL suspension invariant, exact function fingerprints, grants, and admin/suspension authorization behavior."
-echo "PASS: nullable suspension and unknown is_admin() definitions are rejected fail-closed."
+echo "PASS: suspension invariant, exact fingerprints, owner preservation, ACL/default-ACL preservation, and admin authorization."
+echo "PASS: unexpected direct/inherited grants and unknown definitions are rejected fail-closed."
+echo "PASS: canonical re-execution is a no-op and injected post-replacement failure rolls back body, owner, ACL, and configuration."
