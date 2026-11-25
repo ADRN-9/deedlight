@@ -42,7 +42,7 @@
 -- SOURCE 202611240037 202611240037_delivery_provider_integrity_conflict_evidence.sql blob=ac0449b50a881e3a895ef40a8eee28bea95a6ec0 bytes=44182
 -- SOURCE 202611240038 202611240038_delivery_provider_integrity_lock_order_pagination.sql blob=38951751fc5abeb79b75c4e37e55da01262a18b8 bytes=43748
 -- BOOTSTRAP SEED supabase/seed.sql blob=e85554aed1553dec407e83966a1b0093f5d1e9a3 bytes=2574 upserts=3
--- COMPATIBILITY supabase/bootstrap/migration_038_admin_compatibility.sql blob=babb856b41cbf2831f3022b022b552074f603d50 bytes=12587 placement=after-202611240037-before-202611240038
+-- COMPATIBILITY supabase/bootstrap/migration_038_admin_compatibility.sql blob=e62fd86f90bc56d7357dfdc2d06b6df8246890fb bytes=12921 placement=after-202611240037-before-202611240038
 -- END SOURCE PROVENANCE
 -- BEGIN MIGRATION SQL
 create extension if not exists pgcrypto;
@@ -10531,7 +10531,11 @@ begin
     from pg_catalog.pg_roles r
     where r.oid not in (v_owner_oid, 'anon'::regrole::oid, 'authenticated'::regrole::oid)
       and not r.rolsuper
-      and pg_catalog.has_function_privilege(r.oid, v_function_oid, 'EXECUTE')
+      and (
+        pg_catalog.has_function_privilege(r.oid, v_function_oid, 'EXECUTE')
+        or pg_catalog.pg_has_role(r.oid, 'anon'::regrole::oid, 'SET')
+        or pg_catalog.pg_has_role(r.oid, 'authenticated'::regrole::oid, 'SET')
+      )
   ) then
     raise exception 'Migration 038 compatibility rejected unexpected inherited/effective function EXECUTE privilege.' using errcode = '55000';
   end if;
@@ -10668,7 +10672,11 @@ begin
     from pg_catalog.pg_roles r
     where r.oid not in (v_owner_oid, 'anon'::regrole::oid, 'authenticated'::regrole::oid)
       and not r.rolsuper
-      and pg_catalog.has_function_privilege(r.oid, v_function_oid, 'EXECUTE')
+      and (
+        pg_catalog.has_function_privilege(r.oid, v_function_oid, 'EXECUTE')
+        or pg_catalog.pg_has_role(r.oid, 'anon'::regrole::oid, 'SET')
+        or pg_catalog.pg_has_role(r.oid, 'authenticated'::regrole::oid, 'SET')
+      )
   ) then
     raise exception 'Migration 038 compatibility postflight detected unexpected inherited/effective function EXECUTE privilege.' using errcode = '55000';
   end if;
