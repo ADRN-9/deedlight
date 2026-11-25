@@ -113,7 +113,11 @@ BEGIN
     CROSS JOIN LATERAL (
       SELECT
         split_part(cfg.setting, '=', 1) AS setting_name,
-        regexp_replace(cfg.setting, '^[^=]*=', '') AS setting_value
+        CASE
+          WHEN split_part(cfg.setting, '=', 1) = 'search_path'
+            THEN pg_catalog.btrim(regexp_replace(cfg.setting, '^[^=]*=', ''), '"')
+          ELSE regexp_replace(cfg.setting, '^[^=]*=', '')
+        END AS setting_value
     ) parsed
     LEFT JOIN LATERAL (
       SELECT pg_catalog.regexp_match(
@@ -477,10 +481,18 @@ SELECT
     SELECT jsonb_agg(
       jsonb_build_object(
         'name', split_part(cfg.setting, '=', 1),
-        'value', regexp_replace(cfg.setting, '^[^=]*=', '')
+        'value', CASE
+          WHEN split_part(cfg.setting, '=', 1) = 'search_path'
+            THEN pg_catalog.btrim(regexp_replace(cfg.setting, '^[^=]*=', ''), '"')
+          ELSE regexp_replace(cfg.setting, '^[^=]*=', '')
+        END
       )
       ORDER BY split_part(cfg.setting, '=', 1),
-        regexp_replace(cfg.setting, '^[^=]*=', '')
+        CASE
+          WHEN split_part(cfg.setting, '=', 1) = 'search_path'
+            THEN pg_catalog.btrim(regexp_replace(cfg.setting, '^[^=]*=', ''), '"')
+          ELSE regexp_replace(cfg.setting, '^[^=]*=', '')
+        END
     )
     FROM unnest(COALESCE(p.proconfig, ARRAY[]::text[])) cfg(setting)
   ), '[]'::jsonb) AS routine_settings
