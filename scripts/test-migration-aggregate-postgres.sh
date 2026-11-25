@@ -219,6 +219,7 @@ WHERE p.oid = 'public.is_admin()'::regprocedure;
 ")"
 psql --no-psqlrc --set ON_ERROR_STOP=1 <<'SQL'
 CREATE ROLE migration_038_fixture_owner NOLOGIN;
+CREATE ROLE migration_038_owner_set_parent NOLOGIN;
 CREATE ROLE migration_038_owner_set_only NOLOGIN;
 GRANT CREATE ON SCHEMA public TO migration_038_fixture_owner;
 ALTER FUNCTION public.is_admin() OWNER TO migration_038_fixture_owner;
@@ -226,10 +227,11 @@ SET ROLE migration_038_fixture_owner;
 REVOKE EXECUTE ON FUNCTION public.is_admin() FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.is_admin() TO anon, authenticated, service_role;
 RESET ROLE;
-GRANT migration_038_fixture_owner TO migration_038_owner_set_only WITH INHERIT FALSE, SET TRUE;
+GRANT migration_038_fixture_owner TO migration_038_owner_set_parent WITH INHERIT FALSE, SET TRUE;
+GRANT migration_038_owner_set_parent TO migration_038_owner_set_only WITH INHERIT FALSE, SET TRUE;
 SQL
-if [ "$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT pg_catalog.pg_has_role('migration_038_owner_set_only', 'migration_038_fixture_owner', 'SET')")" != "t" ]; then
-  echo "PostgreSQL 16 fixture did not establish SET-only membership to the function owner." >&2
+if [ "$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT pg_catalog.pg_has_role('migration_038_owner_set_only', 'migration_038_fixture_owner', 'SET') AND NOT pg_catalog.pg_has_role('migration_038_owner_set_only', 'migration_038_fixture_owner', 'USAGE')")" != "t" ]; then
+  echo "PostgreSQL 16 fixture did not establish transitive SET-only membership to the function owner." >&2
   exit 1
 fi
 owner_set_before="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "
@@ -267,7 +269,8 @@ WHERE p.oid = 'public.is_admin()'::regprocedure;
 ")"
 test "$owner_set_before" = "$owner_set_after"
 psql --no-psqlrc --set ON_ERROR_STOP=1 <<'SQL'
-REVOKE migration_038_fixture_owner FROM migration_038_owner_set_only;
+REVOKE migration_038_owner_set_parent FROM migration_038_owner_set_only;
+REVOKE migration_038_fixture_owner FROM migration_038_owner_set_parent;
 SQL
 
 # A direct service_role grant is required when PUBLIC and role inheritance do not supply it.
@@ -451,6 +454,7 @@ GRANT EXECUTE ON FUNCTION public.is_admin() TO PUBLIC, anon, authenticated;
 RESET ROLE;
 REVOKE CREATE ON SCHEMA public FROM migration_038_fixture_owner;
 DROP ROLE migration_038_owner_set_only;
+DROP ROLE migration_038_owner_set_parent;
 DROP ROLE migration_038_fixture_owner;
 SQL
 
