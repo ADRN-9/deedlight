@@ -160,8 +160,8 @@ test("routine configuration is canonical, trusted, bounded and deterministically
   assert.match(sql, /pg_catalog\.acldefault\('n'/);
   assert.match(sql, /acl\.grantee = 0 AND acl\.privilege_type = 'CREATE'/);
   assert.match(sql, /path_owner\.rolcanlogin/);
-  assert.match(sql, /database_owner\\.datdba/);
-  assert.doesNotMatch(sql, /path_owner\\.rolname <> 'pg_database_owner'/);
+  assert.match(sql, /database_owner\.datdba/);
+  assert.doesNotMatch(sql, /path_owner\.rolname <> 'pg_database_owner'/);
   assert.match(sql, /row_security' AND parsed\.setting_value = 'on'/);
   assert.match(sql, /default_transaction_read_only' AND parsed\.setting_value = 'on'/);
   assert.match(sql, /timeout_value\.parts IS NOT NULL/);
