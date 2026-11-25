@@ -209,6 +209,51 @@ The 39 migration SQL files were inspected at the pinned source revision. The fol
 | 037 provider conflict evidence | preflight; integrity cases/evidence/history tables, indexes, RLS and immutable audit triggers; conflict capture/resolution functions; lifecycle/suppression wrappers; audit/history inserts and case/lifecycle updates; routine ACLs |
 | 038 provider lock order/pagination | preflight; integrity cursor/history indexes; lifecycle/event/suppression function replacements; paginated admin conflict/detail/evidence/history functions; service-role ACLs |
 
+
+Source anchor register (line numbers refer to the exact pinned migration files; anchors are review starting points, not an exhaustive substitute for per-effect records):
+
+| Migration file | Reviewed source anchors |
+|---|---|
+| 202607210001 | L1-L335 |
+| 202607210002 | L1-L180 |
+| 202607220003 | L4-L38 |
+| 202607260004 | L5-L146 |
+| 202607260005 | L5-L180 |
+| 202607260006 | L5-L76 |
+| 202607260007 Sprint 6 | L4-L202 |
+| 202607260007 Sprint 7 | L3-L153 |
+| 202607270008 | L6-L47 |
+| 202608060009 | L6-L233 |
+| 202608100010 | L8-L130 |
+| 202608100011 | L11-L459 |
+| 202608110012 | L13-L175 |
+| 202608110013 | L12-L116 |
+| 202608120014 | L7-L98 |
+| 202608130015 | L12-L290 |
+| 202608130016 | L9-L439 |
+| 202608130017 | L11-L445 |
+| 202608140018 | L8-L118 |
+| 202609230019 | L11-L573 |
+| 202609230020 | L10-L485 |
+| 202609230021 | L6-L116 |
+| 202609240022 | L13-L28 |
+| 202611120023 | L5-L292 |
+| 202611120024 | L3-L322 |
+| 202611190025 | L6-L488 |
+| 202611190026 | L4-L400 |
+| 202611200027 | L5-L602 |
+| 202611210028 | L5-L212 |
+| 202611210029 | L5-L169 |
+| 202611210030 | L3-L211 |
+| 202611220031 | L5-L184 |
+| 202611220032 | L5-L384 |
+| 202611220033 | L5-L123 |
+| 202611230034 | L5-L310 |
+| 202611230035 | L9-L12 |
+| 202611230036 | L7-L75 |
+| 202611240037 | L7-L1161 |
+| 202611240038 | L5-L1025 |
+
 This source review identifies operation families and data-write sites, but does not prove the semantic result of dynamic SQL, DO blocks, conditional DDL, existing-row transformations, trigger side effects, ownership inheritance or effective role grants. Those require line-specific canonical effect records and independently reviewed fingerprints. The analyzer's synthetic fixtures deliberately do not claim to model these 39 actual migration effects.
 
 ## Controlled Production trust-root provisioning
