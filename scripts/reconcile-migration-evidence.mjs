@@ -8,7 +8,8 @@ const PROJECT_REF = "xaipiovflxomcbfwtwmu";
 const INVENTORY_BLOB_SHA1 = "95d514a0bd97ff448c9507252eb1f5e69a507442";
 const MAX_EVIDENCE_AGE_MS = 24 * 60 * 60 * 1000;
 const CATEGORIES = ["schema", "privileges", "ownership", "routines", "dataTransformations", "backfills", "dependencies", "preconditions", "postconditions"];
-const CATALOG_KINDS = ["tables", "columns", "constraints", "indexes", "triggers", "policies", "routines", "privileges", "ownership", "dataTransformations", "backfills", "dependencies", "preconditions", "postconditions"];
+const CATALOG_KINDS = ["schemas", "tables", "sequences", "columns", "constraints", "indexes", "triggers", "policies", "routines", "privileges", "ownership", "dataTransformations", "backfills", "dependencies", "preconditions", "postconditions"];
+const PRIVILEGE_OBJECT_KINDS = new Set(["tables", "sequences", "routines"]);
 const SCHEMA_KINDS = new Set(["tables", "columns", "constraints", "indexes", "triggers", "policies"]);
 const READ_ONLY_PRIVILEGES = new Set(["CONNECT", "USAGE", "SELECT"]);
 
@@ -135,7 +136,7 @@ function verifySignedArtifact(artifact, requiredKind, requiredRole, trustRoots, 
 function sameClaims(actual, expected) {
   return canonicalJson(actual) === canonicalJson(expected);
 }
-function validateCollectorAuthority(claims, provenance, evidenceDigest, authority, problems) {
+function validateCollectorAuthority(claims, provenance, evidenceDigest, authority, catalogObjects, now, problems) {
   if (!claims) return;
   const expected = {
     projectRef: PROJECT_REF,
@@ -147,7 +148,7 @@ function validateCollectorAuthority(claims, provenance, evidenceDigest, authorit
   for (const [key, value] of Object.entries(expected)) {
     if (claims[key] !== value) problems.push("collector attestation does not bind exact " + key);
   }
-  const authorityKeys = ["capturedAt", "collectorIdentity", "completed", "databaseAuthority", "executionId", "projectRef", "queryBundleSha256", "readOnlyTransaction", "schemaVersion"];
+  const authorityKeys = ["capturedAt", "collectorIdentity", "completed", "databaseAuthority", "executionEvidence", "executionId", "projectRef", "queryBundleSha256", "readOnlyTransaction", "schemaVersion"];
   if (!authority || Object.keys(authority).sort().join(",") !== authorityKeys.sort().join(",")
     || authority.schemaVersion !== 1 || authority.projectRef !== PROJECT_REF
     || authority.queryBundleSha256 !== provenance.queryBundleSha256
@@ -156,6 +157,22 @@ function validateCollectorAuthority(claims, provenance, evidenceDigest, authorit
     || typeof authority.executionId !== "string" || !authority.executionId.trim()) {
     problems.push("collector authority evidence is missing, incomplete or not bound to the approved read-only query execution");
     return;
+  }
+  const execution = authority.executionEvidence;
+  const executionKeys = ["capturedAt", "collectorIdentity", "completed", "completedAt", "executionId", "projectRef", "queryBundleSha256", "readOnlyTransaction", "resultDigest", "startedAt", "statementCount"];
+  const startedAt = Date.parse(execution && execution.startedAt);
+  const completedAt = Date.parse(execution && execution.completedAt);
+  const capturedAt = Date.parse(provenance.capturedAt);
+  if (!execution || Object.keys(execution).sort().join(",") !== executionKeys.sort().join(",")
+    || execution.projectRef !== PROJECT_REF || execution.collectorIdentity !== provenance.collectorIdentity
+    || execution.queryBundleSha256 !== provenance.queryBundleSha256 || execution.capturedAt !== provenance.capturedAt
+    || execution.executionId !== authority.executionId || execution.completed !== true || execution.readOnlyTransaction !== true
+    || !Number.isInteger(execution.statementCount) || execution.statementCount < 1
+    || !/^[a-f0-9]{64}$/.test(execution.resultDigest || "")
+    || !Number.isFinite(startedAt) || !Number.isFinite(completedAt)
+    || startedAt > completedAt || completedAt > capturedAt || capturedAt > now
+    || execution.resultDigest !== sha256(Buffer.from(canonicalJson(authority.databaseAuthority)))) {
+    problems.push("collector query execution receipt is incomplete or not bound to the exact approved query, project, identity, capture and result");
   }
   const authorityEvidenceDigest = sha256(Buffer.from(canonicalJson(authority)));
   if (claims.authorityEvidenceDigest !== authorityEvidenceDigest || claims.executionId !== authority.executionId) {
@@ -182,15 +199,26 @@ function validateCollectorAuthority(claims, provenance, evidenceDigest, authorit
     || db.databasePrivileges.length !== 1 || db.databasePrivileges[0] !== "CONNECT") {
     problems.push("collector database-level privilege export is incomplete or not read-only");
   }
-  if (db.schemaPrivilegesComplete !== true || !Array.isArray(db.schemaPrivileges) || db.schemaPrivileges.length === 0
-    || db.schemaPrivileges.some((entry) => !entry || typeof entry.schema !== "string" || !entry.schema
+  const catalogObjects = Array.isArray(catalogObjects) ? catalogObjects : [];
+  const expectedSchemas = catalogObjects.filter((entry) => entry.kind === "schemas").map((entry) => entry.identity).sort();
+  const expectedObjects = catalogObjects.filter((entry) => PRIVILEGE_OBJECT_KINDS.has(entry.kind)).map((entry) => entry.identity).sort();
+  const schemaRows = Array.isArray(db.schemaPrivileges) ? db.schemaPrivileges : [];
+  const objectRows = Array.isArray(db.objectPrivileges) ? db.objectPrivileges : [];
+  const schemaIds = schemaRows.map((entry) => entry && entry.schema).sort();
+  const objectIds = objectRows.map((entry) => entry && entry.identity).sort();
+  if (!expectedSchemas.length || db.schemaPrivilegesComplete !== true
+    || schemaIds.some((value) => typeof value !== "string") || new Set(schemaIds).size !== schemaIds.length
+    || canonicalJson(schemaIds) !== canonicalJson(expectedSchemas)
+    || schemaRows.some((entry) => !entry || Object.keys(entry).sort().join(",") !== "privileges,schema"
       || !Array.isArray(entry.privileges) || entry.privileges.length !== 1 || entry.privileges[0] !== "USAGE")) {
-    problems.push("collector effective schema privileges are incomplete or include schema mutation authority");
+    problems.push("collector schema privilege identities do not exactly match the complete schema catalog inventory");
   }
-  if (db.objectPrivilegesComplete !== true || !Array.isArray(db.objectPrivileges) || db.objectPrivileges.length === 0
-    || db.objectPrivileges.some((entry) => !entry || typeof entry.identity !== "string" || !entry.identity
+  if (!expectedObjects.length || db.objectPrivilegesComplete !== true
+    || objectIds.some((value) => typeof value !== "string") || new Set(objectIds).size !== objectIds.length
+    || canonicalJson(objectIds) !== canonicalJson(expectedObjects)
+    || objectRows.some((entry) => !entry || Object.keys(entry).sort().join(",") !== "identity,privileges"
       || !Array.isArray(entry.privileges) || entry.privileges.length !== 1 || entry.privileges[0] !== "SELECT")) {
-    problems.push("collector effective object privileges are incomplete or include write/execute authority");
+    problems.push("collector object privilege identities do not exactly match the complete table, sequence and routine catalog inventory");
   }
   if (db.catalogPrivilegesComplete !== true || !Array.isArray(db.catalogPrivileges)
     || db.catalogPrivileges.length !== 1 || db.catalogPrivileges[0] !== "SELECT") {
@@ -303,6 +331,11 @@ function validateEvidence(evidence, now, manifest, problems) {
   if (Number.isFinite(captured) && (now - captured < 0 || now - captured > MAX_EVIDENCE_AGE_MS)) problems.push("evidence is stale or timestamp is in the future");
   if (!evidence || !evidence.history || evidence.history.complete !== true || !Array.isArray(evidence.history.rows)) problems.push("migration history export is incomplete");
   if (!evidence || !evidence.catalog || evidence.catalog.complete !== true || !Array.isArray(evidence.catalog.objects)) problems.push("live catalog export is incomplete");
+  const completeKinds = evidence && evidence.catalog && evidence.catalog.completeKinds;
+  if (!Array.isArray(completeKinds) || new Set(completeKinds).size !== CATALOG_KINDS.length
+    || canonicalJson([...completeKinds].sort()) !== canonicalJson([...CATALOG_KINDS].sort())) {
+    problems.push("catalog completeness dimensions are missing, duplicated or unexpected");
+  }
   for (const kind of CATALOG_KINDS) {
     if (!evidence || !evidence.catalog || !Array.isArray(evidence.catalog.completeKinds) || !evidence.catalog.completeKinds.includes(kind)) {
       problems.push("catalog export does not attest complete " + kind);
@@ -312,6 +345,8 @@ function validateEvidence(evidence, now, manifest, problems) {
     const versions = new Set(manifest.migrations.map((item) => item.version));
     const executionIds = new Set();
     for (const row of evidence.history.rows) {
+      const executedAt = Date.parse(row && row.executedAt);
+      const capturedAt = Date.parse(evidence.provenance && evidence.provenance.capturedAt);
       if (!row || typeof row.version !== "string" || !/^[0-9]{12}$/.test(row.version) || !versions.has(row.version)) {
         problems.push("migration history contains malformed or unrecognized version");
       } else if (typeof row.name !== "string" || !row.name.trim()
@@ -326,6 +361,10 @@ function validateEvidence(evidence, now, manifest, problems) {
       }
       if (row?.sourceBlobSha1 !== undefined && !/^[a-f0-9]{40}$/.test(row.sourceBlobSha1)) {
         problems.push("migration history source blob identity is malformed");
+      }
+      if (Number.isFinite(executedAt) && Number.isFinite(capturedAt)
+        && (executedAt > capturedAt || capturedAt > now)) {
+        problems.push("migration execution timestamp must satisfy executedAt <= evidence capturedAt <= current time");
       }
     }
   }
@@ -474,7 +513,8 @@ export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approval
   };
   if (evidenceClaims && !sameClaims(evidenceClaims, expectedEvidenceClaims)) problems.push("signed evidence approval does not bind the exact evidence, mapping, project, collector, query bundle and capture timestamp");
   if (mappingClaims && !sameClaims(mappingClaims, expectedMappingClaims)) problems.push("signed mapping approval does not bind the exact complete mapping and inventory");
-  validateCollectorAuthority(collectorClaims, provenance, evidenceDigest, evidence && evidence.collectorAuthority, problems);
+  validateCollectorAuthority(collectorClaims, provenance, evidenceDigest, evidence && evidence.collectorAuthority,
+    evidence && evidence.catalog && evidence.catalog.objects, now, problems);
   const reports = manifest.migrations.map((item) => {
     if (problems.length) return { path: item.path, version: item.version, blobSha1: item.blobSha1, status: "Unknown", reasons: ["one or more evidence, approval, mapping or collector trust checks failed"] };
     return { path: item.path, version: item.version, blobSha1: item.blobSha1, ...classifyOne(item, manifest, evidence, source, mappedEffects) };
