@@ -296,6 +296,8 @@ test("PostgreSQL 16 migration-audit fixture fails closed before destructive setu
   assert.match(runner, /--username=/);
   assert.match(runner, /PGHOSTADDR/);
   assert.match(runner, /unset PGHOSTADDR PGSERVICE PGSERVICEFILE PGPASSFILE PGOPTIONS/);
+  assert.match(runner, /readonly DEEDLIGHT_LIBPQ_HOST/);
+  assert.match(runner, /DEEDLIGHT_PSQL_USER=.*DEEDLIGHT_PSQL_PASSWORD=/);
   assert.match(runner, /PGSERVICEFILE/);
   assert.match(runner, /PGOPTIONS/);
   assert.match(runner, /actual_server_addr/);
