@@ -42,7 +42,7 @@
 -- SOURCE 202611240037 202611240037_delivery_provider_integrity_conflict_evidence.sql blob=ac0449b50a881e3a895ef40a8eee28bea95a6ec0 bytes=44182
 -- SOURCE 202611240038 202611240038_delivery_provider_integrity_lock_order_pagination.sql blob=38951751fc5abeb79b75c4e37e55da01262a18b8 bytes=43748
 -- BOOTSTRAP SEED supabase/seed.sql blob=e85554aed1553dec407e83966a1b0093f5d1e9a3 bytes=2574 upserts=3
--- COMPATIBILITY supabase/bootstrap/migration_038_admin_compatibility.sql blob=af97a82495b02a9d60efb0354a452e73fa407fea bytes=12697 placement=after-202611240037-before-202611240038
+-- COMPATIBILITY supabase/bootstrap/migration_038_admin_compatibility.sql blob=6cb4bde3ddf76ab58abc5f957d9d58fd674c201a bytes=12581 placement=after-202611240037-before-202611240038
 -- END SOURCE PROVENANCE
 -- BEGIN MIGRATION SQL
 create extension if not exists pgcrypto;
@@ -10510,6 +10510,7 @@ begin
     )) acl
     where acl.privilege_type <> 'EXECUTE'
       or acl.is_grantable
+      or acl.grantor <> v_owner_oid
       or acl.grantee not in (0, v_owner_oid, 'anon'::regrole::oid, 'authenticated'::regrole::oid)
   ) then
     raise exception 'Migration 038 compatibility rejected unexpected direct function EXECUTE ACL grantee or grant option.' using errcode = '55000';
@@ -10529,6 +10530,7 @@ begin
     select 1
     from pg_catalog.pg_roles r
     where r.oid not in (v_owner_oid, 'anon'::regrole::oid, 'authenticated'::regrole::oid)
+      and not r.rolsuper
       and pg_catalog.has_function_privilege(r.oid, v_function_oid, 'EXECUTE')
   ) then
     raise exception 'Migration 038 compatibility rejected unexpected inherited/effective function EXECUTE privilege.' using errcode = '55000';
@@ -10556,14 +10558,6 @@ end;
 $migration_038_admin_compatibility_preflight$;
 
 -- Canonical Migration 038 re-execution is an explicit verified no-op.
-do $migration_038_admin_compatibility_replace$
-begin
-  if current_setting('deedlight.migration038.canonical_noop')::boolean then
-    return;
-  end if;
-end;
-$migration_038_admin_compatibility_replace$;
-
 -- The function is replaced only for the exact reviewed Sprint 6 fingerprint.
 do $migration_038_admin_compatibility_apply$
 begin
@@ -10574,7 +10568,115 @@ begin
       'language sql' || E'\n' ||
       'security definer' || E'\n' ||
       'set search_path = public' || E'\n' ||
-      'as $fn
+      'as $fn$' || E'\n' ||
+      '  select exists (' || E'\n' ||
+      '    select 1' || E'\n' ||
+      '    from public.profiles' || E'\n' ||
+      '    where user_id = auth.uid()' || E'\n' ||
+      '      and role = ''admin''' || E'\n' ||
+      '      and is_suspended = false' || E'\n' ||
+      '  );' || E'\n' ||
+      '$fn$';
+  end if;
+end;
+$migration_038_admin_compatibility_apply$;
+
+do $migration_038_admin_compatibility_postflight$
+declare
+  v_source text;
+  v_source_hash text;
+  v_security_definer boolean;
+  v_config text[];
+  v_crypto_schema text;
+  v_owner_oid oid;
+  v_owner_name name;
+  v_acl jsonb;
+  v_default_acl jsonb;
+  v_public_execute boolean;
+  v_function_oid oid := 'public.is_admin()'::regprocedure;
+begin
+  select n.nspname into v_crypto_schema
+  from pg_catalog.pg_extension e
+  join pg_catalog.pg_namespace n on n.oid = e.extnamespace
+  where e.extname = 'pgcrypto';
+
+  select p.prosrc, p.prosecdef, p.proconfig, p.proowner, owner_role.rolname
+    into v_source, v_security_definer, v_config, v_owner_oid, v_owner_name
+  from pg_catalog.pg_proc p
+  left join pg_catalog.pg_roles owner_role on owner_role.oid = p.proowner
+  where p.oid = v_function_oid;
+
+  execute format(
+    'select encode(%I.digest(convert_to($1, ''UTF8''), ''hex''), ''hex'')',
+    v_crypto_schema
+  ) into v_source_hash using v_source;
+
+  if v_source_hash is distinct from '85e6838cf8feec05bcfe9e9051e5192bc8f0d42f7a53cb6c0450067d70bba74b'
+    or v_security_definer is distinct from true
+    or v_config is distinct from array['search_path=public']::text[] then
+    raise exception 'Migration 038 compatibility failed to establish the exact reviewed is_admin() source and execution context.' using errcode = '55000';
+  end if;
+
+  if v_owner_oid::text is distinct from current_setting('deedlight.migration038.owner_oid')
+    or v_owner_name::text is distinct from current_setting('deedlight.migration038.owner_name') then
+    raise exception 'Migration 038 compatibility failed to preserve the exact is_admin() owner identity.' using errcode = '55000';
+  end if;
+
+  select COALESCE(jsonb_agg(jsonb_build_object(
+    'grantee', acl.grantee,
+    'grantor', acl.grantor,
+    'privilege', acl.privilege_type,
+    'grantable', acl.is_grantable
+  ) order by acl.grantee, acl.grantor, acl.privilege_type, acl.is_grantable), '[]'::jsonb)
+    into v_acl
+  from pg_catalog.aclexplode((
+    select COALESCE(p.proacl, pg_catalog.acldefault('f', p.proowner))
+    from pg_catalog.pg_proc p where p.oid = v_function_oid
+  )) acl;
+
+  select COALESCE(jsonb_agg(jsonb_build_object(
+    'schema', d.defaclnamespace,
+    'acl', d.defaclacl::text
+  ) order by d.defaclnamespace), '[]'::jsonb)
+    into v_default_acl
+  from pg_catalog.pg_default_acl d
+  where d.defaclrole = v_owner_oid
+    and d.defaclobjtype = 'f'
+    and (d.defaclnamespace = 0 or d.defaclnamespace = 'public'::regnamespace);
+
+  select exists (
+    select 1 from pg_catalog.aclexplode((
+      select COALESCE(p.proacl, pg_catalog.acldefault('f', p.proowner))
+      from pg_catalog.pg_proc p where p.oid = v_function_oid
+    )) acl
+    where acl.grantee = 0 and acl.privilege_type = 'EXECUTE'
+  ) into v_public_execute;
+
+  if v_acl::text is distinct from current_setting('deedlight.migration038.acl_snapshot')
+    or v_default_acl::text is distinct from current_setting('deedlight.migration038.default_acl_snapshot')
+    or v_public_execute::text is distinct from current_setting('deedlight.migration038.public_execute') then
+    raise exception 'Migration 038 compatibility failed to preserve the exact function ACL/default ACL contract.' using errcode = '55000';
+  end if;
+
+  if not has_function_privilege('anon', v_function_oid, 'EXECUTE')
+    or not has_function_privilege('authenticated', v_function_oid, 'EXECUTE') then
+    raise exception 'Migration 038 compatibility failed to preserve historical anon/authenticated EXECUTE behavior.' using errcode = '55000';
+  end if;
+
+  if not v_public_execute and exists (
+    select 1
+    from pg_catalog.pg_roles r
+    where r.oid not in (v_owner_oid, 'anon'::regrole::oid, 'authenticated'::regrole::oid)
+      and not r.rolsuper
+      and pg_catalog.has_function_privilege(r.oid, v_function_oid, 'EXECUTE')
+  ) then
+    raise exception 'Migration 038 compatibility postflight detected unexpected inherited/effective function EXECUTE privilege.' using errcode = '55000';
+  end if;
+end;
+$migration_038_admin_compatibility_postflight$;
+
+commit;
+
 -- END MIGRATION 038 ADMIN COMPATIBILITY
 -- Forward-only hardening for provider event identity serialization and paginated admin review.
 -- Migrations 036 and 037 remain immutable. Unexpected source/ACL/configuration drift aborts atomically.
