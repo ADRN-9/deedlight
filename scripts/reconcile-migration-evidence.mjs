@@ -80,9 +80,10 @@ function validateEvidence(evidence, now, trustedEvidenceSha256, manifest) {
   }
   if (!evidence || !Array.isArray(evidence.migrationEffects) || evidence.migrationEffects.length !== 39) reasons.push("reviewed migration-effect mapping must contain all 39 migrations");
   if (evidence && evidence.history && Array.isArray(evidence.history.rows)) {
-    const versions = new Set((evidence.migrations || []).map((item) => item.version));
+    const versions = new Set(manifest.migrations.map((item) => item.version));
     for (const row of evidence.history.rows) {
       if (!row || typeof row.version !== "string" || !/^\d{12}$/.test(row.version)) reasons.push("migration history contains a malformed version row");
+      else if (!versions.has(row.version)) reasons.push("migration history contains a version absent from the pinned repository inventory");
     }
   }
   if (!evidence || !evidence.mapping || evidence.mapping.complete !== true || !/^[a-f0-9]{64}$/.test(evidence.mapping.reviewedSha256 || "") || typeof evidence.mapping.reviewer !== "string" || !evidence.mapping.reviewer.trim()) {
