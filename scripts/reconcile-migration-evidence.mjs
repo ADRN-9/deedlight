@@ -306,7 +306,7 @@ function validateEvidence(evidence, now, manifest, problems) {
     const versions = new Set(manifest.migrations.map((item) => item.version));
     const executionIds = new Set();
     for (const row of evidence.history.rows) {
-      if (!row || typeof row.version !== "string" || !/^\\d{12}$/.test(row.version) || !versions.has(row.version)) {
+      if (!row || typeof row.version !== "string" || !/^[0-9]{12}$/.test(row.version) || !versions.has(row.version)) {
         problems.push("migration history contains malformed or unrecognized version");
       } else if (typeof row.name !== "string" || !row.name.trim()
         || typeof row.executedAt !== "string" || !Number.isFinite(Date.parse(row.executedAt))
@@ -392,6 +392,7 @@ export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approval
     }
     const keyIds = trustRoots.keys.map((key) => key && key.keyId);
     if (new Set(keyIds).size !== keyIds.length) problems.push("trust-root bundle contains duplicate key IDs");
+    const publicKeyFingerprints = new Set();
     const allowedRoles = new Set(["evidence-approver", "mapping-approver", "collector"]);
     for (const key of trustRoots.keys) {
       if (!key || typeof key.keyId !== "string" || !key.keyId || typeof key.signerId !== "string" || !key.signerId
@@ -401,8 +402,13 @@ export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approval
         continue;
       }
       try {
-        if (createPublicKey(key.publicKeyPem).asymmetricKeyType !== "ed25519") {
+        const publicKey = createPublicKey(key.publicKeyPem);
+        if (publicKey.asymmetricKeyType !== "ed25519") {
           problems.push("trust-root bundle contains a non-Ed25519 public key");
+        } else {
+          const fingerprint = sha256(publicKey.export({ type: "spki", format: "der" }));
+          if (publicKeyFingerprints.has(fingerprint)) problems.push("trust-root bundle reuses one public key across signer identities");
+          publicKeyFingerprints.add(fingerprint);
         }
       } catch {
         problems.push("trust-root bundle contains an invalid public key");
@@ -432,9 +438,11 @@ export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approval
   const collectorClaims = verifySignedArtifact(bundle.collectorAttestation, "read-only-collector-attestation", "collector", trustRoots, now, problems);
   const signerIds = [bundle.evidenceApproval?.signerId, bundle.mappingApproval?.signerId, bundle.collectorAttestation?.signerId];
   const keyIds = [bundle.evidenceApproval?.keyId, bundle.mappingApproval?.keyId, bundle.collectorAttestation?.keyId];
+  const approvalIds = [bundle.evidenceApproval?.approvalId, bundle.mappingApproval?.approvalId, bundle.collectorAttestation?.approvalId];
   if (signerIds.some((value) => typeof value !== "string") || new Set(signerIds).size !== 3
-    || keyIds.some((value) => typeof value !== "string") || new Set(keyIds).size !== 3) {
-    problems.push("evidence, mapping and collector attestations must use three distinct trusted signers and keys");
+    || keyIds.some((value) => typeof value !== "string") || new Set(keyIds).size !== 3
+    || approvalIds.some((value) => typeof value !== "string" || !value) || new Set(approvalIds).size !== 3) {
+    problems.push("evidence, mapping and collector attestations must use three distinct trusted signers, keys and approval IDs");
   }
   for (const approval of [bundle.evidenceApproval, bundle.collectorAttestation]) {
     const issuedAt = Date.parse(approval?.issuedAt);
