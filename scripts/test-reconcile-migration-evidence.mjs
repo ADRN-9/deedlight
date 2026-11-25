@@ -29,7 +29,7 @@ function fixture() {
       fingerprint: hash("expected:" + index + ":" + part),
     })),
   }));
-  const objects = migrationEffects.flatMap((effect) => effect.expectedObjects);
+  const objects = migrationEffects.flatMap((effect) => effect.expectedObjects.map((object) => ({ ...object })));
   const versions = [...new Set(sourceManifest.migrations.map((item) => item.version))];
   const evidence = {
     schemaVersion: 1,
