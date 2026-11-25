@@ -64,7 +64,7 @@ function validateSourceInventory(rootDir, manifest) {
     const bytes = readRegularFile(rootDir, item.path);
     const actual = gitBlobSha1(bytes);
     source.set(item.path, actual === item.blobSha1 && bytes.length === item.byteLength
-      ? { valid: true, blobSha1: actual }
+      ? { valid: true, blobSha1: actual, lineCount: bytes.toString("utf8").split(/\r?\n/).length }
       : { valid: false, reason: "source fingerprint or byte length differs from pinned inventory", actualBlobSha1: actual });
   }
   return source;
@@ -129,18 +129,36 @@ function verifySignedArtifact(artifact, requiredKind, requiredRole, trustRoots, 
 function sameClaims(actual, expected) {
   return canonicalJson(actual) === canonicalJson(expected);
 }
-function validateCollectorAuthority(claims, provenance, problems) {
+function validateCollectorAuthority(claims, provenance, evidenceDigest, authority, problems) {
   if (!claims) return;
   const expected = {
     projectRef: PROJECT_REF,
     queryBundleSha256: provenance.queryBundleSha256,
     collectorIdentity: provenance.collectorIdentity,
     capturedAt: provenance.capturedAt,
+    evidenceDigest,
   };
   for (const [key, value] of Object.entries(expected)) {
     if (claims[key] !== value) problems.push("collector attestation does not bind exact " + key);
   }
+  const authorityKeys = ["capturedAt", "collectorIdentity", "completed", "databaseAuthority", "executionId", "projectRef", "queryBundleSha256", "readOnlyTransaction", "schemaVersion"];
+  if (!authority || Object.keys(authority).sort().join(",") !== authorityKeys.sort().join(",")
+    || authority.schemaVersion !== 1 || authority.projectRef !== PROJECT_REF
+    || authority.queryBundleSha256 !== provenance.queryBundleSha256
+    || authority.collectorIdentity !== provenance.collectorIdentity || authority.capturedAt !== provenance.capturedAt
+    || authority.completed !== true || authority.readOnlyTransaction !== true
+    || typeof authority.executionId !== "string" || !authority.executionId.trim()) {
+    problems.push("collector authority evidence is missing, incomplete or not bound to the approved read-only query execution");
+    return;
+  }
+  const authorityEvidenceDigest = sha256(Buffer.from(canonicalJson(authority)));
+  if (claims.authorityEvidenceDigest !== authorityEvidenceDigest || claims.executionId !== authority.executionId) {
+    problems.push("collector attestation does not bind the exact privilege-query evidence digest and execution");
+  }
   const db = claims.databaseAuthority;
+  if (canonicalJson(db) !== canonicalJson(authority.databaseAuthority)) {
+    problems.push("signed collector authority differs from the evidence-bound privilege-query result");
+  }
   if (!db || typeof db.databaseRole !== "string" || !db.databaseRole.trim()) {
     problems.push("collector attestation lacks the effective database role");
     return;
@@ -196,7 +214,7 @@ function validateMapping(mapping, manifest, source, problems) {
       problems.push("migration mapping contains a missing or duplicate source path");
       continue;
     }
-    if (Object.keys(entry).sort().join(",") !== ["blobSha1", "effects", "path"].sort().join(",")) {
+    if (Object.keys(entry).sort().join(",") !== ["blobSha1", "coverage", "effects", "path"].sort().join(",")) {
       problems.push("migration mapping entry contains unsupported fields for " + entry.path);
     }
     byPath.set(entry.path, entry);
@@ -211,6 +229,31 @@ function validateMapping(mapping, manifest, source, problems) {
     if (!entry.effects || Object.keys(entry.effects).sort().join(",") !== [...CATEGORIES].sort().join(",")
       || CATEGORIES.some((category) => !Array.isArray(entry.effects[category]))) {
       problems.push("mapping omits, or adds unsupported, effect domains for " + item.path);
+      continue;
+    }
+    const coverage = entry.coverage;
+    if (!coverage || Object.keys(coverage).sort().join(",") !== [...CATEGORIES].sort().join(",")
+      || CATEGORIES.some((category) => !coverage[category])) {
+      problems.push("mapping lacks an explicit reviewed coverage disposition for every effect domain: " + item.path);
+      continue;
+    }
+    let coverageMalformed = false;
+    for (const category of CATEGORIES) {
+      const review = coverage[category];
+      const effectCount = entry.effects[category].length;
+      if (!review || Object.keys(review).sort().join(",") !== ["disposition", "rationale", "sourceRanges"].sort().join(",")
+        || review.disposition !== (effectCount > 0 ? "effects" : "none")
+        || typeof review.rationale !== "string" || review.rationale.trim().length < 20
+        || !Array.isArray(review.sourceRanges) || review.sourceRanges.length === 0
+        || review.sourceRanges.some((range) => !range || Object.keys(range).sort().join(",") !== ["endLine", "startLine"].sort().join(",")
+          || !Number.isInteger(range.startLine) || !Number.isInteger(range.endLine)
+          || range.startLine < 1 || range.endLine < range.startLine || range.endLine > source.get(item.path).lineCount)) {
+        coverageMalformed = true;
+        break;
+      }
+    }
+    if (coverageMalformed) {
+      problems.push("mapping has incomplete or invalid source-linked coverage review for " + item.path);
       continue;
     }
     const flattened = [];
@@ -261,11 +304,22 @@ function validateEvidence(evidence, now, manifest, problems) {
   }
   if (evidence && evidence.history && Array.isArray(evidence.history.rows)) {
     const versions = new Set(manifest.migrations.map((item) => item.version));
+    const executionIds = new Set();
     for (const row of evidence.history.rows) {
-      if (!row || typeof row.version !== "string" || !/^\d{12}$/.test(row.version) || !versions.has(row.version)) {
+      if (!row || typeof row.version !== "string" || !/^\\d{12}$/.test(row.version) || !versions.has(row.version)) {
         problems.push("migration history contains malformed or unrecognized version");
-      } else if (typeof row.name !== "string" || !row.name.trim() || !row.executedAt || !row.executedBy || !row.executionId) {
-        problems.push("migration history row lacks exact name or execution metadata");
+      } else if (typeof row.name !== "string" || !row.name.trim()
+        || typeof row.executedAt !== "string" || !Number.isFinite(Date.parse(row.executedAt))
+        || typeof row.executedBy !== "string" || !row.executedBy.trim()
+        || typeof row.executionId !== "string" || !row.executionId.trim()) {
+        problems.push("migration history row lacks exact name or valid execution metadata");
+      } else if (executionIds.has(row.executionId)) {
+        problems.push("migration history reuses an execution ID and cannot establish exact execution identity");
+      } else {
+        executionIds.add(row.executionId);
+      }
+      if (row?.sourceBlobSha1 !== undefined && !/^[a-f0-9]{40}$/.test(row.sourceBlobSha1)) {
+        problems.push("migration history source blob identity is malformed");
       }
     }
   }
@@ -406,7 +460,7 @@ export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approval
   };
   if (evidenceClaims && !sameClaims(evidenceClaims, expectedEvidenceClaims)) problems.push("signed evidence approval does not bind the exact evidence, mapping, project, collector, query bundle and capture timestamp");
   if (mappingClaims && !sameClaims(mappingClaims, expectedMappingClaims)) problems.push("signed mapping approval does not bind the exact complete mapping and inventory");
-  validateCollectorAuthority(collectorClaims, provenance, problems);
+  validateCollectorAuthority(collectorClaims, provenance, evidenceDigest, evidence && evidence.collectorAuthority, problems);
   const reports = manifest.migrations.map((item) => {
     if (problems.length) return { path: item.path, version: item.version, blobSha1: item.blobSha1, status: "Unknown", reasons: ["one or more evidence, approval, mapping or collector trust checks failed"] };
     return { path: item.path, version: item.version, blobSha1: item.blobSha1, ...classifyOne(item, manifest, evidence, source, mappedEffects) };
@@ -450,10 +504,13 @@ function main() {
   const approvals = readJson(options.approvals);
   const trustRoots = readJson(trustPath);
   const report = analyzeMigrationEvidence({ rootDir, manifest, evidence, approvals, trustRoots, trustedTrustRootsSha256: process.env.DEEDLIGHT_MIGRATION_TRUST_ROOTS_SHA256 });
-  process.stdout.write(JSON.stringify(report, null, 2) + "\n");
   const mode = options.mode || "accept";
   assert(mode === "accept" || mode === "report", "mode must be accept or report");
-  if (mode === "accept" && report.acceptance !== "ACCEPTED") process.exitCode = 2;
-  if (mode === "report" && report.acceptance !== "ACCEPTED") process.exitCode = 0;
+  report.analysisAcceptance = report.acceptance;
+  report.executionMode = mode === "report" ? "REPORT_ONLY" : "ACCEPTANCE";
+  report.reconciliationAccepted = mode === "accept" && report.analysisAcceptance === "ACCEPTED";
+  if (mode === "report") report.acceptance = "REPORT_ONLY";
+  process.stdout.write(JSON.stringify(report, null, 2) + "\n");
+  if (mode === "accept" && report.analysisAcceptance !== "ACCEPTED") process.exitCode = 2;
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
