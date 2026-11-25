@@ -48,12 +48,15 @@ function validateSourceInventory(rootDir, manifest, expectedInventoryBlobSha1) {
   }
   return source;
 }
-function validateEvidence(evidence, now) {
+function validateEvidence(evidence, now, trustedEvidenceSha256) {
   const reasons = [];
   if (!evidence || evidence.schemaVersion !== 1) reasons.push("unsupported or missing evidence schema");
   const p = evidence && evidence.provenance;
   if (!p || !/^[a-f0-9]{64}$/.test(p.payloadSha256 || "")) reasons.push("missing evidence payload digest");
   else if (sha256(evidencePayload(evidence)) !== p.payloadSha256) reasons.push("evidence payload digest mismatch");
+  if (!/^[a-f0-9]{64}$/.test(trustedEvidenceSha256 || "") || trustedEvidenceSha256 !== (p && p.payloadSha256)) {
+    reasons.push("independently approved evidence digest is missing or does not match; self-reported hashes are not trusted");
+  }
   if (!p || !p.capturedAt || !Number.isFinite(Date.parse(p.capturedAt))) reasons.push("missing or invalid capture timestamp");
   else {
     const age = now - Date.parse(p.capturedAt);
@@ -134,9 +137,9 @@ function classifyOne(item, manifest, evidence, source) {
   }
   return { status: "Verified unapplied", reasons: ["complete history and catalog exports show no mapped effects and no history row"], matchedObjects: 0, historyRows: 0 };
 }
-export function analyzeMigrationEvidence({ rootDir, manifest, evidence, expectedInventoryBlobSha1 = EXPECTED_INVENTORY_BLOB_SHA1, now = Date.now() }) {
+export function analyzeMigrationEvidence({ rootDir, manifest, evidence, trustedEvidenceSha256, expectedInventoryBlobSha1 = EXPECTED_INVENTORY_BLOB_SHA1, now = Date.now() }) {
   const source = validateSourceInventory(rootDir, manifest, expectedInventoryBlobSha1);
-  const evidenceProblems = validateEvidence(evidence, now);
+  const evidenceProblems = validateEvidence(evidence, now, trustedEvidenceSha256);
   const reports = manifest.migrations.map((item) => {
     if (evidenceProblems.length > 0) return { path: item.path, version: item.version, blobSha1: item.blobSha1, status: "Unknown", reasons: evidenceProblems };
     const result = classifyOne(item, manifest, evidence, source);
@@ -157,11 +160,11 @@ export function analyzeMigrationEvidence({ rootDir, manifest, evidence, expected
 }
 function main() {
   const args = process.argv.slice(2);
-  if (args.length !== 1) throw new Error("usage: node scripts/reconcile-migration-evidence.mjs <read-only-production-evidence.json>");
+  if (args.length !== 2) throw new Error("usage: node scripts/reconcile-migration-evidence.mjs <read-only-production-evidence.json> <independently-approved-payload-sha256>");
   const rootDir = process.cwd();
   const manifest = JSON.parse(readFileSync(path.join(rootDir, "supabase/migration-inventory.json"), "utf8"));
   const evidence = JSON.parse(readFileSync(args[0], "utf8"));
-  const report = analyzeMigrationEvidence({ rootDir, manifest, evidence });
+  const report = analyzeMigrationEvidence({ rootDir, manifest, evidence, trustedEvidenceSha256: args[1] });
   process.stdout.write(JSON.stringify(report, null, 2) + "\n");
   if (report.evidenceProblems.length || report.counts.Unknown || report.counts["Partial or drifted"]) process.exitCode = 2;
 }
