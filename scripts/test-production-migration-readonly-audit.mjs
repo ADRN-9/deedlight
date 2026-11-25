@@ -34,17 +34,30 @@ test("authenticated and effective role identities are separately validated", () 
   assert.match(sql, /Authenticated or effective collector role has role membership/);
 });
 
-test("routine configuration is an explicit allowlist with deterministic serialization", () => {
+test("routine configuration is canonical, trusted, bounded and deterministically serialized", () => {
   for (const setting of [
     "search_path", "row_security", "default_transaction_read_only",
     "statement_timeout", "lock_timeout", "idle_in_transaction_session_timeout",
     "temp_file_limit",
   ]) assert.ok(sql.includes(setting), `missing reviewed routine setting: ${setting}`);
   assert.match(sql, /Unexpected or unsafe routine configuration/);
-  assert.match(sql, /pg_catalog\|public\|extensions\|auth\|storage/);
-  assert.match(sql, /\(, \?pg_temp\)\?\$/);
-  assert.match(sql, /jsonb_agg\([\s\S]*?ORDER BY split_part\(cfg\.setting, '=', 1\)/);
-  assert.doesNotMatch(sql, /p\.proconfig\s+AS\s+routine_settings/i);
+  assert.match(sql, /pg_catalog\\|public\\|extensions\\|auth\\|storage/);
+  assert.match(sql, /array_position\\([\\s\\S]*?pg_temp/);
+  assert.match(sql, /cardinality\\(string_to_array\\([\\s\\S]*?cardinality\\(ARRAY\\(/);
+  assert.match(sql, /pg_catalog\\.acldefault\\('n'/);
+  assert.match(sql, /acl\\.grantee = 0 AND acl\\.privilege_type = 'CREATE'/);
+  assert.match(sql, /path_owner\\.rolcanlogin/);
+  assert.match(sql, /row_security' AND parsed\\.setting_value = 'on'/);
+  assert.match(sql, /default_transaction_read_only' AND parsed\\.setting_value = 'on'/);
+  assert.match(sql, /timeout_value\\.parts IS NOT NULL/);
+  assert.match(sql, /statement_timeout' THEN 300000/);
+  assert.match(sql, /lock_timeout' THEN 30000/);
+  assert.match(sql, /idle_in_transaction_session_timeout' THEN 60000/);
+  assert.match(sql, /pg_catalog\\.pg_size_bytes\\(parsed\\.setting_value\\) <= 1073741824/);
+  assert.match(sql, /regexp_replace\\(cfg\\.setting, '\\^\\[\\^=\\]\\*=', ''\\)/);
+  assert.match(sql, /jsonb_agg\\([\\s\\S]*?ORDER BY split_part\\(cfg\\.setting, '=', 1\\)/);
+  assert.doesNotMatch(sql, /substring\\(cfg\\.setting FROM position\\('/);
+  assert.doesNotMatch(sql, /p\\.proconfig\\s+AS\\s+routine_settings/i);
   assert.doesNotMatch(sql, /rolconfig/);
 });
 
@@ -118,4 +131,23 @@ test("audit excludes application rows, function bodies and credential material",
   assert.match(sql, /Migration-history identifiers only/i);
   assert.doesNotMatch(sql, /SUPABASE_SERVICE_ROLE_KEY|postgres:\/\/|password\s*=/i);
   assert.doesNotMatch(sql, /SELECT\s+\*\s+FROM\s+public\./i);
+});
+
+test("SECURITY DEFINER fixture mirrors the audit authenticated/effective identity contract", () => {
+  const fixture = readFileSync(
+    path.join(process.cwd(), "scripts/test-production-migration-readonly-audit-postgres16-fixture.sql"),
+    "utf8",
+  );
+  for (const token of [
+    "session_user <> 'deedlight_catalog_auditor'",
+    "current_setting('deedlight.authenticated_principal', true) IS DISTINCT FROM session_user",
+    "current_setting('role', true) IS DISTINCT FROM 'none'",
+    "WHERE oid = v_session_oid AND rolcanlogin",
+    "WHERE oid = v_effective_oid",
+    "pg_catalog.pg_has_role(v_session_oid, r.oid, 'MEMBER')",
+    "pg_catalog.pg_has_role(v_effective_oid, r.oid, 'MEMBER')",
+  ]) {
+    assert.ok(sql.includes(token), `audit preflight missing shared identity rule: ${token}`);
+    assert.ok(fixture.includes(token), `SECURITY DEFINER fixture missing shared identity rule: ${token}`);
+  }
 });
