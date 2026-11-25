@@ -51,7 +51,7 @@ The CI fixture `scripts/test-production-migration-readonly-audit-postgres16.sh` 
 - an actual lock-timeout interruption and recovery; and
 - abrupt client termination while a transaction holds a table lock and uncommitted marker row, proving backend termination, rollback, lock release, no stale authentication context and successful subsequent collection.
 
-The fixture creates synthetic roles, a synthetic history row and synthetic application objects. Never point this harness at Production. It does not validate the provider-specific endpoint identity or establish Production state.
+The fixture creates synthetic roles, a synthetic history row and synthetic application objects. Its positive path authenticates over the PostgreSQL connection directly as `deedlight_catalog_auditor`; it does not use superuser `SET SESSION AUTHORIZATION`. A separate superuser login attempts `SET ROLE deedlight_catalog_auditor` and must be rejected. Fixture passwords are generated at runtime and are not stored in the repository. Never point this harness at Production. It does not validate the provider-specific endpoint identity or establish Production state.
 
 ## Evidence boundary and output handling
 
