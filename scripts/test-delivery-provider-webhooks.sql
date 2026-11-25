@@ -916,6 +916,24 @@ begin
     raise exception 'Contradictory delivered event was not recorded as a conflict.';
   end if;
 
+  -- Exercise the reverse arrival order as well: a late failure must not
+  -- silently coexist with a previously projected successful delivery.
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_delivered_before_failed', 'email.delivered', 'resend-delivered-before-failed',
+    'lifecycle-delivered-before-failed@example.test', '2027-03-01T10:13:00Z',
+    null, null, null, repeat('6', 64)
+  ) is not true then
+    raise exception 'Delivered-first failure-conflict fixture could not establish its canonical delivery.';
+  end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_failed_after_delivered', 'email.failed', 'resend-delivered-before-failed',
+    'lifecycle-delivered-before-failed@example.test', '2027-03-01T10:14:00Z',
+    null, 'unknown', null, repeat('7', 64)
+  ) is not null then
+    raise exception 'Failure arriving after delivered was not rejected as a contradictory terminal outcome.';
+  end if;
+
   if public.record_delivery_provider_lifecycle_event(
     'evt_failed_quota', 'email.sent', 'resend-failed-20002',
     'lifecycle-failed@example.test', '2027-03-01T10:11:00Z',
@@ -1124,6 +1142,29 @@ begin
       and payload_fingerprint = repeat('5', 64)
   ) then
     raise exception 'Conflicting provider event evidence or its recipient-scoped cases were not preserved.';
+  end if;
+
+  if not exists (
+    select 1 from public.delivery_provider_lifecycle
+    where provider_email_id = 'resend-delivered-before-failed'
+      and status = 'integrity_anomaly'
+      and failure_class is null
+  ) or not exists (
+    select 1 from public.delivery_provider_events
+    where event_id = 'evt_failed_after_delivered'
+      and event_type = 'email.failed'
+      and failure_class = 'unknown'
+      and payload_fingerprint = repeat('7', 64)
+  ) or not exists (
+    select 1 from public.delivery_provider_integrity_cases
+    where recipient_email = 'lifecycle-delivered-before-failed@example.test'
+      and anomaly_type = 'contradictory_terminal_outcome'
+      and state = 'open'
+  ) or exists (
+    select 1 from public.delivery_provider_suppressions
+    where recipient_email = 'lifecycle-delivered-before-failed@example.test'
+  ) then
+    raise exception 'Delivered-first failure conflict was not retained, marked anomalous, and kept separate from recipient suppression.';
   end if;
   if (select status from public.delivery_provider_lifecycle
       where provider_email_id = 'resend-precedence-20003') <> 'integrity_anomaly'
