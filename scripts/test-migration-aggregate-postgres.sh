@@ -311,6 +311,20 @@ fi
 # The ACL itself remains unchanged while an event trigger removes the role-membership
 # path that supplies service_role EXECUTE. Postflight must detect the lost effective grant.
 psql --no-psqlrc --set ON_ERROR_STOP=1 <<'SQL'
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS boolean
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $sprint6$
+  select exists (
+    select 1
+    from public.profiles
+    where user_id = auth.uid()
+      and role = 'admin'
+      and coalesce(is_suspended, false) = false
+  );
+$sprint6$;
 CREATE FUNCTION public.__migration_038_test_revoke_service_membership()
 RETURNS event_trigger
 LANGUAGE plpgsql
@@ -330,20 +344,6 @@ CREATE EVENT TRIGGER migration_038_test_revoke_service_membership
 ON ddl_command_end
 WHEN TAG IN ('CREATE FUNCTION')
 EXECUTE FUNCTION public.__migration_038_test_revoke_service_membership();
-CREATE OR REPLACE FUNCTION public.is_admin()
-RETURNS boolean
-LANGUAGE sql
-SECURITY DEFINER
-SET search_path = public
-AS $sprint6$
-  select exists (
-    select 1
-    from public.profiles
-    where user_id = auth.uid()
-      and role = 'admin'
-      and coalesce(is_suspended, false) = false
-  );
-$sprint6$;
 SQL
 service_postflight_before="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "
 SELECT jsonb_build_object('source', p.prosrc, 'owner_oid', p.proowner, 'acl', p.proacl::text, 'config', p.proconfig)::text
@@ -381,6 +381,20 @@ SQL
 # Inject a SET-only membership grant after replacement; postflight must reject it
 # and the transaction must roll back the membership and function replacement together.
 psql --no-psqlrc --set ON_ERROR_STOP=1 <<'SQL'
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS boolean
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $sprint6$
+  select exists (
+    select 1
+    from public.profiles
+    where user_id = auth.uid()
+      and role = 'admin'
+      and coalesce(is_suspended, false) = false
+  );
+$sprint6$;
 CREATE FUNCTION public.__migration_038_test_grant_owner_set()
 RETURNS event_trigger
 LANGUAGE plpgsql
@@ -400,20 +414,6 @@ CREATE EVENT TRIGGER migration_038_test_grant_owner_set
 ON ddl_command_end
 WHEN TAG IN ('CREATE FUNCTION')
 EXECUTE FUNCTION public.__migration_038_test_grant_owner_set();
-CREATE OR REPLACE FUNCTION public.is_admin()
-RETURNS boolean
-LANGUAGE sql
-SECURITY DEFINER
-SET search_path = public
-AS $sprint6$
-  select exists (
-    select 1
-    from public.profiles
-    where user_id = auth.uid()
-      and role = 'admin'
-      and coalesce(is_suspended, false) = false
-  );
-$sprint6$;
 SQL
 owner_postflight_before="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "
 SELECT jsonb_build_object('source', p.prosrc, 'owner_oid', p.proowner, 'acl', p.proacl::text, 'config', p.proconfig)::text
