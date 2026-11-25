@@ -165,12 +165,18 @@ test("routine configuration is canonical, trusted, bounded and deterministically
   assert.match(sql, /statement_timeout' THEN 300000/);
   assert.match(sql, /lock_timeout' THEN 30000/);
   assert.match(sql, /idle_in_transaction_session_timeout' THEN 60000/);
-  assert.match(sql, /pg_catalog\.pg_size_bytes\(parsed\.setting_value\) <= 1073741824/);
+  assert.match(sql, /temp_file_value\.parts IS NOT NULL/);
+  assert.match(sql, /temp_file_value\.parts\[1\]::numeric/);
+  assert.match(sql, /WHEN 'gb' THEN 1073741824/);
+  assert.match(sql, /<= 1073741824/);
+  assert.match(sql, /\^\(\[1-9\]\[0-9\]\{0,9\}\)\(kb\|mb\|gb\)\?\$/);
   assert.match(sql, /regexp_replace\(cfg\.setting, '\^\[\^=\]\*=', ''\)/);
   assert.match(sql, /jsonb_agg\([\s\S]*?ORDER BY split_part\(cfg\.setting, '=', 1\)/);
   assert.doesNotMatch(sql, /substring\(cfg\.setting FROM position\('/);
   assert.doesNotMatch(sql, /p\.proconfig\s+AS\s+routine_settings/i);
   assert.doesNotMatch(sql, /rolconfig/);
+  assert.doesNotMatch(sql, /pg_catalog\.pg_size_bytes\(parsed\.setting_value\)/);
+  assert.match(sql, /\^\(\[1-9\]\[0-9\]\{0,8\}\)\(us\|ms\|s\|min\|h\|d\)\?\$/);
 });
 
 test("audit requires exact migration-history columns, types, nullability, constraints and index", () => {
@@ -199,6 +205,7 @@ test("audit requires exact migration-history columns, types, nullability, constr
 test("audit fails closed for missing catalogs and unsupported migration history", () => {
   assert.match(sql, /Required catalog SELECT access unavailable/);
   assert.match(sql, /Required Supabase migration-history table is unavailable/);
+  assert.match(sql, /WHERE path_ns\.nspname = path\.schema_name/);
   assert.match(sql, /Unsupported migration-history schema/);
   assert.match(sql, /Unsupported migration-history constraints/);
   assert.match(sql, /Unsupported migration-history indexes/);
@@ -211,6 +218,12 @@ test("collector rejects effective application access and role escalation", () =>
   ]) assert.ok(sql.includes(token), `missing least-privilege guard: ${token}`);
   assert.match(sql, /pg_read_all_data/);
   assert.match(sql, /pg_write_all_data/);
+  const runner = readFileSync(
+    path.join(process.cwd(), "scripts/test-production-migration-readonly-audit-postgres16.sh"),
+    "utf8",
+  );
+  assert.match(runner, /missing_search_path_schema/);
+  assert.match(runner, /deedlight_audit_missing_schema/);
 });
 
 test("sequence definitions, ownership, ACLs and index health are captured", () => {
