@@ -224,8 +224,9 @@ function validateCollectorAuthority(claims, provenance, evidenceDigest, authorit
     || new Set(objectKeys.map((entry) => entry.kind + "\0" + entry.identity)).size !== objectKeys.length
     || canonicalJson(objectKeys) !== canonicalJson(expectedObjects)
     || objectRows.some((entry) => {
+      if (!entry) return true;
       const expectedPrivileges = entry.kind === "routines" ? [] : ["SELECT"];
-      return !entry || Object.keys(entry).sort().join(",") !== "identity,kind,privileges"
+      return Object.keys(entry).sort().join(",") !== "identity,kind,privileges"
         || !Array.isArray(entry.privileges) || canonicalJson(entry.privileges) !== canonicalJson(expectedPrivileges);
     })) {
     problems.push("collector object privilege identities do not exactly match the complete table, sequence and routine catalog inventory, or routines have execution privileges");
