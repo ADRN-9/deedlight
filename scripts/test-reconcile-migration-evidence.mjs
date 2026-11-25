@@ -262,7 +262,7 @@ test("approval claims are bound to exact project, evidence, mapping, query, coll
 test("mapping digest alteration after signed mapping approval fails closed", () => {
   const f = fixture();
   try {
-    f.mapping.migrations[0].effects.data[0].description = "altered backfill";
+    f.mapping.migrations[0].effects.backfills[0].description = "altered backfill";
     const report = f.analyze();
     assert.equal(report.counts.Unknown, 39);
     assert.ok(report.trustProblems.some((reason) => reason.includes("signed evidence approval")));
