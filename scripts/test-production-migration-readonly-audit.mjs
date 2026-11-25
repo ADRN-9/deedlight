@@ -160,7 +160,8 @@ test("routine configuration is canonical, trusted, bounded and deterministically
   assert.match(sql, /pg_catalog\.acldefault\('n'/);
   assert.match(sql, /acl\.grantee = 0 AND acl\.privilege_type = 'CREATE'/);
   assert.match(sql, /path_owner\.rolcanlogin/);
-  assert.match(sql, /path_owner\.rolname <> 'pg_database_owner'/);
+  assert.match(sql, /database_owner\\.datdba/);
+  assert.doesNotMatch(sql, /path_owner\\.rolname <> 'pg_database_owner'/);
   assert.match(sql, /row_security' AND parsed\.setting_value = 'on'/);
   assert.match(sql, /default_transaction_read_only' AND parsed\.setting_value = 'on'/);
   assert.match(sql, /timeout_value\.parts IS NOT NULL/);
@@ -232,6 +233,10 @@ test("collector rejects effective application access and role escalation", () =>
   );
   assert.match(runner, /missing_search_path_schema/);
   assert.match(runner, /deedlight_audit_missing_schema/);
+  assert.match(runner, /login_owned_routine_schema/);
+  assert.match(runner, /untrusted_routine_schema_creator/);
+  assert.match(runner, /public_create_routine_search_path/);
+  assert.match(runner, /psql_as deedlight_catalog_auditor -X -qAt/);
   assert.match(runner, /schema-trust\.log/);
   assert.match(runner, /routine-search-path\.log/);
   assert.doesNotMatch(runner, /^SQLL$/m);
