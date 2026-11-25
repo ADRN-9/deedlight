@@ -239,7 +239,6 @@ BEGIN
           )
         )
       )
-  )
   LIMIT 1;
 
   IF v_unsafe_routine IS NOT NULL THEN
