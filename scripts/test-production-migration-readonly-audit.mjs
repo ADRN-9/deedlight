@@ -138,16 +138,17 @@ test("SECURITY DEFINER fixture mirrors the audit authenticated/effective identit
     path.join(process.cwd(), "scripts/test-production-migration-readonly-audit-postgres16-fixture.sql"),
     "utf8",
   );
-  for (const token of [
-    "session_user <> 'deedlight_catalog_auditor'",
-    "current_setting('deedlight.authenticated_principal', true) IS DISTINCT FROM session_user",
-    "current_setting('role', true) IS DISTINCT FROM 'none'",
-    "WHERE oid = v_session_oid AND rolcanlogin",
-    "WHERE oid = v_effective_oid",
-    "pg_catalog.pg_has_role(v_session_oid, r.oid, 'MEMBER')",
-    "pg_catalog.pg_has_role(v_effective_oid, r.oid, 'MEMBER')",
-  ]) {
-    assert.ok(sql.includes(token), `audit preflight missing shared identity rule: ${token}`);
-    assert.ok(fixture.includes(token), `SECURITY DEFINER fixture missing shared identity rule: ${token}`);
+  const sharedRules = [
+    ["session_user <> 'deedlight_catalog_auditor'", "session_user <> 'deedlight_catalog_auditor'"],
+    ["v_authenticated_principal IS DISTINCT FROM session_user", "current_setting('deedlight.authenticated_principal', true) IS DISTINCT FROM session_user"],
+    ["v_role_setting IS DISTINCT FROM 'none'", "current_setting('role', true) IS DISTINCT FROM 'none'"],
+    ["WHERE oid = v_session_role_oid AND rolcanlogin", "WHERE oid = v_session_role_oid AND rolcanlogin"],
+    ["WHERE oid = v_effective_role_oid", "WHERE oid = v_effective_role_oid"],
+    ["pg_catalog.pg_has_role(v_session_role_oid, r.oid, 'MEMBER')", "pg_catalog.pg_has_role(v_session_role_oid, r.oid, 'MEMBER')"],
+    ["pg_catalog.pg_has_role(v_effective_role_oid, r.oid, 'MEMBER')", "pg_catalog.pg_has_role(v_effective_role_oid, r.oid, 'MEMBER')"],
+  ];
+  for (const [auditRule, fixtureRule] of sharedRules) {
+    assert.ok(sql.includes(auditRule), `audit preflight missing shared identity rule: ${auditRule}`);
+    assert.ok(fixture.includes(fixtureRule), `SECURITY DEFINER fixture missing shared identity rule: ${fixtureRule}`);
   }
 });
