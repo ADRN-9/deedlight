@@ -30,6 +30,8 @@ DECLARE
   v_history_column_count integer;
   v_version_attnum smallint;
   v_history_index_count integer;
+  v_unsafe_routine text;
+  v_unsafe_setting text;
 BEGIN
   IF current_setting('transaction_read_only') <> 'on' THEN
     RAISE EXCEPTION 'Audit must execute in a read-only transaction.';
@@ -103,9 +105,9 @@ BEGIN
 
   -- Routine settings are a reviewed allowlist, not a raw pg_proc.proconfig export.
   -- Reject custom GUCs, noncanonical search paths and unsafe limits before serialization.
-  IF EXISTS (
-    SELECT 1
-    FROM pg_catalog.pg_proc p
+  SELECT format('%I.%I', n.nspname, p.proname), parsed.setting_name
+  INTO v_unsafe_routine, v_unsafe_setting
+  FROM pg_catalog.pg_proc p
     JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
     CROSS JOIN LATERAL unnest(COALESCE(p.proconfig, ARRAY[]::text[])) cfg(setting)
     CROSS JOIN LATERAL (
@@ -237,8 +239,12 @@ BEGIN
           )
         )
       )
-  ) THEN
-    RAISE EXCEPTION 'Unexpected or unsafe routine configuration; allowlisted settings only.';
+  )
+  LIMIT 1;
+
+  IF v_unsafe_routine IS NOT NULL THEN
+    RAISE EXCEPTION 'Unexpected or unsafe routine configuration for % setting %; allowlisted settings only.',
+      v_unsafe_routine, v_unsafe_setting;
   END IF;
 
   v_history_oid := to_regclass('supabase_migrations.schema_migrations');
@@ -471,10 +477,10 @@ SELECT
     SELECT jsonb_agg(
       jsonb_build_object(
         'name', split_part(cfg.setting, '=', 1),
-        'value', substring(cfg.setting FROM position('=' IN cfg.setting) + 1)
+        'value', regexp_replace(cfg.setting, '^[^=]*=', '')
       )
       ORDER BY split_part(cfg.setting, '=', 1),
-        substring(cfg.setting FROM position('=' IN cfg.setting) + 1)
+        regexp_replace(cfg.setting, '^[^=]*=', '')
     )
     FROM unnest(COALESCE(p.proconfig, ARRAY[]::text[])) cfg(setting)
   ), '[]'::jsonb) AS routine_settings
