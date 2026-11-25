@@ -234,6 +234,8 @@ test("collector rejects effective application access and role escalation", () =>
   assert.match(runner, /deedlight_audit_missing_schema/);
   assert.match(runner, /schema-trust\.log/);
   assert.match(runner, /routine-search-path\.log/);
+  assert.doesNotMatch(runner, /^SQLL$/m);
+  assert.match(runner, /pg_catalog\.btrim\(regexp_replace\(cfg\.setting/);
   assert.doesNotMatch(runner, /proconfig.*setting_value.*schema-trust\.log/s);
   assert.match(fixture, /REVOKE CREATE ON SCHEMA public FROM PUBLIC/);
   assert.match(fixture, /SET search_path = 'pg_catalog'/);
