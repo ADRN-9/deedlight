@@ -490,6 +490,41 @@ test("write-capable collector, inherited roles or unproven read-only privilege f
   }
 });
 
+test("self-declared completeness booleans do not replace signed catalog identity evidence", () => {
+  const f = fixture();
+  try {
+    f.evidence.history.complete = false;
+    f.evidence.catalog.complete = false;
+    f.reapprove((db) => {
+      db.databasePrivilegesComplete = false;
+      db.schemaPrivilegesComplete = false;
+      db.objectPrivilegesComplete = false;
+      db.catalogPrivilegesComplete = false;
+    });
+    const report = f.analyze();
+    assert.equal(report.trustVerified, true);
+    assert.equal(report.acceptance, "NOT_ACCEPTED");
+    assert.equal(report.counts.Unknown, 0);
+  } finally { f.cleanup(); }
+});
+
+test("catalog completeness dimensions reject omissions, duplicates and unsupported kinds", () => {
+  for (const mutate of [
+    (f) => { f.evidence.catalog.completeKinds.pop(); },
+    (f) => { f.evidence.catalog.completeKinds.push(f.evidence.catalog.completeKinds[0]); },
+    (f) => { f.evidence.catalog.completeKinds[0] = "unreviewed_catalog_kind"; },
+  ]) {
+    const f = fixture();
+    try {
+      mutate(f);
+      f.reapprove();
+      const report = f.analyze();
+      assert.equal(report.counts.Unknown, 39);
+      assert.ok(report.trustProblems.some((reason) => reason.includes("catalog completeness dimensions")));
+    } finally { f.cleanup(); }
+  }
+});
+
 test("collector schema and object privilege identity sets must exactly match catalog inventory", () => {
   const mutations = [
     (db) => { db.schemaPrivileges = []; },
