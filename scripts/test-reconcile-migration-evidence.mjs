@@ -70,7 +70,7 @@ function fixture() {
       preconditions: [],
       postconditions: [],
     };
-    const lineCount = readFileSync(path.join(repoRoot, item.path), "utf8").split(/\\r?\\n/).length;
+    const lineCount = readFileSync(path.join(repoRoot, item.path), "utf8").split(String.fromCharCode(10)).length;
     const coverage = Object.fromEntries(categories.map((category) => [category, {
       disposition: effects[category].length ? "effects" : "none",
       rationale: "Reviewed the complete migration source for this effect domain.",
@@ -311,6 +311,53 @@ test("plausible mapping with missing effect domains cannot be approved into Appl
     const report = f.analyze();
     assert.equal(report.counts.Unknown, 39);
     assert.ok(report.trustProblems.some((reason) => reason.includes("omits, or adds unsupported, effect domains")));
+  } finally { f.cleanup(); }
+});
+
+test("mapping requires source-linked review disposition for every effect domain", () => {
+  for (const mutate of [
+    (f) => { delete f.mapping.migrations[0].coverage.privileges; },
+    (f) => { f.mapping.migrations[0].coverage.privileges.rationale = ""; },
+    (f) => { f.mapping.migrations[0].coverage.schema.sourceRanges = []; },
+    (f) => { f.mapping.migrations[0].coverage.privileges.disposition = "effects"; },
+  ]) {
+    const f = fixture();
+    try {
+      mutate(f);
+      f.reapprove();
+      const report = f.analyze();
+      assert.equal(report.counts.Unknown, 39);
+      assert.equal(report.acceptance, "NOT_ACCEPTED");
+      assert.ok(report.trustProblems.some((reason) => reason.includes("reviewed coverage disposition") || reason.includes("source-linked coverage review")));
+    } finally { f.cleanup(); }
+  }
+});
+
+test("collector authority must be present and cryptographically bound to the exact query execution and evidence", () => {
+  for (const mutate of [
+    (f) => { delete f.evidence.collectorAuthority; },
+    (f) => { f.evidence.collectorAuthority.databaseAuthority.canCreateRole = true; },
+    (f) => { f.evidence.collectorAuthority.executionId = "substituted-execution"; },
+    (f) => { f.approvals.collectorAttestation.claims.authorityEvidenceDigest = hash("unrelated"); },
+  ]) {
+    const f = fixture();
+    try {
+      mutate(f);
+      const report = f.analyze();
+      assert.equal(report.counts.Unknown, 39);
+      assert.equal(report.acceptance, "NOT_ACCEPTED");
+      assert.ok(report.trustProblems.some((reason) => reason.includes("collector") || reason.includes("privilege-query")));
+    } finally { f.cleanup(); }
+  }
+});
+
+test("one Ed25519 public key cannot impersonate multiple independent approval authorities", () => {
+  const f = fixture();
+  try {
+    f.trustRoots.keys[1].publicKeyPem = f.trustRoots.keys[0].publicKeyPem;
+    const report = f.analyze();
+    assert.equal(report.counts.Unknown, 39);
+    assert.ok(report.trustProblems.some((reason) => reason.includes("reuses one public key")));
   } finally { f.cleanup(); }
 });
 
