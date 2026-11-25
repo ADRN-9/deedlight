@@ -65,7 +65,11 @@ Collector attestation claims must equal the evidence project, query bundle, coll
 
 - named effective database role
 - isSuperuser, canCreateRole, canCreateDatabase, bypassRls, isReplication and ownsObjects all explicitly false
-- effective privileges exactly CONNECT, USAGE and SELECT
+- aggregate effective privileges exactly CONNECT, USAGE and SELECT
+- complete database-level privilege export containing CONNECT only
+- complete per-schema privilege export containing USAGE only
+- complete per-object privilege export containing SELECT only
+- complete catalog privilege export containing SELECT only
 - no inherited role memberships
 - no owned schemas
 - privilege proof query-bundle digest exactly matching the approved query bundle
