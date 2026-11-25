@@ -185,12 +185,20 @@ do $migration_038_admin_compatibility_apply$
 begin
   if not current_setting('deedlight.migration038.canonical_noop')::boolean then
     execute
-      'create or replace function public.is_admin()' || E'\n' ||
-      'returns boolean' || E'\n' ||
-      'language sql' || E'\n' ||
-      'security definer' || E'\n' ||
-      'set search_path = public' || E'\n' ||
-      'as $function
+      'create or replace function public.is_admin()' || E'\\n' ||
+      'returns boolean' || E'\\n' ||
+      'language sql' || E'\\n' ||
+      'security definer' || E'\\n' ||
+      'set search_path = public' || E'\\n' ||
+      'as $fn$' || E'\\n' ||
+      '  select exists (' || E'\\n' ||
+      '    select 1' || E'\\n' ||
+      '    from public.profiles' || E'\\n' ||
+      '    where user_id = auth.uid()' || E'\\n' ||
+      '      and role = ''admin''' || E'\\n' ||
+      '      and is_suspended = false' || E'\\n' ||
+      '  );' || E'\\n' ||
+      '$fn$';
   end if;
 end;
 $migration_038_admin_compatibility_apply$;
