@@ -370,7 +370,7 @@ BEGIN
       AND c.relkind IN ('r','p','v','m','f','S')
   LOOP
     IF v_relation.relowner IN (v_session_role_oid, v_effective_role_oid) THEN
-      RAISE EXCEPTION 'Collector owns application object %.%.', v_relation.nspname, v_relation.relname;
+      RAISE EXCEPTION 'Collector owns application relation %.', v_relation.nspname, v_relation.relname;
     END IF;
     IF v_relation.relkind = 'S' THEN
       FOREACH v_privilege IN ARRAY ARRAY['USAGE','SELECT','UPDATE'] LOOP
