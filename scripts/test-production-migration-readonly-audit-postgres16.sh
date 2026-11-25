@@ -187,6 +187,9 @@ GRANT pg_read_all_data TO deedlight_audit_nested_leaf;
 GRANT SELECT ON public.audit_fixture_private TO deedlight_audit_nested_leaf;
 GRANT deedlight_audit_nested_leaf TO deedlight_audit_nested_parent;
 GRANT deedlight_audit_nested_parent TO deedlight_catalog_auditor;
+nested_privilege_state="$(psql -X -At -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.pg_has_role('deedlight_catalog_auditor', 'pg_read_all_data', 'MEMBER') AND pg_catalog.has_table_privilege('deedlight_catalog_auditor', 'public.audit_fixture_private', 'SELECT')")"
+test "${nested_privilege_state}" = "t"
+echo "PASS: nested role chain actually inherits pg_read_all_data and application-table SELECT"
 expect_failure nested_role_membership "Authenticated or effective collector role has role membership"
 expect_failure nested_privileged_role_membership "Authenticated or effective collector role has role membership"
 expect_failure nested_inherited_application_privilege "Authenticated or effective collector role has role membership"
