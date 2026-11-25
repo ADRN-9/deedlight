@@ -19,7 +19,7 @@ DO $audit_preflight$
 DECLARE
   v_project_ref text := current_setting('deedlight.expected_project_ref', true);
   v_repository_sha text := current_setting('deedlight.repository_sha', true);
-  v_history_oid oid := to_regclass('supabase_migrations.schema_migrations');
+  v_history_oid oid;
   v_catalog text;
   v_session_role_oid oid;
   v_effective_role_oid oid;
@@ -51,6 +51,9 @@ BEGIN
   IF v_role_setting IS DISTINCT FROM 'none' THEN
     RAISE EXCEPTION 'SET ROLE is prohibited for the migration audit collector.';
   END IF;
+
+  -- Resolve non-system migration history only after the authenticated login is trusted.
+  v_history_oid := to_regclass('supabase_migrations.schema_migrations');
 
   SELECT oid INTO v_session_role_oid
   FROM pg_catalog.pg_roles
