@@ -199,9 +199,9 @@ function validateCollectorAuthority(claims, provenance, evidenceDigest, authorit
     || db.databasePrivileges.length !== 1 || db.databasePrivileges[0] !== "CONNECT") {
     problems.push("collector database-level privilege export is incomplete or not read-only");
   }
-  const catalogObjects = Array.isArray(catalogObjects) ? catalogObjects : [];
-  const expectedSchemas = catalogObjects.filter((entry) => entry.kind === "schemas").map((entry) => entry.identity).sort();
-  const expectedObjects = catalogObjects.filter((entry) => PRIVILEGE_OBJECT_KINDS.has(entry.kind)).map((entry) => entry.identity).sort();
+  const inventoryObjects = Array.isArray(catalogObjects) ? catalogObjects : [];
+  const expectedSchemas = inventoryObjects.filter((entry) => entry.kind === "schemas").map((entry) => entry.identity).sort();
+  const expectedObjects = inventoryObjects.filter((entry) => PRIVILEGE_OBJECT_KINDS.has(entry.kind)).map((entry) => entry.identity).sort();
   const schemaRows = Array.isArray(db.schemaPrivileges) ? db.schemaPrivileges : [];
   const objectRows = Array.isArray(db.objectPrivileges) ? db.objectPrivileges : [];
   const schemaIds = schemaRows.map((entry) => entry && entry.schema).sort();
