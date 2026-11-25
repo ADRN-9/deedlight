@@ -272,6 +272,7 @@ expect_failure privileged_login_set_role_impersonation "Authenticated collector 
 
 # A superuser can spoof both SQL-visible identity fields with SET SESSION AUTHORIZATION.
 # This is an explicit boundary demonstration, not an accepted collector invocation mode.
+session_authorization_status=0
 session_authorization_output="$(
   {
     printf 'SET SESSION AUTHORIZATION deedlight_catalog_auditor;\n'
@@ -281,11 +282,16 @@ session_authorization_output="$(
     printf "SET deedlight.repository_sha = '0123456789abcdef0123456789abcdef01234567';\n"
     printf '\\i scripts/production-migration-readonly-audit.sql\n'
     printf "SELECT 'AUDIT_TRANSACTION_ROLLED_BACK' WHERE current_setting('transaction_read_only') = 'off';\n"
-  } | psql_as deedlight_audit_privileged_login -X -v ON_ERROR_STOP=1
-)"
-grep -Fq 'deedlight_catalog_auditor|deedlight_catalog_auditor' <<<"${session_authorization_output}"
-grep -Fq 'audit_fixture_sequence' <<<"${session_authorization_output}"
-grep -Fq 'AUDIT_TRANSACTION_ROLLED_BACK' <<<"${session_authorization_output}"
+  } | psql_as deedlight_audit_privileged_login -X -q -v ON_ERROR_STOP=1
+)" || session_authorization_status=$?
+printf '%s\n' "${session_authorization_output}" >"${tmp_dir}/session-authorization.log"
+if [[ "${session_authorization_status}" -ne 0 ]]; then
+  echo "FAIL: SET SESSION AUTHORIZATION limitation demonstration exited with status ${session_authorization_status}" >&2
+  exit 1
+fi
+grep -Fq 'deedlight_catalog_auditor|deedlight_catalog_auditor' "${tmp_dir}/session-authorization.log"
+grep -Fq 'audit_fixture_sequence' "${tmp_dir}/session-authorization.log"
+grep -Fq 'AUDIT_TRANSACTION_ROLLED_BACK' "${tmp_dir}/session-authorization.log"
 echo "LIMITATION: superuser SET SESSION AUTHORIZATION can spoof SQL-visible collector identity; independent connection authentication is mandatory"
 
 # Direct SET ROLE is rejected even when the target role itself has no elevated attributes.
