@@ -226,6 +226,8 @@ test("collector rejects effective application access and role escalation", () =>
   assert.match(runner, /missing_search_path_schema/);
   assert.match(runner, /deedlight_audit_missing_schema/);
   assert.match(fixture, /REVOKE CREATE ON SCHEMA public FROM PUBLIC/);
+  assert.match(fixture, /SET search_path = 'pg_catalog'/);
+  assert.match(fixture, /SET search_path = 'pg_catalog, public'/);
 });
 
 test("sequence definitions, ownership, ACLs and index health are captured", () => {
