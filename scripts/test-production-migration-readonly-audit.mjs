@@ -259,6 +259,27 @@ test("collector rejects effective application access and role escalation", () =>
   assert.equal((fixture.match(/^\s+TO deedlight_catalog_auditor;$/gm) ?? []).length, 1);
 });
 
+test("PostgreSQL 16 client-disconnect harness verifies backend termination and recovery", () => {
+  const runner = readFileSync(
+    path.join(process.cwd(), "scripts/test-production-migration-readonly-audit-postgres16.sh"),
+    "utf8",
+  );
+  assert.match(runner, /PGAPPNAME="\$\{termination_app_name\}"/);
+  assert.match(runner, /wait_event = 'PgSleep'/);
+  assert.match(runner, /mode = 'AccessExclusiveLock'[\s\S]*?AND l\.granted/);
+  assert.match(runner, /kill -KILL "\$\{client_pid\}"/);
+  assert.match(runner, /client_status.*-ne 137/);
+  assert.match(runner, /backend_alive_after_client_kill/);
+  assert.match(runner, /backend_remaining_after_disconnect/);
+  assert.match(runner, /uncommitted_marker_count_after_termination/);
+  assert.match(runner, /remaining_history_access_exclusive_locks/);
+  assert.match(runner, /ACCESS EXCLUSIVE MODE NOWAIT/);
+  assert.match(runner, /after-client-termination\.log/);
+  assert.match(runner, /no_stale_authentication_context/);
+  assert.match(runner, /fresh authenticated collector execution and rollback succeeded/);
+  assert.doesNotMatch(runner, /pg_sleep\(60\)/);
+});
+
 test("sequence definitions, ownership, ACLs and index health are captured", () => {
   for (const token of [
     "pg_catalog.pg_sequence", "pg_catalog.pg_depend", "owned_table_schema",
