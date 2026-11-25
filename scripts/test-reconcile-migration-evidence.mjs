@@ -148,6 +148,14 @@ function fixture() {
         isReplication: false,
         ownsObjects: false,
         effectivePrivileges: ["CONNECT", "USAGE", "SELECT"],
+        databasePrivilegesComplete: true,
+        databasePrivileges: ["CONNECT"],
+        schemaPrivilegesComplete: true,
+        schemaPrivileges: [{ schema: "public", privileges: ["USAGE"] }],
+        objectPrivilegesComplete: true,
+        objectPrivileges: [{ identity: "public.profiles", privileges: ["SELECT"] }],
+        catalogPrivilegesComplete: true,
+        catalogPrivileges: ["SELECT"],
         roleMemberships: [],
         ownedSchemas: [],
         proofQueryBundleSha256: evidence.provenance.queryBundleSha256,
@@ -326,6 +334,30 @@ test("write-capable collector, inherited roles or unproven read-only privilege f
       const claims = f.approvals.collectorAttestation.claims;
       f.approvals.collectorAttestation = artifact("read-only-collector-attestation", "collector", {
         ...claims, databaseAuthority: { ...claims.databaseAuthority, bypassRls: undefined },
+      });
+    },
+    (f) => {
+      const claims = f.approvals.collectorAttestation.claims;
+      f.approvals.collectorAttestation = artifact("read-only-collector-attestation", "collector", {
+        ...claims, databaseAuthority: {
+          ...claims.databaseAuthority,
+          objectPrivileges: [{ identity: "public.profiles", privileges: ["SELECT", "UPDATE"] }],
+        },
+      });
+    },
+    (f) => {
+      const claims = f.approvals.collectorAttestation.claims;
+      f.approvals.collectorAttestation = artifact("read-only-collector-attestation", "collector", {
+        ...claims, databaseAuthority: {
+          ...claims.databaseAuthority,
+          schemaPrivileges: [{ schema: "public", privileges: ["USAGE", "CREATE"] }],
+        },
+      });
+    },
+    (f) => {
+      const claims = f.approvals.collectorAttestation.claims;
+      f.approvals.collectorAttestation = artifact("read-only-collector-attestation", "collector", {
+        ...claims, databaseAuthority: { ...claims.databaseAuthority, objectPrivilegesComplete: false },
       });
     },
   ]) {
