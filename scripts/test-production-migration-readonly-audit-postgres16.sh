@@ -313,6 +313,7 @@ then
 fi
 grep -Fq "Fixture SECURITY DEFINER role attributes or memberships rejected" "${tmp_dir}/privileged_security_definer.log"
 echo "PASS: privileged SECURITY DEFINER effective role is rejected"
+psql -X -v ON_ERROR_STOP=1 -c "DROP FUNCTION public.audit_fixture_privileged_definer_identity();"
 
 expect_failure missing_auth_context "Authenticated collector principal is missing" deedlight_catalog_auditor __MISSING__
 expect_failure malformed_auth_context "Authenticated collector principal is missing" deedlight_catalog_auditor "deedlight_catalog_auditor,spoofed"
