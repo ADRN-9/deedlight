@@ -187,7 +187,11 @@ BEGIN
                     SELECT 1
                     FROM pg_catalog.pg_roles owner_member
                     WHERE owner_member.rolcanlogin AND NOT owner_member.rolsuper
-                      AND path_owner.rolname <> 'pg_database_owner'
+                      AND owner_member.oid <> (
+                        SELECT database_owner.datdba
+                        FROM pg_catalog.pg_database database_owner
+                        WHERE database_owner.datname = current_database()
+                      )
                       AND pg_catalog.pg_has_role(owner_member.oid, path_owner.oid, 'MEMBER')
                   )
                   OR EXISTS (
@@ -202,6 +206,11 @@ BEGIN
                     FROM pg_catalog.pg_roles creator
                     WHERE NOT creator.rolsuper
                       AND creator.oid <> path_ns.nspowner
+                      AND creator.oid <> (
+                        SELECT database_owner.datdba
+                        FROM pg_catalog.pg_database database_owner
+                        WHERE database_owner.datname = current_database()
+                      )
                       AND pg_catalog.has_schema_privilege(creator.oid, path_ns.oid, 'CREATE')
                       AND NOT pg_catalog.pg_has_role(creator.oid, path_ns.nspowner, 'MEMBER')
                   )
