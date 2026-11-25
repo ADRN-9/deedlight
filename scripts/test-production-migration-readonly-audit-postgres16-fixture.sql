@@ -42,6 +42,8 @@ CREATE ROLE deedlight_audit_nested_leaf NOLOGIN NOSUPERUSER NOCREATEDB NOCREATER
 CREATE ROLE deedlight_audit_privileged_login LOGIN PASSWORD :'fixture_privileged_password' SUPERUSER;
 CREATE ROLE deedlight_audit_definer_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+
 CREATE SCHEMA supabase_migrations;
 CREATE TABLE supabase_migrations.schema_migrations (
   version text NOT NULL PRIMARY KEY,
