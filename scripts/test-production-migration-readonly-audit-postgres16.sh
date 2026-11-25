@@ -82,7 +82,7 @@ WITH configured AS (
   SELECT
     n.nspname,
     p.proname,
-    regexp_replace(cfg.setting, '^[^=]*=', '') AS search_path,
+    pg_catalog.btrim(regexp_replace(cfg.setting, '^[^=]*=', ''), '"') AS search_path,
     owner_role.rolcanlogin AS function_owner_can_login,
     owner_role.rolsuper AS function_owner_is_superuser
   FROM pg_catalog.pg_proc p
