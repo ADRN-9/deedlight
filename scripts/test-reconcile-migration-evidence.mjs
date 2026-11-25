@@ -140,7 +140,7 @@ function fixture() {
       rmSync(rootDir, { recursive: true, force: true });
       rmSync(trustDir, { recursive: true, force: true });
     },
-    reapprove(mutateDatabaseAuthority) {
+    reapprove(mutateDatabaseAuthority, mutateExecutionEvidence) {
       const mapHash = mappingDigest(mapping);
       const common = {
         projectRef: "xaipiovflxomcbfwtwmu",
@@ -186,6 +186,7 @@ function fixture() {
         statementCount: 4,
         resultDigest: hash(Buffer.from(canonicalJson(databaseAuthority))),
       };
+      if (mutateExecutionEvidence) mutateExecutionEvidence(executionEvidence);
       evidence.collectorAuthority = {
         schemaVersion: 1,
         projectRef: common.projectRef,
@@ -517,22 +518,7 @@ test("collector execution receipt binds project, collector, query digest, captur
   ]) {
     const f = fixture();
     try {
-      f.reapprove();
-      mutate(f.evidence.collectorAuthority.executionEvidence);
-      const receipt = f.evidence.collectorAuthority.executionEvidence;
-      const db = f.evidence.collectorAuthority.databaseAuthority;
-      receipt.resultDigest = hash(Buffer.from(canonicalJson(db)));
-      const authorityDigest = hash(Buffer.from(canonicalJson(f.evidence.collectorAuthority)));
-      const evidenceDigest = hash(evidencePayload(f.evidence));
-      const common = f.approvals.collectorAttestation.claims;
-      f.approvals.collectorAttestation = artifact("read-only-collector-attestation", "collector", {
-        ...common,
-        evidenceDigest,
-        authorityEvidenceDigest: authorityDigest,
-      });
-      f.approvals.evidenceApproval = artifact("production-evidence-approval", "evidence-approver", {
-        ...f.approvals.evidenceApproval.claims, evidenceDigest,
-      });
+      f.reapprove(undefined, mutate);
       const report = f.analyze();
       assert.equal(report.counts.Unknown, 39);
       assert.equal(report.acceptance, "NOT_ACCEPTED");
