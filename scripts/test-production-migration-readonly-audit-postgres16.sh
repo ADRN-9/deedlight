@@ -77,6 +77,21 @@ WHERE n.nspname IN ('public', 'extensions', 'auth', 'storage')
 ORDER BY n.nspname;
 SQL
 
+psql -X -At -F '|' -v ON_ERROR_STOP=1 >"${tmp_dir}/routine-search-path.log" <<'SQL'
+SELECT
+  n.nspname,
+  p.proname,
+  regexp_replace(cfg.setting, '^[^=]*=', '') AS search_path,
+  owner_role.rolcanlogin,
+  owner_role.rolsuper
+FROM pg_catalog.pg_proc p
+JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+JOIN pg_catalog.pg_roles owner_role ON owner_role.oid = p.proowner
+CROSS JOIN LATERAL unnest(COALESCE(p.proconfig, ARRAY[]::text[])) cfg(setting)
+WHERE p.proname = 'audit_fixture_privileged_definer_identity'
+  AND split_part(cfg.setting, '=', 1) = 'search_path';
+SQL
+
 reset_history() {
   psql -X -v ON_ERROR_STOP=1 <<'SQL'
 DROP TABLE IF EXISTS supabase_migrations.schema_migrations;
