@@ -112,6 +112,5 @@ $fixture$;
 ALTER FUNCTION public.audit_fixture_security_definer_identity()
   OWNER TO deedlight_audit_definer_owner;
 GRANT EXECUTE ON FUNCTION public.audit_fixture_security_definer_identity()
-  TO deedlight_catalog_auditor;
 
   TO deedlight_catalog_auditor;
