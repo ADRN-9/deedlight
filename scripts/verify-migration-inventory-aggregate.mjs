@@ -12,7 +12,7 @@ const INVENTORY_RELATIVE = "supabase/migration-inventory.json";
 const AGGREGATE_RELATIVE = "supabase/run_in_sql_editor_all.sql";
 const SEED_RELATIVE = "supabase/seed.sql";
 const COMPATIBILITY_RELATIVE = "supabase/bootstrap/migration_038_admin_compatibility.sql";
-const EXPECTED_COMPATIBILITY_BLOB_SHA1 = "babb856b41cbf2831f3022b022b552074f603d50";
+const EXPECTED_COMPATIBILITY_BLOB_SHA1 = "e62fd86f90bc56d7357dfdc2d06b6df8246890fb";
 const EXPECTED_INVENTORY_BLOB_SHA1 = "95d514a0bd97ff448c9507252eb1f5e69a507442";
 const EXPECTED_DUPLICATES = {
   "202607260007": [
