@@ -102,7 +102,7 @@ BEGIN
   END LOOP;
 
   -- Routine settings are a reviewed allowlist, not a raw pg_proc.proconfig export.
-  -- Reject custom GUCs and unsafe values before any settings are serialized.
+  -- Reject custom GUCs, noncanonical search paths and unsafe limits before serialization.
   IF EXISTS (
     SELECT 1
     FROM pg_catalog.pg_proc p
@@ -111,24 +111,101 @@ BEGIN
     CROSS JOIN LATERAL (
       SELECT
         split_part(cfg.setting, '=', 1) AS setting_name,
-        CASE WHEN position('=' IN cfg.setting) > 0
-          THEN substring(cfg.setting FROM position('=' IN cfg.setting) + 1)
-          ELSE NULL END AS setting_value
+        regexp_replace(cfg.setting, '^[^=]*=', '') AS setting_value
     ) parsed
+    LEFT JOIN LATERAL (
+      SELECT pg_catalog.regexp_match(
+        parsed.setting_value,
+        '^([1-9][0-9]*)(us|ms|s|min|h|d)?$',
+        'i'
+      ) AS parts
+    ) timeout_value ON true
     WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
       AND n.nspname NOT LIKE 'pg_toast%'
       AND (
-        parsed.setting_value IS NULL
+        position('=' IN cfg.setting) = 0
         OR NOT (
-          (parsed.setting_name = 'search_path'
-            AND parsed.setting_value ~ '^(pg_catalog|public|extensions|auth|storage)(, ?(pg_catalog|public|extensions|auth|storage))*(, ?pg_temp)?$')
-          OR (parsed.setting_name IN ('row_security', 'default_transaction_read_only')
-            AND parsed.setting_value IN ('on', 'off'))
-          OR (parsed.setting_name IN (
-                'statement_timeout', 'lock_timeout', 'idle_in_transaction_session_timeout'
-              ) AND parsed.setting_value ~ '^(0|[1-9][0-9]*(ms|s|min|h|d)?)$')
-          OR (parsed.setting_name = 'temp_file_limit'
-            AND parsed.setting_value ~* '^(-1|0|[1-9][0-9]*(kb|mb|gb)?)$')
+          (
+            parsed.setting_name = 'search_path'
+            AND parsed.setting_value ~ '^(pg_catalog|public|extensions|auth|storage)(, ?(pg_catalog|public|extensions|auth|storage))*(, ?pg_temp)?$'
+            AND cardinality(string_to_array(replace(parsed.setting_value, ' ', ''), ','))
+              = cardinality(ARRAY(
+                SELECT DISTINCT path_schema
+                FROM unnest(string_to_array(replace(parsed.setting_value, ' ', ''), ',')) path_schema
+              ))
+            AND NOT EXISTS (
+              SELECT 1
+              FROM unnest(string_to_array(replace(parsed.setting_value, ' ', ''), ',')) WITH ORDINALITY path(schema_name, ordinal)
+              WHERE (path.schema_name = 'pg_catalog' AND path.ordinal <> 1)
+                OR (path.schema_name = 'pg_temp' AND path.ordinal <>
+                  cardinality(string_to_array(replace(parsed.setting_value, ' ', ''), ',')))
+            )
+            AND NOT EXISTS (
+              SELECT 1
+              FROM unnest(string_to_array(replace(parsed.setting_value, ' ', ''), ',')) WITH ORDINALITY earlier(schema_name, ordinal)
+              JOIN unnest(string_to_array(replace(parsed.setting_value, ' ', ''), ',')) WITH ORDINALITY later(schema_name, ordinal)
+                ON earlier.ordinal < later.ordinal
+              WHERE array_position(
+                ARRAY['pg_catalog','public','extensions','auth','storage','pg_temp']::text[],
+                earlier.schema_name
+              ) >= array_position(
+                ARRAY['pg_catalog','public','extensions','auth','storage','pg_temp']::text[],
+                later.schema_name
+              )
+            )
+            AND NOT EXISTS (
+              SELECT 1
+              FROM unnest(string_to_array(replace(parsed.setting_value, ' ', ''), ',')) path(schema_name)
+              JOIN pg_catalog.pg_namespace path_ns ON path_ns.nspname = path.schema_name
+              JOIN pg_catalog.pg_roles path_owner ON path_owner.oid = path_ns.nspowner
+              WHERE path.schema_name <> 'pg_catalog'
+                AND (
+                  path_owner.rolcanlogin AND NOT path_owner.rolsuper
+                  OR EXISTS (
+                    SELECT 1
+                    FROM pg_catalog.aclexplode(
+                      COALESCE(path_ns.nspacl, pg_catalog.acldefault('n', path_ns.nspowner))
+                    ) acl
+                    WHERE acl.grantee = 0 AND acl.privilege_type = 'CREATE'
+                  )
+                  OR EXISTS (
+                    SELECT 1
+                    FROM pg_catalog.pg_roles creator
+                    WHERE NOT creator.rolsuper
+                      AND creator.oid <> path_ns.nspowner
+                      AND pg_catalog.has_schema_privilege(creator.oid, path_ns.oid, 'CREATE')
+                      AND NOT pg_catalog.pg_has_role(creator.oid, path_ns.nspowner, 'MEMBER')
+                  )
+                )
+            )
+          )
+          OR (parsed.setting_name = 'row_security' AND parsed.setting_value = 'on')
+          OR (parsed.setting_name = 'default_transaction_read_only' AND parsed.setting_value = 'on')
+          OR (
+            parsed.setting_name IN (
+              'statement_timeout', 'lock_timeout', 'idle_in_transaction_session_timeout'
+            )
+            AND timeout_value.parts IS NOT NULL
+            AND timeout_value.parts[1]::numeric *
+              CASE lower(COALESCE(timeout_value.parts[2], 'ms'))
+                WHEN 'us' THEN 0.001
+                WHEN 'ms' THEN 1
+                WHEN 's' THEN 1000
+                WHEN 'min' THEN 60000
+                WHEN 'h' THEN 3600000
+                WHEN 'd' THEN 86400000
+              END
+              <= CASE parsed.setting_name
+                WHEN 'statement_timeout' THEN 300000
+                WHEN 'lock_timeout' THEN 30000
+                WHEN 'idle_in_transaction_session_timeout' THEN 60000
+              END
+          )
+          OR (
+            parsed.setting_name = 'temp_file_limit'
+            AND parsed.setting_value ~* '^[1-9][0-9]*(kb|mb|gb)?$'
+            AND pg_catalog.pg_size_bytes(parsed.setting_value) <= 1073741824
+          )
         )
       )
   ) THEN
@@ -365,7 +442,7 @@ SELECT
     SELECT jsonb_agg(
       jsonb_build_object(
         'name', split_part(cfg.setting, '=', 1),
-        'value', substring(cfg.setting FROM position('=' IN cfg.setting) + 1)
+        'value', regexp_replace(cfg.setting, '^[^=]*=', '')
       )
       ORDER BY split_part(cfg.setting, '=', 1),
         substring(cfg.setting FROM position('=' IN cfg.setting) + 1)
