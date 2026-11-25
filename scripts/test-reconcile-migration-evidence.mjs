@@ -173,6 +173,7 @@ function fixture() {
         evidence,
         approvals: f.approvals,
         trustRoots,
+        trustedTrustRootsSha256: hash(Buffer.from(canonicalJson(trustRoots))),
         now: Date.parse("2026-11-25T01:00:00.000Z"),
         ...overrides,
       });
@@ -185,7 +186,7 @@ function fixture() {
       writeFileSync(evidencePath, JSON.stringify(evidence));
       writeFileSync(approvalsPath, JSON.stringify(f.approvals));
       writeFileSync(rootsPath, JSON.stringify(trustRoots));
-      return { evidencePath, approvalsPath, rootsPath };
+      return { evidencePath, approvalsPath, rootsPath, rootsDigest: hash(Buffer.from(canonicalJson(trustRoots))) };
     },
   };
   f.reapprove();
@@ -332,12 +333,12 @@ test("history names and exact source execution metadata are required for Applied
   try {
     const row = f.evidence.history.rows.find((entry) => entry.version === "202607260004");
     delete row.sourceBlobSha1;
-    f.reapprove();
-    const report = f.analyze();
+    second.reapprove();
+    const report = second.analyze();
     const result = report.classifications.find((entry) => entry.version === "202607260004");
     assert.equal(result.status, "Schema represented but history ambiguous");
     assert.equal(result.exactExecutionEstablished, false);
-  } finally { f.cleanup(); }
+  } finally { second.cleanup(); }
 });
 
 test("tampered evidence after signed approval fails closed", () => {
@@ -420,11 +421,21 @@ test("acceptance mode returns nonzero for unresolved duplicate-007 ambiguity; re
     const inputs = f.writeCliInputs();
     const script = path.join(repoRoot, "scripts/reconcile-migration-evidence.mjs");
     const args = ["--evidence=" + inputs.evidencePath, "--approvals=" + inputs.approvalsPath, "--trust-roots=" + inputs.rootsPath];
-    const accepted = spawnSync(process.execPath, [script, ...args, "--mode=accept"], { cwd: f.rootDir, encoding: "utf8" });
+    const env = { ...process.env, DEEDLIGHT_MIGRATION_TRUST_ROOTS_SHA256: inputs.rootsDigest };
+    const accepted = spawnSync(process.execPath, [script, ...args, "--mode=accept"], { cwd: f.rootDir, encoding: "utf8", env });
     assert.equal(accepted.status, 2, accepted.stderr);
     assert.match(accepted.stdout, /"acceptance": "NOT_ACCEPTED"/);
-    const reportOnly = spawnSync(process.execPath, [script, ...args, "--mode=report"], { cwd: f.rootDir, encoding: "utf8" });
+    const reportOnly = spawnSync(process.execPath, [script, ...args, "--mode=report"], { cwd: f.rootDir, encoding: "utf8", env });
     assert.equal(reportOnly.status, 0, reportOnly.stderr);
     assert.match(reportOnly.stdout, /"acceptance": "NOT_ACCEPTED"/);
+  } finally { f.cleanup(); }
+});
+
+test("trust roots must match an independently provisioned digest", () => {
+  const f = fixture();
+  try {
+    const report = f.analyze({ trustedTrustRootsSha256: "0".repeat(64) });
+    assert.equal(report.counts.Unknown, 39);
+    assert.ok(report.trustProblems.some((reason) => reason.includes("independently provisioned trust-root digest")));
   } finally { f.cleanup(); }
 });
