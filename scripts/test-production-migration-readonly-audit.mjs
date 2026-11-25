@@ -11,6 +11,7 @@ const sql = readFileSync(
 function sqlLexicalError(source) {
   let state = "code";
   let returnState = "code";
+  let dollarReturnState = "code";
   let dollarTag = "";
   let depth = 0;
   const openParens = [];
@@ -46,7 +47,7 @@ function sqlLexicalError(source) {
       continue;
     }
     if (state === "dollar-quote" && source.startsWith(dollarTag, i)) {
-      state = returnState;
+      state = dollarReturnState;
       i += dollarTag.length;
       continue;
     }
@@ -79,7 +80,7 @@ function sqlLexicalError(source) {
       const tag = source.slice(i).match(/^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/)?.[0];
       if (tag) {
         dollarTag = tag;
-        returnState = state;
+        dollarReturnState = state;
         state = "dollar-quote";
         i += tag.length;
         continue;
