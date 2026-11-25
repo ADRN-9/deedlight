@@ -44,7 +44,74 @@ cleanup() {
 }
 trap cleanup EXIT
 
+validate_fixture_target() {
+  local authorization="$1" database="$2" server_version_num="$3" host="$4" port="$5" username="$6"
+  local major
+  [[ "$authorization" == "deedlight-postgres16-ci-disposable-v1" ]] || return 1
+  [[ "$database" == "deedlight_migration_order_test" ]] || return 1
+  [[ "$server_version_num" =~ ^[0-9]+$ ]] || return 1
+  major=$((server_version_num / 10000))
+  [[ "$major" -eq 16 ]] || return 1
+  [[ "$host" == "127.0.0.1" && "$port" == "5432" && "$username" == "postgres" ]] || return 1
+}
+
+expect_fixture_guard_rejection() {
+  local name="$1"
+  shift
+  if validate_fixture_target "$@"; then
+    echo "FAIL: fixture guard accepted negative case ${name}" >&2
+    exit 1
+  fi
+  echo "PASS: fixture guard rejects ${name}"
+}
+
+actual_host="${PGHOST}"
+actual_port="${PGPORT}"
+actual_user="${PGUSER}"
+actual_authorization="${DEEDLIGHT_DISPOSABLE_FIXTURE_AUTHORIZATION:-}"
+server_identity="$(psql --host "$PGHOST" --port "$PGPORT" --username "$PGUSER" --dbname "$PGDATABASE" -X -At -F '|' -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.current_database(), pg_catalog.current_setting('server_version_num')")"
+IFS='|' read -r actual_database actual_server_version <<<"$server_identity"
+
+expect_fixture_guard_rejection missing_authorization "" "$actual_database" "$actual_server_version" "$actual_host" "$actual_port" "$actual_user"
+expect_fixture_guard_rejection unexpected_database "$actual_authorization" "not_the_fixture_database" "$actual_server_version" "$actual_host" "$actual_port" "$actual_user"
+expect_fixture_guard_rejection unsupported_server_version "$actual_authorization" "$actual_database" "150000" "$actual_host" "$actual_port" "$actual_user"
+expect_fixture_guard_rejection unapproved_endpoint "$actual_authorization" "$actual_database" "$actual_server_version" "db.example.invalid" "$actual_port" "$actual_user"
+
+if ! validate_fixture_target "$actual_authorization" "$actual_database" "$actual_server_version" "$actual_host" "$actual_port" "$actual_user"; then
+  echo "FAIL: refusing destructive fixture setup for unapproved endpoint/database/server" >&2
+  printf 'database=%s server_version_num=%s host=%s port=%s username=%s\n' \
+    "$actual_database" "$actual_server_version" "$actual_host" "$actual_port" "$actual_user" >&2
+  exit 1
+fi
+echo "PASS: disposable fixture endpoint, database identity, authorization and PostgreSQL 16 version verified"
+
+if env -u DEEDLIGHT_DISPOSABLE_FIXTURE_AUTHORIZATION psql -X -v ON_ERROR_STOP=1 --file scripts/test-production-migration-readonly-audit-postgres16-fixture.sql >"${tmp_dir}/fixture-missing-authorization.log" 2>&1; then
+  echo "FAIL: fixture setup accepted missing disposable authorization" >&2
+  exit 1
+fi
+schema_after_rejection="$(psql -X -At -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.to_regnamespace('supabase_migrations') IS NULL")"
+if [[ "${schema_after_rejection}" != "t" ]]; then
+  echo "FAIL: missing authorization still created or altered migration-history schema" >&2
+  exit 1
+fi
+echo "PASS: SQL fixture guard rejects missing authorization before any destructive setup"
+
 psql -X -v ON_ERROR_STOP=1 --file scripts/test-production-migration-readonly-audit-postgres16-fixture.sql
+
+# Hostile functions deliberately shadow security-sensitive built-ins on the session search_path.
+psql -X -v ON_ERROR_STOP=1 <<'SQL'
+CREATE SCHEMA deedlight_audit_shadow;
+GRANT USAGE ON SCHEMA deedlight_audit_shadow TO deedlight_catalog_auditor;
+CREATE FUNCTION deedlight_audit_shadow.current_setting(text, boolean)
+RETURNS text LANGUAGE plpgsql
+AS $shadow$ BEGIN RAISE EXCEPTION 'HOSTILE current_setting SHADOW INVOKED'; END $shadow$;
+CREATE FUNCTION deedlight_audit_shadow.to_regclass(text)
+RETURNS regclass LANGUAGE plpgsql
+AS $shadow$ BEGIN RAISE EXCEPTION 'HOSTILE to_regclass SHADOW INVOKED'; END $shadow$;
+CREATE FUNCTION deedlight_audit_shadow.has_table_privilege(oid, oid, text)
+RETURNS boolean LANGUAGE plpgsql
+AS $shadow$ BEGIN RAISE EXCEPTION 'HOSTILE has_table_privilege SHADOW INVOKED'; END $shadow$;
+SQL
 
 # On failure, retain schema trust diagnostics without exporting any routine setting values.
 psql -X -At -F '|' -v ON_ERROR_STOP=1 >"${tmp_dir}/schema-trust.log" <<'SQL'
@@ -190,7 +257,12 @@ run_audit() {
   local project_ref="${3:-xaipiovflxomcbfwtwmu}"
   local repository_sha="${4:-0123456789abcdef0123456789abcdef01234567}"
   local role_switch="${5:-__NONE__}"
+  local hostile_search_path="${6:-__NONE__}"
   {
+    if [[ "${hostile_search_path}" != "__NONE__" ]]; then
+      printf 'SET search_path = deedlight_audit_shadow, public, pg_catalog;\n'
+      printf "SELECT CASE WHEN pg_catalog.to_regprocedure('current_setting(text,boolean)') = pg_catalog.to_regprocedure('deedlight_audit_shadow.current_setting(text,boolean)') AND pg_catalog.to_regprocedure('to_regclass(text)') = pg_catalog.to_regprocedure('deedlight_audit_shadow.to_regclass(text)') AND pg_catalog.to_regprocedure('has_table_privilege(oid,oid,text)') = pg_catalog.to_regprocedure('deedlight_audit_shadow.has_table_privilege(oid,oid,text)') THEN 'HOSTILE_SEARCH_PATH_RESOLUTION_CONFIRMED' ELSE 'HOSTILE_SEARCH_PATH_RESOLUTION_FAILED' END;\n"
+    fi
     if [[ "${auth_context}" != "__MISSING__" ]]; then
       printf "SET deedlight.authenticated_principal = '%s';\n" "${auth_context}"
     fi
@@ -200,7 +272,7 @@ run_audit() {
       printf 'SET ROLE %s;\n' "${role_switch}"
     fi
     printf '\\i scripts/production-migration-readonly-audit.sql\n'
-    printf "SELECT 'AUDIT_TRANSACTION_ROLLED_BACK' WHERE current_setting('transaction_read_only') = 'off';\n"
+    printf "SELECT 'AUDIT_TRANSACTION_ROLLED_BACK' WHERE pg_catalog.current_setting('transaction_read_only') = 'off';\n"
   } | psql_as "${login_role}" -X -v ON_ERROR_STOP=1
 }
 expect_failure() {
@@ -238,6 +310,17 @@ expect_history_failure() {
 
 run_audit >"${tmp_dir}/approved.log" 2>&1
 grep -Fq "audit_fixture_sequence" "${tmp_dir}/approved.log"
+if ! run_audit deedlight_catalog_auditor deedlight_catalog_auditor xaipiovflxomcbfwtwmu 0123456789abcdef0123456789abcdef01234567 __NONE__ hostile >"${tmp_dir}/hostile-search-path.log" 2>&1; then
+  echo "FAIL: authenticated collector failed with hostile session search_path" >&2
+  exit 1
+fi
+grep -Fq "HOSTILE_SEARCH_PATH_RESOLUTION_CONFIRMED" "${tmp_dir}/hostile-search-path.log"
+grep -Fq "AUDIT_TRANSACTION_ROLLED_BACK" "${tmp_dir}/hostile-search-path.log"
+if grep -Eq "HOSTILE (current_setting|to_regclass|has_table_privilege) SHADOW INVOKED" "${tmp_dir}/hostile-search-path.log"; then
+  echo "FAIL: hostile shadow function was invoked during collector authorization" >&2
+  exit 1
+fi
+echo "PASS: hostile search_path shadow functions were bypassed and collector authorization succeeded"
 grep -Fq "deedlight_catalog_auditor" "${tmp_dir}/approved.log"
 grep -Fq "AUDIT_TRANSACTION_ROLLED_BACK" "${tmp_dir}/approved.log"
 grep -Fq '"name": "search_path"' "${tmp_dir}/approved.log"
@@ -437,7 +520,7 @@ SQL
 expect_failure duplicate_routine_search_path "Unexpected or unsafe routine configuration"
 psql -X -v ON_ERROR_STOP=1 -c "DROP FUNCTION public.audit_fixture_duplicate_search_path();"
 
-psql -X -v ON_ERROR_STOP=1 -c "DROP SCHEMA IF EXISTS deedlight_audit_missing_schema CASCADE;"
+# The fixture guard proved this schema does not exist; never drop an unowned schema.
 psql -X -v ON_ERROR_STOP=1 <<'SQL'
 CREATE FUNCTION public.audit_fixture_missing_search_path_schema()
 RETURNS integer LANGUAGE sql

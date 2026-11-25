@@ -106,7 +106,7 @@ function sqlLexicalError(source) {
 test("audit SQL is structurally complete and lexically well formed", () => {
   const declaration = sql.slice(sql.indexOf("DECLARE"), sql.indexOf("BEGIN", sql.indexOf("DECLARE")));
   assert.doesNotMatch(declaration, /to_regclass\('supabase_migrations\.schema_migrations'\)/);
-  assert.match(sql, /SET ROLE is prohibited for the migration audit collector\.[\s\S]*?v_history_oid := to_regclass\('supabase_migrations\.schema_migrations'\)/);
+  assert.match(sql, /SET ROLE is prohibited for the migration audit collector\.[\s\S]*?v_history_oid := pg_catalog.to_regclass\('supabase_migrations\.schema_migrations'\)/);
   assert.equal(sqlLexicalError(sql), null, sqlLexicalError(sql) ?? undefined);
   assert.equal((sql.match(/^BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;$/gim) ?? []).length, 1);
   assert.equal((sql.match(/^DO \$audit_preflight\$/gm) ?? []).length, 1);
@@ -159,7 +159,7 @@ test("routine configuration is canonical, trusted, bounded and deterministically
   assert.match(sql, /Unexpected or unsafe routine configuration/);
   assert.match(sql, /pg_catalog\|public\|extensions\|auth\|storage/);
   assert.match(sql, /array_position\([\s\S]*?pg_temp/);
-  assert.match(sql, /cardinality\(string_to_array\([\s\S]*?cardinality\(ARRAY\(/);
+  assert.match(sql, /pg_catalog\.cardinality\(pg_catalog\.string_to_array\([\s\S]*?pg_catalog\.cardinality\(ARRAY\(/);
   assert.match(sql, /pg_catalog\.acldefault\('n'/);
   assert.match(sql, /acl\.grantee = 0 AND acl\.privilege_type = 'CREATE'/);
   assert.match(sql, /path_owner\.rolcanlogin/);
@@ -177,9 +177,9 @@ test("routine configuration is canonical, trusted, bounded and deterministically
   assert.match(sql, /<= 1073741824/);
   assert.match(sql, /\^\(\[1-9\]\[0-9\]\{0,9\}\)\(kb\|mb\|gb\)\?\$/);
   assert.match(sql, /regexp_replace\(cfg\.setting, '\^\[\^=\]\*=', ''\)/);
-  assert.match(sql, /pg_catalog\.btrim\(regexp_replace\(cfg\.setting, '\^\[\^=\]\*=', ''\), '\"'\)/);
-  assert.match(sql, /WHEN split_part\(cfg\.setting, '=', 1\) = 'search_path'/);
-  assert.match(sql, /jsonb_agg\([\s\S]*?ORDER BY split_part\(cfg\.setting, '=', 1\)/);
+  assert.match(sql, /pg_catalog\.btrim\(pg_catalog\.regexp_replace\(cfg\.setting, '\^\[\^=\]\*=', ''\), '\"'\)/);
+  assert.match(sql, /WHEN pg_catalog\.split_part\(cfg\.setting, '=', 1\) = 'search_path'/);
+  assert.match(sql, /jsonb_agg\([\s\S]*?ORDER BY pg_catalog\.split_part\(cfg\.setting, '=', 1\)/);
   assert.doesNotMatch(sql, /substring\(cfg\.setting FROM position\('/);
   assert.doesNotMatch(sql, /p\.proconfig\s+AS\s+routine_settings/i);
   assert.doesNotMatch(sql, /rolconfig/);
@@ -208,6 +208,19 @@ test("audit requires exact migration-history columns, types, nullability, constr
     "^[0-9]{12}$",
   ]) assert.ok(sql.includes(token), `missing migration-history schema guard: ${token}`);
   assert.match(sql, /exactly version text NOT NULL, name text NULL, statements text\[\] NULL/);
+});
+
+test("audit pins a trusted search_path before authorization preflight and schema-qualifies security built-ins", () => {
+  assert.match(sql, /BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;\s*SET LOCAL search_path = pg_catalog;\s*SET LOCAL statement_timeout/);
+  const preflight = sql.slice(sql.indexOf("DO $audit_preflight$"), sql.indexOf("$audit_preflight$;"));
+  for (const fn of [
+    "current_setting", "current_database", "to_regclass", "has_table_privilege",
+    "has_column_privilege", "has_any_column_privilege", "has_sequence_privilege",
+    "has_schema_privilege", "has_database_privilege", "pg_has_role", "replace",
+  ]) {
+    assert.match(preflight, new RegExp("pg_catalog\\." + fn + "\\("), `authorization preflight must qualify ${fn}`);
+  }
+  assert.match(preflight, /pg_catalog\.to_regclass\('supabase_migrations\.schema_migrations'\)/);
 });
 
 test("audit fails closed for missing catalogs and unsupported migration history", () => {
@@ -257,6 +270,54 @@ test("collector rejects effective application access and role escalation", () =>
   assert.match(runner, /GRANT EXECUTE ON FUNCTION public\.audit_fixture_privileged_definer_identity\(\) TO deedlight_catalog_auditor;/);
   assert.ok(runner.indexOf("DROP FUNCTION public.audit_fixture_privileged_definer_identity()") < runner.indexOf("DROP ROLE deedlight_audit_privileged_login"));
   assert.equal((fixture.match(/^\s+TO deedlight_catalog_auditor;$/gm) ?? []).length, 1);
+});
+
+test("PostgreSQL 16 migration-audit fixture fails closed before destructive setup", () => {
+  const runner = readFileSync(
+    path.join(process.cwd(), "scripts/test-production-migration-readonly-audit-postgres16.sh"),
+    "utf8",
+  );
+  const fixture = readFileSync(
+    path.join(process.cwd(), "scripts/test-production-migration-readonly-audit-postgres16-fixture.sql"),
+    "utf8",
+  );
+  const workflow = readFileSync(
+    path.join(process.cwd(), ".github/workflows/pr-validation.yml"),
+    "utf8",
+  );
+  for (const negativeCase of [
+    "missing_authorization", "unexpected_database", "unsupported_server_version", "unapproved_endpoint",
+  ]) assert.match(runner, new RegExp("expect_fixture_guard_rejection " + negativeCase));
+  assert.match(runner, /server_version_num/);
+  assert.match(runner, /PGHOST.*PGPORT.*PGUSER/);
+  assert.ok(runner.indexOf("validate_fixture_target \"$actual_authorization\"") < runner.indexOf("--file scripts/test-production-migration-readonly-audit-postgres16-fixture.sql"));
+  assert.match(fixture, /\\getenv fixture_authorization DEEDLIGHT_DISPOSABLE_FIXTURE_AUTHORIZATION/);
+  assert.match(runner, /env -u DEEDLIGHT_DISPOSABLE_FIXTURE_AUTHORIZATION/);
+  assert.match(runner, /schema_after_rejection/);
+  assert.match(fixture, /deedlight-postgres16-ci-disposable-v1/);
+  assert.match(fixture, /SELECT 1 \/ 0;/);
+  assert.match(fixture, /current_database\(\).*deedlight_migration_order_test/s);
+  assert.match(fixture, /server_version_num/);
+  assert.match(fixture, /Fixture-owned role or object names already exist/);
+  assert.doesNotMatch(fixture, /DROP SCHEMA|DROP OWNED BY|DROP ROLE/);
+  assert.match(workflow, /DEEDLIGHT_DISPOSABLE_FIXTURE_AUTHORIZATION: deedlight-postgres16-ci-disposable-v1/);
+});
+
+test("PostgreSQL 16 migration audit resists hostile search_path function shadowing", () => {
+  const runner = readFileSync(
+    path.join(process.cwd(), "scripts/test-production-migration-readonly-audit-postgres16.sh"),
+    "utf8",
+  );
+  assert.match(runner, /CREATE SCHEMA deedlight_audit_shadow/);
+  for (const fn of ["current_setting", "to_regclass", "has_table_privilege"]) {
+    assert.match(runner, new RegExp("deedlight_audit_shadow\\." + fn));
+    assert.match(runner, new RegExp("HOSTILE " + fn + " SHADOW INVOKED"));
+  }
+  assert.match(runner, /SET search_path = deedlight_audit_shadow, public, pg_catalog/);
+  assert.match(runner, /HOSTILE_SEARCH_PATH_RESOLUTION_CONFIRMED/);
+  assert.match(runner, /hostile-search-path\.log/);
+  assert.match(runner, /shadow functions were bypassed/);
+  assert.match(runner, /pg_catalog\.current_setting\('transaction_read_only'\)/);
 });
 
 test("PostgreSQL 16 client-disconnect harness verifies backend termination and recovery", () => {

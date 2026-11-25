@@ -336,6 +336,7 @@ jobs:
           --health-retries 10
     env:
       PGPASSWORD: postgres
+      DEEDLIGHT_DISPOSABLE_FIXTURE_AUTHORIZATION: deedlight-postgres16-ci-disposable-v1
     steps:
       - name: Checkout
         uses: actions/checkout@v7

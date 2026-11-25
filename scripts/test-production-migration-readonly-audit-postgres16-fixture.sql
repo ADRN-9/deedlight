@@ -1,23 +1,41 @@
 -- Disposable PostgreSQL 16 fixture only. Never run against Production.
+-- This script is destructive only inside the explicitly authorized, dedicated CI database.
+\getenv fixture_authorization DEEDLIGHT_DISPOSABLE_FIXTURE_AUTHORIZATION
 \getenv fixture_auditor_password DEEDLIGHT_FIXTURE_AUDITOR_PASSWORD
 \getenv fixture_spoofed_password DEEDLIGHT_FIXTURE_SPOOFED_PASSWORD
 \getenv fixture_privileged_password DEEDLIGHT_FIXTURE_PRIVILEGED_PASSWORD
-DROP SCHEMA IF EXISTS supabase_migrations CASCADE;
-DROP FUNCTION IF EXISTS public.audit_fixture_security_definer_identity() CASCADE;
-DROP FUNCTION IF EXISTS public.audit_fixture_privileged_definer_identity() CASCADE;
-DROP FUNCTION IF EXISTS public.audit_fixture_custom_guc() CASCADE;
-DROP FUNCTION IF EXISTS public.audit_fixture_bad_search_path() CASCADE;
-DROP TABLE IF EXISTS public.audit_fixture_private CASCADE;
-DROP TABLE IF EXISTS public.audit_fixture_termination_marker CASCADE;
-DROP SEQUENCE IF EXISTS public.audit_fixture_sequence CASCADE;
-
-DO $cleanup$
+\if :{?fixture_authorization}
+\else
+\echo 'FAIL: disposable fixture authorization is missing'
+SELECT 1 / 0;
+\endif
+SELECT pg_catalog.set_config('deedlight.fixture_authorization', :'fixture_authorization', false);
+DO $fixture_guard$
 DECLARE
-  v_role text;
+  v_version integer := pg_catalog.current_setting('server_version_num')::integer;
 BEGIN
-  FOR v_role IN
-    SELECT rolname
-    FROM pg_catalog.pg_roles
+  IF pg_catalog.current_setting('deedlight.fixture_authorization', true)
+      IS DISTINCT FROM 'deedlight-postgres16-ci-disposable-v1' THEN
+    RAISE EXCEPTION 'Disposable fixture authorization is missing or invalid.';
+  END IF;
+  IF pg_catalog.current_database() <> 'deedlight_migration_order_test'
+    OR session_user <> 'postgres'
+    OR v_version / 10000 <> 16 THEN
+    RAISE EXCEPTION 'Fixture target must be the authorized PostgreSQL 16 disposable database.';
+  END IF;
+  IF pg_catalog.to_regnamespace('supabase_migrations') IS NOT NULL
+    OR pg_catalog.to_regnamespace('deedlight_audit_missing_schema') IS NOT NULL
+    OR pg_catalog.to_regnamespace('deedlight_audit_shadow') IS NOT NULL
+    OR pg_catalog.to_regnamespace('auth') IS NULL
+    OR NOT EXISTS (
+      SELECT 1 FROM pg_catalog.pg_namespace n
+      WHERE n.nspname = 'auth'
+        AND n.nspowner = (SELECT r.oid FROM pg_catalog.pg_roles r WHERE r.rolname = 'postgres')
+    ) THEN
+    RAISE EXCEPTION 'Fixture schemas are not in the expected fresh disposable state.';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM pg_catalog.pg_roles
     WHERE rolname = ANY (ARRAY[
       'deedlight_catalog_auditor',
       'deedlight_audit_spoofed_login',
@@ -27,12 +45,21 @@ BEGIN
       'deedlight_audit_privileged_login',
       'deedlight_audit_definer_owner'
     ])
-  LOOP
-    EXECUTE format('DROP OWNED BY %I', v_role);
-    EXECUTE format('DROP ROLE %I', v_role);
-  END LOOP;
+  ) OR EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_class c
+    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public' AND c.relname LIKE 'audit_fixture_%'
+  ) OR EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_proc p
+    JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname LIKE 'audit_fixture_%'
+  ) THEN
+    RAISE EXCEPTION 'Fixture-owned role or object names already exist; refusing destructive reuse.';
+  END IF;
 END;
-$cleanup$;
+$fixture_guard$;
 
 CREATE ROLE deedlight_catalog_auditor LOGIN PASSWORD :'fixture_auditor_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE ROLE deedlight_audit_spoofed_login LOGIN PASSWORD :'fixture_spoofed_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
