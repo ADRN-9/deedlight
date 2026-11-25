@@ -38,7 +38,7 @@ The CI fixture `scripts/test-production-migration-readonly-audit-postgres16.sh` 
 - missing migration-history SELECT and missing catalog SELECT rejection;
 - table-level, column-level and sequence privilege rejection;
 - invalid project and repository metadata;
-- an actual migration-history lock-timeout interruption and a client disconnect during a read-only transaction.
+- an actual migration-history/index-inspection lock-timeout interruption, transaction abort and successful subsequent read-only retry.
 
 The fixture creates synthetic roles, a synthetic history row and synthetic application objects. Never point this harness at Production. It does not validate the provider-specific endpoint identity or establish Production state.
 
