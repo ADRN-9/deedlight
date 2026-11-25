@@ -254,6 +254,55 @@ SQL
 test "${definer_result}" = "deedlight_audit_definer_owner:deedlight_catalog_auditor"
 echo "PASS: SECURITY DEFINER preserves and validates the authenticated principal"
 
+# Add the privileged SECURITY DEFINER fixture only after the trusted baseline passes.
+psql -X -v ON_ERROR_STOP=1 -v fixture_privileged_password="$DEEDLIGHT_FIXTURE_PRIVILEGED_PASSWORD" <<'SQL'
+CREATE ROLE deedlight_audit_privileged_login LOGIN PASSWORD :'fixture_privileged_password' SUPERUSER;
+CREATE FUNCTION public.audit_fixture_privileged_definer_identity()
+RETURNS text
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = 'pg_catalog, public'
+AS $fixture$
+DECLARE
+  v_session_role_oid oid;
+  v_effective_role_oid oid;
+BEGIN
+  IF session_user <> 'deedlight_catalog_auditor'
+    OR current_setting('deedlight.authenticated_principal', true) IS DISTINCT FROM session_user
+    OR current_setting('role', true) IS DISTINCT FROM 'none' THEN
+    RAISE EXCEPTION 'Fixture SECURITY DEFINER identity rejected.';
+  END IF;
+  SELECT oid INTO v_session_role_oid FROM pg_catalog.pg_roles WHERE rolname = session_user;
+  SELECT oid INTO v_effective_role_oid FROM pg_catalog.pg_roles WHERE rolname = current_user;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_roles
+    WHERE oid = v_session_role_oid AND rolcanlogin
+      AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb
+      AND NOT rolreplication AND NOT rolbypassrls
+  ) OR NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_roles
+    WHERE oid = v_effective_role_oid
+      AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb
+      AND NOT rolreplication AND NOT rolbypassrls
+  ) OR EXISTS (
+    SELECT 1 FROM pg_catalog.pg_roles r
+    WHERE r.oid <> v_session_role_oid
+      AND pg_catalog.pg_has_role(v_session_role_oid, r.oid, 'MEMBER')
+  ) OR EXISTS (
+    SELECT 1 FROM pg_catalog.pg_roles r
+    WHERE r.oid <> v_effective_role_oid
+      AND pg_catalog.pg_has_role(v_effective_role_oid, r.oid, 'MEMBER')
+  ) THEN
+    RAISE EXCEPTION 'Fixture SECURITY DEFINER role attributes or memberships rejected.';
+  END IF;
+  RETURN current_user || ':' || session_user;
+END;
+$fixture$;
+ALTER FUNCTION public.audit_fixture_privileged_definer_identity()
+  OWNER TO deedlight_audit_privileged_login;
+GRANT EXECUTE ON FUNCTION public.audit_fixture_privileged_definer_identity()
+SQL
+
 if psql_as deedlight_catalog_auditor -X -v ON_ERROR_STOP=1 >"${tmp_dir}/privileged_security_definer.log" 2>&1 <<'SQL'
 SET deedlight.authenticated_principal = 'deedlight_catalog_auditor';
 SELECT public.audit_fixture_privileged_definer_identity();
@@ -293,6 +342,7 @@ grep -Fq 'deedlight_catalog_auditor|deedlight_catalog_auditor' "${tmp_dir}/sessi
 grep -Fq 'audit_fixture_sequence' "${tmp_dir}/session-authorization.log"
 grep -Fq 'AUDIT_TRANSACTION_ROLLED_BACK' "${tmp_dir}/session-authorization.log"
 echo "LIMITATION: superuser SET SESSION AUTHORIZATION can spoof SQL-visible collector identity; independent connection authentication is mandatory"
+psql -X -v ON_ERROR_STOP=1 -c "DROP ROLE deedlight_audit_privileged_login";
 
 # Direct SET ROLE is rejected even when the target role itself has no elevated attributes.
 psql -X -v ON_ERROR_STOP=1 -c "GRANT deedlight_audit_switch_target TO deedlight_catalog_auditor"
@@ -491,7 +541,12 @@ expect_failure public_create_routine_search_path "Unexpected or unsafe routine c
 psql -X -v ON_ERROR_STOP=1 -c "DROP FUNCTION public.audit_fixture_public_create_search_path();"
 psql -X -v ON_ERROR_STOP=1 -c "REVOKE CREATE ON SCHEMA public FROM PUBLIC;"
 
-psql -X -v ON_ERROR_STOP=1 -c "CREATE SCHEMA auth AUTHORIZATION deedlight_audit_spoofed_login;"
+auth_schema_owner="$(psql -X -At -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.pg_get_userbyid(nspowner) FROM pg_catalog.pg_namespace WHERE nspname = 'auth'")"
+if [[ "${auth_schema_owner}" != "postgres" ]]; then
+  echo "FAIL: expected disposable auth schema to be owned by postgres before fixture mutation" >&2
+  exit 1
+fi
+psql -X -v ON_ERROR_STOP=1 -c "ALTER SCHEMA auth OWNER TO deedlight_audit_spoofed_login;"
 psql -X -v ON_ERROR_STOP=1 <<'SQL'
 CREATE FUNCTION public.audit_fixture_login_owned_schema_search_path()
 RETURNS integer LANGUAGE sql
@@ -500,9 +555,9 @@ AS 'SELECT 1';
 SQL
 expect_failure login_owned_routine_schema "Unexpected or unsafe routine configuration"
 psql -X -v ON_ERROR_STOP=1 -c "DROP FUNCTION public.audit_fixture_login_owned_schema_search_path();"
-psql -X -v ON_ERROR_STOP=1 -c "DROP SCHEMA auth;"
+psql -X -v ON_ERROR_STOP=1 -c "ALTER SCHEMA auth OWNER TO postgres;"
 
-psql -X -v ON_ERROR_STOP=1 -c "CREATE SCHEMA auth AUTHORIZATION postgres;"
+psql -X -v ON_ERROR_STOP=1 -c "GRANT CREATE ON SCHEMA auth TO deedlight_audit_spoofed_login;"
 psql -X -v ON_ERROR_STOP=1 -c "GRANT USAGE, CREATE ON SCHEMA auth TO deedlight_audit_spoofed_login;"
 psql -X -v ON_ERROR_STOP=1 <<'SQL'
 CREATE FUNCTION public.audit_fixture_untrusted_schema_creator_search_path()
@@ -513,7 +568,6 @@ SQL
 expect_failure untrusted_routine_schema_creator "Unexpected or unsafe routine configuration"
 psql -X -v ON_ERROR_STOP=1 -c "DROP FUNCTION public.audit_fixture_untrusted_schema_creator_search_path();"
 psql -X -v ON_ERROR_STOP=1 -c "REVOKE CREATE ON SCHEMA auth FROM deedlight_audit_spoofed_login;"
-psql -X -v ON_ERROR_STOP=1 -c "DROP SCHEMA auth;"
 
 # Unexpected routine GUCs and unsafe values fail before any routine setting is emitted.
 psql -X -v ON_ERROR_STOP=1 <<'SQL'
