@@ -205,11 +205,13 @@ function validateCollectorAuthority(claims, provenance, evidenceDigest, authorit
   }
   const inventoryObjects = evidence && evidence.catalog && Array.isArray(evidence.catalog.objects) ? evidence.catalog.objects : [];
   const expectedSchemas = inventoryObjects.filter((entry) => entry.kind === "schemas").map((entry) => entry.identity).sort();
-  const expectedObjects = inventoryObjects.filter((entry) => PRIVILEGE_OBJECT_KINDS.has(entry.kind)).map((entry) => entry.identity).sort();
+  const expectedObjects = inventoryObjects.filter((entry) => PRIVILEGE_OBJECT_KINDS.has(entry.kind))
+    .map((entry) => ({ kind: entry.kind, identity: entry.identity })).sort((a, b) => a.kind.localeCompare(b.kind) || a.identity.localeCompare(b.identity));
   const schemaRows = Array.isArray(db.schemaPrivileges) ? db.schemaPrivileges : [];
   const objectRows = Array.isArray(db.objectPrivileges) ? db.objectPrivileges : [];
   const schemaIds = schemaRows.map((entry) => entry && entry.schema).sort();
-  const objectIds = objectRows.map((entry) => entry && entry.identity).sort();
+  const objectKeys = objectRows.map((entry) => ({ kind: entry && entry.kind, identity: entry && entry.identity }))
+    .sort((a, b) => String(a.kind).localeCompare(String(b.kind)) || String(a.identity).localeCompare(String(b.identity)));
   if (!expectedSchemas.length
     || schemaIds.some((value) => typeof value !== "string") || new Set(schemaIds).size !== schemaIds.length
     || canonicalJson(schemaIds) !== canonicalJson(expectedSchemas)
@@ -218,11 +220,15 @@ function validateCollectorAuthority(claims, provenance, evidenceDigest, authorit
     problems.push("collector schema privilege identities do not exactly match the complete schema catalog inventory");
   }
   if (!expectedObjects.length
-    || objectIds.some((value) => typeof value !== "string") || new Set(objectIds).size !== objectIds.length
-    || canonicalJson(objectIds) !== canonicalJson(expectedObjects)
-    || objectRows.some((entry) => !entry || Object.keys(entry).sort().join(",") !== "identity,privileges"
-      || !Array.isArray(entry.privileges) || entry.privileges.length !== 1 || entry.privileges[0] !== "SELECT")) {
-    problems.push("collector object privilege identities do not exactly match the complete table, sequence and routine catalog inventory");
+    || objectKeys.some((entry) => typeof entry.kind !== "string" || typeof entry.identity !== "string")
+    || new Set(objectKeys.map((entry) => entry.kind + "\0" + entry.identity)).size !== objectKeys.length
+    || canonicalJson(objectKeys) !== canonicalJson(expectedObjects)
+    || objectRows.some((entry) => {
+      const expectedPrivileges = entry.kind === "routines" ? [] : ["SELECT"];
+      return !entry || Object.keys(entry).sort().join(",") !== "identity,kind,privileges"
+        || !Array.isArray(entry.privileges) || canonicalJson(entry.privileges) !== canonicalJson(expectedPrivileges);
+    })) {
+    problems.push("collector object privilege identities do not exactly match the complete table, sequence and routine catalog inventory, or routines have execution privileges");
   }
   if (!Array.isArray(db.catalogPrivileges)
     || db.catalogPrivileges.length !== 1 || db.catalogPrivileges[0] !== "SELECT") {
