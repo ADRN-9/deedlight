@@ -147,7 +147,6 @@ begin
     from pg_catalog.pg_roles r
     where r.oid not in (v_owner_oid, 'anon'::regrole::oid, 'authenticated'::regrole::oid)
       and not r.rolsuper
-      and not r.rolsuper
       and pg_catalog.has_function_privilege(r.oid, v_function_oid, 'EXECUTE')
   ) then
     raise exception 'Migration 038 compatibility rejected unexpected inherited/effective function EXECUTE privilege.' using errcode = '55000';
@@ -284,6 +283,7 @@ begin
     select 1
     from pg_catalog.pg_roles r
     where r.oid not in (v_owner_oid, 'anon'::regrole::oid, 'authenticated'::regrole::oid)
+      and not r.rolsuper
       and pg_catalog.has_function_privilege(r.oid, v_function_oid, 'EXECUTE')
   ) then
     raise exception 'Migration 038 compatibility postflight detected unexpected inherited/effective function EXECUTE privilege.' using errcode = '55000';
