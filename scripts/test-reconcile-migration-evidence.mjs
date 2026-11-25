@@ -10,7 +10,7 @@ import { analyzeMigrationEvidence, canonicalJson, evidencePayload, mappingDigest
 const repoRoot = process.cwd();
 const sourceManifest = JSON.parse(readFileSync(path.join(repoRoot, "supabase/migration-inventory.json"), "utf8"));
 const sourceInventoryBytes = readFileSync(path.join(repoRoot, "supabase/migration-inventory.json"));
-const catalogKinds = ["tables", "columns", "constraints", "indexes", "triggers", "policies", "routines", "privileges", "ownership", "data", "dependencies", "preconditions", "postconditions"];
+const catalogKinds = ["tables", "columns", "constraints", "indexes", "triggers", "policies", "routines", "privileges", "ownership", "dataTransformations", "backfills", "dependencies", "preconditions", "postconditions"];
 const categories = ["schema", "privileges", "ownership", "routines", "dataTransformations", "backfills", "dependencies", "preconditions", "postconditions"];
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const keys = Object.fromEntries(["evidence-approver", "mapping-approver", "collector"].map((role) => [role, generateKeyPairSync("ed25519")]));
