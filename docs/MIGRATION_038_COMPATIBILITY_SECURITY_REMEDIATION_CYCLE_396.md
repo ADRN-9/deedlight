@@ -28,7 +28,8 @@ The aggregate PostgreSQL 16 test now includes:
 - An event trigger that adds that SET-only membership after function replacement. Postflight must reject it; transaction rollback must restore the function and remove the injected membership.
 - Missing service_role EXECUTE with PUBLIC absent. Preflight must reject it and preserve the function.
 - A service_role effective privilege supplied through membership in anon while no direct service_role ACL exists. A test-only event trigger removes that membership after replacement; postflight must reject the lost effective privilege even though the function ACL snapshot is unchanged. Rollback restores the membership and effective execution.
-- Positive service_role effective execution, including direct grant and membership-derived execution.
+- A successful PostgreSQL 16 fixture with PUBLIC EXECUTE revoked and explicit, owner-granted EXECUTE entries for anon, authenticated, and service_role. The bridge must complete without widening the ACL, and all three roles must retain effective EXECUTE.
+- An event trigger that adds both direct and transitive SET-only membership paths to service_role after function replacement. Postflight must reject the new paths independently of PUBLIC EXECUTE state. The regression verifies both paths existed during the event-trigger transaction and that rollback restores function source, owner OID/name, ACL, configuration, and removes both membership paths.
 - Existing direct/inherited privilege, fingerprint, canonical no-op, unknown fingerprint, suspension NOT NULL, SECURITY DEFINER/search_path, administrator authorization, and post-replacement atomic rollback tests.
 
 All synthetic roles, memberships, and event triggers are confined to the disposable PostgreSQL 16 test database. No permanent failure switch or test-only Production SQL was added.
