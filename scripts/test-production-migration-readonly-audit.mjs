@@ -41,6 +41,8 @@ test("routine configuration is an explicit allowlist with deterministic serializ
     "temp_file_limit",
   ]) assert.ok(sql.includes(setting), `missing reviewed routine setting: ${setting}`);
   assert.match(sql, /Unexpected or unsafe routine configuration/);
+  assert.match(sql, /pg_catalog\|public\|extensions\|auth\|storage/);
+  assert.match(sql, /\(, \?pg_temp\)\?\$/);
   assert.match(sql, /jsonb_agg\([\s\S]*?ORDER BY split_part\(cfg\.setting, '=', 1\)/);
   assert.doesNotMatch(sql, /p\.proconfig\s+AS\s+routine_settings/i);
   assert.doesNotMatch(sql, /rolconfig/);

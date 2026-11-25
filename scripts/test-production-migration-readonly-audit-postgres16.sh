@@ -198,7 +198,7 @@ DROP FUNCTION public.audit_fixture_custom_guc();
 
 CREATE FUNCTION public.audit_fixture_bad_search_path()
 RETURNS integer LANGUAGE sql
-SET search_path = 'public, pg_temp'
+SET search_path = 'public, pg_temp, auth'
 AS 'SELECT 1';
 expect_failure unsafe_routine_search_path "Unexpected or unsafe routine configuration"
 DROP FUNCTION public.audit_fixture_bad_search_path();
