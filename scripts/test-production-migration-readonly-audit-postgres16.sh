@@ -657,43 +657,147 @@ run_audit >"${tmp_dir}/after-lock-timeout.log" 2>&1
 grep -Fq "AUDIT_TRANSACTION_ROLLED_BACK" "${tmp_dir}/after-lock-timeout.log"
 echo "PASS: lock-timeout transaction abort releases locks and subsequent audit succeeds"
 
-# Terminate a live psql client while its transaction owns a lock and an uncommitted row.
-PGAPPNAME=deedlight_audit_client_termination psql -X -v ON_ERROR_STOP=1 \
-  -c "BEGIN; INSERT INTO public.audit_fixture_termination_marker VALUES (1); LOCK TABLE supabase_migrations.schema_migrations IN ACCESS EXCLUSIVE MODE; SELECT pg_sleep(60); COMMIT;" \
+# Kill a live psql client while PostgreSQL is executing a transaction that owns the history lock.
+# PostgreSQL notices the closed socket after the active statement finishes, not at client SIGKILL.
+termination_app_name="deedlight_audit_client_termination"
+PGAPPNAME="${termination_app_name}" psql -X -v ON_ERROR_STOP=1 \
+  -c "BEGIN; INSERT INTO public.audit_fixture_termination_marker VALUES (1); LOCK TABLE supabase_migrations.schema_migrations IN ACCESS EXCLUSIVE MODE; SELECT pg_sleep(10); COMMIT;" \
   >"${tmp_dir}/client-termination.log" 2>&1 &
 client_pid="$!"
-backend_pid=""
+printf 'client_pid=%s\\n' "${client_pid}" >"${tmp_dir}/client-termination-stage.log"
+
+backend_identity=""
 for attempt in {1..100}; do
-  backend_pid="$(psql -X -At -v ON_ERROR_STOP=1 -c "SELECT pid FROM pg_catalog.pg_stat_activity WHERE application_name = 'deedlight_audit_client_termination' AND state = 'active' AND query LIKE '%pg_sleep%' LIMIT 1")"
-  if [[ -n "${backend_pid}" ]]; then break; fi
+  if ! backend_identity="$(psql -X -At -F '|' -v ON_ERROR_STOP=1 -c "
+    SELECT a.pid, a.backend_start::text
+    FROM pg_catalog.pg_stat_activity a
+    WHERE a.application_name = '${termination_app_name}'
+      AND a.state = 'active'
+      AND a.wait_event = 'PgSleep'
+      AND a.query LIKE '%pg_sleep(10)%'
+      AND a.xact_start IS NOT NULL
+      AND EXISTS (
+        SELECT 1 FROM pg_catalog.pg_locks l
+        WHERE l.pid = a.pid
+          AND l.relation = 'supabase_migrations.schema_migrations'::regclass
+          AND l.mode = 'AccessExclusiveLock'
+          AND l.granted
+      )
+    LIMIT 1
+  " 2>"${tmp_dir}/client-backend-discovery.log")"; then
+    echo "FAIL: could not inspect PostgreSQL backend before client termination" >&2
+    exit 1
+  fi
+  if [[ -n "${backend_identity}" ]]; then break; fi
   sleep 0.1
 done
-if [[ -z "${backend_pid}" ]]; then
-  cat "${tmp_dir}/client-termination.log" >&2
-  echo "FAIL: client-termination backend never became active" >&2
+
+if [[ -z "${backend_identity}" ]]; then
+  echo "FAIL: PostgreSQL backend never reached pg_sleep while holding the migration-history lock" >&2
+  cat "${tmp_dir}/client-backend-discovery.log" >&2
   exit 1
 fi
-kill -KILL "${client_pid}"
+IFS='|' read -r backend_pid backend_start <<<"${backend_identity}"
+if [[ ! "${backend_pid}" =~ ^[0-9]+$ || -z "${backend_start}" ]]; then
+  echo "FAIL: PostgreSQL returned malformed backend identity" >&2
+  printf 'backend_identity=%s\\n' "${backend_identity}" >&2
+  exit 1
+fi
+printf 'backend_pid=%s\\nbackend_start=%s\\n' "${backend_pid}" "${backend_start}" >>"${tmp_dir}/client-termination-stage.log"
+echo "PASS: PostgreSQL backend is active in PgSleep with an open transaction and granted migration-history lock"
+
+if ! kill -KILL "${client_pid}"; then
+  echo "FAIL: could not SIGKILL the psql client process" >&2
+  exit 1
+fi
 set +e
 wait "${client_pid}"
 client_status=$?
 set -e
 client_pid=""
-test "${client_status}" -ne 0
+printf 'client_exit_status=%s\\n' "${client_status}" >>"${tmp_dir}/client-termination-stage.log"
+if [[ "${client_status}" -ne 137 ]]; then
+  echo "FAIL: psql client did not exit from SIGKILL (expected 137, got ${client_status})" >&2
+  exit 1
+fi
+echo "PASS: psql client process was SIGKILLed independently of PostgreSQL backend"
 
+# Prove that killing psql alone did not count as backend termination.
+backend_after_client_kill="$(psql -X -At -v ON_ERROR_STOP=1 -c "
+  SELECT count(*)
+  FROM pg_catalog.pg_stat_activity
+  WHERE pid = ${backend_pid}
+    AND backend_start = '${backend_start}'::timestamptz
+    AND state = 'active'
+    AND wait_event = 'PgSleep'
+")"
+printf 'backend_alive_after_client_kill=%s\\n' "${backend_after_client_kill}" >>"${tmp_dir}/client-termination-stage.log"
+if [[ "${backend_after_client_kill}" != "1" ]]; then
+  echo "FAIL: backend was not independently observed alive after client SIGKILL" >&2
+  exit 1
+fi
+echo "PASS: PostgreSQL backend remained independently observable after client SIGKILL"
+
+# The server detects the closed client socket after pg_sleep returns and attempts output.
 backend_remaining="1"
-for attempt in {1..100}; do
-  backend_remaining="$(psql -X -At -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_stat_activity WHERE pid = ${backend_pid}")"
+for attempt in {1..200}; do
+  if ! backend_remaining="$(psql -X -At -v ON_ERROR_STOP=1 -c "
+    SELECT count(*)
+    FROM pg_catalog.pg_stat_activity
+    WHERE pid = ${backend_pid}
+      AND backend_start = '${backend_start}'::timestamptz
+  " 2>"${tmp_dir}/client-backend-termination-check.log")"; then
+    echo "FAIL: could not verify PostgreSQL backend termination" >&2
+    exit 1
+  fi
   if [[ "${backend_remaining}" = "0" ]]; then break; fi
   sleep 0.1
 done
-test "${backend_remaining}" = "0"
+printf 'backend_remaining_after_disconnect=%s\\n' "${backend_remaining}" >>"${tmp_dir}/client-termination-stage.log"
+if [[ "${backend_remaining}" != "0" ]]; then
+  echo "FAIL: PostgreSQL backend remained after client disconnect grace period" >&2
+  exit 1
+fi
+echo "PASS: PostgreSQL backend terminated after detecting the disconnected client"
+
 marker_count="$(psql -X -At -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM public.audit_fixture_termination_marker")"
-test "${marker_count}" = "0"
-psql -X -v ON_ERROR_STOP=1 -c "BEGIN; LOCK TABLE supabase_migrations.schema_migrations IN ACCESS EXCLUSIVE MODE NOWAIT; ROLLBACK;" >"${tmp_dir}/client-lock-release.log" 2>&1
-expect_failure no_stale_authentication_context "Authenticated collector principal is missing" deedlight_catalog_auditor __MISSING__
-run_audit >"${tmp_dir}/after-client-termination.log" 2>&1
-grep -Fq "AUDIT_TRANSACTION_ROLLED_BACK" "${tmp_dir}/after-client-termination.log"
-echo "PASS: killed client backend terminated, transaction rolled back, lock released, auth context not inherited and collector recovered"
+printf 'uncommitted_marker_count_after_termination=%s\\n' "${marker_count}" >>"${tmp_dir}/client-termination-stage.log"
+if [[ "${marker_count}" != "0" ]]; then
+  echo "FAIL: uncommitted marker survived PostgreSQL backend termination" >&2
+  exit 1
+fi
+echo "PASS: PostgreSQL rolled back the uncommitted transaction marker"
+
+remaining_history_locks="$(psql -X -At -v ON_ERROR_STOP=1 -c "
+  SELECT count(*)
+  FROM pg_catalog.pg_locks
+  WHERE relation = 'supabase_migrations.schema_migrations'::regclass
+    AND mode = 'AccessExclusiveLock'
+    AND granted
+")"
+printf 'remaining_history_access_exclusive_locks=%s\\n' "${remaining_history_locks}" >>"${tmp_dir}/client-termination-stage.log"
+if [[ "${remaining_history_locks}" != "0" ]]; then
+  echo "FAIL: migration-history ACCESS EXCLUSIVE lock remained after backend termination" >&2
+  exit 1
+fi
+if ! psql -X -v ON_ERROR_STOP=1 -c "BEGIN; LOCK TABLE supabase_migrations.schema_migrations IN ACCESS EXCLUSIVE MODE NOWAIT; ROLLBACK;" >"${tmp_dir}/client-lock-release.log" 2>&1; then
+  echo "FAIL: subsequent NOWAIT migration-history lock acquisition failed" >&2
+  exit 1
+fi
+echo "PASS: migration-history lock released and subsequent NOWAIT acquisition succeeded"
+
+if ! expect_failure no_stale_authentication_context "Authenticated collector principal is missing" deedlight_catalog_auditor __MISSING__; then
+  echo "FAIL: disconnected session authentication context leaked to a fresh connection" >&2
+  exit 1
+fi
+if ! run_audit >"${tmp_dir}/after-client-termination.log" 2>&1; then
+  echo "FAIL: fresh authenticated collector execution failed after client disconnect" >&2
+  exit 1
+fi
+if ! grep -Fq "AUDIT_TRANSACTION_ROLLED_BACK" "${tmp_dir}/after-client-termination.log"; then
+  echo "FAIL: fresh authenticated collector did not prove read-only transaction rollback" >&2
+  exit 1
+fi
+echo "PASS: fresh authenticated collector execution and rollback succeeded after client disconnect"
 
 echo "PASS: all PostgreSQL 16 production-migration-audit fixtures"
