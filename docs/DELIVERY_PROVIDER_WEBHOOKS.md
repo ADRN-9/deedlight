@@ -116,3 +116,64 @@ Migration `202611220033_delivery_cross_stream_suppression_order.sql` reconciles 
 The reconciliation deletes only a generic `provider_suppressed` row, and only when the newer manual removal has a matching observed `suppression.added` event for the same provider suppression ID and recipient. A removal without its matching add remains non-authoritative and cannot clear an existing generic block. `previous_complaint` and `previous_bounce` lifecycle reasons continue to establish independent `complaint` and `permanent_bounce` holds; existing complaint/bounce rows are never deleted by this path. PostgreSQL regressions cover older lifecycle events after a newer manual removal, unmatched removals, both reasoned protections, equal timestamps, and both lock acquisition orders.
 
 The lifecycle RPC remains service-role-only and retains migration 029's fingerprint-required insertion and historical replay-only compatibility gate. Migrations 031 and 032 are unchanged.
+
+
+## Recipient-scoped provider-integrity evidence (migration 037)
+
+Migration `202611240037_delivery_provider_integrity_conflict_evidence.sql` adds a private case/evidence/history model without rewriting migrations 025–036. Existing `delivery_provider_integrity_anomalies` rows are backfilled into recipient-scoped cases where their canonical event row supplies a recipient. Historical rows cannot reconstruct the conflicting payload that older RPCs did not store; their evidence source is explicitly labelled `legacy_anomaly_backfill`.
+
+The new case is grouped by normalized recipient and anomaly type. Each conflict attempt adds normalized event fields, provider correlation IDs, provider timestamps, the signed-body SHA-256 fingerprint when available, and a reference to the canonical stored event. Raw webhook bodies, diagnostic text and provider error payloads are never stored. Exact repeated signed fingerprints are deduplicated; fingerprint-less legacy conflicts remain separate because equivalence cannot be proven.
+
+The service-role webhook RPC signatures remain unchanged. Migration 037 wraps the nine-argument lifecycle and suppression-list RPCs, preserves the eight-, seven- and five-argument lifecycle compatibility paths, and keeps the prior implementations private. Duplicate event-ID conflicts, contradictory terminal outcomes, equal-time suppression conflicts and cross-recipient provider email/suppression ID collisions create durable evidence. A rejected cross-recipient collision returns SQL `NULL`; the existing webhook route maps that result to retryable HTTP 503. It does not insert the rejected event, change suppression state, or authorize an outbound send. A provider email-ID collision also marks the existing lifecycle projection `integrity_anomaly`, rather than leaving it presented as an unqualified success. The integrity status is an overlay: the wrapper snapshots and restores the prior canonical event ID and provider/receipt timestamps after the legacy implementation returns a conflict. The existing lifecycle constraint requires `failure_class` to be NULL while the projection is in `integrity_anomaly`; the original classification remains on the immutable canonical event row, which the new evidence references. A conflict cannot erase the underlying event evidence.
+
+### Resolution and reopening
+
+Only an authenticated user for whom `public.is_admin()` is true may list cases/evidence/history or resolve a case. Direct table grants remain revoked for `anon`, `authenticated` and `service_role`. The admin RPCs expose normalized evidence and the immutable history, not raw webhook content. A resolution requires a non-empty operator note and records the authenticated actor. New distinct conflicting evidence reopens a resolved recipient/anomaly case, clears only the current resolution fields, and appends a `reopened` history event that retains the prior resolution. Replays with the same signed payload fingerprint do not create duplicate evidence or reopen a case.
+
+### Transaction locks
+
+The provider RPCs retain transaction-scoped advisory-lock order and hold the locks until commit:
+
+1. Normalized recipient: `pg_advisory_xact_lock(20261119, hashtext(recipient_email))`.
+2. Lifecycle provider email ID: `pg_advisory_xact_lock(20261126, hashtext(provider_email_id))`.
+3. Suppression-list provider suppression ID: `pg_advisory_xact_lock(20261127, hashtext(provider_suppression_id))`.
+
+The recipient lock is always acquired before the provider correlation lock. The internal case helper then locks the recipient/anomaly case row before inserting evidence and changing its state. Administrator resolution locks only the case row. Do not call the internal helper outside the guarded provider RPC transaction or reverse the recipient/correlation lock order.
+
+The seven-argument legacy lifecycle wrapper now takes the same recipient/provider locks before reading a historical event timestamp. It still delegates to the fingerprint-enforcing canonical RPC; it cannot create a new fingerprint-less event.
+
+### Rollback limitations
+
+This is a forward-only integrity migration. Migration 036 and all historical migrations remain unchanged. Dropping the new tables or restoring the pre-037 RPCs would discard conflict evidence, resolution history, and the guarded capture path; that is not an acceptable rollback. If a defect is found, keep the evidence tables and protections intact and ship a corrective forward migration. Production application is not authorized by repository CI and remains NO-GO.
+
+
+## Event-ID-first provider locking and paginated incident review (migration 038)
+
+Migration `202611240038_delivery_provider_integrity_lock_order_pagination.sql` is a forward-only correction. Migrations 036, 037, and both historical 007 variants remain unchanged.
+
+### Advisory-lock contract
+
+Every public lifecycle entry point (the nine-, eight-, and seven-argument RPCs plus the five-argument legacy wrapper) and the suppression-list RPC now acquires transaction-scoped advisory locks in this single order:
+
+1. Provider event identity: `pg_advisory_xact_lock(20261118, hashtext(event_id))`.
+2. Normalized recipient: `pg_advisory_xact_lock(20261119, hashtext(normalized_recipient))`.
+3. Correlation identity: provider email ID namespace `20261126`, or provider suppression ID namespace `20261127`.
+
+The event-ID lock is shared across lifecycle and suppression callbacks. It serializes simultaneous first inserts before any recipient-scoped read or write, so two requests cannot both observe an event ID as absent and race into different recipient projections. Recipient and provider-correlation locks remain transaction-scoped through commit. Legacy wrappers acquire the same locks before their historical timestamp lookup or delegation. The private pre-037 implementations may reacquire the already-held recipient/correlation locks; transaction advisory locks are re-entrant for the owning transaction. The delivery transport's existing recipient lock remains the shared cross-stream serialization point and does not acquire an event-ID lock, so it cannot form a reverse-order cycle.
+
+### Migration preflight
+
+Before creating any new object, migration 038 attests the exact source SHA-256, argument signature, SECURITY DEFINER property, exact search_path configuration, and least-privilege execute grants for the reviewed lifecycle/suppression RPCs, legacy wrappers, migration-037 helpers, append-only trigger function, and administrator RPCs. It also verifies RLS, direct-table privacy, and both immutable audit triggers. Missing signatures, changed function bodies, changed ACLs, SECURITY INVOKER changes, altered search paths, or unexpected pre-existing pagination objects abort the transaction before any schema change is committed. The SQL regression suite verifies the current source fingerprint and deliberately introduces ACL, SECURITY INVOKER, search_path, and signature drift. Each altered prerequisite is rejected without partial objects, restored, and followed by a successful migration application.
+
+### Administrator pagination and direct retrieval
+
+The new administrator-only RPCs are independently authorized with `auth.uid()` and `public.is_admin()` checks:
+
+- `admin_list_delivery_provider_integrity_conflicts_page` uses the immutable descending `conflict_id` keyset; `last_detected_at` remains display-only and never participates in continuation cursors.
+- `admin_get_delivery_provider_integrity_conflict` retrieves one case directly by ID, independently of the discovery page, and returns exact evidence/history counts plus the latest reopening summary.
+- `admin_list_delivery_provider_integrity_evidence_page` uses the descending `(observed_at, evidence_id)` keyset.
+- `admin_list_delivery_provider_integrity_history_page` uses the descending `(created_at, history_id)` keyset so the newest resolution/reopening events appear first.
+
+Each page returns an exact total count, a `has_more` indicator, a stable next cursor, and only the requested page. The administrator UI follows those cursors for case discovery, evidence, and audit history. The case detail view shows the latest reopening summary independently of history pagination, so a recent reopening remains visible even when a case has a long audit trail. The underlying evidence and history tables remain append-only; no audit rows are pruned or rewritten.
+
+CI covers concurrent same-event first inserts, legacy-wrapper lock order, suppression callbacks, cursor boundaries, complete traversal, exact counts, direct case retrieval, non-admin denial, and UPDATE/DELETE rejection on both evidence and history tables. These are isolated PostgreSQL tests, not Production evidence.

@@ -36,6 +36,178 @@ reset role;
 \ir ../supabase/migrations/202611220032_resend_suppression_list_sync.sql
 \ir ../supabase/migrations/202611220033_delivery_cross_stream_suppression_order.sql
 \ir ../supabase/migrations/202611230034_delivery_suppression_timestamp_order.sql
+-- The isolated webhook fixture has only the member profile fields needed by
+-- the delivery tests. Add the real admin contract used by migration 037.
+alter table public.profiles
+  add column role text not null default 'member';
+
+create or replace function public.is_admin()
+returns boolean
+language sql
+security definer
+set search_path = public
+as $is_admin_fixture$
+  select exists (
+    select 1
+    from public.profiles
+    where user_id = auth.uid()
+      and role = 'admin'
+      and is_suspended = false
+  );
+$is_admin_fixture$;
+grant execute on function public.is_admin() to anon, authenticated;
+
+-- Seed one pre-037 anomaly so the migration backfill is exercised.
+set role service_role;
+do $c353_legacy_backfill$
+begin
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_c353_legacy_backfill', 'email.sent', 'resend-c353-legacy-backfill',
+    'legacy-integrity-backfill@example.test', '2027-03-03T08:00:00Z',
+    null, null, null, repeat('a', 64)
+  ) is not true then
+    raise exception 'Legacy provider-integrity backfill fixture was not inserted.';
+  end if;
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_c353_legacy_backfill', 'email.failed', 'resend-c353-legacy-backfill',
+    'legacy-integrity-backfill@example.test', '2027-03-03T08:01:00Z',
+    null, 'unknown', null, repeat('b', 64)
+  ) is not null then
+    raise exception 'Legacy provider-integrity backfill conflict was not detected.';
+  end if;
+end;
+$c353_legacy_backfill$;
+reset role;
+
+\ir ../supabase/migrations/202611240037_delivery_provider_integrity_conflict_evidence.sql
+
+-- Migration 038 attests exact pre-existing function source before any DDL.
+do $c356_source_fingerprint$
+declare
+  v_source text;
+  v_hash text;
+begin
+  select p.prosrc into v_source
+  from pg_catalog.pg_proc p
+  where p.oid=to_regprocedure('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)');
+  select encode(extensions.digest(convert_to(v_source,'UTF8'),'sha256'),'hex') into v_hash;
+  if v_hash <> '4b8c7b9c0ea7af1cea5e3d34ed3d1a21cbd5c17958a4d89f8c857cfa38f7581b' then
+    raise exception 'Cycle 356 source fingerprint fixture does not match migration 037.';
+  end if;
+end;
+$c356_source_fingerprint$;
+
+-- Migration 038 must reject an unexpected function body atomically.
+create table public.c356_provider_preflight_snapshot as
+select pg_get_functiondef(p.oid) as definition
+from pg_catalog.pg_proc p
+where p.oid=to_regprocedure('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)');
+
+do $c356_source_drift$
+declare
+  v_definition text;
+begin
+  select definition into v_definition from public.c356_provider_preflight_snapshot;
+  if v_definition is null or position('Lock order is a contract shared' in v_definition) = 0 then
+    raise exception 'Could not locate reviewed provider function source for deliberate drift test.';
+  end if;
+  execute replace(v_definition,
+    'Lock order is a contract shared',
+    'C356 deliberate source drift: Lock order is a contract shared');
+end;
+$c356_source_drift$;
+\set ON_ERROR_STOP off
+\ir ../supabase/migrations/202611240038_delivery_provider_integrity_lock_order_pagination.sql
+rollback;
+\set ON_ERROR_STOP on
+do $c356_source_atomicity$
+begin
+  if to_regprocedure('public.admin_get_delivery_provider_integrity_conflict(bigint)') is not null
+    or not exists (
+      select 1 from pg_catalog.pg_proc p
+      where p.oid=to_regprocedure('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)')
+        and position('C356 deliberate source drift' in p.prosrc) > 0
+    ) then
+    raise exception 'Migration 038 source drift rejection was not atomic.';
+  end if;
+end;
+$c356_source_atomicity$;
+do $c356_source_restore$
+declare
+  v_definition text;
+begin
+  select definition into v_definition from public.c356_provider_preflight_snapshot;
+  execute v_definition;
+end;
+$c356_source_restore$;
+drop table public.c356_provider_preflight_snapshot;
+grant execute on function public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text) to authenticated;
+\set ON_ERROR_STOP off
+\ir ../supabase/migrations/202611240038_delivery_provider_integrity_lock_order_pagination.sql
+rollback;
+\set ON_ERROR_STOP on
+do $c356_acl_atomicity$
+begin
+  if to_regprocedure('public.admin_get_delivery_provider_integrity_conflict(bigint)') is not null
+    or not has_function_privilege('authenticated','public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)','EXECUTE') then
+    raise exception 'Migration 038 ACL drift rejection was not atomic.';
+  end if;
+end;
+$c356_acl_atomicity$;
+revoke execute on function public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text) from authenticated;
+
+alter function public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text) security invoker;
+\set ON_ERROR_STOP off
+\ir ../supabase/migrations/202611240038_delivery_provider_integrity_lock_order_pagination.sql
+rollback;
+\set ON_ERROR_STOP on
+do $c356_security_atomicity$
+begin
+  if to_regprocedure('public.admin_get_delivery_provider_integrity_conflict(bigint)') is not null
+    or (select prosecdef from pg_catalog.pg_proc
+        where oid=to_regprocedure('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)')) then
+    raise exception 'Migration 038 SECURITY INVOKER drift rejection was not atomic.';
+  end if;
+end;
+$c356_security_atomicity$;
+alter function public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text) security definer;
+
+alter function public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text) set search_path = public;
+\set ON_ERROR_STOP off
+\ir ../supabase/migrations/202611240038_delivery_provider_integrity_lock_order_pagination.sql
+rollback;
+\set ON_ERROR_STOP on
+do $c356_search_path_atomicity$
+begin
+  if to_regprocedure('public.admin_get_delivery_provider_integrity_conflict(bigint)') is not null
+    or (select proconfig from pg_catalog.pg_proc
+        where oid=to_regprocedure('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)'))
+      is distinct from array['search_path=public']::text[] then
+    raise exception 'Migration 038 search_path drift rejection was not atomic.';
+  end if;
+end;
+$c356_search_path_atomicity$;
+alter function public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text) set search_path = public, auth, pg_temp;
+
+alter function public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)
+  rename to record_delivery_provider_lifecycle_event_c356_drift;
+\set ON_ERROR_STOP off
+\ir ../supabase/migrations/202611240038_delivery_provider_integrity_lock_order_pagination.sql
+rollback;
+\set ON_ERROR_STOP on
+do $c356_signature_atomicity$
+begin
+  if to_regprocedure('public.admin_get_delivery_provider_integrity_conflict(bigint)') is not null
+    or to_regprocedure('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)') is not null then
+    raise exception 'Migration 038 signature drift rejection was not atomic.';
+  end if;
+end;
+$c356_signature_atomicity$;
+alter function public.record_delivery_provider_lifecycle_event_c356_drift(text,text,text,text,timestamptz,text,text,text,text)
+  rename to record_delivery_provider_lifecycle_event;
+
+\ir ../supabase/migrations/202611240038_delivery_provider_integrity_lock_order_pagination.sql
+rollback;
 \ir test-delivery-provider-suppressions.sql
 
 -- Replays with a new digest must remain compatible with historical NULL metadata.
@@ -737,6 +909,40 @@ begin
   ) is not true then raise exception 'email.failed was not recorded.'; end if;
 
   if public.record_delivery_provider_lifecycle_event(
+    'evt_c353_failure_conflicting_delivered', 'email.delivered', 'resend-failed-20002',
+    'lifecycle-failed@example.test', '2027-03-01T10:12:00Z',
+    null, null, null, repeat('4', 64)
+  ) is not null then
+    raise exception 'Contradictory delivered event was not recorded as a conflict.';
+  end if;
+
+  -- Exercise the reverse arrival order as well: a late failure must not
+  -- silently coexist with a previously projected successful delivery.
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_delivered_before_failed', 'email.delivered', 'resend-delivered-before-failed',
+    'lifecycle-delivered-before-failed@example.test', '2027-03-01T10:13:00Z',
+    null, null, null, repeat('6', 64)
+  ) is not true then
+    raise exception 'Delivered-first failure-conflict fixture could not establish its canonical delivery.';
+  end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_failed_after_delivered', 'email.failed', 'resend-delivered-before-failed',
+    'lifecycle-delivered-before-failed@example.test', '2027-03-01T10:14:00Z',
+    null, 'unknown', null, repeat('7', 64)
+  ) is not null then
+    raise exception 'Failure arriving after delivered was not rejected as a contradictory terminal outcome.';
+  end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_failed_quota', 'email.sent', 'resend-failed-20002',
+    'lifecycle-failed@example.test', '2027-03-01T10:11:00Z',
+    null, null, null, repeat('5', 64)
+  ) is not null then
+    raise exception 'Duplicate event conflict was not recorded.';
+  end if;
+
+  if public.record_delivery_provider_lifecycle_event(
     'evt_precedence_bounce', 'email.bounced', 'resend-precedence-20003',
     'lifecycle-precedence@example.test', '2027-03-01T10:00:00Z',
     'Permanent', null, null, repeat('f', 64)
@@ -828,19 +1034,45 @@ begin
     null, null, null, repeat('d', 64)
   ) is not false then raise exception 'Exact lifecycle replay was not an idempotent no-op.'; end if;
 
-  begin
-    perform public.record_delivery_provider_lifecycle_event(
-      'evt_provider_id_wrong_recipient', 'email.sent', 'resend-order-20001',
-      'different-recipient@example.test', '2027-03-01T10:15:00Z',
-      null, null, null, repeat('3', 64)
-    );
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_provider_id_wrong_recipient', 'email.sent', 'resend-order-20001',
+    'different-recipient@example.test', '2027-03-01T10:15:00Z',
+    null, null, null, repeat('3', 64)
+  ) is not null then
     raise exception 'Provider email ID was accepted for a different recipient.';
-  exception when sqlstate '22023' then
-    null;
-  end;
+  end if;
 end;
 $lifecycle$;
 reset role;
+
+do $c353_provider_email_recipient_assertions$
+begin
+  if not exists (
+    select 1 from public.delivery_provider_integrity_cases
+    where recipient_email='different-recipient@example.test'
+      and anomaly_type='provider_email_recipient_conflict'
+      and state='open'
+  ) then
+    raise exception 'Cross-recipient provider email ID conflict did not create a recipient-scoped case.';
+  end if;
+
+  if not exists (
+    select 1 from public.delivery_provider_integrity_conflict_evidence
+    where recipient_email='different-recipient@example.test'
+      and event_id='evt_provider_id_wrong_recipient'
+      and stored_event_id='evt_order_sent'
+      and stored_recipient_email='lifecycle-order@example.test'
+      and payload_fingerprint=repeat('3', 64)
+  ) then
+    raise exception 'Cross-recipient provider email ID conflict evidence was not preserved.';
+  end if;
+
+  if (select status from public.delivery_provider_lifecycle
+      where provider_email_id='resend-order-20001') is distinct from 'integrity_anomaly' then
+    raise exception 'Cross-recipient provider email ID collision did not fail closed in the lifecycle projection.';
+  end if;
+end;
+$c353_provider_email_recipient_assertions$;
 
 do $lifecycle$
 begin
@@ -854,14 +1086,14 @@ begin
     raise exception 'Payload fingerprint conflict replaced the original event.';
   end if;
   if (select status from public.delivery_provider_lifecycle
-      where provider_email_id = 'resend-order-20001') <> 'email.delivered' then
+      where provider_email_id = 'resend-order-20001') <> 'integrity_anomaly' then
     raise exception 'Out-of-order event regressed delivered lifecycle evidence.';
   end if;
   if not exists (
     select 1 from public.delivery_provider_lifecycle l
     join public.delivery_provider_events e using (event_id)
     where l.provider_email_id = 'resend-order-20001'
-      and l.status = 'email.delivered'
+      and l.status = 'integrity_anomaly'
       and l.event_id = 'evt_order_delivered'
       and l.provider_created_at = '2027-03-01T10:10:00Z'::timestamptz
       and l.received_at = e.received_at
@@ -877,10 +1109,62 @@ begin
   if not exists (
     select 1 from public.delivery_provider_lifecycle
     where provider_email_id = 'resend-failed-20002'
-      and status = 'email.failed'
+      and status = 'integrity_anomaly'
+      and event_id = 'evt_failed_quota'
+      and failure_class is null
+  ) or not exists (
+    select 1 from public.delivery_provider_events
+    where event_id = 'evt_failed_quota'
       and failure_class = 'quota_exceeded'
   ) then
-    raise exception 'Normalized email.failed classification was not persisted.';
+    raise exception 'Conflicting provider events erased the original failure classification or canonical event.';
+  end if;
+
+  if not exists (
+    select 1 from public.delivery_provider_integrity_cases
+    where recipient_email = 'lifecycle-failed@example.test'
+      and anomaly_type = 'contradictory_terminal_outcome'
+      and state = 'open'
+  ) or not exists (
+    select 1 from public.delivery_provider_integrity_conflict_evidence
+    where event_id = 'evt_c353_failure_conflicting_delivered'
+      and stored_event_id = 'evt_failed_quota'
+      and payload_fingerprint = repeat('4', 64)
+  ) or not exists (
+    select 1 from public.delivery_provider_integrity_cases
+    where recipient_email = 'lifecycle-failed@example.test'
+      and anomaly_type = 'duplicate_event_id_conflict'
+      and state = 'open'
+  ) or not exists (
+    select 1 from public.delivery_provider_integrity_conflict_evidence
+    where event_id = 'evt_failed_quota'
+      and stored_event_id = 'evt_failed_quota'
+      and payload_fingerprint = repeat('5', 64)
+  ) then
+    raise exception 'Conflicting provider event evidence or its recipient-scoped cases were not preserved.';
+  end if;
+
+  if not exists (
+    select 1 from public.delivery_provider_lifecycle
+    where provider_email_id = 'resend-delivered-before-failed'
+      and status = 'integrity_anomaly'
+      and failure_class is null
+  ) or not exists (
+    select 1 from public.delivery_provider_events
+    where event_id = 'evt_failed_after_delivered'
+      and event_type = 'email.failed'
+      and failure_class = 'unknown'
+      and payload_fingerprint = repeat('7', 64)
+  ) or not exists (
+    select 1 from public.delivery_provider_integrity_cases
+    where recipient_email = 'lifecycle-delivered-before-failed@example.test'
+      and anomaly_type = 'contradictory_terminal_outcome'
+      and state = 'open'
+  ) or exists (
+    select 1 from public.delivery_provider_suppressions
+    where recipient_email = 'lifecycle-delivered-before-failed@example.test'
+  ) then
+    raise exception 'Delivered-first failure conflict was not retained, marked anomalous, and kept separate from recipient suppression.';
   end if;
   if (select status from public.delivery_provider_lifecycle
       where provider_email_id = 'resend-precedence-20003') <> 'integrity_anomaly'
@@ -1072,3 +1356,909 @@ select jsonb_build_object(
   'no_queue_or_retry_mutation','pass',
   'lifecycle_projection_privacy','pass'
 ) as delivery_provider_webhook_behavior;
+
+
+-- Migration 037 backfills legacy anomaly markers and preserves the original event.
+do $c353_legacy_backfill_assertions$
+begin
+  if not exists (
+    select 1
+    from public.delivery_provider_integrity_cases c
+    join public.delivery_provider_integrity_conflict_evidence e using (conflict_id)
+    where c.recipient_email = 'legacy-integrity-backfill@example.test'
+      and c.anomaly_type = 'duplicate_event_id_conflict'
+      and c.state = 'open'
+      and e.event_id = 'evt_c353_legacy_backfill'
+      and e.evidence_source = 'legacy_anomaly_backfill'
+  ) then
+    raise exception 'Migration 037 did not backfill the historical anomaly as recipient-scoped evidence.';
+  end if;
+  if not exists (
+    select 1 from public.delivery_provider_events
+    where event_id = 'evt_c353_legacy_backfill'
+      and event_type = 'email.sent'
+      and payload_fingerprint = repeat('a', 64)
+  ) then
+    raise exception 'Migration 037 changed the canonical historical provider event.';
+  end if;
+end;
+$c353_legacy_backfill_assertions$;
+
+-- Create a new conflict, resolve it as an authenticated administrator, then
+-- prove that a distinct conflicting fingerprint reopens the same recipient case.
+insert into auth.users (id, email, email_confirmed_at)
+values (
+  '00000000-0000-0000-0000-000000020008',
+  'provider-integrity-admin@example.test',
+  now()
+);
+insert into public.profiles (user_id, role, is_suspended)
+values ('00000000-0000-0000-0000-000000020008', 'admin', false);
+
+set role service_role;
+do $c353_new_conflict$
+begin
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_c353_integrity_reopen', 'email.bounced', 'resend-c353-integrity-reopen',
+    'integrity-reopen@example.test', '2027-03-03T09:00:00Z',
+    'Permanent', null, null, repeat('1', 64)
+  ) is not true then
+    raise exception 'Provider integrity reopen fixture was not inserted.';
+  end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_c353_integrity_reopen', 'email.complained', 'resend-c353-integrity-reopen',
+    'integrity-reopen@example.test', '2027-03-03T09:01:00Z',
+    null, null, null, repeat('2', 64)
+  ) is not null then
+    raise exception 'Conflicting duplicate provider event did not return the retryable NULL result.';
+  end if;
+end;
+$c353_new_conflict$;
+reset role;
+
+begin;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000020008', true);
+do $c353_admin_resolution$
+declare
+  v_case_id bigint;
+  v_count bigint;
+begin
+  if not public.is_admin() then
+    raise exception 'Synthetic administrator fixture was not recognized.';
+  end if;
+
+  select c.conflict_id into v_case_id
+  from public.admin_list_delivery_provider_integrity_conflicts('all', 200) c
+  where c.recipient_email = 'integrity-reopen@example.test'
+    and c.anomaly_type = 'duplicate_event_id_conflict';
+
+  if v_case_id is null then
+    raise exception 'Recipient-scoped duplicate conflict case was not created.';
+  end if;
+
+  if public.admin_resolve_delivery_provider_integrity_conflict(
+    v_case_id,
+    'Reviewed conflicting provider event; retain the original bounce record.'
+  ) is not true then
+    raise exception 'Administrator could not resolve an open provider-integrity case.';
+  end if;
+
+  select count(*) into v_count
+  from public.admin_list_delivery_provider_integrity_conflicts('resolved', 200)
+  where conflict_id = v_case_id and state = 'resolved'
+    and resolved_by = auth.uid()
+    and resolution_note = 'Reviewed conflicting provider event; retain the original bounce record.';
+
+  if v_count <> 1 then
+    raise exception 'Admin conflict list did not expose the audited resolution.';
+  end if;
+
+  select count(*) into v_count
+  from public.admin_list_delivery_provider_integrity_evidence(v_case_id, 100)
+  where payload_fingerprint = repeat('2', 64);
+
+  if v_count <> 1 then
+    raise exception 'Admin evidence list did not expose the normalized conflicting event.';
+  end if;
+
+  select count(*) into v_count
+  from public.admin_list_delivery_provider_integrity_history(v_case_id, 100)
+  where action = 'resolved' and actor_id = auth.uid();
+
+  if v_count <> 1 then
+    raise exception 'Resolution history did not retain the administrator actor and action.';
+  end if;
+end;
+$c353_admin_resolution$;
+commit;
+reset role;
+
+set role service_role;
+do $c353_reopen$
+begin
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_c353_integrity_reopen', 'email.failed', 'resend-c353-integrity-reopen',
+    'integrity-reopen@example.test', '2027-03-03T09:02:00Z',
+    null, 'unknown', null, repeat('3', 64)
+  ) is not null then
+    raise exception 'New conflicting provider evidence was not classified as a conflict.';
+  end if;
+
+  if public.record_delivery_provider_lifecycle_event(
+    'evt_c353_integrity_reopen', 'email.failed', 'resend-c353-integrity-reopen',
+    'integrity-reopen@example.test', '2027-03-03T09:02:00Z',
+    null, 'unknown', null, repeat('3', 64)
+  ) is not null then
+    raise exception 'Conflicting provider payload replay did not remain an anomaly.';
+  end if;
+end;
+$c353_reopen$;
+reset role;
+
+do $c353_reopen_assertions$
+declare
+  v_case_id bigint;
+  v_count bigint;
+begin
+  select c.conflict_id into v_case_id
+  from public.delivery_provider_integrity_cases c
+  where c.recipient_email = 'integrity-reopen@example.test'
+    and c.anomaly_type = 'duplicate_event_id_conflict'
+    and c.state = 'open'
+    and c.resolved_at is null
+    and c.resolved_by is null
+    and c.resolution_note is null;
+
+  if v_case_id is null then
+    raise exception 'New distinct provider evidence did not reopen the resolved case.';
+  end if;
+
+  select count(*) into v_count
+  from public.delivery_provider_integrity_conflict_evidence e
+  where e.conflict_id = v_case_id
+    and e.payload_fingerprint in (repeat('2', 64), repeat('3', 64));
+
+  if v_count <> 2 then
+    raise exception 'Distinct conflicting fingerprints were not durably retained exactly once.';
+  end if;
+
+  select count(*) into v_count
+  from public.delivery_provider_integrity_conflict_history h
+  where h.conflict_id = v_case_id
+    and h.action in ('resolved', 'reopened');
+
+  if v_count <> 2 then
+    raise exception 'Resolution/reopening history was overwritten or duplicated.';
+  end if;
+
+  if not exists (
+    select 1 from public.delivery_provider_events
+    where event_id = 'evt_c353_integrity_reopen'
+      and event_type = 'email.bounced'
+      and payload_fingerprint = repeat('1', 64)
+      and recipient_email = 'integrity-reopen@example.test'
+  ) then
+    raise exception 'Conflicting provider event replaced the canonical event.';
+  end if;
+
+  if (select reason from public.delivery_provider_suppressions
+      where recipient_email = 'integrity-reopen@example.test') is distinct from 'permanent_bounce' then
+    raise exception 'Conflicting provider event weakened permanent-bounce protection.';
+  end if;
+end;
+$c353_reopen_assertions$;
+
+-- Pagination fixtures prove stable keyset boundaries and preserve the newest reopening.
+do $c356_pagination_seed$
+declare
+  v_case_id bigint;
+  v_evidence_ids bigint[];
+  v_admin_id uuid := '00000000-0000-0000-0000-000000020008';
+  v_evidence_at timestamptz := clock_timestamp() + interval '10 seconds';
+  v_history_at timestamptz := clock_timestamp() + interval '20 seconds';
+  v_case_at timestamptz := clock_timestamp() + interval '30 seconds';
+  v_resolved_case_id bigint;
+  v_resolved_evidence_id bigint;
+begin
+  select conflict_id into v_case_id
+  from public.delivery_provider_integrity_cases
+  where recipient_email='integrity-reopen@example.test'
+    and anomaly_type='duplicate_event_id_conflict';
+
+  if v_case_id is null then
+    raise exception 'Cycle 356 pagination case fixture is missing.';
+  end if;
+
+  insert into public.delivery_provider_integrity_conflict_evidence (
+    conflict_id, recipient_email, event_id, event_type, provider_email_id,
+    bounce_type, provider_created_at, payload_fingerprint, stored_event_id,
+    stored_recipient_email, evidence_source, observed_at
+  )
+  select
+    v_case_id,
+    'integrity-reopen@example.test',
+    'evt_c356_page_evidence_' || i::text,
+    'email.bounced',
+    'resend-c356-page-evidence-' || i::text,
+    'Transient',
+    clock_timestamp(),
+    lpad(to_hex(i), 64, '0'),
+    'evt_c353_integrity_reopen',
+    'integrity-reopen@example.test',
+    'provider_rpc',
+    v_evidence_at
+  from generate_series(1, 3) as i;
+
+  select array_agg(e.evidence_id order by e.observed_at, e.evidence_id)
+    into v_evidence_ids
+  from public.delivery_provider_integrity_conflict_evidence e
+  where e.conflict_id = v_case_id
+    and e.event_id like 'evt_c356_page_evidence_%';
+
+  insert into public.delivery_provider_integrity_conflict_history (
+    conflict_id, action, actor_id, note, evidence_id, created_at
+  )
+  values
+    (v_case_id, 'resolved', v_admin_id, 'Cycle 356 pagination fixture resolution one.', null, v_history_at),
+    (v_case_id, 'reopened', null, 'Cycle 356 pagination fixture reopening one.', v_evidence_ids[1], v_history_at),
+    (v_case_id, 'resolved', v_admin_id, 'Cycle 356 pagination fixture resolution two.', null, v_history_at),
+    (v_case_id, 'reopened', null, 'Cycle 356 pagination fixture reopening two.', v_evidence_ids[2], v_history_at),
+    (v_case_id, 'reopened', null, 'Cycle 356 pagination fixture latest reopening.', v_evidence_ids[3], v_history_at);
+
+  insert into public.delivery_provider_integrity_cases (
+    recipient_email, anomaly_type, state, first_detected_at, last_detected_at
+  )
+  values
+    ('c356-page-case-a@example.test', 'duplicate_event_id_conflict', 'open', v_case_at, v_case_at),
+    ('c356-page-case-b@example.test', 'contradictory_terminal_outcome', 'open', v_case_at, v_case_at),
+    ('c356-page-case-c@example.test', 'suppression_event_timestamp_conflict', 'open', v_case_at, v_case_at);
+
+  insert into public.delivery_provider_integrity_cases (
+    recipient_email, anomaly_type, state, first_detected_at, last_detected_at,
+    resolved_at, resolved_by, resolution_note
+  ) values (
+    'c356-reopened-resolved@example.test', 'duplicate_event_id_conflict', 'resolved',
+    v_case_at, v_case_at, v_history_at + interval '1 second', v_admin_id,
+    'Cycle 356 follow-up resolution after reopening.'
+  ) returning conflict_id into v_resolved_case_id;
+
+  insert into public.delivery_provider_integrity_conflict_evidence (
+    conflict_id, recipient_email, event_id, event_type, provider_email_id,
+    bounce_type, provider_created_at, payload_fingerprint, stored_event_id,
+    stored_recipient_email, evidence_source, observed_at
+  ) values (
+    v_resolved_case_id, 'c356-reopened-resolved@example.test',
+    'evt_c356_reopened_resolved', 'email.bounced', 'resend-c356-reopened-resolved',
+    'Transient', clock_timestamp(), lpad(to_hex(4), 64, '0'),
+    'evt_historical_026_complaint', 'historical-026-complaint@example.test',
+    'provider_rpc', v_evidence_at
+  ) returning evidence_id into v_resolved_evidence_id;
+
+  insert into public.delivery_provider_integrity_conflict_history (
+    conflict_id, action, actor_id, note, evidence_id, created_at
+  ) values
+    (v_resolved_case_id, 'reopened', null, 'Cycle 356 reopening remains visible after resolution.', v_resolved_evidence_id, v_history_at),
+    (v_resolved_case_id, 'resolved', v_admin_id, 'Cycle 356 follow-up resolution after reopening.', null, v_history_at + interval '1 second');
+end;
+$c356_pagination_seed$;
+
+-- Administrators can retrieve cases directly and traverse every page without skips or duplicates.
+select set_config('test.c356_case_id', (
+  select conflict_id::text from public.delivery_provider_integrity_cases
+  where recipient_email='integrity-reopen@example.test'
+    and anomaly_type='duplicate_event_id_conflict'
+), false);
+select set_config('test.c356_open_count', (
+  select count(*)::text from public.delivery_provider_integrity_cases where state='open'
+), false);
+select set_config('test.c356_evidence_count', (
+  select count(*)::text from public.delivery_provider_integrity_conflict_evidence
+  where conflict_id=current_setting('test.c356_case_id')::bigint
+), false);
+select set_config('test.c356_resolved_case_id', (
+  select conflict_id::text from public.delivery_provider_integrity_cases
+  where recipient_email='c356-reopened-resolved@example.test'
+    and anomaly_type='duplicate_event_id_conflict'
+), false);
+select set_config('test.c356_history_count', (
+  select count(*)::text from public.delivery_provider_integrity_conflict_history
+  where conflict_id=current_setting('test.c356_case_id')::bigint
+), false);
+
+select set_config('test.c356_page_case_a_id', (
+  select conflict_id::text from public.delivery_provider_integrity_cases
+  where recipient_email='c356-page-case-a@example.test'
+    and anomaly_type='duplicate_event_id_conflict'
+), false);
+
+-- Equal timestamps make immutable conflict_id order deterministic for this fixture.
+update public.delivery_provider_integrity_cases
+set last_detected_at = '2000-01-01T00:00:00Z'::timestamptz
+where state = 'open';
+
+begin;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000020008', true);
+do $c356_case_page_one$
+declare
+  v_page jsonb;
+  v_item jsonb;
+  v_ids text[] := array[]::text[];
+  v_id text;
+  v_previous_id bigint;
+  v_cursor_id bigint;
+  v_target_id bigint;
+  v_total bigint;
+begin
+  v_page := public.admin_list_delivery_provider_integrity_conflicts_page('open', 2, null, null);
+  v_total := (v_page->>'total_count')::bigint;
+  if v_total <> current_setting('test.c356_open_count')::bigint
+    or not (v_page->>'has_more')::boolean then
+    raise exception 'Case page one did not return the expected total and continuation.';
+  end if;
+
+  v_cursor_id := (v_page->'next_cursor'->>'conflict_id')::bigint;
+  if (v_page->'next_cursor') ? 'last_detected_at' then
+    raise exception 'Case page cursor still depends on mutable last_detected_at.';
+  end if;
+  v_target_id := current_setting('test.c356_page_case_a_id')::bigint;
+
+  for v_item in select value from jsonb_array_elements(v_page->'items') loop
+    v_id := v_item->>'conflict_id';
+    if v_id = v_target_id::text then
+      raise exception 'The between-request target case unexpectedly appeared on page one.';
+    end if;
+    if v_previous_id is not null and v_id::bigint >= v_previous_id then
+      raise exception 'Case page one is not ordered by immutable conflict_id DESC.';
+    end if;
+    v_previous_id := v_id::bigint;
+    v_ids := array_append(v_ids, v_id);
+  end loop;
+
+  if cardinality(v_ids) <> 2 or v_target_id >= v_cursor_id then
+    raise exception 'Case page fixture does not place case A immediately after page one.';
+  end if;
+
+  perform set_config('test.c356_case_page_one_ids', array_to_string(v_ids, ','), false);
+  perform set_config('test.c356_case_page_cursor_id', v_cursor_id::text, false);
+  perform set_config('test.c356_case_page_total', v_total::text, false);
+end;
+$c356_case_page_one$;
+commit;
+
+-- Create the canonical row required by the evidence FK before adding its conflicting observation.
+select public.record_delivery_provider_lifecycle_event(
+  'evt_c356_page_case_a_canonical',
+  'email.delivered',
+  'resend-c356-page-case-a-canonical',
+  'c356-page-case-a@example.test',
+  clock_timestamp(),
+  null,
+  null,
+  null,
+  repeat('a', 64)
+);
+
+-- New evidence moves case A's last_detected_at forward after page one has been read.
+select public._record_delivery_provider_integrity_conflict(
+  'c356-page-case-a@example.test',
+  'evt_c356_page_case_a_new_evidence',
+  null,
+  'duplicate_event_id_conflict',
+  'email.delivered',
+  'resend-c356-page-case-a-new-evidence',
+  null,
+  clock_timestamp(),
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  repeat('f', 64),
+  'evt_c356_page_case_a_canonical',
+  'c356-page-case-a@example.test'
+);
+
+begin;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000020008', true);
+do $c356_admin_pagination$
+declare
+  v_case_id bigint;
+  v_resolved_case_id bigint;
+  v_resolved_detail jsonb;
+  v_detail jsonb;
+  v_page jsonb;
+  v_item jsonb;
+  v_items jsonb;
+  v_cursor_at timestamptz;
+  v_cursor_id bigint;
+  v_total bigint;
+  v_seen bigint;
+  v_seen_ids text[];
+  v_id text;
+  v_first_history jsonb;
+  v_latest_reopened jsonb;
+  v_malformed_denied boolean := false;
+  v_evidence_count bigint;
+  v_history_count bigint;
+  v_case_count bigint;
+  v_target_case_id bigint;
+  v_evidence_id bigint;
+  v_history_id bigint;
+  v_denied boolean;
+  v_iteration integer;
+begin
+  v_case_id := current_setting('test.c356_case_id')::bigint;
+  v_case_count := current_setting('test.c356_open_count')::bigint;
+  v_evidence_count := current_setting('test.c356_evidence_count')::bigint;
+  v_history_count := current_setting('test.c356_history_count')::bigint;
+
+  v_detail := public.admin_get_delivery_provider_integrity_conflict(v_case_id);
+  if v_detail is null
+    or v_detail->>'conflict_id' <> v_case_id::text
+    or (v_detail->>'evidence_count')::bigint <> v_evidence_count
+    or (v_detail->>'history_count')::bigint <> v_history_count
+    or v_detail->'latest_reopened'->>'note' <> 'Cycle 356 pagination fixture latest reopening.' then
+    raise exception 'Direct administrator case retrieval did not return accurate counts and latest reopening.';
+  end if;
+
+  v_resolved_case_id := current_setting('test.c356_resolved_case_id')::bigint;
+  v_resolved_detail := public.admin_get_delivery_provider_integrity_conflict(v_resolved_case_id);
+  if v_resolved_detail->>'state' <> 'resolved'
+    or v_resolved_detail->'latest_reopened'->>'note' <> 'Cycle 356 reopening remains visible after resolution.' then
+    raise exception 'Latest reopening was hidden after a case was subsequently resolved.';
+  end if;
+
+  v_total := current_setting('test.c356_case_page_total')::bigint;
+  v_seen_ids := string_to_array(current_setting('test.c356_case_page_one_ids'), ',');
+  v_seen := cardinality(v_seen_ids);
+  v_cursor_at := null;
+  v_cursor_id := current_setting('test.c356_case_page_cursor_id')::bigint;
+  v_target_case_id := current_setting('test.c356_page_case_a_id')::bigint;
+  for v_iteration in 2..100 loop
+    v_page := public.admin_list_delivery_provider_integrity_conflicts_page('open', 2, null, v_cursor_id);
+    if v_iteration = 2 and not exists (
+      select 1
+      from jsonb_array_elements(v_page->'items') as page_item(value)
+      where page_item.value->>'conflict_id' = v_target_case_id::text
+        and (page_item.value->>'last_detected_at')::timestamptz > '2000-01-01T00:00:00Z'::timestamptz
+    ) then
+      raise exception 'New evidence between case page requests was skipped or reordered.';
+    end if;
+    if v_total is null then
+      v_total := (v_page->>'total_count')::bigint;
+      if v_total <> v_case_count then raise exception 'Case page total_count is not exact.'; end if;
+    elsif (v_page->>'total_count')::bigint <> v_total then
+      raise exception 'Case page total_count changed during stable traversal.';
+    end if;
+
+    v_items := v_page->'items';
+    for v_item in select value from jsonb_array_elements(v_items) loop
+      v_id := v_item->>'conflict_id';
+      if v_id = any(v_seen_ids) then raise exception 'Case keyset pagination returned a duplicate case.'; end if;
+      v_seen_ids := array_append(v_seen_ids, v_id);
+      v_seen := v_seen + 1;
+    end loop;
+
+    if (v_page->>'has_more')::boolean then
+      if v_page->'next_cursor' is null or v_page->'next_cursor' = 'null'::jsonb then
+        raise exception 'Case page omitted its continuation cursor.';
+      end if;
+      if (v_page->'next_cursor') ? 'last_detected_at' then
+        raise exception 'Case continuation cursor contains mutable last_detected_at.';
+      end if;
+      v_cursor_id := (v_page->'next_cursor'->>'conflict_id')::bigint;
+    else
+      if v_page->'next_cursor' <> 'null'::jsonb then
+        raise exception 'Final case page exposed a spurious continuation cursor.';
+      end if;
+      exit;
+    end if;
+  end loop;
+  if v_seen <> v_total then raise exception 'Case keyset traversal did not cover the exact total count.'; end if;
+
+  v_total := null;
+  v_seen := 0;
+  v_seen_ids := array[]::text[];
+  v_cursor_at := null;
+  v_cursor_id := null;
+  for v_iteration in 1..100 loop
+    v_page := public.admin_list_delivery_provider_integrity_evidence_page(v_case_id, 2, v_cursor_at, v_cursor_id);
+    if v_total is null then v_total := (v_page->>'total_count')::bigint; end if;
+    if v_total <> v_evidence_count then raise exception 'Evidence page total_count is not exact.'; end if;
+    v_items := v_page->'items';
+    for v_item in select value from jsonb_array_elements(v_items) loop
+      v_id := v_item->>'evidence_id';
+      if v_id = any(v_seen_ids) then raise exception 'Evidence keyset pagination returned a duplicate row.'; end if;
+      v_seen_ids := array_append(v_seen_ids, v_id);
+      v_seen := v_seen + 1;
+    end loop;
+    if (v_page->'has_more' is null) then
+      raise exception 'Evidence page omitted its continuation indicator.';
+    elsif (v_page->>'has_more')::boolean then
+      if v_page->'next_cursor' is null or v_page->'next_cursor' = 'null'::jsonb then
+        raise exception 'Evidence page omitted its continuation cursor.';
+      end if;
+      v_cursor_at := (v_page->'next_cursor'->>'observed_at')::timestamptz;
+      v_cursor_id := (v_page->'next_cursor'->>'evidence_id')::bigint;
+    else
+      if v_page->'next_cursor' is distinct from 'null'::jsonb then
+        raise exception 'Final evidence page exposed a spurious continuation cursor.';
+      end if;
+      exit;
+    end if;
+  end loop;
+  if v_seen <> v_evidence_count then raise exception 'Evidence keyset traversal omitted audit rows.'; end if;
+
+  v_total := null;
+  v_seen := 0;
+  v_seen_ids := array[]::text[];
+  v_cursor_at := null;
+  v_cursor_id := null;
+  for v_iteration in 1..100 loop
+    v_page := public.admin_list_delivery_provider_integrity_history_page(v_case_id, 2, v_cursor_at, v_cursor_id);
+    if v_total is null then v_total := (v_page->>'total_count')::bigint; end if;
+    if v_total <> v_history_count then raise exception 'History page total_count is not exact.'; end if;
+    v_items := v_page->'items';
+    if v_iteration = 1 then
+      v_first_history := v_items->0;
+      v_latest_reopened := v_detail->'latest_reopened';
+      if v_first_history->>'action' <> 'reopened'
+        or v_first_history->>'evidence_id' <> v_latest_reopened->>'evidence_id'
+        or v_first_history->>'created_at' <> v_latest_reopened->>'created_at' then
+        raise exception 'Newest-first history page did not expose the latest reopening.';
+      end if;
+    end if;
+    for v_item in select value from jsonb_array_elements(v_items) loop
+      v_id := v_item->>'history_id';
+      if v_id = any(v_seen_ids) then raise exception 'History keyset pagination returned a duplicate row.'; end if;
+      v_seen_ids := array_append(v_seen_ids, v_id);
+      v_seen := v_seen + 1;
+    end loop;
+    if (v_page->'has_more' is null) then
+      raise exception 'History page omitted its continuation indicator.';
+    elsif (v_page->>'has_more')::boolean then
+      if v_page->'next_cursor' is null or v_page->'next_cursor' = 'null'::jsonb then
+        raise exception 'History page omitted its continuation cursor.';
+      end if;
+      v_cursor_at := (v_page->'next_cursor'->>'created_at')::timestamptz;
+      v_cursor_id := (v_page->'next_cursor'->>'history_id')::bigint;
+    else
+      if v_page->'next_cursor' is distinct from 'null'::jsonb then
+        raise exception 'Final history page exposed a spurious continuation cursor.';
+      end if;
+      exit;
+    end if;
+  end loop;
+  if v_seen <> v_history_count then raise exception 'History keyset traversal omitted append-only audit rows.'; end if;
+
+  begin
+    perform public.admin_list_delivery_provider_integrity_conflicts_page('open', 2, clock_timestamp(), null);
+  exception when sqlstate '22023' then
+    v_malformed_denied := true;
+  end;
+  if not v_malformed_denied then raise exception 'Case pagination accepted a partial cursor.'; end if;
+
+  v_malformed_denied := false;
+  begin
+    perform public.admin_list_delivery_provider_integrity_evidence_page(v_case_id, 2, clock_timestamp(), null);
+  exception when sqlstate '22023' then
+    v_malformed_denied := true;
+  end;
+  if not v_malformed_denied then raise exception 'Evidence pagination accepted a partial cursor.'; end if;
+
+  v_malformed_denied := false;
+  begin
+    perform public.admin_list_delivery_provider_integrity_history_page(v_case_id, 2, clock_timestamp(), null);
+  exception when sqlstate '22023' then
+    v_malformed_denied := true;
+  end;
+  if not v_malformed_denied then raise exception 'History pagination accepted a partial cursor.'; end if;
+
+  if has_table_privilege('authenticated','public.delivery_provider_integrity_conflict_evidence','UPDATE')
+    or has_table_privilege('authenticated','public.delivery_provider_integrity_conflict_evidence','DELETE')
+    or has_table_privilege('authenticated','public.delivery_provider_integrity_conflict_history','UPDATE')
+    or has_table_privilege('authenticated','public.delivery_provider_integrity_conflict_history','DELETE') then
+    raise exception 'Administrator browser role can mutate append-only evidence or history tables.';
+  end if;
+
+  v_evidence_id := (v_detail->'latest_reopened'->>'evidence_id')::bigint;
+  v_history_id := (v_first_history->>'history_id')::bigint;
+
+  v_denied := false;
+  begin
+    update public.delivery_provider_integrity_conflict_evidence
+    set event_id=event_id where evidence_id=v_evidence_id;
+  exception when sqlstate '42501' then v_denied := true;
+  end;
+  if not v_denied then raise exception 'Administrator UPDATE of provider-integrity evidence was not denied.'; end if;
+
+  v_denied := false;
+  begin
+    delete from public.delivery_provider_integrity_conflict_evidence where evidence_id=v_evidence_id;
+  exception when sqlstate '42501' then v_denied := true;
+  end;
+  if not v_denied then raise exception 'Administrator DELETE of provider-integrity evidence was not denied.'; end if;
+
+  v_denied := false;
+  begin
+    update public.delivery_provider_integrity_conflict_history
+    set note=note where history_id=v_history_id;
+  exception when sqlstate '42501' then v_denied := true;
+  end;
+  if not v_denied then raise exception 'Administrator UPDATE of provider-integrity history was not denied.'; end if;
+
+  v_denied := false;
+  begin
+    delete from public.delivery_provider_integrity_conflict_history where history_id=v_history_id;
+  exception when sqlstate '42501' then v_denied := true;
+  end;
+  if not v_denied then raise exception 'Administrator DELETE of provider-integrity history was not denied.'; end if;
+
+  raise notice 'Provider-integrity direct retrieval, exact counts, keyset boundaries, administrator append-only denial and newest reopening visibility: PASS';
+end;
+$c356_admin_pagination$;
+commit;
+reset role;
+
+-- Owner-level UPDATE/DELETE attempts must hit the append-only triggers, not mutate audit rows.
+do $c356_append_only$
+declare
+  v_case_id bigint;
+  v_evidence_id bigint;
+  v_history_id bigint;
+  v_denied boolean;
+begin
+  select conflict_id into v_case_id
+  from public.delivery_provider_integrity_cases
+  where recipient_email='integrity-reopen@example.test'
+    and anomaly_type='duplicate_event_id_conflict';
+  select evidence_id into v_evidence_id
+  from public.delivery_provider_integrity_conflict_evidence
+  where conflict_id=v_case_id and event_id='evt_c356_page_evidence_1';
+  select history_id into v_history_id
+  from public.delivery_provider_integrity_conflict_history
+  where conflict_id=v_case_id and note='Cycle 356 pagination fixture latest reopening.';
+
+  v_denied := false;
+  begin
+    update public.delivery_provider_integrity_conflict_evidence
+    set event_id=event_id where evidence_id=v_evidence_id;
+  exception when sqlstate '42501' then v_denied := true;
+  end;
+  if not v_denied or not exists (
+    select 1 from public.delivery_provider_integrity_conflict_evidence
+    where evidence_id=v_evidence_id and event_id='evt_c356_page_evidence_1'
+  ) then raise exception 'Evidence UPDATE bypassed append-only protection.'; end if;
+
+  v_denied := false;
+  begin
+    delete from public.delivery_provider_integrity_conflict_evidence where evidence_id=v_evidence_id;
+  exception when sqlstate '42501' then v_denied := true;
+  end;
+  if not v_denied or not exists (
+    select 1 from public.delivery_provider_integrity_conflict_evidence where evidence_id=v_evidence_id
+  ) then raise exception 'Evidence DELETE bypassed append-only protection.'; end if;
+
+  v_denied := false;
+  begin
+    update public.delivery_provider_integrity_conflict_history
+    set note=note where history_id=v_history_id;
+  exception when sqlstate '42501' then v_denied := true;
+  end;
+  if not v_denied or not exists (
+    select 1 from public.delivery_provider_integrity_conflict_history where history_id=v_history_id
+  ) then raise exception 'History UPDATE bypassed append-only protection.'; end if;
+
+  v_denied := false;
+  begin
+    delete from public.delivery_provider_integrity_conflict_history where history_id=v_history_id;
+  exception when sqlstate '42501' then v_denied := true;
+  end;
+  if not v_denied or not exists (
+    select 1 from public.delivery_provider_integrity_conflict_history where history_id=v_history_id
+  ) then raise exception 'History DELETE bypassed append-only protection.'; end if;
+end;
+$c356_append_only$;
+
+-- Authenticated non-admins cannot inspect or resolve private provider conflicts.
+select set_config(
+  'test.provider_integrity_case_id',
+  (
+    select conflict_id::text
+    from public.delivery_provider_integrity_cases
+    where recipient_email = 'integrity-reopen@example.test'
+      and anomaly_type = 'duplicate_event_id_conflict'
+  ),
+  false
+);
+begin;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000020005', true);
+do $c354_non_admin$
+declare
+  v_case_id bigint := current_setting('test.provider_integrity_case_id')::bigint;
+  v_denied boolean;
+begin
+  v_denied := false;
+  begin
+    perform public.admin_get_delivery_provider_integrity_conflict(v_case_id);
+  exception when sqlstate '42501' then v_denied := true;
+  end;
+  if not v_denied then raise exception 'Non-admin authenticated member accessed direct provider-integrity case retrieval.'; end if;
+
+  v_denied := false;
+  begin
+    perform public.admin_list_delivery_provider_integrity_conflicts_page('open', 10, null, null);
+  exception when sqlstate '42501' then v_denied := true;
+  end;
+  if not v_denied then raise exception 'Non-admin authenticated member accessed provider-integrity case pages.'; end if;
+
+  v_denied := false;
+  begin
+    perform public.admin_list_delivery_provider_integrity_evidence_page(v_case_id, 10, null, null);
+  exception when sqlstate '42501' then v_denied := true;
+  end;
+  if not v_denied then raise exception 'Non-admin authenticated member accessed provider-integrity evidence pages.'; end if;
+
+  v_denied := false;
+  begin
+    perform public.admin_list_delivery_provider_integrity_history_page(v_case_id, 10, null, null);
+  exception when sqlstate '42501' then v_denied := true;
+  end;
+  if not v_denied then raise exception 'Non-admin authenticated member accessed provider-integrity history pages.'; end if;
+
+  v_denied := false;
+  begin
+    perform * from public.admin_list_delivery_provider_integrity_conflicts('all', 100);
+  exception when sqlstate '42501' then
+    v_denied := true;
+  end;
+  if not v_denied then
+    raise exception 'Non-admin authenticated member accessed provider-integrity cases.';
+  end if;
+
+  v_denied := false;
+  begin
+    perform * from public.admin_list_delivery_provider_integrity_evidence(v_case_id, 100);
+  exception when sqlstate '42501' then
+    v_denied := true;
+  end;
+  if not v_denied then
+    raise exception 'Non-admin authenticated member accessed provider-integrity evidence.';
+  end if;
+
+  v_denied := false;
+  begin
+    perform * from public.admin_list_delivery_provider_integrity_history(v_case_id, 100);
+  exception when sqlstate '42501' then
+    v_denied := true;
+  end;
+  if not v_denied then
+    raise exception 'Non-admin authenticated member accessed provider-integrity resolution history.';
+  end if;
+
+  v_denied := false;
+  begin
+    perform public.admin_resolve_delivery_provider_integrity_conflict(
+      v_case_id,
+      'Attempted unauthorized provider-integrity resolution.'
+    );
+  exception when sqlstate '42501' then
+    v_denied := true;
+  end;
+  if not v_denied then
+    raise exception 'Non-admin authenticated member resolved a provider-integrity case.';
+  end if;
+
+  v_denied := false;
+  begin
+    update public.delivery_provider_integrity_conflict_evidence
+    set event_id=event_id where conflict_id=v_case_id;
+  exception when sqlstate '42501' then v_denied := true;
+  end;
+  if not v_denied then raise exception 'Non-admin updated provider-integrity evidence.'; end if;
+
+  v_denied := false;
+  begin
+    delete from public.delivery_provider_integrity_conflict_evidence where conflict_id=v_case_id;
+  exception when sqlstate '42501' then v_denied := true;
+  end;
+  if not v_denied then raise exception 'Non-admin deleted provider-integrity evidence.'; end if;
+
+  v_denied := false;
+  begin
+    update public.delivery_provider_integrity_conflict_history
+    set note=note where conflict_id=v_case_id;
+  exception when sqlstate '42501' then v_denied := true;
+  end;
+  if not v_denied then raise exception 'Non-admin updated provider-integrity history.'; end if;
+
+  v_denied := false;
+  begin
+    delete from public.delivery_provider_integrity_conflict_history where conflict_id=v_case_id;
+  exception when sqlstate '42501' then v_denied := true;
+  end;
+  if not v_denied then raise exception 'Non-admin deleted provider-integrity history.'; end if;
+
+end;
+$c354_non_admin$;
+commit;
+reset role;
+
+do $c353_privacy_assertions$
+begin
+  if has_table_privilege('anon', 'public.delivery_provider_integrity_cases', 'SELECT')
+    or has_table_privilege('authenticated', 'public.delivery_provider_integrity_cases', 'SELECT')
+    or has_table_privilege('service_role', 'public.delivery_provider_integrity_cases', 'SELECT')
+    or has_table_privilege('anon', 'public.delivery_provider_integrity_conflict_evidence', 'SELECT')
+    or has_table_privilege('authenticated', 'public.delivery_provider_integrity_conflict_evidence', 'SELECT')
+    or has_table_privilege('service_role', 'public.delivery_provider_integrity_conflict_evidence', 'SELECT')
+    or has_table_privilege('anon', 'public.delivery_provider_integrity_conflict_history', 'SELECT')
+    or has_table_privilege('authenticated', 'public.delivery_provider_integrity_conflict_history', 'SELECT')
+    or has_table_privilege('service_role', 'public.delivery_provider_integrity_conflict_history', 'SELECT') then
+    raise exception 'Provider-integrity case/evidence/history tables are directly readable.';
+  end if;
+
+  if not (select relrowsecurity from pg_class where oid='public.delivery_provider_integrity_cases'::regclass)
+    or not (select relrowsecurity from pg_class where oid='public.delivery_provider_integrity_conflict_evidence'::regclass)
+    or not (select relrowsecurity from pg_class where oid='public.delivery_provider_integrity_conflict_history'::regclass) then
+    raise exception 'Provider-integrity case/evidence/history tables must retain RLS.';
+  end if;
+
+  if has_function_privilege('anon', 'public.admin_list_delivery_provider_integrity_conflicts_page(text,integer,timestamptz,bigint)', 'EXECUTE')
+    or has_function_privilege('service_role', 'public.admin_list_delivery_provider_integrity_conflicts_page(text,integer,timestamptz,bigint)', 'EXECUTE')
+    or not has_function_privilege('authenticated', 'public.admin_list_delivery_provider_integrity_conflicts_page(text,integer,timestamptz,bigint)', 'EXECUTE')
+    or has_function_privilege('anon', 'public.admin_get_delivery_provider_integrity_conflict(bigint)', 'EXECUTE')
+    or has_function_privilege('service_role', 'public.admin_get_delivery_provider_integrity_conflict(bigint)', 'EXECUTE')
+    or not has_function_privilege('authenticated', 'public.admin_get_delivery_provider_integrity_conflict(bigint)', 'EXECUTE')
+    or has_function_privilege('anon', 'public.admin_list_delivery_provider_integrity_evidence_page(bigint,integer,timestamptz,bigint)', 'EXECUTE')
+    or has_function_privilege('service_role', 'public.admin_list_delivery_provider_integrity_evidence_page(bigint,integer,timestamptz,bigint)', 'EXECUTE')
+    or not has_function_privilege('authenticated', 'public.admin_list_delivery_provider_integrity_evidence_page(bigint,integer,timestamptz,bigint)', 'EXECUTE')
+    or has_function_privilege('anon', 'public.admin_list_delivery_provider_integrity_history_page(bigint,integer,timestamptz,bigint)', 'EXECUTE')
+    or has_function_privilege('service_role', 'public.admin_list_delivery_provider_integrity_history_page(bigint,integer,timestamptz,bigint)', 'EXECUTE')
+    or not has_function_privilege('authenticated', 'public.admin_list_delivery_provider_integrity_history_page(bigint,integer,timestamptz,bigint)', 'EXECUTE') then
+    raise exception 'Provider-integrity pagination RPC grants are not least-privilege.';
+  end if;
+
+  if has_function_privilege('anon', 'public.admin_list_delivery_provider_integrity_conflicts(text,integer)', 'EXECUTE')
+    or has_function_privilege('service_role', 'public.admin_list_delivery_provider_integrity_conflicts(text,integer)', 'EXECUTE')
+    or not has_function_privilege('authenticated', 'public.admin_list_delivery_provider_integrity_conflicts(text,integer)', 'EXECUTE')
+    or has_function_privilege('anon', 'public.admin_list_delivery_provider_integrity_evidence(bigint,integer)', 'EXECUTE')
+    or has_function_privilege('service_role', 'public.admin_list_delivery_provider_integrity_evidence(bigint,integer)', 'EXECUTE')
+    or not has_function_privilege('authenticated', 'public.admin_list_delivery_provider_integrity_evidence(bigint,integer)', 'EXECUTE')
+    or has_function_privilege('anon', 'public.admin_list_delivery_provider_integrity_history(bigint,integer)', 'EXECUTE')
+    or has_function_privilege('service_role', 'public.admin_list_delivery_provider_integrity_history(bigint,integer)', 'EXECUTE')
+    or not has_function_privilege('authenticated', 'public.admin_list_delivery_provider_integrity_history(bigint,integer)', 'EXECUTE')
+    or has_function_privilege('anon', 'public.admin_resolve_delivery_provider_integrity_conflict(bigint,text)', 'EXECUTE')
+    or has_function_privilege('service_role', 'public.admin_resolve_delivery_provider_integrity_conflict(bigint,text)', 'EXECUTE')
+    or not has_function_privilege('authenticated', 'public.admin_resolve_delivery_provider_integrity_conflict(bigint,text)', 'EXECUTE') then
+    raise exception 'Provider-integrity admin RPC grants are not least-privilege.';
+  end if;
+
+  if has_function_privilege('anon', 'public._record_delivery_provider_integrity_conflict(text,text,text,text,text,text,text,timestamptz,text,text,text,text,text,timestamptz,text,text,text)', 'EXECUTE')
+    or has_function_privilege('authenticated', 'public._record_delivery_provider_integrity_conflict(text,text,text,text,text,text,text,timestamptz,text,text,text,text,text,timestamptz,text,text,text)', 'EXECUTE')
+    or has_function_privilege('service_role', 'public._record_delivery_provider_integrity_conflict(text,text,text,text,text,text,text,timestamptz,text,text,text,text,text,timestamptz,text,text,text)', 'EXECUTE')
+    or has_function_privilege('service_role', 'public._record_delivery_provider_lifecycle_event_pre037_impl(text,text,text,text,timestamptz,text,text,text,text)', 'EXECUTE')
+    or has_function_privilege('service_role', 'public._record_delivery_provider_suppression_event_pre037_impl(text,text,text,text,text,text,timestamptz,timestamptz,text)', 'EXECUTE') then
+    raise exception 'Migration 037 private provider-integrity implementations became directly executable.';
+  end if;
+end;
+$c353_privacy_assertions$;
+
+select jsonb_build_object(
+  'migration_037_legacy_anomaly_backfill','pass',
+  'recipient_scoped_conflict_cases','pass',
+  'append_only_conflict_evidence','pass',
+  'administrator_resolution_audit','pass',
+  'new_evidence_reopens_resolved_case','pass',
+  'exact_conflict_replay_deduplicated','pass',
+  'original_event_and_bounce_protection_preserved','pass',
+  'non_admin_resolution_denied','pass',
+  'provider_integrity_private_grants','pass',
+  'conflicting_projection_preserves_original_event','pass'
+) as delivery_provider_integrity_migration_037_behavior;

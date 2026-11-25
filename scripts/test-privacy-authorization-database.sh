@@ -105,6 +105,7 @@ migrations_after_daily=(
   supabase/migrations/202608130017_sprint12_1_offering_ownership_engagement.sql
   supabase/migrations/202608140018_sprint12_1_owner_removal_guard_hotfix.sql
   supabase/migrations/202611230035_private_offering_base_table_rls.sql
+  supabase/migrations/202611230036_private_daily_reflection_admin_isolation.sql
 )
 
 for migration in "${migrations_after_daily[@]}"; do
@@ -171,8 +172,17 @@ cleanup_check() {
       AND NOT EXISTS (
         SELECT 1 FROM public.daily_reflections
         WHERE reflection_text = 'C296_PRIVATE_DAILY_REFLECTION_SENTINEL'
-           OR reflection = 'C296_PRIVATE_JOURNEY_REFLECTION_A'
-           OR reflection = 'C296_PRIVATE_JOURNEY_REFLECTION_B'
+           OR reflection IN (
+             'C296_PRIVATE_JOURNEY_REFLECTION_A',
+             'C296_PRIVATE_JOURNEY_REFLECTION_B',
+             'C408_MEMBER_B_UPDATED_REFLECTION',
+             'C408_MEMBER_B_INSERTED_REFLECTION',
+             'C408_UNAUTHORIZED_ADMIN_UPDATE'
+           )
+           OR intention IN (
+             'C408_MEMBER_B_UPDATED_INTENTION',
+             'C408_MEMBER_B_INSERTED_INTENTION'
+           )
       )
       AND NOT EXISTS (
         SELECT 1 FROM public.daily_deed_completions
@@ -180,7 +190,10 @@ cleanup_check() {
       )
       AND NOT EXISTS (
         SELECT 1 FROM public.daily_lights
-        WHERE id = '00000000-0000-4000-8000-000000000401'
+        WHERE id IN (
+          '00000000-0000-4000-8000-000000000401',
+          '00000000-0000-4000-8000-000000000402'
+        )
       )
       AND NOT EXISTS (
         SELECT 1 FROM public.daily_reminder_preferences

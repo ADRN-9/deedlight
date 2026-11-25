@@ -2,33 +2,208 @@
 set -euo pipefail
 
 psql_cmd=(psql -X -v ON_ERROR_STOP=1 --host 127.0.0.1 --port 5432 --username postgres --dbname deedlight_webhook_test)
-psql_scalar() {
-  "${psql_cmd[@]}" --quiet --no-align --tuples-only --pset=null=__NULL__ --command="$1"
-}
-psql_service_scalar() {
-  "${psql_cmd[@]}" --quiet --no-align --tuples-only --pset=null=__NULL__ --command="set role service_role; $1"
-}
-tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
 
-wait_for_marker() {
-  local pid="$1"
-  local file="$2"
-  local marker="$3"
-  for _ in {1..100}; do
-    if grep -q "$marker" "$file"; then return 0; fi
+command -v timeout >/dev/null 2>&1 || { echo "GNU timeout is required for bounded PostgreSQL tests." >&2; exit 1; }
+command -v ps >/dev/null 2>&1 || { echo "ps is required for bounded child-process supervision." >&2; exit 1; }
+command -v setsid >/dev/null 2>&1 || { echo "setsid is required for watchdog process-group cleanup." >&2; exit 1; }
+
+command_timeout_seconds=25
+connect_timeout_seconds=5
+lock_timeout_seconds=10
+statement_timeout_seconds=20
+wait_timeout_seconds=32
+reap_timeout_seconds=5
+marker_timeout_seconds=10
+suite_timeout_seconds=840
+child_pids=()
+suite_complete=0
+
+run_psql() {
+  local options="${PGOPTIONS:+${PGOPTIONS} }-c lock_timeout=${lock_timeout_seconds}s -c statement_timeout=${statement_timeout_seconds}s -c idle_in_transaction_session_timeout=${statement_timeout_seconds}s"
+  if (( BASH_SUBSHELL > 0 )); then
+    exec env PGCONNECT_TIMEOUT="$connect_timeout_seconds" PGOPTIONS="$options" setsid timeout --verbose --signal=TERM --kill-after=5s "${command_timeout_seconds}s" "${psql_cmd[@]}" "$@"
+  fi
+  PGCONNECT_TIMEOUT="$connect_timeout_seconds" PGOPTIONS="$options" setsid timeout --verbose --signal=TERM --kill-after=5s "${command_timeout_seconds}s" "${psql_cmd[@]}" "$@"
+}
+
+track_child() {
+  child_pids+=("$1")
+}
+
+untrack_child() {
+  local target="$1" pid
+  local -a remaining=()
+  for pid in "${child_pids[@]}"; do
+    [[ "$pid" == "$target" ]] || remaining+=("$pid")
+  done
+  child_pids=("${remaining[@]}")
+}
+
+wait_bounded() {
+  local pid="$1" label="$2" deadline reap_deadline state status=0
+  deadline=$((SECONDS + wait_timeout_seconds))
+  while (( SECONDS < deadline )); do
+    state="$(ps -o stat= -p "$pid" 2>/dev/null | tr -d '[:space:]' || true)"
+    if [[ -z "$state" || "$state" == Z* ]]; then
+      wait "$pid" || status=$?
+      untrack_child "$pid"
+      if [[ "$status" == "124" || "$status" == "137" ]]; then
+        echo "Child command execution deadline expired: $label (status $status)." >&2
+      fi
+      return "$status"
+    fi
+    sleep 0.1
+  done
+
+  echo "Timed out waiting for child process: $label (pid $pid)" >&2
+  kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+  sleep 1
+  kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
+
+  reap_deadline=$((SECONDS + reap_timeout_seconds))
+  while (( SECONDS < reap_deadline )); do
+    state="$(ps -o stat= -p "$pid" 2>/dev/null | tr -d '[:space:]' || true)"
+    if [[ -z "$state" || "$state" == Z* ]]; then
+      wait "$pid" 2>/dev/null || true
+      untrack_child "$pid"
+      return 124
+    fi
+    sleep 0.1
+  done
+
+  echo "Child did not become reapable after SIGKILL: $label (pid $pid)" >&2
+  return 124
+}
+
+tmp="$(mktemp -d)"
+suite_pid="${BASHPID}"
+setsid bash -c 'sleep "$1"; kill -TERM "$2" 2>/dev/null' _ "$suite_timeout_seconds" "$suite_pid" &
+watchdog_pid=$!
+
+cleanup() {
+  local status=$? pid state cleanup_deadline
+  trap - EXIT
+  set +e
+  if [[ "$status" == "0" && "$suite_complete" != "1" ]]; then
+    echo "Concurrency suite exited before completing all scenarios; refusing a false PASS." >&2
+    status=124
+  fi
+  wait_timeout_seconds=2
+  reap_timeout_seconds=2
+  kill -TERM -- "-$watchdog_pid" 2>/dev/null || kill -TERM "$watchdog_pid" 2>/dev/null || true
+  wait_bounded "$watchdog_pid" "suite watchdog cleanup" || true
+  for pid in "${child_pids[@]}"; do
+    kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+  done
+  sleep 1
+  for pid in "${child_pids[@]}"; do
+    kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
+  done
+  cleanup_deadline=$((SECONDS + 15))
+  for pid in "${child_pids[@]}"; do
+    while (( SECONDS < cleanup_deadline )); do
+      state="$(ps -o stat= -p "$pid" 2>/dev/null | tr -d '[:space:]' || true)"
+      if [[ -z "$state" || "$state" == Z* ]]; then
+        wait "$pid" 2>/dev/null || true
+        untrack_child "$pid"
+        break
+      fi
+      sleep 0.1
+    done
+    state="$(ps -o stat= -p "$pid" 2>/dev/null | tr -d '[:space:]' || true)"
+    if [[ -n "$state" && "$state" != Z* ]]; then
+      echo "Cleanup could not reap child before the 15-second cleanup deadline: $pid ($state)." >&2
+      [[ "$status" != "0" ]] || status=124
+    fi
+  done
+  timeout --signal=TERM --kill-after=1s 3s rm -rf "$tmp" || {
+    echo "Timed out removing temporary concurrency-test resources: $tmp" >&2
+    [[ "$status" != "0" ]] || status=124
+  }
+  exit "$status"
+}
+trap 'exit 124' TERM
+trap 'exit 130' INT
+trap cleanup EXIT
+
+# Prove the timeout supervisor escalates against a child that ignores TERM.
+set +e
+timeout --signal=TERM --kill-after=1s 1s bash -c 'trap "" TERM; exec sleep 60' >/dev/null 2>&1
+watchdog_probe_status=$?
+set -e
+if [[ "$watchdog_probe_status" != "124" && "$watchdog_probe_status" != "137" ]]; then
+  echo "Timeout supervisor self-test failed (status $watchdog_probe_status)." >&2
+  exit 1
+fi
+echo "Timeout supervisor terminates a TERM-resistant child: PASS"
+
+# Prove wait_bounded escalates and reaps a child that ignores TERM.
+wait_timeout_seconds=1
+bash -c 'trap "" TERM; exec sleep 60' &
+wait_probe_pid=$!
+track_child "$wait_probe_pid"
+set +e
+wait_bounded "$wait_probe_pid" "bounded wait self-test"
+wait_probe_status=$?
+set -e
+wait_timeout_seconds=32
+if [[ "$wait_probe_status" != "124" ]]; then
+  echo "Bounded wait self-test failed (status $wait_probe_status)." >&2
+  exit 1
+fi
+echo "Bounded wait terminates and reaps a TERM-resistant child: PASS"
+wait_for_advisory_lock() {
+  local pid="$1" file="$2" event_marker="$3" label="$4"
+  local deadline=$((SECONDS + marker_timeout_seconds)) waiting status saved_timeout="$command_timeout_seconds"
+  while (( SECONDS < deadline )); do
     if ! kill -0 "$pid" 2>/dev/null; then
       cat "$file"
+      echo "Child exited before expected advisory-lock contention: $label (pid $pid)." >&2
+      return 1
+    fi
+    command_timeout_seconds=3
+    if waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%$event_marker%'")"; then
+      command_timeout_seconds="$saved_timeout"
+    else
+      status=$?
+      command_timeout_seconds="$saved_timeout"
+      cat "$file"
+      echo "Advisory-lock observation query failed for $label (status $status)." >&2
+      return "$status"
+    fi
+    if [[ "$waiting" == "1" ]]; then return 0; fi
+    sleep 0.05
+  done
+  cat "$file"
+  echo "Timed out after ${marker_timeout_seconds}s waiting for advisory-lock contention: $label." >&2
+  return 124
+}
+
+psql_scalar() {
+  run_psql --quiet --no-align --tuples-only --pset=null=__NULL__ --command="$1"
+}
+psql_service_scalar() {
+  run_psql --quiet --no-align --tuples-only --pset=null=__NULL__ --command="set role service_role; $1"
+}
+wait_for_marker() {
+  local pid="$1" file="$2" marker="$3" deadline
+  deadline=$((SECONDS + marker_timeout_seconds))
+  while (( SECONDS < deadline )); do
+    if [[ -f "$file" ]] && grep -q "$marker" "$file"; then return 0; fi
+    if ! kill -0 "$pid" 2>/dev/null; then
+      cat "$file"
+      echo "Child exited before synchronization marker appeared: $marker (pid $pid)." >&2
       return 1
     fi
     sleep 0.05
   done
   cat "$file"
-  return 1
+  echo "Timed out waiting ${marker_timeout_seconds}s for synchronization marker: $marker (pid $pid)." >&2
+  return 124
 }
 
 # An exact duplicate blocks behind the first insert and remains an idempotent no-op.
-"${psql_cmd[@]}" >"$tmp/exact-first.log" 2>&1 <<'SQL' &
+run_psql >"$tmp/exact-first.log" 2>&1 <<'SQL' &
 begin;
 set role service_role;
 select public.record_delivery_provider_lifecycle_event(
@@ -42,13 +217,14 @@ commit;
 reset role;
 SQL
 exact_pid=$!
+track_child "$exact_pid"
 wait_for_marker "$exact_pid" "$tmp/exact-first.log" "EXACT_DUPLICATE_EVENT_LOCK_HELD"
 exact_result="$(psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
   'evt_concurrent_exact_duplicate', 'email.bounced', 'resend-concurrent-exact',
   'concurrent-exact@example.test', '2027-03-02T09:00:00Z', 'Permanent', null,
   null, repeat('e', 64)
 )")"
-wait "$exact_pid"
+wait_bounded "$exact_pid" "exact_pid"
 [[ "$exact_result" == "f" ]]
 exact_event_count="$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_concurrent_exact_duplicate'")"
 exact_suppression="$(psql_scalar "select reason || ':' || provider_event_id from public.delivery_provider_suppressions where recipient_email='concurrent-exact@example.test'")"
@@ -61,7 +237,7 @@ exact_anomalies="$(psql_scalar "select count(*) from public.delivery_provider_in
 echo "Concurrent exact duplicate event: PASS"
 
 # A concurrent conflicting payload under the same Svix ID is an integrity anomaly.
-"${psql_cmd[@]}" >"$tmp/duplicate-first.log" 2>&1 <<'SQL' &
+run_psql >"$tmp/duplicate-first.log" 2>&1 <<'SQL' &
 begin;
 set role service_role;
 select public.record_delivery_provider_lifecycle_event(
@@ -75,13 +251,14 @@ commit;
 reset role;
 SQL
 duplicate_pid=$!
+track_child "$duplicate_pid"
 wait_for_marker "$duplicate_pid" "$tmp/duplicate-first.log" "DUPLICATE_EVENT_LOCK_HELD"
 duplicate_result="$(psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
   'evt_concurrent_duplicate', 'email.complained', 'different-provider-id',
   'attacker-concurrent@example.test', '2027-03-02T10:01:00Z', null, null,
   null, repeat('a', 64)
 )")"
-wait "$duplicate_pid"
+wait_bounded "$duplicate_pid" "duplicate_pid"
 [[ "$duplicate_result" == "__NULL__" ]]
 count="$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_concurrent_duplicate'")"
 suppression="$(psql_scalar "select reason || ':' || provider_event_id from public.delivery_provider_suppressions where recipient_email='concurrent-duplicate@example.test'")"
@@ -98,7 +275,7 @@ status="$(psql_scalar "select status from public.delivery_provider_lifecycle whe
 echo "Concurrent conflicting duplicate integrity anomaly: PASS"
 
 # A provider email ID is permanently bound to one recipient, even across concurrent callbacks.
-"${psql_cmd[@]}" >"$tmp/cross-recipient-first.log" 2>&1 <<'SQL' &
+run_psql >"$tmp/cross-recipient-first.log" 2>&1 <<'SQL' &
 begin;
 set role service_role;
 select public.record_delivery_provider_lifecycle_event(
@@ -112,6 +289,7 @@ commit;
 reset role;
 SQL
 cross_recipient_first_pid=$!
+track_child "$cross_recipient_first_pid"
 wait_for_marker "$cross_recipient_first_pid" "$tmp/cross-recipient-first.log" "CROSS_RECIPIENT_PROVIDER_ID_LOCK_HELD"
 
 psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
@@ -120,23 +298,24 @@ psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
   null, repeat('d', 64)
 )" >"$tmp/cross-recipient-second.log" 2>&1 &
 cross_recipient_second_pid=$!
+track_child "$cross_recipient_second_pid"
 cross_recipient_waiting="0"
-for _ in {1..100}; do
-  cross_recipient_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%evt_cross_recipient_second%'")"
-  if [[ "$cross_recipient_waiting" == "1" ]]; then break; fi
-  sleep 0.05
-done
+if wait_for_advisory_lock "$cross_recipient_second_pid" "$tmp/cross-recipient-second.log" "evt_cross_recipient_second" "cross-recipient provider email ID"; then
+  cross_recipient_waiting="1"
+fi
 if [[ "$cross_recipient_waiting" != "1" ]]; then
   cat "$tmp/cross-recipient-second.log"
   echo "Cross-recipient callback did not wait on the provider-email-ID advisory lock." >&2
   exit 1
 fi
-wait "$cross_recipient_first_pid"
-if wait "$cross_recipient_second_pid"; then
-  echo "Cross-recipient provider email ID collision was accepted." >&2
+wait_bounded "$cross_recipient_first_pid" "cross_recipient_first_pid"
+if ! wait_bounded "$cross_recipient_second_pid" "cross_recipient_second_pid"; then
+  cat "$tmp/cross-recipient-second.log"
+  echo "Cross-recipient provider email ID conflict did not persist its evidence." >&2
   exit 1
 fi
-grep -q "Provider email correlation does not match." "$tmp/cross-recipient-second.log"
+cross_recipient_result="$(tr -d '\r\n' <"$tmp/cross-recipient-second.log")"
+[[ "$cross_recipient_result" == "__NULL__" ]]
 
 collision_event_count="$(psql_scalar "select count(*) from public.delivery_provider_events where provider_email_id='resend-cross-recipient-collision'")"
 collision_first_event="$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_cross_recipient_first' and recipient_email='first-recipient@example.test'")"
@@ -147,13 +326,18 @@ collision_anomaly="$(psql_scalar "select count(*) from public.delivery_provider_
 [[ "$collision_event_count" == "1" ]]
 [[ "$collision_first_event" == "1" ]]
 [[ "$collision_second_event" == "0" ]]
-[[ "$collision_lifecycle" == "email.delivered:evt_cross_recipient_first" ]]
+[[ "$collision_lifecycle" == "integrity_anomaly:evt_cross_recipient_first" ]]
 [[ "$collision_suppression" == "0" ]]
 [[ "$collision_anomaly" == "0" ]]
-echo "Concurrent cross-recipient provider email ID collision: PASS"
+collision_case="$(psql_scalar "select count(*) from public.delivery_provider_integrity_cases where recipient_email='second-recipient@example.test' and anomaly_type='provider_email_recipient_conflict' and state='open'")"
+collision_evidence="$(psql_scalar "select count(*) from public.delivery_provider_integrity_conflict_evidence where event_id='evt_cross_recipient_second' and stored_event_id='evt_cross_recipient_first' and payload_fingerprint=repeat('d',64)")"
+[[ "$collision_case" == "1" ]]
+[[ "$collision_evidence" == "1" ]]
+# Previous behavior: Provider email correlation does not match. Migration 037 records the retryable conflict and returns NULL.
+echo "Concurrent cross-recipient provider email ID collision with durable evidence: PASS"
 
 # A replay of a pre-027 row with no fingerprint remains a no-op under concurrency.
-"${psql_cmd[@]}" >"$tmp/historical-first.log" 2>&1 <<'SQL' &
+run_psql >"$tmp/historical-first.log" 2>&1 <<'SQL' &
 begin;
 set role service_role;
 select public.record_delivery_provider_lifecycle_event(
@@ -167,13 +351,14 @@ commit;
 reset role;
 SQL
 historical_pid=$!
+track_child "$historical_pid"
 wait_for_marker "$historical_pid" "$tmp/historical-first.log" "HISTORICAL_EVENT_LOCK_HELD"
 historical_result="$(psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
   'evt_historical_026_complaint', 'email.complained', 'resend-historical-026-complaint',
   'historical-026-complaint@example.test', '2027-03-01T09:15:00Z', null, null,
   null, repeat('e', 64)
 )")"
-wait "$historical_pid"
+wait_bounded "$historical_pid" "historical_pid"
 historical_fingerprint="$(psql_scalar "select coalesce(payload_fingerprint, '__NULL__') from public.delivery_provider_events where event_id='evt_historical_026_complaint'")"
 historical_anomalies="$(psql_scalar "select count(*) from public.delivery_provider_integrity_anomalies where event_id='evt_historical_026_complaint'")"
 historical_suppression="$(psql_scalar "select reason || ':' || provider_event_id from public.delivery_provider_suppressions where recipient_email='historical-026-complaint@example.test'")"
@@ -210,7 +395,7 @@ for order in complaint-first bounce-first; do
   fi
   recipient="concurrent-previous-$order@example.test"
   first_log="$tmp/previous-$order-first.log"
-  "${psql_cmd[@]}" >"$first_log" 2>&1 <<SQL &
+  run_psql >"$first_log" 2>&1 <<SQL &
 begin;
 set role service_role;
 select public.record_delivery_provider_lifecycle_event(
@@ -223,12 +408,13 @@ commit;
 reset role;
 SQL
   first_pid=$!
+  track_child "$first_pid"
   wait_for_marker "$first_pid" "$first_log" "PREVIOUS_SUPPRESSION_LOCK_HELD"
   second_result="$(psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
     '$second_id', 'email.suppressed', '$second_provider_id', '$recipient',
     '$second_time', null, null, '$second_reason', repeat('2', 64)
   )")"
-  wait "$first_pid"
+  wait_bounded "$first_pid" "first_pid"
   suppression_state="$(psql_scalar "select reason || ':' || provider_event_id from public.delivery_provider_suppressions where recipient_email='$recipient'")"
   event_count="$(psql_scalar "select count(*) from public.delivery_provider_events where recipient_email='$recipient'")"
   anomaly_count="$(psql_scalar "select count(*) from public.delivery_provider_integrity_anomalies where event_id in ('$first_id','$second_id')")"
@@ -267,7 +453,7 @@ for order in delivered-first bounced-first; do
   recipient="concurrent-terminal-$order@example.test"
   log="$tmp/$order-first.log"
   result="$tmp/$order-result"
-  "${psql_cmd[@]}" >"$log" 2>&1 <<SQL &
+  run_psql >"$log" 2>&1 <<SQL &
 begin;
 set role service_role;
 select public.record_delivery_provider_lifecycle_event(
@@ -280,9 +466,10 @@ commit;
 reset role;
 SQL
   terminal_pid=$!
+  track_child "$terminal_pid"
   wait_for_marker "$terminal_pid" "$log" "TERMINAL_EVENT_LOCK_HELD"
   psql_service_scalar "select public.record_delivery_provider_lifecycle_event('$second_id','$second_type','$provider_id','$recipient','$second_time',$second_bounce,null,null,repeat('2',64))" >"$result"
-  wait "$terminal_pid"
+  wait_bounded "$terminal_pid" "terminal_pid"
   terminal_result="$(cat "$result")"
   [[ "$terminal_result" == "__NULL__" ]]
   status="$(psql_scalar "select status from public.delivery_provider_lifecycle where provider_email_id='$provider_id'")"
@@ -302,7 +489,7 @@ done
 echo "Concurrent contradictory terminal outcomes in both arrival orders: PASS"
 
 # A delayed event arriving after a later delivered event cannot regress status.
-"${psql_cmd[@]}" >"$tmp/delivered-first.log" 2>&1 <<'SQL' &
+run_psql >"$tmp/delivered-first.log" 2>&1 <<'SQL' &
 begin;
 set role service_role;
 select public.record_delivery_provider_lifecycle_event(
@@ -315,9 +502,10 @@ commit;
 reset role;
 SQL
 delivered_pid=$!
+track_child "$delivered_pid"
 wait_for_marker "$delivered_pid" "$tmp/delivered-first.log" "DELIVERED_EVENT_LOCK_HELD"
 psql_service_scalar "select public.record_delivery_provider_lifecycle_event('evt_concurrent_delayed','email.delivery_delayed','resend-concurrent-order','concurrent-order@example.test','2027-03-02T10:05:00Z',null,null,null,repeat('4',64))" >"$tmp/delayed-result"
-wait "$delivered_pid"
+wait_bounded "$delivered_pid" "delivered_pid"
 grep -qx 't' "$tmp/delayed-result"
 status="$(psql_scalar "select status from public.delivery_provider_lifecycle where provider_email_id='resend-concurrent-order'")"
 [[ "$status" == "email.delivered" ]]
@@ -326,7 +514,7 @@ count="$(psql_scalar "select count(*) from public.delivery_provider_events where
 echo "Concurrent out-of-order lifecycle monotonicity: PASS"
 
 # A suppression event that wins the shared address lock must cancel transport.
-"${psql_cmd[@]}" <<'SQL'
+run_psql <<'SQL'
 insert into auth.users (id,email,email_confirmed_at)
 values ('00000000-0000-0000-0000-000000020006','suppression-race@example.test',now());
 insert into public.profiles (user_id,is_suspended)
@@ -347,7 +535,7 @@ insert into public.delivery_ledger (
 );
 SQL
 
-"${psql_cmd[@]}" >"$tmp/suppression-first.log" 2>&1 <<'SQL' &
+run_psql >"$tmp/suppression-first.log" 2>&1 <<'SQL' &
 begin;
 set role service_role;
 select public.record_delivery_provider_lifecycle_event(
@@ -360,8 +548,9 @@ commit;
 reset role;
 SQL
 suppression_pid=$!
+track_child "$suppression_pid"
 wait_for_marker "$suppression_pid" "$tmp/suppression-first.log" "SUPPRESSION_LOCK_HELD"
-"${psql_cmd[@]}" <<'SQL'
+run_psql <<'SQL'
 set role service_role;
 do $$
 declare v_id uuid; v_token uuid;
@@ -377,13 +566,13 @@ end;
 $$;
 reset role;
 SQL
-wait "$suppression_pid"
+wait_bounded "$suppression_pid" "suppression_pid"
 result="$(psql_scalar "select state || ':' || (transport_started_at is null)::text from public.delivery_ledger where user_id='00000000-0000-0000-0000-000000020006'")"
 [[ "$result" == "cancelled:true" ]]
 echo "Shared suppression-first transport authorization: PASS"
 
 # If transport authorization wins first, the provider event waits; no provider send occurs here.
-"${psql_cmd[@]}" <<'SQL'
+run_psql <<'SQL'
 insert into auth.users (id,email,email_confirmed_at)
 values ('00000000-0000-0000-0000-000000020007','transport-race@example.test',now());
 insert into public.profiles (user_id,is_suspended)
@@ -404,7 +593,7 @@ insert into public.delivery_ledger (
 );
 SQL
 
-"${psql_cmd[@]}" >"$tmp/transport-first.log" 2>&1 <<'SQL' &
+run_psql >"$tmp/transport-first.log" 2>&1 <<'SQL' &
 begin;
 set role service_role;
 do $$
@@ -424,9 +613,10 @@ commit;
 reset role;
 SQL
 transport_pid=$!
+track_child "$transport_pid"
 wait_for_marker "$transport_pid" "$tmp/transport-first.log" "TRANSPORT_LOCK_HELD"
 psql_service_scalar "select public.record_delivery_provider_lifecycle_event('evt_suppression_race_after_transport','email.complained','resend-suppression-race-after','transport-race@example.test','2027-03-02T10:21:00Z',null,null,null,repeat('6',64))" >"$tmp/suppression-after-result"
-wait "$transport_pid"
+wait_bounded "$transport_pid" "transport_pid"
 grep -qx 't' "$tmp/suppression-after-result"
 result="$(psql_scalar "select (transport_started_at is not null)::text || ':' || (select count(*)::text from public.delivery_provider_suppressions where recipient_email='transport-race@example.test') from public.delivery_ledger where user_id='00000000-0000-0000-0000-000000020007'")"
 [[ "$result" == "true:1" ]]
@@ -434,7 +624,7 @@ echo "Shared transport-first suppression ordering: PASS"
 
 
 # Suppression-list exact duplicates serialize on the recipient lock and remain no-ops.
-"${psql_cmd[@]}" >"$tmp/suppression-duplicate-first.log" 2>&1 <<'SQL' &
+run_psql >"$tmp/suppression-duplicate-first.log" 2>&1 <<'SQL' &
 begin;
 set role service_role;
 select public.record_delivery_provider_suppression_event(
@@ -448,13 +638,14 @@ commit;
 reset role;
 SQL
 suppression_duplicate_pid=$!
+track_child "$suppression_duplicate_pid"
 wait_for_marker "$suppression_duplicate_pid" "$tmp/suppression-duplicate-first.log" "SUPPRESSION_DUPLICATE_LOCK_HELD"
 suppression_duplicate_result="$(psql_service_scalar "select public.record_delivery_provider_suppression_event(
   'evt_concurrent_suppression_duplicate','suppression.added','sup_concurrent_duplicate',
   'concurrent-suppression-duplicate@example.test','manual',null,
   '2026-11-22T17:00:00Z','2026-11-22T17:01:00Z',repeat('a',64)
 )")"
-wait "$suppression_duplicate_pid"
+wait_bounded "$suppression_duplicate_pid" "suppression_duplicate_pid"
 [[ "$suppression_duplicate_result" == "f" ]]
 suppression_duplicate_count="$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_concurrent_suppression_duplicate'")"
 suppression_duplicate_state="$(psql_scalar "select is_active::text from public.delivery_provider_suppression_state where recipient_email='concurrent-suppression-duplicate@example.test'")"
@@ -463,7 +654,7 @@ suppression_duplicate_state="$(psql_scalar "select is_active::text from public.d
 echo "Concurrent exact duplicate suppression event: PASS"
 
 # A conflicting duplicate suppression event ID is retained as an integrity anomaly.
-"${psql_cmd[@]}" >"$tmp/suppression-conflict-first.log" 2>&1 <<'SQL' &
+run_psql >"$tmp/suppression-conflict-first.log" 2>&1 <<'SQL' &
 begin;
 set role service_role;
 select public.record_delivery_provider_suppression_event(
@@ -477,13 +668,14 @@ commit;
 reset role;
 SQL
 suppression_conflict_pid=$!
+track_child "$suppression_conflict_pid"
 wait_for_marker "$suppression_conflict_pid" "$tmp/suppression-conflict-first.log" "SUPPRESSION_CONFLICT_LOCK_HELD"
 suppression_conflict_result="$(psql_service_scalar "select public.record_delivery_provider_suppression_event(
   'evt_concurrent_suppression_conflict','suppression.removed','sup_concurrent_conflict',
   'concurrent-suppression-conflict@example.test','manual',null,
   '2026-11-22T18:00:00Z','2026-11-22T18:02:00Z',repeat('c',64)
 )")"
-wait "$suppression_conflict_pid"
+wait_bounded "$suppression_conflict_pid" "suppression_conflict_pid"
 [[ "$suppression_conflict_result" == "__NULL__" ]]
 suppression_conflict_anomaly="$(psql_scalar "select count(*) from public.delivery_provider_integrity_anomalies where event_id='evt_concurrent_suppression_conflict' and anomaly_type='duplicate_event_id_conflict'")"
 suppression_conflict_state="$(psql_scalar "select is_active::text from public.delivery_provider_suppression_state where recipient_email='concurrent-suppression-conflict@example.test'")"
@@ -492,7 +684,7 @@ suppression_conflict_state="$(psql_scalar "select is_active::text from public.de
 echo "Concurrent conflicting duplicate suppression event: PASS"
 
 # The same provider suppression ID cannot be rebound to another recipient concurrently.
-"${psql_cmd[@]}" >"$tmp/suppression-cross-first.log" 2>&1 <<'SQL' &
+run_psql >"$tmp/suppression-cross-first.log" 2>&1 <<'SQL' &
 begin;
 set role service_role;
 select public.record_delivery_provider_suppression_event(
@@ -506,44 +698,47 @@ commit;
 reset role;
 SQL
 suppression_cross_first_pid=$!
+track_child "$suppression_cross_first_pid"
 wait_for_marker "$suppression_cross_first_pid" "$tmp/suppression-cross-first.log" "SUPPRESSION_CROSS_ID_LOCK_HELD"
-"${psql_cmd[@]}" >"$tmp/suppression-cross-second.log" 2>&1 <<'SQL' &
-set role service_role;
-select public.record_delivery_provider_suppression_event(
+psql_service_scalar "select public.record_delivery_provider_suppression_event(
   'evt_concurrent_suppression_cross_second','suppression.removed','sup_concurrent_cross',
   'concurrent-suppression-second@example.test','manual',null,
   '2026-11-22T19:00:00Z','2026-11-22T19:02:00Z',repeat('e',64)
-);
-reset role;
-SQL
+)" >"$tmp/suppression-cross-second.log" 2>&1 &
 suppression_cross_second_pid=$!
+track_child "$suppression_cross_second_pid"
 cross_id_waiting="0"
-for _ in {1..100}; do
-  cross_id_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%sup_concurrent_cross%'")"
-  if [[ "$cross_id_waiting" == "1" ]]; then break; fi
-  sleep 0.05
-done
+if wait_for_advisory_lock "$suppression_cross_second_pid" "$tmp/suppression-cross-second.log" "sup_concurrent_cross" "cross-recipient suppression ID"; then
+  cross_id_waiting="1"
+fi
 if [[ "$cross_id_waiting" != "1" ]]; then
   cat "$tmp/suppression-cross-second.log"
   echo "Cross-recipient suppression callback did not wait on the suppression-ID advisory lock." >&2
   exit 1
 fi
-wait "$suppression_cross_first_pid"
-if wait "$suppression_cross_second_pid"; then
-  echo "Cross-recipient suppression ID collision was accepted." >&2
+wait_bounded "$suppression_cross_first_pid" "suppression_cross_first_pid"
+if ! wait_bounded "$suppression_cross_second_pid" "suppression_cross_second_pid"; then
+  cat "$tmp/suppression-cross-second.log"
+  echo "Cross-recipient suppression ID conflict did not persist its evidence." >&2
   exit 1
 fi
-grep -q "Provider suppression correlation does not match." "$tmp/suppression-cross-second.log"
+suppression_cross_result="$(tr -d '\r\n' <"$tmp/suppression-cross-second.log")"
+[[ "$suppression_cross_result" == "__NULL__" ]]
 suppression_cross_events="$(psql_scalar "select count(*) from public.delivery_provider_events where provider_suppression_id='sup_concurrent_cross'")"
 suppression_cross_first="$(psql_scalar "select count(*) from public.delivery_provider_suppression_state where recipient_email='concurrent-suppression-first@example.test' and is_active")"
 suppression_cross_second="$(psql_scalar "select count(*) from public.delivery_provider_suppression_state where recipient_email='concurrent-suppression-second@example.test'")"
 [[ "$suppression_cross_events" == "1" ]]
+suppression_cross_case="$(psql_scalar "select count(*) from public.delivery_provider_integrity_cases where recipient_email='concurrent-suppression-second@example.test' and anomaly_type='provider_suppression_recipient_conflict' and state='open'")"
+suppression_cross_evidence="$(psql_scalar "select count(*) from public.delivery_provider_integrity_conflict_evidence where event_id='evt_concurrent_suppression_cross_second' and stored_event_id='evt_concurrent_suppression_cross_first' and payload_fingerprint=repeat('e',64)")"
+[[ "$suppression_cross_case" == "1" ]]
+[[ "$suppression_cross_evidence" == "1" ]]
+echo "Concurrent cross-recipient suppression ID collision: PASS (durable evidence retained)"
 [[ "$suppression_cross_first" == "1" ]]
 [[ "$suppression_cross_second" == "0" ]]
 echo "Concurrent cross-recipient suppression ID collision: PASS"
 
 # Cross-stream ordering: a later manual removal must win when an older email.suppressed waits on the shared address lock.
-"${psql_cmd[@]}" >"$tmp/cross-stream-removal-first.log" 2>&1 <<'SQL' &
+run_psql >"$tmp/cross-stream-removal-first.log" 2>&1 <<'SQL' &
 begin;
 set role service_role;
 select public.record_delivery_provider_suppression_event(
@@ -562,8 +757,9 @@ commit;
 reset role;
 SQL
 cross_stream_removal_pid=$!
+track_child "$cross_stream_removal_pid"
 wait_for_marker "$cross_stream_removal_pid" "$tmp/cross-stream-removal-first.log" "C323_CROSS_STREAM_REMOVAL_FIRST_LOCK_HELD"
-"${psql_cmd[@]}" >"$tmp/cross-stream-lifecycle-second.log" 2>&1 <<'SQL' &
+run_psql >"$tmp/cross-stream-lifecycle-second.log" 2>&1 <<'SQL' &
 set role service_role;
 select public.record_delivery_provider_lifecycle_event(
   'evt_c323_concurrent_old_email_suppressed','email.suppressed','resend_c323_concurrent_old',
@@ -573,19 +769,18 @@ select public.record_delivery_provider_lifecycle_event(
 reset role;
 SQL
 cross_stream_lifecycle_pid=$!
+track_child "$cross_stream_lifecycle_pid"
 cross_stream_waiting="0"
-for _ in {1..100}; do
-  cross_stream_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%evt_c323_concurrent_old_email_suppressed%'")"
-  if [[ "$cross_stream_waiting" == "1" ]]; then break; fi
-  sleep 0.05
-done
+if wait_for_advisory_lock "$cross_stream_lifecycle_pid" "$tmp/cross-stream-lifecycle-second.log" "evt_c323_concurrent_old_email_suppressed" "cross-stream older lifecycle"; then
+  cross_stream_waiting="1"
+fi
 if [[ "$cross_stream_waiting" != "1" ]]; then
   cat "$tmp/cross-stream-lifecycle-second.log"
   echo "Older email.suppressed did not wait on the provider suppression address lock." >&2
   exit 1
 fi
-wait "$cross_stream_removal_pid"
-if ! wait "$cross_stream_lifecycle_pid"; then
+wait_bounded "$cross_stream_removal_pid" "cross_stream_removal_pid"
+if ! wait_bounded "$cross_stream_lifecycle_pid" "cross_stream_lifecycle_pid"; then
   cat "$tmp/cross-stream-lifecycle-second.log"
   exit 1
 fi
@@ -596,7 +791,7 @@ cross_stream_removal_hold="$(psql_scalar "select count(*) from public.delivery_p
 echo "Concurrent cross-stream removal-first ordering: PASS"
 
 # The opposite lock order is also safe: the later provider removal clears a lifecycle hold.
-"${psql_cmd[@]}" >"$tmp/cross-stream-lifecycle-first.log" 2>&1 <<'SQL' &
+run_psql >"$tmp/cross-stream-lifecycle-first.log" 2>&1 <<'SQL' &
 begin;
 set role service_role;
 select public.record_delivery_provider_lifecycle_event(
@@ -610,8 +805,9 @@ commit;
 reset role;
 SQL
 cross_stream_lifecycle_first_pid=$!
+track_child "$cross_stream_lifecycle_first_pid"
 wait_for_marker "$cross_stream_lifecycle_first_pid" "$tmp/cross-stream-lifecycle-first.log" "C323_CROSS_STREAM_LIFECYCLE_FIRST_LOCK_HELD"
-"${psql_cmd[@]}" >"$tmp/cross-stream-removal-second.log" 2>&1 <<'SQL' &
+run_psql >"$tmp/cross-stream-removal-second.log" 2>&1 <<'SQL' &
 set role service_role;
 select public.record_delivery_provider_suppression_event(
   'evt_c323_concurrent_later_add','suppression.added','sup_c323_concurrent_later',
@@ -626,19 +822,18 @@ select public.record_delivery_provider_suppression_event(
 reset role;
 SQL
 cross_stream_removal_second_pid=$!
+track_child "$cross_stream_removal_second_pid"
 cross_stream_waiting="0"
-for _ in {1..100}; do
-  cross_stream_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%evt_c323_concurrent_later_add%'")"
-  if [[ "$cross_stream_waiting" == "1" ]]; then break; fi
-  sleep 0.05
-done
+if wait_for_advisory_lock "$cross_stream_removal_second_pid" "$tmp/cross-stream-removal-second.log" "evt_c323_concurrent_later_add" "cross-stream later suppression"; then
+  cross_stream_waiting="1"
+fi
 if [[ "$cross_stream_waiting" != "1" ]]; then
   cat "$tmp/cross-stream-removal-second.log"
   echo "Later provider suppression events did not wait on the lifecycle address lock." >&2
   exit 1
 fi
-wait "$cross_stream_lifecycle_first_pid"
-if ! wait "$cross_stream_removal_second_pid"; then
+wait_bounded "$cross_stream_lifecycle_first_pid" "cross_stream_lifecycle_first_pid"
+if ! wait_bounded "$cross_stream_removal_second_pid" "cross_stream_removal_second_pid"; then
   cat "$tmp/cross-stream-removal-second.log"
   exit 1
 fi
@@ -648,7 +843,7 @@ cross_stream_lifecycle_hold="$(psql_scalar "select count(*) from public.delivery
 [[ "$cross_stream_lifecycle_hold" == "0" ]]
 echo "Concurrent cross-stream lifecycle-first ordering: PASS"
 # Older manual removal processed first, followed by newer lifecycle evidence: the hold must remain.
-"${psql_cmd[@]}" >"$tmp/c331-removal-first.log" 2>&1 <<'SQL' &
+run_psql >"$tmp/c331-removal-first.log" 2>&1 <<'SQL' &
 begin;
 set role service_role;
 select public.record_delivery_provider_suppression_event(
@@ -667,8 +862,9 @@ commit;
 reset role;
 SQL
 c331_removal_first_pid=$!
+track_child "$c331_removal_first_pid"
 wait_for_marker "$c331_removal_first_pid" "$tmp/c331-removal-first.log" "C331_CROSS_STREAM_OLDER_REMOVAL_FIRST_LOCK_HELD"
-"${psql_cmd[@]}" >"$tmp/c331-lifecycle-second.log" 2>&1 <<'SQL' &
+run_psql >"$tmp/c331-lifecycle-second.log" 2>&1 <<'SQL' &
 begin;
 set role service_role;
 select public.record_delivery_provider_lifecycle_event(
@@ -680,19 +876,18 @@ commit;
 reset role;
 SQL
 c331_lifecycle_second_pid=$!
+track_child "$c331_lifecycle_second_pid"
 c331_waiting="0"
-for _ in {1..100}; do
-  c331_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%evt_c331_concurrent_newer_lifecycle_after_removal%'")"
-  if [[ "$c331_waiting" == "1" ]]; then break; fi
-  sleep 0.05
-done
+if wait_for_advisory_lock "$c331_lifecycle_second_pid" "$tmp/c331-lifecycle-second.log" "evt_c331_concurrent_newer_lifecycle_after_removal" "C331 newer lifecycle"; then
+  c331_waiting="1"
+fi
 if [[ "$c331_waiting" != "1" ]]; then
   cat "$tmp/c331-lifecycle-second.log"
   echo "Newer lifecycle event did not wait on the recipient advisory lock." >&2
   exit 1
 fi
-wait "$c331_removal_first_pid"
-if ! wait "$c331_lifecycle_second_pid"; then
+wait_bounded "$c331_removal_first_pid" "c331_removal_first_pid"
+if ! wait_bounded "$c331_lifecycle_second_pid" "c331_lifecycle_second_pid"; then
   cat "$tmp/c331-lifecycle-second.log"
   exit 1
 fi
@@ -703,7 +898,7 @@ c331_removal_first_hold="$(psql_scalar "select reason from public.delivery_provi
 echo "Concurrent older removal-first timestamp ordering: PASS"
 
 # Newer lifecycle evidence processed first, followed by an older manual removal: the hold must remain.
-"${psql_cmd[@]}" >"$tmp/c331-lifecycle-first.log" 2>&1 <<'SQL' &
+run_psql >"$tmp/c331-lifecycle-first.log" 2>&1 <<'SQL' &
 begin;
 set role service_role;
 select public.record_delivery_provider_lifecycle_event(
@@ -717,8 +912,9 @@ commit;
 reset role;
 SQL
 c331_lifecycle_first_pid=$!
+track_child "$c331_lifecycle_first_pid"
 wait_for_marker "$c331_lifecycle_first_pid" "$tmp/c331-lifecycle-first.log" "C331_CROSS_STREAM_NEWER_LIFECYCLE_FIRST_LOCK_HELD"
-"${psql_cmd[@]}" >"$tmp/c331-removal-second.log" 2>&1 <<'SQL' &
+run_psql >"$tmp/c331-removal-second.log" 2>&1 <<'SQL' &
 begin;
 set role service_role;
 select public.record_delivery_provider_suppression_event(
@@ -735,19 +931,18 @@ commit;
 reset role;
 SQL
 c331_removal_second_pid=$!
+track_child "$c331_removal_second_pid"
 c331_waiting="0"
-for _ in {1..100}; do
-  c331_waiting="$(psql_scalar "select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory' and query like '%evt_c331_concurrent_old_manual_add%'")"
-  if [[ "$c331_waiting" == "1" ]]; then break; fi
-  sleep 0.05
-done
+if wait_for_advisory_lock "$c331_removal_second_pid" "$tmp/c331-removal-second.log" "evt_c331_concurrent_old_manual_add" "C331 older manual suppression"; then
+  c331_waiting="1"
+fi
 if [[ "$c331_waiting" != "1" ]]; then
   cat "$tmp/c331-removal-second.log"
   echo "Older manual suppression add did not wait on the recipient advisory lock." >&2
   exit 1
 fi
-wait "$c331_lifecycle_first_pid"
-if ! wait "$c331_removal_second_pid"; then
+wait_bounded "$c331_lifecycle_first_pid" "c331_lifecycle_first_pid"
+if ! wait_bounded "$c331_removal_second_pid" "c331_removal_second_pid"; then
   cat "$tmp/c331-removal-second.log"
   exit 1
 fi
@@ -757,3 +952,343 @@ c331_lifecycle_first_hold="$(psql_scalar "select reason from public.delivery_pro
 [[ "$c331_lifecycle_first_hold" == "provider_suppressed" ]]
 echo "Concurrent newer lifecycle-first timestamp ordering: PASS"
 
+
+# Two first-insert requests with one event ID must serialize before recipient state is inspected.
+run_psql >"$tmp/c356-simultaneous-first.log" 2>&1 <<'SQL' &
+begin;
+set role service_role;
+select pg_catalog.pg_advisory_xact_lock(20261118, pg_catalog.hashtext('evt_c356_simultaneous_first_insert'));
+select public.record_delivery_provider_lifecycle_event(
+  'evt_c356_simultaneous_first_insert','email.bounced','resend-c356-first-insert',
+  'c356-first-insert@example.test','2027-03-02T15:00:00Z','Permanent',null,
+  null,repeat('1',64)
+);
+\echo C356_SIMULTANEOUS_FIRST_INSERT_EVENT_LOCK_HELD
+select pg_sleep(2);
+commit;
+reset role;
+SQL
+c356_first_pid=$!
+track_child "$c356_first_pid"
+wait_for_marker "$c356_first_pid" "$tmp/c356-simultaneous-first.log" "C356_SIMULTANEOUS_FIRST_INSERT_EVENT_LOCK_HELD"
+psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
+  'evt_c356_simultaneous_first_insert','email.complained','resend-c356-second-insert',
+  'c356-second-insert@example.test','2027-03-02T15:01:00Z',null,null,
+  null,repeat('2',64)
+)" >"$tmp/c356-simultaneous-second.log" 2>&1 &
+c356_second_pid=$!
+track_child "$c356_second_pid"
+c356_waiting="0"
+if wait_for_advisory_lock "$c356_second_pid" "$tmp/c356-simultaneous-second.log" "evt_c356_simultaneous_first_insert" "C356 simultaneous first insert"; then
+  c356_waiting="1"
+fi
+if [[ "$c356_waiting" != "1" ]]; then
+  cat "$tmp/c356-simultaneous-second.log"
+  echo "Simultaneous first insert did not wait on the global event-ID advisory lock." >&2
+  exit 1
+fi
+wait_bounded "$c356_first_pid" "c356_first_pid"
+if ! wait_bounded "$c356_second_pid" "c356_second_pid"; then
+  cat "$tmp/c356-simultaneous-second.log"
+  exit 1
+fi
+[[ "$(tr -d '\r\n' <"$tmp/c356-simultaneous-second.log")" == "__NULL__" ]]
+[[ "$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_c356_simultaneous_first_insert'")" == "1" ]]
+[[ "$(psql_scalar "select count(*) from public.delivery_provider_suppressions where recipient_email='c356-first-insert@example.test' and reason='permanent_bounce'")" == "1" ]]
+[[ "$(psql_scalar "select count(*) from public.delivery_provider_suppressions where recipient_email='c356-second-insert@example.test'")" == "0" ]]
+[[ "$(psql_scalar "select count(*) from public.delivery_provider_integrity_conflict_evidence where event_id='evt_c356_simultaneous_first_insert' and stored_recipient_email='c356-first-insert@example.test' and recipient_email='c356-second-insert@example.test'")" == "1" ]]
+echo "Concurrent simultaneous first-insert event-ID conflict: PASS"
+
+# The seven-argument legacy wrapper locks the event ID before its historical timestamp lookup.
+run_psql >"$tmp/c356-legacy-lock-first.log" 2>&1 <<'SQL' &
+begin;
+set role service_role;
+select pg_catalog.pg_advisory_xact_lock(20261118, pg_catalog.hashtext('evt_historical_026_complaint'));
+\echo C356_LEGACY_EVENT_LOCK_HELD
+select pg_sleep(2);
+commit;
+reset role;
+SQL
+c356_legacy_first_pid=$!
+track_child "$c356_legacy_first_pid"
+wait_for_marker "$c356_legacy_first_pid" "$tmp/c356-legacy-lock-first.log" "C356_LEGACY_EVENT_LOCK_HELD"
+psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
+  'evt_historical_026_complaint','email.complained','resend-historical-026-complaint',
+  'historical-026-complaint@example.test','2027-03-01T09:15:00Z',null,null
+)" >"$tmp/c356-legacy-lock-second.log" 2>&1 &
+c356_legacy_second_pid=$!
+track_child "$c356_legacy_second_pid"
+c356_legacy_waiting="0"
+if wait_for_advisory_lock "$c356_legacy_second_pid" "$tmp/c356-legacy-lock-second.log" "evt_historical_026_complaint" "C356 legacy seven-argument wrapper"; then
+  c356_legacy_waiting="1"
+fi
+if [[ "$c356_legacy_waiting" != "1" ]]; then
+  cat "$tmp/c356-legacy-lock-second.log"
+  echo "Legacy seven-argument wrapper did not wait on the event-ID lock before reading." >&2
+  exit 1
+fi
+wait_bounded "$c356_legacy_first_pid" "c356_legacy_first_pid"
+if ! wait_bounded "$c356_legacy_second_pid" "c356_legacy_second_pid"; then cat "$tmp/c356-legacy-lock-second.log"; exit 1; fi
+[[ "$(tr -d '\r\n' <"$tmp/c356-legacy-lock-second.log")" == "f" ]]
+[[ "$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_historical_026_complaint'")" == "1" ]]
+echo "Legacy seven-argument lifecycle wrapper event-ID-first locking: PASS"
+
+# The eight-argument compatibility wrapper uses the same lock order on a historical fingerprint-less row.
+run_psql >"$tmp/c356-compat-lock-first.log" 2>&1 <<'SQL' &
+begin;
+set role service_role;
+select pg_catalog.pg_advisory_xact_lock(20261118, pg_catalog.hashtext('evt_historical_025_suppressed'));
+\echo C356_COMPAT_EVENT_LOCK_HELD
+select pg_sleep(2);
+commit;
+reset role;
+SQL
+c356_compat_first_pid=$!
+track_child "$c356_compat_first_pid"
+wait_for_marker "$c356_compat_first_pid" "$tmp/c356-compat-lock-first.log" "C356_COMPAT_EVENT_LOCK_HELD"
+psql_service_scalar "select public.record_delivery_provider_lifecycle_event(
+  'evt_historical_025_suppressed','email.suppressed','resend-historical-025-suppressed',
+  'historical-025-suppressed@example.test','2027-03-01T09:00:00Z',null,null,'provider_suppressed'
+)" >"$tmp/c356-compat-lock-second.log" 2>&1 &
+c356_compat_second_pid=$!
+track_child "$c356_compat_second_pid"
+c356_compat_waiting="0"
+if wait_for_advisory_lock "$c356_compat_second_pid" "$tmp/c356-compat-lock-second.log" "evt_historical_025_suppressed" "C356 eight-argument compatibility wrapper"; then
+  c356_compat_waiting="1"
+fi
+if [[ "$c356_compat_waiting" != "1" ]]; then
+  cat "$tmp/c356-compat-lock-second.log"
+  echo "Eight-argument compatibility wrapper did not wait on the event-ID lock." >&2
+  exit 1
+fi
+wait_bounded "$c356_compat_first_pid" "c356_compat_first_pid"
+if ! wait_bounded "$c356_compat_second_pid" "c356_compat_second_pid"; then cat "$tmp/c356-compat-lock-second.log"; exit 1; fi
+[[ "$(tr -d '\r\n' <"$tmp/c356-compat-lock-second.log")" == "f" ]]
+[[ "$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_historical_025_suppressed'")" == "1" ]]
+echo "Legacy eight-argument compatibility wrapper event-ID-first locking: PASS"
+
+# The five-argument record_delivery_provider_event wrapper locks before delegating and preserves the historical event.
+run_psql >"$tmp/c356-legacy-event-first.log" 2>&1 <<'SQL' &
+begin;
+set role service_role;
+select pg_catalog.pg_advisory_xact_lock(20261118, pg_catalog.hashtext('evt_historical_025_suppressed'));
+\echo C356_LEGACY_EVENT_WRAPPER_LOCK_HELD
+select pg_sleep(2);
+commit;
+reset role;
+SQL
+c356_legacy_event_first_pid=$!
+track_child "$c356_legacy_event_first_pid"
+wait_for_marker "$c356_legacy_event_first_pid" "$tmp/c356-legacy-event-first.log" "C356_LEGACY_EVENT_WRAPPER_LOCK_HELD"
+psql_service_scalar "select public.record_delivery_provider_event(
+  'evt_historical_025_suppressed','email.suppressed','resend-c356-legacy-event-attacker',
+  'c356-legacy-event-attacker@example.test',null
+)" >"$tmp/c356-legacy-event-second.log" 2>&1 &
+c356_legacy_event_second_pid=$!
+track_child "$c356_legacy_event_second_pid"
+c356_legacy_event_waiting="0"
+if wait_for_advisory_lock "$c356_legacy_event_second_pid" "$tmp/c356-legacy-event-second.log" "evt_historical_025_suppressed" "C356 five-argument legacy event wrapper"; then
+  c356_legacy_event_waiting="1"
+fi
+if [[ "$c356_legacy_event_waiting" != "1" ]]; then
+  cat "$tmp/c356-legacy-event-second.log"
+  echo "Five-argument legacy event wrapper did not wait on the event-ID lock." >&2
+  exit 1
+fi
+wait_bounded "$c356_legacy_event_first_pid" "c356_legacy_event_first_pid"
+if ! wait_bounded "$c356_legacy_event_second_pid" "c356_legacy_event_second_pid"; then cat "$tmp/c356-legacy-event-second.log"; exit 1; fi
+[[ "$(tr -d '\r\n' <"$tmp/c356-legacy-event-second.log")" == "__NULL__" ]]
+[[ "$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_historical_025_suppressed'")" == "1" ]]
+[[ "$(psql_scalar "select count(*) from public.delivery_provider_events where recipient_email='c356-legacy-event-attacker@example.test'")" == "0" ]]
+[[ "$(psql_scalar "select count(*) from public.delivery_provider_integrity_conflict_evidence where event_id='evt_historical_025_suppressed' and recipient_email='c356-legacy-event-attacker@example.test' and stored_recipient_email='historical-025-suppressed@example.test'")" == "1" ]]
+echo "Five-argument legacy event wrapper event-ID-first locking: PASS"
+# Suppression-list first inserts share the same global event-ID lock namespace as lifecycle events.
+run_psql >"$tmp/c356-suppression-first.log" 2>&1 <<'SQL' &
+begin;
+set role service_role;
+select pg_catalog.pg_advisory_xact_lock(20261118, pg_catalog.hashtext('evt_c356_suppression_first_insert'));
+select public.record_delivery_provider_suppression_event(
+  'evt_c356_suppression_first_insert','suppression.added','sup-c356-first',
+  'c356-suppression-first@example.test','manual',null,
+  '2027-03-02T15:20:00Z','2027-03-02T15:21:00Z',repeat('3',64)
+);
+\echo C356_SUPPRESSION_FIRST_INSERT_EVENT_LOCK_HELD
+select pg_sleep(2);
+commit;
+reset role;
+SQL
+c356_suppression_first_pid=$!
+track_child "$c356_suppression_first_pid"
+wait_for_marker "$c356_suppression_first_pid" "$tmp/c356-suppression-first.log" "C356_SUPPRESSION_FIRST_INSERT_EVENT_LOCK_HELD"
+psql_service_scalar "select public.record_delivery_provider_suppression_event(
+  'evt_c356_suppression_first_insert','suppression.removed','sup-c356-second',
+  'c356-suppression-second@example.test','manual',null,
+  '2027-03-02T15:20:00Z','2027-03-02T15:22:00Z',repeat('4',64)
+)" >"$tmp/c356-suppression-second.log" 2>&1 &
+c356_suppression_second_pid=$!
+track_child "$c356_suppression_second_pid"
+c356_suppression_waiting="0"
+if wait_for_advisory_lock "$c356_suppression_second_pid" "$tmp/c356-suppression-second.log" "evt_c356_suppression_first_insert" "C356 suppression first insert"; then
+  c356_suppression_waiting="1"
+fi
+if [[ "$c356_suppression_waiting" != "1" ]]; then
+  cat "$tmp/c356-suppression-second.log"
+  echo "Suppression callback did not wait on the shared event-ID lock." >&2
+  exit 1
+fi
+wait_bounded "$c356_suppression_first_pid" "c356_suppression_first_pid"
+if ! wait_bounded "$c356_suppression_second_pid" "c356_suppression_second_pid"; then
+  cat "$tmp/c356-suppression-second.log"
+  exit 1
+fi
+[[ "$(tr -d '\r\n' <"$tmp/c356-suppression-second.log")" == "__NULL__" ]]
+[[ "$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_c356_suppression_first_insert'")" == "1" ]]
+[[ "$(psql_scalar "select count(*) from public.delivery_provider_suppression_state where recipient_email='c356-suppression-first@example.test' and is_active")" == "1" ]]
+[[ "$(psql_scalar "select count(*) from public.delivery_provider_suppression_state where recipient_email='c356-suppression-second@example.test'")" == "0" ]]
+[[ "$(psql_scalar "select count(*) from public.delivery_provider_integrity_conflict_evidence where event_id='evt_c356_suppression_first_insert' and stored_recipient_email='c356-suppression-first@example.test' and recipient_email='c356-suppression-second@example.test'")" == "1" ]]
+echo "Concurrent suppression first-insert event-ID conflict: PASS"
+
+# Two independent transactions hold opposite advisory locks, then request each other's lock.
+# PostgreSQL deadlock detection (200ms) must win over the 8s lock timeout.
+run_psql --command="drop table if exists public.deedlight_webhook_deadlock_regression; create table public.deedlight_webhook_deadlock_regression (transaction_name text primary key, outcome text not null)" >"$tmp/deadlock-state-setup.log" 2>&1
+
+run_psql >"$tmp/deadlock-a.log" 2>&1 <<'SQL' &
+\set VERBOSITY verbose
+begin;
+set local deadlock_timeout = '200ms';
+set local lock_timeout = '8s';
+set local statement_timeout = '15s';
+set local application_name = 'deedlight-deadlock-a';
+select pg_catalog.pg_advisory_xact_lock(20261119, 1);
+\echo DEADLOCK_A_LOCK_HELD
+select pg_catalog.pg_sleep(2);
+select pg_catalog.pg_advisory_xact_lock(20261119, 2) /* DEEDLIGHT_DEADLOCK_A_WAIT */;
+\echo DEADLOCK_A_CROSS_LOCK_ACQUIRED
+insert into public.deedlight_webhook_deadlock_regression values ('A', 'committed');
+commit;
+\echo DEADLOCK_A_COMMITTED
+SQL
+deadlock_a_pid=$!
+track_child "$deadlock_a_pid"
+
+run_psql >"$tmp/deadlock-b.log" 2>&1 <<'SQL' &
+\set VERBOSITY verbose
+begin;
+set local deadlock_timeout = '200ms';
+set local lock_timeout = '8s';
+set local statement_timeout = '15s';
+set local application_name = 'deedlight-deadlock-b';
+select pg_catalog.pg_advisory_xact_lock(20261119, 2);
+\echo DEADLOCK_B_LOCK_HELD
+select pg_catalog.pg_sleep(6);
+select pg_catalog.pg_advisory_xact_lock(20261119, 1) /* DEEDLIGHT_DEADLOCK_B_WAIT */;
+\echo DEADLOCK_B_CROSS_LOCK_ACQUIRED
+insert into public.deedlight_webhook_deadlock_regression values ('B', 'committed');
+commit;
+\echo DEADLOCK_B_COMMITTED
+SQL
+deadlock_b_pid=$!
+track_child "$deadlock_b_pid"
+
+wait_for_marker "$deadlock_a_pid" "$tmp/deadlock-a.log" "DEADLOCK_A_LOCK_HELD"
+wait_for_marker "$deadlock_b_pid" "$tmp/deadlock-b.log" "DEADLOCK_B_LOCK_HELD"
+wait_for_advisory_lock "$deadlock_a_pid" "$tmp/deadlock-a.log" "DEEDLIGHT_DEADLOCK_A_WAIT" "deadlock transaction A waiting for B's advisory lock"
+
+set +e
+wait_bounded "$deadlock_a_pid" "deadlock transaction A"
+deadlock_a_status=$?
+wait_bounded "$deadlock_b_pid" "deadlock transaction B"
+deadlock_b_status=$?
+set -e
+
+if [[ "$deadlock_a_status" == "0" && "$deadlock_b_status" != "0" ]]; then
+  deadlock_victim="B"
+  deadlock_survivor="A"
+  deadlock_victim_log="$tmp/deadlock-b.log"
+  deadlock_survivor_log="$tmp/deadlock-a.log"
+elif [[ "$deadlock_b_status" == "0" && "$deadlock_a_status" != "0" ]]; then
+  deadlock_victim="A"
+  deadlock_survivor="B"
+  deadlock_victim_log="$tmp/deadlock-a.log"
+  deadlock_survivor_log="$tmp/deadlock-b.log"
+else
+  cat "$tmp/deadlock-a.log" "$tmp/deadlock-b.log" >&2
+  echo "Expected exactly one committed survivor and one PostgreSQL deadlock victim (A=$deadlock_a_status, B=$deadlock_b_status)." >&2
+  exit 1
+fi
+
+if ! grep -Eq 'ERROR:[[:space:]]+40P01: deadlock detected' "$deadlock_victim_log" \
+  || [[ "$(grep -Ec '^ERROR:' "$deadlock_victim_log")" != "1" ]] \
+  || grep -Fq '55P03' "$deadlock_victim_log"; then
+  cat "$tmp/deadlock-a.log" "$tmp/deadlock-b.log" >&2
+  echo "The failed transaction did not report exactly one PostgreSQL deadlock error (SQLSTATE 40P01)." >&2
+  exit 1
+fi
+if ! grep -Fq "DEADLOCK_${deadlock_survivor}_CROSS_LOCK_ACQUIRED" "$deadlock_survivor_log" \
+  || ! grep -Fq "DEADLOCK_${deadlock_survivor}_COMMITTED" "$deadlock_survivor_log" \
+  || grep -Fq 'ERROR:' "$deadlock_survivor_log"; then
+  cat "$tmp/deadlock-a.log" "$tmp/deadlock-b.log" >&2
+  echo "The surviving transaction did not acquire the released lock and commit cleanly." >&2
+  exit 1
+fi
+
+deadlock_final_state="$(psql_scalar "select transaction_name || ':' || outcome from public.deedlight_webhook_deadlock_regression order by transaction_name")"
+[[ "$deadlock_final_state" == "${deadlock_survivor}:committed" ]]
+deadlock_final_count="$(psql_scalar "select count(*) from public.deedlight_webhook_deadlock_regression")"
+[[ "$deadlock_final_count" == "1" ]]
+run_psql --command="drop table public.deedlight_webhook_deadlock_regression" >"$tmp/deadlock-state-cleanup.log" 2>&1
+echo "Controlled PostgreSQL deadlock SQLSTATE 40P01, survivor commit and final database state: PASS (victim=$deadlock_victim)"
+
+# A controlled event-ID advisory-lock conflict must fail as PostgreSQL lock_not_available (55P03).
+run_psql >"$tmp/c362-lock-holder.log" 2>&1 <<'SQL' &
+begin;
+select pg_catalog.pg_advisory_xact_lock(20261118, pg_catalog.hashtext('evt_c362_bounded_lock_timeout'));
+\echo C362_LOCK_TIMEOUT_HOLDER_READY
+select pg_sleep(3);
+rollback;
+SQL
+c362_lock_holder_pid=$!
+track_child "$c362_lock_holder_pid"
+wait_for_marker "$c362_lock_holder_pid" "$tmp/c362-lock-holder.log" "C362_LOCK_TIMEOUT_HOLDER_READY"
+
+set +e
+run_psql >"$tmp/c362-lock-timeout.log" 2>&1 <<'SQL'
+begin;
+set role service_role;
+do $c362_expected_lock_timeout$
+begin
+  perform set_config('lock_timeout', '250ms', true);
+  perform public.record_delivery_provider_lifecycle_event(
+    'evt_c362_bounded_lock_timeout',
+    'email.delivered',
+    'resend-c362-bounded-lock-timeout',
+    'c362-bounded-lock-timeout@example.test',
+    '2027-03-02T16:00:00Z',
+    null,
+    null,
+    null,
+    repeat('5', 64)
+  );
+  raise exception 'Expected advisory-lock timeout was not raised.';
+exception
+  when lock_not_available then
+    if SQLSTATE <> '55P03' then
+      raise exception 'Unexpected PostgreSQL lock failure classification: %', SQLSTATE;
+    end if;
+    raise notice 'C362_EXPECTED_LOCK_TIMEOUT_SQLSTATE=%', SQLSTATE;
+end
+$c362_expected_lock_timeout$;
+rollback;
+SQL
+c362_timeout_status=$?
+set -e
+if [[ "$c362_timeout_status" != "0" ]] || ! grep -Fq "C362_EXPECTED_LOCK_TIMEOUT_SQLSTATE=55P03" "$tmp/c362-lock-timeout.log"; then
+  cat "$tmp/c362-lock-timeout.log" >&2
+  echo "Controlled advisory-lock conflict did not fail with SQLSTATE 55P03." >&2
+  exit 1
+fi
+wait_bounded "$c362_lock_holder_pid" "c362 lock-timeout holder"
+[[ "$(psql_scalar "select count(*) from public.delivery_provider_events where event_id='evt_c362_bounded_lock_timeout'")" == "0" ]]
+echo "Bounded advisory-lock conflict SQLSTATE 55P03 and unchanged database state: PASS"
+suite_complete=1
+echo "Concurrency test process deadlines, bounded waits, and cleanup watchdog: PASS"

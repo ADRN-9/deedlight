@@ -1,3 +1,50 @@
+-- DeedLight SQL Editor aggregate v1
+-- Deterministically generated from immutable Git-blob-pinned migration sources and the maintained bootstrap seed.
+-- Inventory Git blob SHA-1: 95d514a0bd97ff448c9507252eb1f5e69a507442
+-- BEGIN SOURCE PROVENANCE
+-- SOURCE 202607210001 202607210001_initial_schema.sql blob=a244ab0df3e766b0f36e29a222b3160f9f74c502 bytes=13648
+-- SOURCE 202607210002 202607210002_rls_policies.sql blob=f96b482c0d1cf396baae5b91d7c96112f7e88284 bytes=5885
+-- SOURCE 202607220003 202607220003_sprint3_offerings_review.sql blob=74e02f2e60b82cf07a6aac5f8cf57dcdb6fe1382 bytes=1064
+-- SOURCE 202607260004 202607260004_sprint4_reactions.sql blob=c25dce46ecf69d082fcdbea2bb931b6acd9180fc bytes=4983
+-- SOURCE 202607260005 202607260005_sprint5_moderation.sql blob=b48b4b8b3eea9fb55b68068011fa1371559228c2 bytes=5775
+-- SOURCE 202607260006 202607260006_sprint5_admin_edit_hide_hotfix.sql blob=9e163de5119c3813724341b7a9eabeba6fdc2970 bytes=2008
+-- SOURCE 202607260007 202607260007_sprint6_daily_deedlight.sql blob=e0c2379255003b8c7bc85a1fab781e23051f5e47 bytes=9545
+-- SOURCE 202607260007 202607260007_sprint7_pwa_daily_engagement.sql blob=8b051cfce05ea75b1ee7a726864e2ad760f6fe5f bytes=6279
+-- SOURCE 202607270008 202607270008_sprint8_short_video_studio.sql blob=5b583bd99562e14db554943d034c748ce302f5ee bytes=1890
+-- SOURCE 202608060009 202608060009_sprint9_profiles_privacy.sql blob=6594ce6daa0183944fcc548885d6514e8adb9436 bytes=6031
+-- SOURCE 202608100010 202608100010_sprint9_2_community_identity_consistency.sql blob=774708b7705d88a5a1e0da97e72a9d1b47c8884c bytes=3294
+-- SOURCE 202608100011 202608100011_sprint9_3_moderation_aware_members.sql blob=1d1b7b844b88077351d2658af4be2b2db92eda97 bytes=12225
+-- SOURCE 202608110012 202608110012_sprint10_1_daily_deed_completion.sql blob=0973f72e39ce07b41e053a20f1b781c394578877 bytes=4462
+-- SOURCE 202608110013 202608110013_sprint10_2_saved_lights_gentle_rhythm.sql blob=5fd2f4a796a8a1dfd6237ccf36d1ab62c1dc1714 bytes=2769
+-- SOURCE 202608120014 202608120014_sprint10_3_gentle_reminder_preferences.sql blob=2af1a6a2aa5cffc6ef6d08849b6f71fab44a54d0 bytes=2523
+-- SOURCE 202608130015 202608130015_sprint11_2_weekly_goodness.sql blob=394c774032d8206c0b7a373640859c2a331667a9 bytes=8089
+-- SOURCE 202608130016 202608130016_sprint11_3_invitations_newsletter_foundation.sql blob=8d68ed19859e1a820af52a43c110a38b6a460d48 bytes=12951
+-- SOURCE 202608130017 202608130017_sprint12_1_offering_ownership_engagement.sql blob=bc23b12fe454c1f49b096fd2c7199e3a2aea5bb4 bytes=11901
+-- SOURCE 202608140018 202608140018_sprint12_1_owner_removal_guard_hotfix.sql blob=0ea7eaf04d5c99e4c5a25893aae7694affdd44bc bytes=2780
+-- SOURCE 202609230019 202609230019_sprint12_2_gentle_delivery_foundation.sql blob=1403b9324e786a2b724176875a70ffce92961d9b bytes=15845
+-- SOURCE 202609230020 202609230020_delivery_reliability_hardening.sql blob=554615da3d15fc4c0d395691103d3be5676856fa bytes=13642
+-- SOURCE 202609230021 202609230021_gentle_delivery_transport.sql blob=e50a06bd3a5ed386c54e789435c64b2bb4a54ab9 bytes=3417
+-- SOURCE 202609240022 202609240022_auth_pgcrypto_schema_qualification.sql blob=f42afb3474f80c7d95cf5b47023b82cf5a948d4d bytes=1214
+-- SOURCE 202611120023 202611120023_delivery_consent_linearization.sql blob=75f5086feab2cbda381066cb9094390190c3332f bytes=9411
+-- SOURCE 202611120024 202611120024_delivery_identity_lease_capacity.sql blob=240271fd75081c062627cfc3d40bdc0c5feda049 bytes=12329
+-- SOURCE 202611190025 202611190025_delivery_provider_webhooks.sql blob=e97c5c0ad645dfe43f11a88f01b030fa23dd5822 bytes=17132
+-- SOURCE 202611190026 202611190026_delivery_provider_lifecycle.sql blob=6a06d780ad65babf2293a2746c68913758313af8 bytes=13857
+-- SOURCE 202611200027 202611200027_delivery_provider_integrity.sql blob=a1469938ea13b5cb9d7cd883772bc60e4a058026 bytes=20879
+-- SOURCE 202611210028 202611210028_delivery_claim_lock_expiry.sql blob=09d1927fba81d711bb37d214609931d2da2173a1 bytes=9643
+-- SOURCE 202611210029 202611210029_delivery_legacy_replay_guard.sql blob=872fc49ec47e49b17e96ecf6ccaf5c8eb0e6322a bytes=7476
+-- SOURCE 202611210030 202611210030_delivery_idempotency_receipt_guard.sql blob=c5e3955c4e0dde708a8ffdc9c420807c4241fa32 bytes=12214
+-- SOURCE 202611220031 202611220031_delivery_final_recipient_suppression_gate.sql blob=26d69a0a4e73bc7cfd05814f3f6129bc199da02b bytes=6477
+-- SOURCE 202611220032 202611220032_resend_suppression_list_sync.sql blob=6a0c0193d85ece99335f8715a65243ac42617f97 bytes=14118
+-- SOURCE 202611220033 202611220033_delivery_cross_stream_suppression_order.sql blob=1cd0c2db5415a37b9a31ed8ef7de54db9019a88f bytes=4647
+-- SOURCE 202611230034 202611230034_delivery_suppression_timestamp_order.sql blob=4ec8aa578ad851918f4c4b2535c476b4ceb40f1d bytes=11255
+-- SOURCE 202611230035 202611230035_private_offering_base_table_rls.sql blob=3d0ce8dfd4abb88fccccd23c5ffb9c35f699c098 bytes=564
+-- SOURCE 202611230036 202611230036_private_daily_reflection_admin_isolation.sql blob=61a1fbf48b4557873ba6016e74fd3995bc62ba14 bytes=2042
+-- SOURCE 202611240037 202611240037_delivery_provider_integrity_conflict_evidence.sql blob=ac0449b50a881e3a895ef40a8eee28bea95a6ec0 bytes=44182
+-- SOURCE 202611240038 202611240038_delivery_provider_integrity_lock_order_pagination.sql blob=38951751fc5abeb79b75c4e37e55da01262a18b8 bytes=43748
+-- BOOTSTRAP SEED supabase/seed.sql blob=e85554aed1553dec407e83966a1b0093f5d1e9a3 bytes=2574 upserts=3
+-- COMPATIBILITY supabase/bootstrap/migration_038_admin_compatibility.sql blob=92e93d88e23d3579f405de266cdf63cba0112472 bytes=15298 placement=after-202611240037-before-202611240038
+-- END SOURCE PROVENANCE
+-- BEGIN MIGRATION SQL
 create extension if not exists pgcrypto;
 
 create or replace function public.set_updated_at()
@@ -537,6 +584,8 @@ for insert with check (
 create policy "storage_admin_all" on storage.objects
 for all using (public.is_admin())
 with check (public.is_admin());
+
+-- BEGIN BOOTSTRAP SEED (three idempotent upserts)
 insert into public.themes (slug, name, description, icon_name, accent_color)
 values
   ('kindness', 'Kindness', 'Small acts that make life softer.', 'hand-heart', '#C9826B'),
@@ -597,14 +646,898 @@ on conflict (slug) do update set
   icon_name = excluded.icon_name,
   level_name = excluded.level_name;
 
+-- END BOOTSTRAP SEED
+-- Sprint 3 support migration: safe to run after Sprint 1 schema.
+-- It improves public view safety and adds useful indexes for admin review queues.
 
--- =====================================================================
--- BEGIN SPRINT 9.1 + 9.2 CANONICAL PARITY
--- This aggregate file predates the profile privacy work above.
--- The canonical migration bodies are appended verbatim so running this
--- bootstrap script reaches the same final privacy/identity state.
--- =====================================================================
+create index if not exists offerings_status_created_idx
+on public.offerings(status, created_at desc);
 
+create index if not exists offerings_user_status_created_idx
+on public.offerings(user_id, status, created_at desc);
+
+create or replace view public.offerings_public
+with (security_invoker = true)
+as
+select
+  o.id,
+  o.user_id,
+  o.title,
+  o.body,
+  o.takeaway,
+  o.offering_type,
+  o.media_url,
+  o.media_type,
+  o.is_anonymous,
+  o.allow_reflections,
+  o.location_label,
+  o.bless_count,
+  o.inspired_count,
+  o.carried_forward_count,
+  o.reflection_count,
+  o.bless_score,
+  o.published_at,
+  t.name as theme_name,
+  case when o.is_anonymous then null else p.display_name end as author_name
+from public.offerings o
+left join public.themes t on t.id = o.theme_id
+left join public.profiles p on p.user_id = o.user_id
+where o.status = 'approved';
+
+grant select on public.offerings_public to anon, authenticated;
+-- Deedlight Sprint 4 — Bless / Inspired / Did Too reactions
+-- Safe to run more than once.
+
+-- 1. Make sure API roles have the permissions needed for reaction reads/writes.
+grant usage on schema public to anon, authenticated, service_role;
+grant select on public.offerings to anon, authenticated;
+grant select on public.offerings_public to anon, authenticated;
+grant select, insert, delete on public.reactions to authenticated;
+grant all on all tables in schema public to service_role;
+
+-- 2. Keep the admin helper stable.
+create or replace function public.is_admin()
+returns boolean
+language sql
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.profiles
+    where user_id = auth.uid()
+      and role = 'admin'
+      and is_suspended = false
+  );
+$$;
+
+grant execute on function public.is_admin() to anon, authenticated;
+
+-- 3. Make the reaction count trigger idempotent and reliable.
+create or replace function public.handle_reaction_counts()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if tg_op = 'INSERT' then
+    update public.offerings set
+      bless_count = bless_count + case when new.reaction_type = 'bless' then 1 else 0 end,
+      inspired_count = inspired_count + case when new.reaction_type = 'inspired_me' then 1 else 0 end,
+      carried_forward_count = carried_forward_count + case when new.reaction_type = 'i_did_this_too' then 1 else 0 end
+    where id = new.offering_id;
+    return new;
+  elsif tg_op = 'DELETE' then
+    update public.offerings set
+      bless_count = greatest(0, bless_count - case when old.reaction_type = 'bless' then 1 else 0 end),
+      inspired_count = greatest(0, inspired_count - case when old.reaction_type = 'inspired_me' then 1 else 0 end),
+      carried_forward_count = greatest(0, carried_forward_count - case when old.reaction_type = 'i_did_this_too' then 1 else 0 end)
+    where id = old.offering_id;
+    return old;
+  end if;
+  return null;
+end;
+$$;
+
+drop trigger if exists reactions_count_insert on public.reactions;
+create trigger reactions_count_insert
+after insert on public.reactions
+for each row execute function public.handle_reaction_counts();
+
+drop trigger if exists reactions_count_delete on public.reactions;
+create trigger reactions_count_delete
+after delete on public.reactions
+for each row execute function public.handle_reaction_counts();
+
+-- 4. RLS: users may only react to approved public Offerings, and only as themselves.
+alter table public.reactions enable row level security;
+
+drop policy if exists "reactions_own_insert" on public.reactions;
+drop policy if exists "reactions_own_delete" on public.reactions;
+drop policy if exists "reactions_own_read" on public.reactions;
+drop policy if exists "reactions_admin_all" on public.reactions;
+drop policy if exists "reactions_select_own_or_admin" on public.reactions;
+drop policy if exists "reactions_insert_own_on_approved" on public.reactions;
+drop policy if exists "reactions_delete_own" on public.reactions;
+
+create policy "reactions_select_own_or_admin"
+on public.reactions
+for select
+using (user_id = auth.uid() or public.is_admin());
+
+create policy "reactions_insert_own_on_approved"
+on public.reactions
+for insert
+with check (
+  user_id = auth.uid()
+  and exists (
+    select 1
+    from public.offerings o
+    where o.id = offering_id
+      and o.status = 'approved'
+  )
+  and not exists (
+    select 1
+    from public.profiles p
+    where p.user_id = auth.uid()
+      and p.is_suspended = true
+  )
+);
+
+create policy "reactions_delete_own"
+on public.reactions
+for delete
+using (user_id = auth.uid());
+
+create policy "reactions_admin_all"
+on public.reactions
+for all
+using (public.is_admin())
+with check (public.is_admin());
+
+-- 5. Repair count drift, if any earlier tests were run while triggers/policies changed.
+update public.offerings o
+set
+  bless_count = counts.bless_count,
+  inspired_count = counts.inspired_count,
+  carried_forward_count = counts.carried_forward_count
+from (
+  select
+    o2.id,
+    count(*) filter (where r.reaction_type = 'bless')::integer as bless_count,
+    count(*) filter (where r.reaction_type = 'inspired_me')::integer as inspired_count,
+    count(*) filter (where r.reaction_type = 'i_did_this_too')::integer as carried_forward_count
+  from public.offerings o2
+  left join public.reactions r on r.offering_id = o2.id
+  group by o2.id
+) counts
+where counts.id = o.id;
+
+-- 6. Helper view for Rising Goodness.
+-- Uses reaction score first, then freshness. It exposes no private reaction rows.
+create or replace view public.offerings_rising as
+select
+  op.*,
+  (
+    coalesce(op.bless_score, 0)
+    + case
+        when op.published_at is null then 0
+        when op.published_at > now() - interval '24 hours' then 30
+        when op.published_at > now() - interval '7 days' then 12
+        else 0
+      end
+  )::numeric as rising_score
+from public.offerings_public op;
+
+grant select on public.offerings_rising to anon, authenticated;
+-- Deedlight Sprint 5 — Admin Content Quality + Moderation Upgrade
+-- Safe to run more than once.
+
+-- 1. Permissions needed by Supabase API roles.
+grant usage on schema public to anon, authenticated, service_role;
+grant select on public.offerings_public to anon, authenticated;
+grant select on public.offerings_rising to anon, authenticated;
+grant select on public.offerings to authenticated;
+grant insert, update on public.offerings to authenticated;
+grant select, insert, update on public.reports to authenticated;
+grant all on all tables in schema public to service_role;
+
+-- 2. Useful moderation indexes.
+create index if not exists reports_status_created_idx
+on public.reports(status, created_at desc);
+
+create index if not exists reports_offering_status_idx
+on public.reports(offering_id, status, created_at desc);
+
+create index if not exists offerings_open_report_count_idx
+on public.offerings(open_report_count desc, created_at desc);
+
+-- 3. Stable admin helper.
+create or replace function public.is_admin()
+returns boolean
+language sql
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.profiles
+    where user_id = auth.uid()
+      and role = 'admin'
+      and is_suspended = false
+  );
+$$;
+
+grant execute on function public.is_admin() to anon, authenticated;
+
+-- 4. Offerings RLS: admin can edit/hide/approve; members can edit their drafts/needs_edit.
+alter table public.offerings enable row level security;
+
+drop policy if exists "offerings_select_public_or_own" on public.offerings;
+create policy "offerings_select_public_or_own"
+on public.offerings
+for select
+using (
+  status = 'approved'
+  or user_id = auth.uid()
+  or public.is_admin()
+);
+
+drop policy if exists "offerings_insert_own_pending" on public.offerings;
+create policy "offerings_insert_own_pending"
+on public.offerings
+for insert
+with check (
+  user_id = auth.uid()
+  and status in ('draft', 'pending')
+  and not exists (
+    select 1 from public.profiles p
+    where p.user_id = auth.uid()
+      and p.is_suspended = true
+  )
+);
+
+drop policy if exists "offerings_update_own_or_admin" on public.offerings;
+create policy "offerings_update_own_or_admin"
+on public.offerings
+for update
+using (
+  public.is_admin()
+  or (
+    user_id = auth.uid()
+    and status in ('draft', 'needs_edit')
+  )
+)
+with check (
+  public.is_admin()
+  or (
+    user_id = auth.uid()
+    and status in ('draft', 'pending', 'needs_edit')
+  )
+);
+
+-- 5. Reports RLS: users can create and read their own reports; admins can manage all reports.
+alter table public.reports enable row level security;
+
+drop policy if exists "reports_own_insert" on public.reports;
+drop policy if exists "reports_admin_all" on public.reports;
+drop policy if exists "reports_select_own_or_admin" on public.reports;
+drop policy if exists "reports_insert_own_approved_offering" on public.reports;
+drop policy if exists "reports_admin_update" on public.reports;
+
+create policy "reports_select_own_or_admin"
+on public.reports
+for select
+using (reported_by = auth.uid() or public.is_admin());
+
+create policy "reports_insert_own_approved_offering"
+on public.reports
+for insert
+with check (
+  reported_by = auth.uid()
+  and (
+    offering_id is null
+    or exists (
+      select 1 from public.offerings o
+      where o.id = offering_id
+        and o.status = 'approved'
+    )
+  )
+  and not exists (
+    select 1 from public.profiles p
+    where p.user_id = auth.uid()
+      and p.is_suspended = true
+  )
+);
+
+create policy "reports_admin_update"
+on public.reports
+for update
+using (public.is_admin())
+with check (public.is_admin());
+
+create policy "reports_admin_all"
+on public.reports
+for all
+using (public.is_admin())
+with check (public.is_admin());
+
+-- 6. Ensure report count triggers exist and repair current counts.
+create or replace function public.handle_report_counts()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if tg_op = 'INSERT' then
+    if new.offering_id is not null and new.status = 'open' then
+      update public.offerings set open_report_count = open_report_count + 1 where id = new.offering_id;
+    end if;
+    return new;
+  elsif tg_op = 'DELETE' then
+    if old.offering_id is not null and old.status = 'open' then
+      update public.offerings set open_report_count = greatest(0, open_report_count - 1) where id = old.offering_id;
+    end if;
+    return old;
+  elsif tg_op = 'UPDATE' then
+    if new.offering_id is not null then
+      if old.status <> 'open' and new.status = 'open' then
+        update public.offerings set open_report_count = open_report_count + 1 where id = new.offering_id;
+      elsif old.status = 'open' and new.status <> 'open' then
+        update public.offerings set open_report_count = greatest(0, open_report_count - 1) where id = old.offering_id;
+      end if;
+    end if;
+    return new;
+  end if;
+  return null;
+end;
+$$;
+
+drop trigger if exists reports_count_insert on public.reports;
+create trigger reports_count_insert
+after insert on public.reports
+for each row execute function public.handle_report_counts();
+
+drop trigger if exists reports_count_update on public.reports;
+create trigger reports_count_update
+after update of status on public.reports
+for each row execute function public.handle_report_counts();
+
+drop trigger if exists reports_count_delete on public.reports;
+create trigger reports_count_delete
+after delete on public.reports
+for each row execute function public.handle_report_counts();
+
+update public.offerings o
+set open_report_count = counts.open_report_count
+from (
+  select
+    o2.id,
+    count(*) filter (where r.status = 'open')::integer as open_report_count
+  from public.offerings o2
+  left join public.reports r on r.offering_id = o2.id
+  group by o2.id
+) counts
+where counts.id = o.id;
+-- Deedlight Sprint 5 hotfix — admin edit + hide reliability.
+-- Safe to run after Sprint 5.
+
+-- 1. Make sure the offerings status check allows hidden content.
+do $$
+declare
+  constraint_row record;
+begin
+  for constraint_row in
+    select conname
+    from pg_constraint
+    where conrelid = 'public.offerings'::regclass
+      and contype = 'c'
+      and pg_get_constraintdef(oid) ilike '%status%'
+  loop
+    execute format('alter table public.offerings drop constraint if exists %I', constraint_row.conname);
+  end loop;
+end $$;
+
+alter table public.offerings
+add constraint offerings_status_check
+check (status in ('draft','pending','approved','rejected','needs_edit','hidden'));
+
+-- 2. Make sure authenticated admins can update all Offering statuses.
+grant select, insert, update on public.offerings to authenticated;
+grant all on public.offerings to service_role;
+
+drop policy if exists "offerings_update_own_or_admin" on public.offerings;
+create policy "offerings_update_own_or_admin"
+on public.offerings
+for update
+using (
+  public.is_admin()
+  or (
+    user_id = auth.uid()
+    and status in ('draft', 'needs_edit')
+  )
+)
+with check (
+  public.is_admin()
+  or (
+    user_id = auth.uid()
+    and status in ('draft', 'pending', 'needs_edit')
+  )
+);
+
+-- 3. Public views should only expose approved Offerings.
+create or replace view public.offerings_public
+with (security_invoker = true)
+as
+select
+  o.id,
+  o.user_id,
+  o.title,
+  o.body,
+  o.takeaway,
+  o.offering_type,
+  o.media_url,
+  o.media_type,
+  o.is_anonymous,
+  o.allow_reflections,
+  o.location_label,
+  o.bless_count,
+  o.inspired_count,
+  o.carried_forward_count,
+  o.reflection_count,
+  o.bless_score,
+  o.published_at,
+  t.name as theme_name,
+  case when o.is_anonymous then null else p.display_name end as author_name
+from public.offerings o
+left join public.themes t on t.id = o.theme_id
+left join public.profiles p on p.user_id = o.user_id
+where o.status = 'approved';
+
+grant select on public.offerings_public to anon, authenticated;
+-- Sprint 6 — Daily Deedlight Content System
+-- Adds daily content scheduling, archiving, featured offerings, reflections/check-ins, and short-video planning fields.
+
+create extension if not exists pgcrypto;
+
+-- Keep this helper available even if an older migration was not applied.
+create or replace function public.is_admin()
+returns boolean
+language sql
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.profiles
+    where user_id = auth.uid()
+      and role = 'admin'
+      and coalesce(is_suspended, false) = false
+  );
+$$;
+
+grant execute on function public.is_admin() to anon, authenticated;
+
+create table if not exists public.daily_posts (
+  id uuid primary key default gen_random_uuid(),
+  slug text unique,
+  scheduled_for date not null default current_date,
+  status text not null default 'draft',
+  kicker text default 'TODAY’S DEEDLIGHT',
+  title text not null default 'A new light can begin today.',
+  theme text,
+  summary text,
+  body text,
+  small_deed text,
+  reflection_prompt text,
+  featured_offering_id uuid references public.offerings(id) on delete set null,
+  image_url text,
+  video_title text,
+  video_hook text,
+  video_script text,
+  video_caption text,
+  youtube_url text,
+  video_status text not null default 'idea',
+  published_at timestamptz,
+  archived_at timestamptz,
+  created_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.daily_posts add column if not exists slug text;
+alter table public.daily_posts add column if not exists scheduled_for date not null default current_date;
+alter table public.daily_posts add column if not exists status text not null default 'draft';
+alter table public.daily_posts add column if not exists kicker text default 'TODAY’S DEEDLIGHT';
+alter table public.daily_posts add column if not exists title text not null default 'A new light can begin today.';
+alter table public.daily_posts add column if not exists theme text;
+alter table public.daily_posts add column if not exists summary text;
+alter table public.daily_posts add column if not exists body text;
+alter table public.daily_posts add column if not exists small_deed text;
+alter table public.daily_posts add column if not exists reflection_prompt text;
+alter table public.daily_posts add column if not exists featured_offering_id uuid references public.offerings(id) on delete set null;
+alter table public.daily_posts add column if not exists image_url text;
+alter table public.daily_posts add column if not exists video_title text;
+alter table public.daily_posts add column if not exists video_hook text;
+alter table public.daily_posts add column if not exists video_script text;
+alter table public.daily_posts add column if not exists video_caption text;
+alter table public.daily_posts add column if not exists youtube_url text;
+alter table public.daily_posts add column if not exists video_status text not null default 'idea';
+alter table public.daily_posts add column if not exists published_at timestamptz;
+alter table public.daily_posts add column if not exists archived_at timestamptz;
+alter table public.daily_posts add column if not exists created_by uuid references auth.users(id) on delete set null;
+alter table public.daily_posts add column if not exists created_at timestamptz not null default now();
+alter table public.daily_posts add column if not exists updated_at timestamptz not null default now();
+
+-- Add constraints safely only when absent.
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'daily_posts_status_check'
+  ) then
+    alter table public.daily_posts
+      add constraint daily_posts_status_check
+      check (status in ('draft', 'scheduled', 'published', 'archived'));
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint where conname = 'daily_posts_video_status_check'
+  ) then
+    alter table public.daily_posts
+      add constraint daily_posts_video_status_check
+      check (video_status in ('idea', 'scripted', 'recorded', 'published'));
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint where conname = 'daily_posts_slug_unique'
+  ) then
+    alter table public.daily_posts
+      add constraint daily_posts_slug_unique unique (slug);
+  end if;
+end $$;
+
+create index if not exists daily_posts_status_scheduled_idx
+  on public.daily_posts (status, scheduled_for desc);
+
+create index if not exists daily_posts_featured_offering_idx
+  on public.daily_posts (featured_offering_id);
+
+create table if not exists public.daily_reflections (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  daily_post_id uuid not null references public.daily_posts(id) on delete cascade,
+  reflection_text text,
+  did_today_deed boolean not null default false,
+  mood_label text,
+  is_private boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint daily_reflections_unique_user_post unique (user_id, daily_post_id)
+);
+
+alter table public.daily_reflections add column if not exists reflection_text text;
+alter table public.daily_reflections add column if not exists did_today_deed boolean not null default false;
+alter table public.daily_reflections add column if not exists mood_label text;
+alter table public.daily_reflections add column if not exists is_private boolean not null default true;
+alter table public.daily_reflections add column if not exists created_at timestamptz not null default now();
+alter table public.daily_reflections add column if not exists updated_at timestamptz not null default now();
+
+create index if not exists daily_reflections_post_idx on public.daily_reflections (daily_post_id);
+create index if not exists daily_reflections_user_idx on public.daily_reflections (user_id);
+
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists set_daily_posts_updated_at on public.daily_posts;
+create trigger set_daily_posts_updated_at
+before update on public.daily_posts
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_daily_reflections_updated_at on public.daily_reflections;
+create trigger set_daily_reflections_updated_at
+before update on public.daily_reflections
+for each row execute function public.set_updated_at();
+
+-- Grants
+grant usage on schema public to anon, authenticated, service_role;
+grant select on public.daily_posts to anon, authenticated;
+grant select, insert, update, delete on public.daily_posts to authenticated;
+grant select, insert, update, delete on public.daily_reflections to authenticated;
+grant all on public.daily_posts to service_role;
+grant all on public.daily_reflections to service_role;
+
+-- RLS
+alter table public.daily_posts enable row level security;
+alter table public.daily_reflections enable row level security;
+
+drop policy if exists "daily_posts_public_read_published" on public.daily_posts;
+create policy "daily_posts_public_read_published"
+on public.daily_posts
+for select
+using (status in ('published', 'archived'));
+
+drop policy if exists "daily_posts_admin_all" on public.daily_posts;
+create policy "daily_posts_admin_all"
+on public.daily_posts
+for all
+using (public.is_admin())
+with check (public.is_admin());
+
+drop policy if exists "daily_reflections_select_own_or_admin" on public.daily_reflections;
+create policy "daily_reflections_select_own_or_admin"
+on public.daily_reflections
+for select
+using (user_id = auth.uid() or public.is_admin());
+
+drop policy if exists "daily_reflections_insert_own" on public.daily_reflections;
+create policy "daily_reflections_insert_own"
+on public.daily_reflections
+for insert
+with check (user_id = auth.uid());
+
+drop policy if exists "daily_reflections_update_own" on public.daily_reflections;
+create policy "daily_reflections_update_own"
+on public.daily_reflections
+for update
+using (user_id = auth.uid() or public.is_admin())
+with check (user_id = auth.uid() or public.is_admin());
+
+drop policy if exists "daily_reflections_delete_admin" on public.daily_reflections;
+create policy "daily_reflections_delete_admin"
+on public.daily_reflections
+for delete
+using (public.is_admin());
+
+-- Seed one editable daily post if the table is empty.
+insert into public.daily_posts (
+  slug,
+  scheduled_for,
+  status,
+  kicker,
+  title,
+  theme,
+  summary,
+  body,
+  small_deed,
+  reflection_prompt,
+  video_title,
+  video_hook,
+  video_script,
+  video_caption,
+  video_status,
+  published_at
+)
+select
+  'a-new-light-can-begin-today',
+  current_date,
+  'published',
+  'TODAY’S DEEDLIGHT',
+  'A new light can begin today.',
+  'courage',
+  'Beauty is not only found in nature. Sometimes beauty appears when one person refuses to join cruelty.',
+  'Goodness does not prevail by accident. Today, choose one small act that protects dignity, reduces loneliness, or gives someone courage.',
+  'Say one gentle sentence in defense of someone who is being judged unfairly.',
+  'Where can I make one situation kinder today?',
+  'A new light can begin today',
+  'Goodness does not need a stage; it needs one person to begin.',
+  'Today’s Deedlight is simple: notice one place where dignity needs protection, then add one sentence of gentleness.',
+  'One small deed can keep light alive. #Deedlight #Goodness #Kindness',
+  'idea',
+  now()
+where not exists (select 1 from public.daily_posts);
+begin;
+
+create extension if not exists pgcrypto;
+
+create table if not exists public.daily_lights (
+  id uuid primary key default gen_random_uuid(),
+  scheduled_date date not null,
+  status text not null default 'draft',
+  kicker text default 'TODAY’S DEEDLIGHT',
+  title text,
+  theme text,
+  summary text,
+  small_deed text,
+  reflection_prompt text,
+  featured_offering_id uuid references public.offerings(id) on delete set null,
+  video_title text,
+  video_hook text,
+  video_script text,
+  archived_at timestamptz,
+  created_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.daily_lights add column if not exists scheduled_date date;
+alter table public.daily_lights add column if not exists status text default 'draft';
+alter table public.daily_lights add column if not exists kicker text default 'TODAY’S DEEDLIGHT';
+alter table public.daily_lights add column if not exists title text;
+alter table public.daily_lights add column if not exists theme text;
+alter table public.daily_lights add column if not exists summary text;
+alter table public.daily_lights add column if not exists small_deed text;
+alter table public.daily_lights add column if not exists reflection_prompt text;
+alter table public.daily_lights add column if not exists featured_offering_id uuid references public.offerings(id) on delete set null;
+alter table public.daily_lights add column if not exists video_title text;
+alter table public.daily_lights add column if not exists video_hook text;
+alter table public.daily_lights add column if not exists video_script text;
+alter table public.daily_lights add column if not exists archived_at timestamptz;
+alter table public.daily_lights add column if not exists created_by uuid references auth.users(id) on delete set null;
+alter table public.daily_lights add column if not exists created_at timestamptz not null default now();
+alter table public.daily_lights add column if not exists updated_at timestamptz not null default now();
+
+alter table public.daily_lights alter column status set default 'draft';
+alter table public.daily_lights alter column kicker set default 'TODAY’S DEEDLIGHT';
+
+update public.daily_lights
+set status = coalesce(status, 'draft'),
+    kicker = coalesce(kicker, 'TODAY’S DEEDLIGHT'),
+    title = coalesce(title, 'A new light can begin today.'),
+    updated_at = now()
+where status is null or kicker is null or title is null;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'daily_lights_scheduled_date_unique'
+      and conrelid = 'public.daily_lights'::regclass
+  ) then
+    alter table public.daily_lights
+      add constraint daily_lights_scheduled_date_unique unique (scheduled_date);
+  end if;
+end $$;
+
+create table if not exists public.daily_reflections (
+  id uuid primary key default gen_random_uuid(),
+  daily_light_id uuid references public.daily_lights(id) on delete cascade,
+  user_id uuid references auth.users(id) on delete cascade,
+  reflection text,
+  intention text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.daily_reflections add column if not exists daily_light_id uuid references public.daily_lights(id) on delete cascade;
+alter table public.daily_reflections add column if not exists user_id uuid references auth.users(id) on delete cascade;
+alter table public.daily_reflections add column if not exists reflection text;
+alter table public.daily_reflections add column if not exists intention text;
+alter table public.daily_reflections add column if not exists created_at timestamptz not null default now();
+alter table public.daily_reflections add column if not exists updated_at timestamptz not null default now();
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'daily_reflections_daily_light_user_unique'
+      and conrelid = 'public.daily_reflections'::regclass
+  ) then
+    alter table public.daily_reflections
+      add constraint daily_reflections_daily_light_user_unique unique (daily_light_id, user_id);
+  end if;
+end $$;
+
+alter table public.daily_lights enable row level security;
+alter table public.daily_reflections enable row level security;
+
+drop policy if exists "daily lights public read published" on public.daily_lights;
+create policy "daily lights public read published"
+on public.daily_lights
+for select
+to anon, authenticated
+using (status = 'published' or public.is_admin());
+
+drop policy if exists "daily lights admin insert" on public.daily_lights;
+create policy "daily lights admin insert"
+on public.daily_lights
+for insert
+to authenticated
+with check (public.is_admin());
+
+drop policy if exists "daily lights admin update" on public.daily_lights;
+create policy "daily lights admin update"
+on public.daily_lights
+for update
+to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+drop policy if exists "daily lights admin delete" on public.daily_lights;
+create policy "daily lights admin delete"
+on public.daily_lights
+for delete
+to authenticated
+using (public.is_admin());
+
+drop policy if exists "daily reflections select own or admin" on public.daily_reflections;
+create policy "daily reflections select own or admin"
+on public.daily_reflections
+for select
+to authenticated
+using (user_id = auth.uid() or public.is_admin());
+
+drop policy if exists "daily reflections insert own" on public.daily_reflections;
+create policy "daily reflections insert own"
+on public.daily_reflections
+for insert
+to authenticated
+with check (user_id = auth.uid());
+
+drop policy if exists "daily reflections update own or admin" on public.daily_reflections;
+create policy "daily reflections update own or admin"
+on public.daily_reflections
+for update
+to authenticated
+using (user_id = auth.uid() or public.is_admin())
+with check (user_id = auth.uid() or public.is_admin());
+
+grant select on public.daily_lights to anon, authenticated;
+grant insert, update, delete on public.daily_lights to authenticated;
+grant select, insert, update on public.daily_reflections to authenticated;
+grant all on public.daily_lights to service_role;
+grant all on public.daily_reflections to service_role;
+
+commit;
+-- Sprint 8 — Short Video Studio
+-- Adds reusable short-video planning, publishing, and public embed fields to daily_lights.
+
+begin;
+
+alter table public.daily_lights
+  add column if not exists video_status text not null default 'not_started',
+  add column if not exists video_platform text,
+  add column if not exists video_hashtags text,
+  add column if not exists video_notes text,
+  add column if not exists video_asset_url text,
+  add column if not exists tiktok_url text,
+  add column if not exists instagram_url text,
+  add column if not exists short_video_public boolean not null default false,
+  add column if not exists video_posted_at timestamptz;
+
+update public.daily_lights
+set video_status = 'not_started'
+where video_status is null
+   or video_status not in ('not_started', 'planned', 'scripted', 'recorded', 'posted', 'archived');
+
+alter table public.daily_lights
+  alter column video_status set default 'not_started',
+  alter column video_status set not null,
+  alter column short_video_public set default false,
+  alter column short_video_public set not null;
+
+alter table public.daily_lights
+  drop constraint if exists daily_lights_video_status_check;
+
+alter table public.daily_lights
+  add constraint daily_lights_video_status_check
+  check (video_status in ('not_started', 'planned', 'scripted', 'recorded', 'posted', 'archived'));
+
+create index if not exists daily_lights_video_status_idx
+  on public.daily_lights(video_status);
+
+create index if not exists daily_lights_video_public_idx
+  on public.daily_lights(short_video_public)
+  where short_video_public = true;
+
+create index if not exists daily_lights_video_posted_at_idx
+  on public.daily_lights(video_posted_at desc);
+
+grant select on public.daily_lights to anon, authenticated;
+grant insert, update, delete on public.daily_lights to authenticated;
+grant all on public.daily_lights to service_role;
+
+commit;
 -- Sprint 9.1 — Profiles + Community Trust
 -- Migration-first privacy foundation.
 
@@ -842,7 +1775,6 @@ on table public.offerings_public
 to anon, authenticated, service_role;
 
 commit;
-
 -- Sprint 9.2 — Community Identity Consistency
 -- Keeps public identity projections privacy-minimized and repairs Rising Goodness
 -- after Sprint 9.1 added author_username to offerings_public.
@@ -980,18 +1912,6 @@ from anon;
 notify pgrst, 'reload schema';
 
 commit;
-
--- =====================================================================
--- END SPRINT 9.1 + 9.2 CANONICAL PARITY
--- =====================================================================
-
-
--- =====================================================================
--- BEGIN SPRINT 9.3 MODERATION-AWARE MEMBERS PARITY
--- Canonical Sprint 9.3 migration appended so the aggregate SQL reaches
--- the same final moderation and suspension-policy state.
--- =====================================================================
-
 -- Sprint 9.3 — Moderation-aware Members
 -- Adds auditable member suspension/restore controls and closes community-write
 -- suspension gaps without exposing or changing private Daily reflections.
@@ -1478,12 +2398,6 @@ with check (
 notify pgrst, 'reload schema';
 
 commit;
-
--- =====================================================================
--- END SPRINT 9.3 MODERATION-AWARE MEMBERS PARITY
--- =====================================================================
-
--- BEGIN SPRINT 10.1 DAILY DEED COMPLETION
 -- Sprint 10.1 — Daily Habit & Retention
 -- "I Did Today's Deed"
 --
@@ -1671,9 +2585,6 @@ $$;
 notify pgrst, 'reload schema';
 
 commit;
--- END SPRINT 10.1 DAILY DEED COMPLETION
-
--- BEGIN SPRINT 10.2 SAVED LIGHTS + GENTLE RHYTHM
 -- Sprint 10.2 — Saved Lights + Gentle Rhythm
 -- Extends the legacy saved_lights table to current Daily Lights and hardens
 -- browser privileges. Saved rows remain private; rhythm remains derived only
@@ -1796,9 +2707,6 @@ to service_role;
 notify pgrst, 'reload schema';
 
 commit;
--- END SPRINT 10.2 SAVED LIGHTS + GENTLE RHYTHM
-
--- BEGIN SPRINT 10.3A GENTLE DAILY REMINDER PREFERENCES
 -- Sprint 10.3A — Gentle Daily Reminder Preferences
 -- Stores private, opt-in reminder preferences without introducing delivery transport.
 -- Reminder delivery remains a later infrastructure step.
@@ -1903,8 +2811,6 @@ to service_role;
 notify pgrst, 'reload schema';
 
 commit;
--- END SPRINT 10.3A GENTLE DAILY REMINDER PREFERENCES
-
 -- Sprint 11.2 — Weekly Goodness
 -- Seven-day public Offering activity plus an optional database-admin-curated
 -- Featured Light. No reflection, Daily completion, Saved Light, or reminder
@@ -2201,7 +3107,6 @@ to authenticated, service_role;
 notify pgrst, 'reload schema';
 
 commit;
-
 -- Sprint 11.3 — Invitations & Newsletter Foundation
 -- Private invitation attribution and explicit account-linked newsletter consent.
 -- No email/newsletter delivery provider is introduced by this migration.
@@ -2647,7 +3552,6 @@ for each row execute function public.handle_growth_signup();
 notify pgrst, 'reload schema';
 
 commit;
-
 -- Sprint 12.1 — Offering Ownership & Engagement
 -- Adds safe owner editing/removal/restore flows and private Offering saves.
 -- Public attribution remains privacy-minimized; no public save counts or owner UUIDs are introduced.
@@ -3099,7 +4003,6 @@ to authenticated;
 notify pgrst, 'reload schema';
 
 commit;
-
 -- Sprint 12.1 owner-removal moderation guard hotfix.
 -- Records the narrow Production repair applied after migration 017.
 -- Rejected Offerings cannot use Remove -> Restore to bypass moderation.
@@ -3224,8 +4127,6 @@ to authenticated;
 notify pgrst, 'reload schema';
 
 commit;
-
-
 -- Sprint 12.2 — Gentle Delivery Foundation
 -- Transport-neutral queueing and authorization gates only.
 -- This migration does not configure a cron trigger or any outbound provider.
@@ -3805,7 +4706,6 @@ to service_role;
 notify pgrst, 'reload schema';
 
 commit;
-
 -- Delivery Reliability Hardening
 -- Adds bounded claim leases and retry safety without activating transport.
 
@@ -4297,8 +5197,6 @@ to service_role;
 notify pgrst, 'reload schema';
 
 commit;
-
-
 -- Gentle Delivery Transport — provider-idempotency boundary and weekly scheduler helper.
 -- Requires delivery reliability migration 020.
 
@@ -4421,8 +5319,6 @@ to service_role;
 notify pgrst, 'reload schema';
 
 commit;
-
-
 -- Production Auth hotfix — schema-qualify pgcrypto in the auth.users profile trigger.
 --
 -- Supabase keeps pgcrypto in the `extensions` schema while the auth service
@@ -4470,8 +5366,6 @@ end;
 $$;
 
 commit;
-
-
 -- Delivery consent linearization and starvation-free enqueue.
 -- Migration 023: additive function replacements, no runtime activation.
 begin;
@@ -4768,8 +5662,6 @@ comment on function public.begin_delivery_transport(uuid, uuid)
 
 notify pgrst, 'reload schema';
 commit;
-
-
 -- Delivery recipient identity, actual lease clock, Weekly capacity (migration 024).
 begin;
 do $$
@@ -5097,7 +5989,6 @@ to service_role;
 
 notify pgrst, 'reload schema';
 commit;
-
 -- Resend bounce/complaint intake, replay suppression and transport gate.
 -- Migration 025 is additive and does not activate outbound delivery.
 
@@ -5590,7 +6481,6 @@ comment on function public.begin_delivery_transport(uuid, uuid, text)
 
 notify pgrst, 'reload schema';
 commit;
-
 -- Provider lifecycle observability. This migration is additive; migration 025 is immutable.
 begin;
 
@@ -5996,8 +6886,6 @@ to service_role;
 
 notify pgrst, 'reload schema';
 commit;
-
--- Migration 027: provider event idempotency and lifecycle integrity.
 -- Fail-closed provider event idempotency and lifecycle integrity.
 -- Migration 025 remains immutable; all changes are additive.
 begin;
@@ -6605,7 +7493,6 @@ to service_role;
 
 notify pgrst, 'reload schema';
 commit;
-
 -- Correct lease expiry checks after ledger-row lock waits.
 -- Migration 020 remains immutable; this additive migration replaces its four
 -- transport-sensitive transitions using wall-clock time after row locking.
@@ -6821,7 +7708,6 @@ grant execute on function public.mark_delivery_failed(uuid, uuid, text) to servi
 
 notify pgrst, 'reload schema';
 commit;
-
 -- Restrict fingerprint-less provider RPCs to existing historical replays.
 -- Migration 027 remains immutable; new events require the fingerprinted 9-argument RPC.
 begin;
@@ -6996,7 +7882,6 @@ to service_role;
 
 notify pgrst, 'reload schema';
 commit;
-
 -- Make provider idempotency timing database-authoritative and validate Resend receipts.
 begin;
 do $migration_030_preflight$
@@ -7211,7 +8096,6 @@ comment on function public.mark_delivery_sent(uuid,uuid,text)
 is 'deedlight:030:validated-resend-receipt-and-transport-evidence:v1';
 notify pgrst,'reload schema';
 commit;
-
 -- Revalidate the exact recipient, current consent and provider suppression at the final send boundary.
 -- Migration 031 replaces migration 030's last pre-send authorization RPC.
 begin;
@@ -7400,7 +8284,6 @@ is 'deedlight:031:final-recipient-consent-and-suppression-gate:v1';
 
 notify pgrst, 'reload schema';
 commit;
-
 -- Resend managed suppression-list webhook synchronization.
 -- Removal clears only provider-level suppression; Deedlight complaint/bounce holds remain.
 begin;
@@ -7791,7 +8674,6 @@ is 'deedlight:032:resend-suppression-list-sync:v1';
 
 notify pgrst, 'reload schema';
 commit;
-
 -- Reconcile email.suppressed lifecycle events with the migration-032 provider-state projection.
 -- A late generic lifecycle event cannot restore a manual suppression removed later by Resend.
 begin;
@@ -7921,7 +8803,6 @@ is 'deedlight:033:cross-stream-suppression-order:v1';
 
 notify pgrst, 'reload schema';
 commit;
-
 -- Forward-only hardening for cross-stream provider suppression event timestamps.
 -- Keep migrations 032/033 immutable; this replaces only the suppression-list RPC.
 begin;
@@ -8238,7 +9119,6 @@ is 'deedlight:034:provider-suppression-timestamp-order:v1';
 
 notify pgrst, 'reload schema';
 commit;
-
 -- DeedLight privacy hardening: public Offering access stays on the projection.
 -- The Sprint 5 base-table policy survived Sprint 9's projection boundary and
 -- exposed approved rows (including internal columns) to every authenticated member.
@@ -8254,3 +9134,2633 @@ drop policy if exists "offerings_public_approved_read"
 on public.offerings;
 
 commit;
+-- Private Daily Journey reflection authorization hardening.
+-- Reflection contents are visible and mutable only by their owning member.
+-- Administrator moderation continues through narrow projections that exclude reflections.
+
+begin;
+
+alter table public.daily_reflections
+  enable row level security;
+
+-- Both historical migrations created permissive policies using different names.
+drop policy if exists "daily_reflections_select_own_or_admin"
+on public.daily_reflections;
+
+drop policy if exists "daily reflections select own or admin"
+on public.daily_reflections;
+
+drop policy if exists "daily_reflections_select_own"
+on public.daily_reflections;
+
+create policy "daily_reflections_select_own"
+on public.daily_reflections
+for select
+to authenticated
+using (
+  user_id = auth.uid()
+);
+
+drop policy if exists "daily_reflections_insert_own"
+on public.daily_reflections;
+
+drop policy if exists "daily reflections insert own"
+on public.daily_reflections;
+
+create policy "daily_reflections_insert_own"
+on public.daily_reflections
+for insert
+to authenticated
+with check (
+  user_id = auth.uid()
+);
+
+drop policy if exists "daily_reflections_update_own"
+on public.daily_reflections;
+
+drop policy if exists "daily reflections update own or admin"
+on public.daily_reflections;
+
+create policy "daily_reflections_update_own"
+on public.daily_reflections
+for update
+to authenticated
+using (
+  user_id = auth.uid()
+)
+with check (
+  user_id = auth.uid()
+);
+
+-- No browser role, including administrators, may delete private reflections.
+drop policy if exists "daily_reflections_delete_admin"
+on public.daily_reflections;
+
+drop policy if exists "daily reflections delete admin"
+on public.daily_reflections;
+
+revoke all privileges
+on table public.daily_reflections
+from public, anon, authenticated;
+
+grant select, insert, update
+on table public.daily_reflections
+to authenticated;
+
+-- Retain the existing trusted server-only database capability.
+grant all privileges
+on table public.daily_reflections
+to service_role;
+
+notify pgrst, 'reload schema';
+
+commit;
+-- Durable recipient-scoped provider-integrity conflict evidence.
+-- Migration 036 remains immutable. This migration adds an auditable case/evidence model
+-- and wraps the existing provider RPCs without changing their trusted caller signatures.
+
+begin;
+
+do $migration_037_preflight$
+declare
+  v_lifecycle_comment text;
+  v_suppression_comment text;
+begin
+  if to_regclass('public.delivery_provider_events') is null
+    or to_regclass('public.delivery_provider_lifecycle') is null
+    or to_regclass('public.delivery_provider_suppressions') is null
+    or to_regclass('public.delivery_provider_suppression_state') is null
+    or to_regclass('public.delivery_provider_integrity_anomalies') is null
+    or to_regprocedure('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)') is null
+    or to_regprocedure('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text)') is null
+    or to_regprocedure('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text)') is null
+    or to_regprocedure('public.record_delivery_provider_event(text,text,text,text,text)') is null
+    or to_regprocedure('public.record_delivery_provider_suppression_event(text,text,text,text,text,text,timestamptz,timestamptz,text)') is null
+    or to_regprocedure('public._record_delivery_provider_lifecycle_event_fingerprinted_impl(text,text,text,text,timestamptz,text,text,text,text)') is null
+    or to_regprocedure('public.is_admin()') is null then
+    raise exception 'Migration 037 requires the reviewed provider RPC, suppression-state, integrity and admin prerequisites.';
+  end if;
+
+  select obj_description(
+    to_regprocedure('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)'),
+    'pg_proc'
+  ) into v_lifecycle_comment;
+  select obj_description(
+    to_regprocedure('public.record_delivery_provider_suppression_event(text,text,text,text,text,text,timestamptz,timestamptz,text)'),
+    'pg_proc'
+  ) into v_suppression_comment;
+
+  if v_lifecycle_comment is distinct from 'deedlight:033:cross-stream-suppression-order:v1'
+    or v_suppression_comment is distinct from 'deedlight:034:provider-suppression-timestamp-order:v1' then
+    raise exception 'Migration 037 refuses an unrecognized provider RPC implementation.';
+  end if;
+
+  if to_regprocedure('public._record_delivery_provider_lifecycle_event_pre037_impl(text,text,text,text,timestamptz,text,text,text,text)') is not null
+    or to_regprocedure('public._record_delivery_provider_suppression_event_pre037_impl(text,text,text,text,text,text,timestamptz,timestamptz,text)') is not null
+    or to_regclass('public.delivery_provider_integrity_cases') is not null
+    or to_regclass('public.delivery_provider_integrity_conflict_evidence') is not null
+    or to_regclass('public.delivery_provider_integrity_conflict_history') is not null then
+    raise exception 'Migration 037 refuses pre-existing objects with an unknown origin.';
+  end if;
+end;
+$migration_037_preflight$;
+
+create table public.delivery_provider_integrity_cases (
+  conflict_id bigint generated always as identity primary key,
+  recipient_email text not null
+    check (
+      char_length(recipient_email) between 3 and 320
+      and recipient_email = lower(btrim(recipient_email))
+      and recipient_email !~ '[[:space:][:cntrl:]]'
+      and position('@' in recipient_email) > 1
+    ),
+  anomaly_type text not null
+    check (anomaly_type in (
+      'duplicate_event_id_conflict',
+      'contradictory_terminal_outcome',
+      'suppression_event_timestamp_conflict',
+      'provider_email_recipient_conflict',
+      'provider_suppression_recipient_conflict'
+    )),
+  state text not null default 'open'
+    check (state in ('open', 'resolved')),
+  first_detected_at timestamptz not null default clock_timestamp(),
+  last_detected_at timestamptz not null default clock_timestamp(),
+  resolved_at timestamptz,
+  resolved_by uuid references auth.users(id) on delete restrict,
+  resolution_note text,
+  created_at timestamptz not null default clock_timestamp(),
+  updated_at timestamptz not null default clock_timestamp(),
+  constraint delivery_provider_integrity_cases_resolution_shape_check
+    check (
+      (state = 'open' and resolved_at is null and resolved_by is null and resolution_note is null)
+      or
+      (state = 'resolved' and resolved_at is not null and resolved_by is not null
+        and resolution_note is not null and char_length(btrim(resolution_note)) between 12 and 2000)
+    ),
+  constraint delivery_provider_integrity_cases_recipient_anomaly_unique
+    unique (recipient_email, anomaly_type)
+);
+
+create index delivery_provider_integrity_cases_state_detected_idx
+  on public.delivery_provider_integrity_cases (state, last_detected_at desc);
+
+create table public.delivery_provider_integrity_conflict_evidence (
+  evidence_id bigint generated always as identity primary key,
+  conflict_id bigint not null
+    references public.delivery_provider_integrity_cases(conflict_id) on delete restrict,
+  recipient_email text not null
+    check (
+      char_length(recipient_email) between 3 and 320
+      and recipient_email = lower(btrim(recipient_email))
+      and recipient_email !~ '[[:space:][:cntrl:]]'
+      and position('@' in recipient_email) > 1
+    ),
+  event_id text not null check (char_length(event_id) between 1 and 255),
+  related_event_id text
+    references public.delivery_provider_events(event_id) on delete restrict,
+  event_type text not null
+    check (event_type in (
+      'email.sent',
+      'email.delivered',
+      'email.delivery_delayed',
+      'email.bounced',
+      'email.complained',
+      'email.suppressed',
+      'email.failed',
+      'suppression.added',
+      'suppression.removed'
+    )),
+  provider_email_id text,
+  provider_suppression_id text,
+  provider_created_at timestamptz,
+  bounce_type text
+    check (bounce_type is null or bounce_type in ('Permanent', 'Transient', 'Unknown')),
+  failure_class text
+    check (failure_class is null or failure_class in (
+      'invalid_recipient',
+      'provider_authentication',
+      'domain_verification',
+      'quota_exceeded',
+      'content_rejected',
+      'unknown'
+    )),
+  suppression_reason text
+    check (suppression_reason is null or suppression_reason in (
+      'previous_bounce',
+      'previous_complaint',
+      'provider_suppressed'
+    )),
+  suppression_origin text
+    check (suppression_origin is null or suppression_origin in ('bounce', 'complaint', 'manual')),
+  suppression_source_id text,
+  suppression_created_at timestamptz,
+  payload_fingerprint text
+    check (payload_fingerprint is null or payload_fingerprint ~ '^[0-9a-f]{64}$'),
+  stored_event_id text not null
+    references public.delivery_provider_events(event_id) on delete restrict,
+  stored_recipient_email text not null
+    check (
+      char_length(stored_recipient_email) between 3 and 320
+      and stored_recipient_email = lower(btrim(stored_recipient_email))
+      and stored_recipient_email !~ '[[:space:][:cntrl:]]'
+      and position('@' in stored_recipient_email) > 1
+    ),
+  evidence_source text not null
+    check (evidence_source in ('provider_rpc', 'legacy_anomaly_backfill')),
+  observed_at timestamptz not null default clock_timestamp(),
+  constraint delivery_provider_integrity_conflict_evidence_event_shape_check
+    check (
+      (event_type in ('suppression.added', 'suppression.removed')
+        and provider_email_id is null and provider_suppression_id is not null)
+      or
+      (event_type not in ('suppression.added', 'suppression.removed')
+        and provider_email_id is not null and provider_suppression_id is null)
+    )
+);
+
+create index delivery_provider_integrity_conflict_evidence_case_order_idx
+  on public.delivery_provider_integrity_conflict_evidence (conflict_id, observed_at desc, evidence_id desc);
+
+-- A repeated signed payload is the same evidence. Fingerprint-less legacy conflicts
+-- remain individually visible because their identity cannot be proven.
+create unique index delivery_provider_integrity_conflict_evidence_fingerprint_idx
+  on public.delivery_provider_integrity_conflict_evidence (conflict_id, payload_fingerprint)
+  where payload_fingerprint is not null;
+
+create table public.delivery_provider_integrity_conflict_history (
+  history_id bigint generated always as identity primary key,
+  conflict_id bigint not null
+    references public.delivery_provider_integrity_cases(conflict_id) on delete restrict,
+  action text not null check (action in ('resolved', 'reopened')),
+  actor_id uuid references auth.users(id) on delete restrict,
+  note text not null check (char_length(btrim(note)) between 12 and 2000),
+  evidence_id bigint
+    references public.delivery_provider_integrity_conflict_evidence(evidence_id) on delete restrict,
+  created_at timestamptz not null default clock_timestamp(),
+  constraint delivery_provider_integrity_conflict_history_actor_check
+    check (
+      (action = 'resolved' and actor_id is not null and evidence_id is null)
+      or (action = 'reopened' and actor_id is null and evidence_id is not null)
+    )
+);
+
+create index delivery_provider_integrity_conflict_history_case_order_idx
+  on public.delivery_provider_integrity_conflict_history (conflict_id, created_at, history_id);
+
+alter table public.delivery_provider_integrity_cases enable row level security;
+alter table public.delivery_provider_integrity_conflict_evidence enable row level security;
+alter table public.delivery_provider_integrity_conflict_history enable row level security;
+
+revoke all privileges on table public.delivery_provider_integrity_cases
+  from public, anon, authenticated, service_role;
+revoke all privileges on table public.delivery_provider_integrity_conflict_evidence
+  from public, anon, authenticated, service_role;
+revoke all privileges on table public.delivery_provider_integrity_conflict_history
+  from public, anon, authenticated, service_role;
+
+comment on table public.delivery_provider_integrity_cases
+  is 'Private recipient-scoped provider-integrity cases. Case state is mutable only through guarded internal/admin RPCs.';
+comment on table public.delivery_provider_integrity_conflict_evidence
+  is 'Private append-only normalized provider conflict evidence; stores fingerprints and event fields, never raw webhook bodies or diagnostics.';
+comment on table public.delivery_provider_integrity_conflict_history
+  is 'Private append-only resolution/reopening audit trail for provider-integrity cases.';
+
+create or replace function public._deny_delivery_provider_integrity_audit_mutation()
+returns trigger
+language plpgsql
+security definer
+set search_path = pg_catalog
+as $immutable$
+begin
+  raise exception 'Provider-integrity evidence and resolution history are append-only.'
+    using errcode = '42501';
+end;
+$immutable$;
+
+revoke all privileges
+on function public._deny_delivery_provider_integrity_audit_mutation()
+from public, anon, authenticated, service_role;
+
+create trigger delivery_provider_integrity_conflict_evidence_immutable
+before update or delete on public.delivery_provider_integrity_conflict_evidence
+for each row execute function public._deny_delivery_provider_integrity_audit_mutation();
+
+create trigger delivery_provider_integrity_conflict_history_immutable
+before update or delete on public.delivery_provider_integrity_conflict_history
+for each row execute function public._deny_delivery_provider_integrity_audit_mutation();
+
+-- Preserve every historical anomaly marker that can be tied to a known recipient.
+-- Earlier migrations did not retain the conflicting payload, so this backfill records
+-- only the canonical event fields that actually exist and labels them as legacy evidence.
+insert into public.delivery_provider_integrity_cases (
+  recipient_email, anomaly_type, first_detected_at, last_detected_at
+)
+select
+  e.recipient_email,
+  a.anomaly_type,
+  min(a.detected_at),
+  max(a.detected_at)
+from public.delivery_provider_integrity_anomalies a
+join public.delivery_provider_events e on e.event_id = a.event_id
+group by e.recipient_email, a.anomaly_type
+on conflict (recipient_email, anomaly_type) do nothing;
+
+insert into public.delivery_provider_integrity_conflict_evidence (
+  conflict_id,
+  recipient_email,
+  event_id,
+  related_event_id,
+  event_type,
+  provider_email_id,
+  provider_suppression_id,
+  provider_created_at,
+  bounce_type,
+  failure_class,
+  suppression_reason,
+  suppression_origin,
+  suppression_source_id,
+  suppression_created_at,
+  payload_fingerprint,
+  stored_event_id,
+  stored_recipient_email,
+  evidence_source,
+  observed_at
+)
+select
+  c.conflict_id,
+  e.recipient_email,
+  a.event_id,
+  a.related_event_id,
+  e.event_type,
+  e.provider_email_id,
+  e.provider_suppression_id,
+  e.provider_created_at,
+  e.bounce_type,
+  e.failure_class,
+  e.suppression_reason,
+  e.suppression_origin,
+  e.suppression_source_id,
+  e.suppression_created_at,
+  e.payload_fingerprint,
+  stored.event_id,
+  stored.recipient_email,
+  'legacy_anomaly_backfill',
+  a.detected_at
+from public.delivery_provider_integrity_anomalies a
+join public.delivery_provider_events e on e.event_id = a.event_id
+join public.delivery_provider_integrity_cases c
+  on c.recipient_email = e.recipient_email
+ and c.anomaly_type = a.anomaly_type
+join public.delivery_provider_events stored
+  on stored.event_id = coalesce(a.related_event_id, a.event_id)
+on conflict do nothing;
+
+create or replace function public._record_delivery_provider_integrity_conflict(
+  p_recipient_email text,
+  p_event_id text,
+  p_related_event_id text,
+  p_anomaly_type text,
+  p_event_type text,
+  p_provider_email_id text,
+  p_provider_suppression_id text,
+  p_provider_created_at timestamptz,
+  p_bounce_type text,
+  p_failure_class text,
+  p_suppression_reason text,
+  p_suppression_origin text,
+  p_suppression_source_id text,
+  p_suppression_created_at timestamptz,
+  p_payload_fingerprint text,
+  p_stored_event_id text,
+  p_stored_recipient_email text
+)
+returns bigint
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $record_conflict$
+declare
+  v_email text;
+  v_now timestamptz := clock_timestamp();
+  v_conflict_id bigint;
+  v_evidence_id bigint;
+  v_state text;
+begin
+  v_email := lower(btrim(p_recipient_email));
+  if p_event_id is null or char_length(p_event_id) not between 1 and 255
+    or p_anomaly_type is null or p_anomaly_type not in (
+      'duplicate_event_id_conflict',
+      'contradictory_terminal_outcome',
+      'suppression_event_timestamp_conflict',
+      'provider_email_recipient_conflict',
+      'provider_suppression_recipient_conflict'
+    )
+    or p_event_type is null or p_event_type not in (
+      'email.sent', 'email.delivered', 'email.delivery_delayed', 'email.bounced',
+      'email.complained', 'email.suppressed', 'email.failed',
+      'suppression.added', 'suppression.removed'
+    )
+    or p_stored_event_id is null or char_length(p_stored_event_id) not between 1 and 255
+    or p_payload_fingerprint is not null and p_payload_fingerprint !~ '^[0-9a-f]{64}$'
+    or char_length(v_email) not between 3 and 320
+    or v_email !~ '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$'
+    or p_stored_recipient_email is null
+    or p_stored_recipient_email <> lower(btrim(p_stored_recipient_email)) then
+    raise exception 'Invalid normalized provider-integrity conflict evidence.' using errcode = '22023';
+  end if;
+
+  insert into public.delivery_provider_integrity_cases (
+    recipient_email, anomaly_type, first_detected_at, last_detected_at
+  ) values (
+    v_email, p_anomaly_type, v_now, v_now
+  )
+  on conflict (recipient_email, anomaly_type) do nothing
+  returning conflict_id into v_conflict_id;
+
+  if v_conflict_id is null then
+    select c.conflict_id, c.state
+      into v_conflict_id, v_state
+    from public.delivery_provider_integrity_cases c
+    where c.recipient_email = v_email
+      and c.anomaly_type = p_anomaly_type
+    for update;
+  else
+    select c.state into v_state
+    from public.delivery_provider_integrity_cases c
+    where c.conflict_id = v_conflict_id
+    for update;
+  end if;
+
+  if v_conflict_id is null then
+    raise exception 'Provider-integrity case could not be locked.' using errcode = 'XX000';
+  end if;
+
+  insert into public.delivery_provider_integrity_conflict_evidence (
+    conflict_id,
+    recipient_email,
+    event_id,
+    related_event_id,
+    event_type,
+    provider_email_id,
+    provider_suppression_id,
+    provider_created_at,
+    bounce_type,
+    failure_class,
+    suppression_reason,
+    suppression_origin,
+    suppression_source_id,
+    suppression_created_at,
+    payload_fingerprint,
+    stored_event_id,
+    stored_recipient_email,
+    evidence_source,
+    observed_at
+  ) values (
+    v_conflict_id,
+    v_email,
+    p_event_id,
+    p_related_event_id,
+    p_event_type,
+    p_provider_email_id,
+    p_provider_suppression_id,
+    p_provider_created_at,
+    p_bounce_type,
+    p_failure_class,
+    p_suppression_reason,
+    p_suppression_origin,
+    p_suppression_source_id,
+    p_suppression_created_at,
+    p_payload_fingerprint,
+    p_stored_event_id,
+    lower(btrim(p_stored_recipient_email)),
+    'provider_rpc',
+    v_now
+  )
+  on conflict (conflict_id, payload_fingerprint)
+    where payload_fingerprint is not null
+    do nothing
+  returning evidence_id into v_evidence_id;
+
+  -- An identical signed payload is not new evidence and cannot reopen a case.
+  if v_evidence_id is null then
+    return v_conflict_id;
+  end if;
+
+  if v_state = 'resolved' then
+    insert into public.delivery_provider_integrity_conflict_history (
+      conflict_id, action, actor_id, note, evidence_id, created_at
+    ) values (
+      v_conflict_id,
+      'reopened',
+      null,
+      'New conflicting provider evidence arrived after resolution; the prior resolution is retained in this audit history.',
+      v_evidence_id,
+      v_now
+    );
+  end if;
+
+  update public.delivery_provider_integrity_cases
+  set state = 'open',
+      last_detected_at = v_now,
+      resolved_at = null,
+      resolved_by = null,
+      resolution_note = null,
+      updated_at = v_now
+  where conflict_id = v_conflict_id;
+
+  return v_conflict_id;
+end;
+$record_conflict$;
+
+revoke all privileges
+on function public._record_delivery_provider_integrity_conflict(text,text,text,text,text,text,text,timestamptz,text,text,text,text,text,timestamptz,text,text,text)
+from public, anon, authenticated, service_role;
+
+comment on function public._record_delivery_provider_integrity_conflict(text,text,text,text,text,text,text,timestamptz,text,text,text,text,text,timestamptz,text,text,text)
+  is 'Private migration-037 helper. Call only while holding the provider RPC recipient and correlation advisory locks.';
+
+-- Keep the prior lifecycle implementation private and call it only after acquiring
+-- the same recipient-then-provider-ID transaction locks used by migration 027.
+alter function public.record_delivery_provider_lifecycle_event(
+  text, text, text, text, timestamptz, text, text, text, text
+) rename to _record_delivery_provider_lifecycle_event_pre037_impl;
+
+revoke all privileges
+on function public._record_delivery_provider_lifecycle_event_pre037_impl(
+  text, text, text, text, timestamptz, text, text, text, text
+)
+from public, anon, authenticated, service_role;
+
+comment on function public._record_delivery_provider_lifecycle_event_pre037_impl(
+  text, text, text, text, timestamptz, text, text, text, text
+)
+is 'Private pre-037 lifecycle RPC; preserves migration 033 cross-stream behavior and migration 029 fingerprint enforcement.';
+
+create function public.record_delivery_provider_lifecycle_event(
+  p_event_id text,
+  p_event_type text,
+  p_provider_email_id text,
+  p_recipient_email text,
+  p_provider_created_at timestamptz,
+  p_bounce_type text,
+  p_failure_class text,
+  p_suppression_reason text,
+  p_payload_fingerprint text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $lifecycle_037$
+declare
+  v_email text;
+  v_existing public.delivery_provider_events%rowtype;
+  v_related public.delivery_provider_events%rowtype;
+  v_anomaly public.delivery_provider_integrity_anomalies%rowtype;
+  v_existing_lifecycle public.delivery_provider_lifecycle%rowtype;
+  v_had_lifecycle boolean := false;
+  v_result boolean;
+begin
+  if p_event_id is null or char_length(p_event_id) not between 1 and 255
+    or p_event_type is null
+    or p_event_type not in (
+      'email.sent', 'email.delivered', 'email.delivery_delayed', 'email.bounced',
+      'email.complained', 'email.suppressed', 'email.failed'
+    )
+    or p_provider_email_id is null
+    or char_length(p_provider_email_id) not between 1 and 255
+    or p_recipient_email is null
+    or char_length(p_recipient_email) > 320
+    or p_provider_created_at is null
+    or (p_payload_fingerprint is not null and p_payload_fingerprint !~ '^[0-9a-f]{64}$') then
+    raise exception 'Invalid delivery provider lifecycle event.' using errcode = '22023';
+  end if;
+
+  v_email := lower(btrim(p_recipient_email));
+  if char_length(v_email) not between 3 and 320
+    or v_email !~ '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$' then
+    raise exception 'Invalid delivery provider recipient.' using errcode = '22023';
+  end if;
+
+  if p_event_type = 'email.bounced' then
+    if p_bounce_type is null or p_bounce_type not in ('Permanent', 'Transient', 'Unknown') then
+      raise exception 'Invalid delivery bounce classification.' using errcode = '22023';
+    end if;
+  elsif p_bounce_type is not null then
+    raise exception 'Bounce classification is only valid for bounced events.' using errcode = '22023';
+  end if;
+
+  if p_event_type = 'email.failed' then
+    if p_failure_class is null or p_failure_class not in (
+      'invalid_recipient', 'provider_authentication', 'domain_verification',
+      'quota_exceeded', 'content_rejected', 'unknown'
+    ) then
+      raise exception 'Invalid normalized provider failure classification.' using errcode = '22023';
+    end if;
+  elsif p_failure_class is not null then
+    raise exception 'Failure classification is only valid for failed events.' using errcode = '22023';
+  end if;
+
+  if p_event_type = 'email.suppressed' then
+    if p_suppression_reason is null or p_suppression_reason not in (
+      'previous_bounce', 'previous_complaint', 'provider_suppressed'
+    ) then
+      raise exception 'Invalid normalized provider suppression reason.' using errcode = '22023';
+    end if;
+  elsif p_suppression_reason is not null then
+    raise exception 'Suppression reason is only valid for suppressed events.' using errcode = '22023';
+  end if;
+
+  -- Lock order is a contract shared with delivery transport and migration 034:
+  -- normalized recipient first, provider email ID second. Both locks last to commit.
+  perform pg_catalog.pg_advisory_xact_lock(20261119, hashtext(v_email));
+  perform pg_catalog.pg_advisory_xact_lock(20261126, hashtext(p_provider_email_id));
+
+  select e.* into v_existing
+  from public.delivery_provider_events e
+  where e.event_id = p_event_id
+  for update;
+
+  select l.* into v_existing_lifecycle
+  from public.delivery_provider_lifecycle l
+  where l.provider_email_id = p_provider_email_id
+  for update;
+  v_had_lifecycle := found;
+
+  -- Migration 027 used to raise and roll back on a provider-email-ID recipient
+  -- collision. Persist the rejected attempt as private evidence instead, return
+  -- NULL (the webhook route maps it to retryable HTTP 503), and keep the original
+  -- event/suppression state untouched.
+  select e.* into v_related
+  from public.delivery_provider_events e
+  where e.provider_email_id = p_provider_email_id
+    and e.recipient_email <> v_email
+  order by e.received_at, e.event_id
+  limit 1
+  for update;
+
+  if found then
+    perform public._record_delivery_provider_integrity_conflict(
+      v_email, p_event_id, v_related.event_id, 'provider_email_recipient_conflict',
+      p_event_type, p_provider_email_id, null, p_provider_created_at,
+      p_bounce_type, p_failure_class, p_suppression_reason, null, null, null,
+      p_payload_fingerprint, v_related.event_id, v_related.recipient_email
+    );
+
+    update public.delivery_provider_lifecycle
+    set status = 'integrity_anomaly',
+        status_rank = 80,
+        failure_class = null,
+        updated_at = clock_timestamp()
+    where provider_email_id = p_provider_email_id;
+
+    return null;
+  end if;
+
+  v_result := public._record_delivery_provider_lifecycle_event_pre037_impl(
+    p_event_id,
+    p_event_type,
+    p_provider_email_id,
+    v_email,
+    p_provider_created_at,
+    p_bounce_type,
+    p_failure_class,
+    p_suppression_reason,
+    p_payload_fingerprint
+  );
+
+  if v_result is null then
+    select a.* into v_anomaly
+    from public.delivery_provider_integrity_anomalies a
+    where a.event_id = p_event_id
+      and a.anomaly_type in ('duplicate_event_id_conflict', 'contradictory_terminal_outcome')
+    order by a.detected_at desc
+    limit 1;
+
+    if not found then
+      raise exception 'Provider lifecycle conflict was not durably classified.' using errcode = 'XX000';
+    end if;
+
+    select e.* into v_existing
+    from public.delivery_provider_events e
+    where e.event_id = p_event_id
+    for update;
+
+    if v_anomaly.anomaly_type = 'duplicate_event_id_conflict' then
+      if not found then
+        raise exception 'Conflicting duplicate provider event has no canonical event row.' using errcode = 'XX000';
+      end if;
+      perform public._record_delivery_provider_integrity_conflict(
+        v_email, p_event_id, null, v_anomaly.anomaly_type,
+        p_event_type, p_provider_email_id, null, p_provider_created_at,
+        p_bounce_type, p_failure_class, p_suppression_reason, null, null, null,
+        p_payload_fingerprint, v_existing.event_id, v_existing.recipient_email
+      );
+
+    else
+      select e.* into v_related
+      from public.delivery_provider_events e
+      where e.event_id = v_anomaly.related_event_id
+      for update;
+      if not found then
+        raise exception 'Contradictory provider event has no related canonical event.' using errcode = 'XX000';
+      end if;
+      perform public._record_delivery_provider_integrity_conflict(
+        v_email, p_event_id, v_anomaly.related_event_id, v_anomaly.anomaly_type,
+        p_event_type, p_provider_email_id, null, p_provider_created_at,
+        p_bounce_type, p_failure_class, p_suppression_reason, null, null, null,
+        p_payload_fingerprint, v_related.event_id, v_related.recipient_email
+      );
+
+      -- The prior implementation projected the conflicting terminal event over
+      -- the canonical one. Keep only the integrity status overlay and restore all
+      -- previously authoritative event/timestamp/classification fields.
+      if v_had_lifecycle then
+        update public.delivery_provider_lifecycle
+        set status = 'integrity_anomaly',
+            status_rank = 80,
+            provider_created_at = v_existing_lifecycle.provider_created_at,
+            received_at = v_existing_lifecycle.received_at,
+            event_id = v_existing_lifecycle.event_id,
+            failure_class = null,
+            updated_at = clock_timestamp()
+        where provider_email_id = p_provider_email_id;
+      end if;
+    end if;
+  end if;
+
+  return v_result;
+end;
+$lifecycle_037$;
+
+revoke all privileges
+on function public.record_delivery_provider_lifecycle_event(text, text, text, text, timestamptz, text, text, text, text)
+from public, anon, authenticated, service_role;
+grant execute
+on function public.record_delivery_provider_lifecycle_event(text, text, text, text, timestamptz, text, text, text, text)
+to service_role;
+comment on function public.record_delivery_provider_lifecycle_event(text, text, text, text, timestamptz, text, text, text, text)
+  is 'deedlight:037:recipient-scoped-provider-integrity-evidence:v1';
+
+-- Preserve the seven-argument legacy RPC but acquire the same locks before
+-- reading its historical timestamp. The eight- and five-argument wrappers
+-- continue to delegate to this guarded canonical path.
+create or replace function public.record_delivery_provider_lifecycle_event(
+  p_event_id text,
+  p_event_type text,
+  p_provider_email_id text,
+  p_recipient_email text,
+  p_provider_created_at timestamptz,
+  p_bounce_type text default null,
+  p_failure_class text default null
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $legacy_037$
+declare
+  v_email text;
+  v_existing_provider_created_at timestamptz;
+  v_suppression_reason text;
+begin
+  if p_recipient_email is not null and p_provider_email_id is not null then
+    v_email := lower(btrim(p_recipient_email));
+    perform pg_catalog.pg_advisory_xact_lock(20261119, hashtext(v_email));
+    perform pg_catalog.pg_advisory_xact_lock(20261126, hashtext(p_provider_email_id));
+    select e.provider_created_at into v_existing_provider_created_at
+    from public.delivery_provider_events e
+    where e.event_id = p_event_id
+    for update;
+  end if;
+
+  if p_event_type = 'email.suppressed' then
+    v_suppression_reason := 'provider_suppressed';
+  end if;
+
+  return public.record_delivery_provider_lifecycle_event(
+    p_event_id,
+    p_event_type,
+    p_provider_email_id,
+    p_recipient_email,
+    coalesce(v_existing_provider_created_at, p_provider_created_at, clock_timestamp()),
+    p_bounce_type,
+    p_failure_class,
+    v_suppression_reason,
+    null
+  );
+end;
+$legacy_037$;
+
+revoke all privileges
+on function public.record_delivery_provider_lifecycle_event(text, text, text, text, timestamptz, text, text)
+from public, anon, authenticated, service_role;
+grant execute
+on function public.record_delivery_provider_lifecycle_event(text, text, text, text, timestamptz, text, text)
+to service_role;
+
+-- Reassert the original eight- and five-argument trusted legacy boundaries.
+revoke all privileges
+on function public.record_delivery_provider_lifecycle_event(text, text, text, text, timestamptz, text, text, text)
+from public, anon, authenticated, service_role;
+grant execute
+on function public.record_delivery_provider_lifecycle_event(text, text, text, text, timestamptz, text, text, text)
+to service_role;
+
+revoke all privileges
+on function public.record_delivery_provider_event(text, text, text, text, text)
+from public, anon, authenticated, service_role;
+grant execute
+on function public.record_delivery_provider_event(text, text, text, text, text)
+to service_role;
+
+-- Keep the previous suppression-list implementation private. The wrapper below
+-- captures duplicate IDs, equal-timestamp conflicts and cross-recipient ID reuse.
+alter function public.record_delivery_provider_suppression_event(
+  text, text, text, text, text, text, timestamptz, timestamptz, text
+) rename to _record_delivery_provider_suppression_event_pre037_impl;
+
+revoke all privileges
+on function public._record_delivery_provider_suppression_event_pre037_impl(
+  text, text, text, text, text, text, timestamptz, timestamptz, text
+)
+from public, anon, authenticated, service_role;
+
+comment on function public._record_delivery_provider_suppression_event_pre037_impl(
+  text, text, text, text, text, text, timestamptz, timestamptz, text
+)
+is 'Private pre-037 suppression-list RPC; preserves migration 034 event ordering and complaint/bounce holds.';
+
+create function public.record_delivery_provider_suppression_event(
+  p_event_id text,
+  p_event_type text,
+  p_provider_suppression_id text,
+  p_recipient_email text,
+  p_suppression_origin text,
+  p_suppression_source_id text,
+  p_suppression_created_at timestamptz,
+  p_provider_created_at timestamptz,
+  p_payload_fingerprint text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $suppression_037$
+declare
+  v_email text;
+  v_related public.delivery_provider_events%rowtype;
+  v_existing public.delivery_provider_events%rowtype;
+  v_anomaly public.delivery_provider_integrity_anomalies%rowtype;
+  v_result boolean;
+begin
+  if p_event_id is null or char_length(p_event_id) not between 1 and 255
+    or p_event_id !~ '^[[:graph:]]+$'
+    or p_event_type is null or p_event_type not in ('suppression.added', 'suppression.removed')
+    or p_provider_suppression_id is null
+    or char_length(p_provider_suppression_id) not between 1 and 255
+    or p_provider_suppression_id !~ '^[[:graph:]]+$'
+    or p_recipient_email is null
+    or char_length(p_recipient_email) > 320
+    or p_suppression_origin is null
+    or p_suppression_origin not in ('bounce', 'complaint', 'manual')
+    or (p_suppression_source_id is not null
+      and (char_length(p_suppression_source_id) not between 1 and 255
+        or p_suppression_source_id !~ '^[[:graph:]]+$'))
+    or p_suppression_created_at is null
+    or p_provider_created_at is null
+    or p_payload_fingerprint is null
+    or p_payload_fingerprint !~ '^[0-9a-f]{64}$' then
+    raise exception 'Invalid provider suppression event.' using errcode = '22023';
+  end if;
+
+  v_email := lower(btrim(p_recipient_email));
+  if char_length(v_email) not between 3 and 320
+    or v_email !~ '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$' then
+    raise exception 'Invalid provider suppression recipient.' using errcode = '22023';
+  end if;
+
+  -- Match migration 034: normalized recipient first, suppression ID second.
+  perform pg_catalog.pg_advisory_xact_lock(20261119, hashtext(v_email));
+  perform pg_catalog.pg_advisory_xact_lock(20261127, hashtext(p_provider_suppression_id));
+
+  select e.* into v_existing
+  from public.delivery_provider_events e
+  where e.event_id = p_event_id
+  for update;
+
+  select e.* into v_related
+  from public.delivery_provider_events e
+  where e.provider_suppression_id = p_provider_suppression_id
+    and e.recipient_email <> v_email
+  order by e.received_at, e.event_id
+  limit 1
+  for update;
+
+  if found then
+    perform public._record_delivery_provider_integrity_conflict(
+      v_email, p_event_id, v_related.event_id, 'provider_suppression_recipient_conflict',
+      p_event_type, null, p_provider_suppression_id, p_provider_created_at,
+      null, null, null, p_suppression_origin, p_suppression_source_id,
+      p_suppression_created_at, p_payload_fingerprint,
+      v_related.event_id, v_related.recipient_email
+    );
+    return null;
+  end if;
+
+  v_result := public._record_delivery_provider_suppression_event_pre037_impl(
+    p_event_id,
+    p_event_type,
+    p_provider_suppression_id,
+    v_email,
+    p_suppression_origin,
+    p_suppression_source_id,
+    p_suppression_created_at,
+    p_provider_created_at,
+    p_payload_fingerprint
+  );
+
+  if v_result is null or v_result is true then
+    select a.* into v_anomaly
+    from public.delivery_provider_integrity_anomalies a
+    where a.event_id = p_event_id
+      and a.anomaly_type in ('duplicate_event_id_conflict', 'suppression_event_timestamp_conflict')
+    order by a.detected_at desc
+    limit 1;
+
+    if found then
+      select e.* into v_existing
+      from public.delivery_provider_events e
+      where e.event_id = coalesce(v_anomaly.related_event_id, v_anomaly.event_id)
+      for update;
+
+      if not found then
+        raise exception 'Conflicting suppression event has no canonical event row.' using errcode = 'XX000';
+      end if;
+
+      perform public._record_delivery_provider_integrity_conflict(
+        v_email,
+        p_event_id,
+        v_anomaly.related_event_id,
+        v_anomaly.anomaly_type,
+        p_event_type,
+        null,
+        p_provider_suppression_id,
+        p_provider_created_at,
+        null,
+        null,
+        null,
+        p_suppression_origin,
+        p_suppression_source_id,
+        p_suppression_created_at,
+        p_payload_fingerprint,
+        v_existing.event_id,
+        v_existing.recipient_email
+      );
+    elsif v_result is null then
+      raise exception 'Provider suppression conflict was not durably classified.' using errcode = 'XX000';
+    end if;
+  end if;
+
+  return v_result;
+end;
+$suppression_037$;
+
+revoke all privileges
+on function public.record_delivery_provider_suppression_event(text, text, text, text, text, text, timestamptz, timestamptz, text)
+from public, anon, authenticated, service_role;
+grant execute
+on function public.record_delivery_provider_suppression_event(text, text, text, text, text, text, timestamptz, timestamptz, text)
+to service_role;
+comment on function public.record_delivery_provider_suppression_event(text, text, text, text, text, text, timestamptz, timestamptz, text)
+  is 'deedlight:037:recipient-scoped-provider-suppression-integrity-evidence:v1';
+
+create function public.admin_list_delivery_provider_integrity_conflicts(
+  p_state text default 'open',
+  p_limit integer default 100
+)
+returns table (
+  conflict_id bigint,
+  recipient_email text,
+  anomaly_type text,
+  state text,
+  first_detected_at timestamptz,
+  last_detected_at timestamptz,
+  evidence_count bigint,
+  resolved_at timestamptz,
+  resolved_by uuid,
+  resolution_note text
+)
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $admin_list$
+begin
+  if auth.uid() is null or not public.is_admin() then
+    raise exception 'Administrator authorization is required.' using errcode = '42501';
+  end if;
+  if p_state is null or p_state not in ('open', 'resolved', 'all')
+    or p_limit is null or p_limit not between 1 and 200 then
+    raise exception 'Invalid provider-integrity conflict list parameters.' using errcode = '22023';
+  end if;
+
+  return query
+  select
+    c.conflict_id,
+    c.recipient_email,
+    c.anomaly_type,
+    c.state,
+    c.first_detected_at,
+    c.last_detected_at,
+    count(e.evidence_id)::bigint,
+    c.resolved_at,
+    c.resolved_by,
+    c.resolution_note
+  from public.delivery_provider_integrity_cases c
+  left join public.delivery_provider_integrity_conflict_evidence e
+    on e.conflict_id = c.conflict_id
+  where p_state = 'all' or c.state = p_state
+  group by c.conflict_id
+  order by c.last_detected_at desc, c.conflict_id desc
+  limit p_limit;
+end;
+$admin_list$;
+
+revoke all privileges
+on function public.admin_list_delivery_provider_integrity_conflicts(text, integer)
+from public, anon, authenticated, service_role;
+grant execute
+on function public.admin_list_delivery_provider_integrity_conflicts(text, integer)
+to authenticated;
+
+create function public.admin_list_delivery_provider_integrity_evidence(
+  p_conflict_id bigint,
+  p_limit integer default 100
+)
+returns table (
+  evidence_id bigint,
+  observed_at timestamptz,
+  recipient_email text,
+  event_id text,
+  related_event_id text,
+  event_type text,
+  provider_email_id text,
+  provider_suppression_id text,
+  provider_created_at timestamptz,
+  bounce_type text,
+  failure_class text,
+  suppression_reason text,
+  suppression_origin text,
+  suppression_source_id text,
+  suppression_created_at timestamptz,
+  payload_fingerprint text,
+  stored_event_id text,
+  stored_recipient_email text,
+  evidence_source text
+)
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $admin_evidence$
+begin
+  if auth.uid() is null or not public.is_admin() then
+    raise exception 'Administrator authorization is required.' using errcode = '42501';
+  end if;
+  if p_conflict_id is null or p_limit is null or p_limit not between 1 and 500 then
+    raise exception 'Invalid provider-integrity evidence list parameters.' using errcode = '22023';
+  end if;
+
+  return query
+  select
+    e.evidence_id,
+    e.observed_at,
+    e.recipient_email,
+    e.event_id,
+    e.related_event_id,
+    e.event_type,
+    e.provider_email_id,
+    e.provider_suppression_id,
+    e.provider_created_at,
+    e.bounce_type,
+    e.failure_class,
+    e.suppression_reason,
+    e.suppression_origin,
+    e.suppression_source_id,
+    e.suppression_created_at,
+    e.payload_fingerprint,
+    e.stored_event_id,
+    e.stored_recipient_email,
+    e.evidence_source
+  from public.delivery_provider_integrity_conflict_evidence e
+  where e.conflict_id = p_conflict_id
+  order by e.observed_at desc, e.evidence_id desc
+  limit p_limit;
+end;
+$admin_evidence$;
+
+revoke all privileges
+on function public.admin_list_delivery_provider_integrity_evidence(bigint, integer)
+from public, anon, authenticated, service_role;
+grant execute
+on function public.admin_list_delivery_provider_integrity_evidence(bigint, integer)
+to authenticated;
+
+create function public.admin_list_delivery_provider_integrity_history(
+  p_conflict_id bigint,
+  p_limit integer default 100
+)
+returns table (
+  history_id bigint,
+  action text,
+  actor_id uuid,
+  note text,
+  evidence_id bigint,
+  created_at timestamptz
+)
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $admin_history$
+begin
+  if auth.uid() is null or not public.is_admin() then
+    raise exception 'Administrator authorization is required.' using errcode = '42501';
+  end if;
+  if p_conflict_id is null or p_limit is null or p_limit not between 1 and 500 then
+    raise exception 'Invalid provider-integrity history list parameters.' using errcode = '22023';
+  end if;
+
+  return query
+  select h.history_id, h.action, h.actor_id, h.note, h.evidence_id, h.created_at
+  from public.delivery_provider_integrity_conflict_history h
+  where h.conflict_id = p_conflict_id
+  order by h.created_at, h.history_id
+  limit p_limit;
+end;
+$admin_history$;
+
+revoke all privileges
+on function public.admin_list_delivery_provider_integrity_history(bigint, integer)
+from public, anon, authenticated, service_role;
+grant execute
+on function public.admin_list_delivery_provider_integrity_history(bigint, integer)
+to authenticated;
+
+create function public.admin_resolve_delivery_provider_integrity_conflict(
+  p_conflict_id bigint,
+  p_resolution_note text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $admin_resolve$
+declare
+  v_case public.delivery_provider_integrity_cases%rowtype;
+  v_now timestamptz := clock_timestamp();
+begin
+  if auth.uid() is null or not public.is_admin() then
+    raise exception 'Administrator authorization is required.' using errcode = '42501';
+  end if;
+  if p_conflict_id is null or p_resolution_note is null
+    or char_length(btrim(p_resolution_note)) not between 12 and 2000 then
+    raise exception 'A conflict ID and meaningful resolution note are required.' using errcode = '22023';
+  end if;
+
+  select c.* into v_case
+  from public.delivery_provider_integrity_cases c
+  where c.conflict_id = p_conflict_id
+  for update;
+
+  if not found then
+    raise exception 'Provider-integrity conflict case was not found.' using errcode = '22023';
+  end if;
+  if v_case.state = 'resolved' then
+    return false;
+  end if;
+
+  insert into public.delivery_provider_integrity_conflict_history (
+    conflict_id, action, actor_id, note, evidence_id, created_at
+  ) values (
+    v_case.conflict_id,
+    'resolved',
+    auth.uid(),
+    btrim(p_resolution_note),
+    null,
+    v_now
+  );
+
+  update public.delivery_provider_integrity_cases
+  set state = 'resolved',
+      resolved_at = v_now,
+      resolved_by = auth.uid(),
+      resolution_note = btrim(p_resolution_note),
+      updated_at = v_now
+  where conflict_id = v_case.conflict_id;
+
+  return true;
+end;
+$admin_resolve$;
+
+revoke all privileges
+on function public.admin_resolve_delivery_provider_integrity_conflict(bigint, text)
+from public, anon, authenticated, service_role;
+grant execute
+on function public.admin_resolve_delivery_provider_integrity_conflict(bigint, text)
+to authenticated;
+
+comment on function public.admin_list_delivery_provider_integrity_conflicts(text, integer)
+  is 'Admin-only private listing of recipient-scoped provider-integrity cases.';
+comment on function public.admin_list_delivery_provider_integrity_evidence(bigint, integer)
+  is 'Admin-only listing of normalized provider-integrity evidence; never exposes raw webhook bodies.';
+comment on function public.admin_list_delivery_provider_integrity_history(bigint, integer)
+  is 'Admin-only listing of immutable provider-integrity resolution/reopening history.';
+comment on function public.admin_resolve_delivery_provider_integrity_conflict(bigint, text)
+  is 'Admin-only resolution transition. New distinct conflict evidence automatically reopens the case and preserves this history.';
+
+notify pgrst, 'reload schema';
+commit;
+
+-- BEGIN MIGRATION 038 ADMIN COMPATIBILITY
+-- Explicit, fail-closed bridge between historical Sprint 6 migration 007 and Migration 038.
+-- Sprint 6 added COALESCE defensively; restore the exact reviewed Migration 038 helper
+-- only while profiles.is_suspended remains NOT NULL and contains no NULL values.
+--
+-- Ownership acceptance is deliberately separate from this bridge. No Production owner
+-- is hardcoded: this transaction resolves the existing owner, preserves its OID/name,
+-- and proves replacement cannot silently change ownership. Production acceptance still
+-- requires authoritative Query 8A/8B evidence and DBA/security approval.
+--
+-- ACL contract comes from Sprint 6's explicit GRANT EXECUTE to anon and authenticated.
+-- PostgreSQL's effective default ACL may additionally include PUBLIC. Preserve that
+-- existing PUBLIC state, reject every other explicit grantee, reject inherited EXECUTE
+-- outside the owner/application roles when PUBLIC is absent, and compare ACL/default
+-- ACL snapshots byte-for-byte (canonical JSON) before and after replacement.
+
+begin;
+
+do $migration_038_admin_compatibility_preflight$
+declare
+  v_source text;
+  v_source_hash text;
+  v_security_definer boolean;
+  v_config text[];
+  v_suspended_not_null boolean;
+  v_crypto_schema text;
+  v_function_oid oid := 'public.is_admin()'::regprocedure;
+  v_owner_oid oid;
+  v_owner_name name;
+  v_acl jsonb;
+  v_default_acl jsonb;
+  v_public_execute boolean;
+  v_is_canonical boolean;
+begin
+  select n.nspname into v_crypto_schema
+  from pg_catalog.pg_extension e
+  join pg_catalog.pg_namespace n on n.oid = e.extnamespace
+  where e.extname = 'pgcrypto';
+
+  if v_crypto_schema is null then
+    raise exception 'Migration 038 compatibility requires pgcrypto.' using errcode = '55000';
+  end if;
+
+  if to_regclass('public.profiles') is null
+    or v_function_oid is null then
+    raise exception 'Migration 038 compatibility requires public.profiles and public.is_admin().' using errcode = '55000';
+  end if;
+
+  select a.attnotnull into v_suspended_not_null
+  from pg_catalog.pg_attribute a
+  where a.attrelid = 'public.profiles'::regclass
+    and a.attname = 'is_suspended'
+    and a.attnum > 0
+    and not a.attisdropped;
+
+  if v_suspended_not_null is distinct from true
+    or exists (select 1 from public.profiles where is_suspended is null) then
+    raise exception 'Migration 038 compatibility requires profiles.is_suspended to remain NOT NULL with no NULL rows.' using errcode = '55000';
+  end if;
+
+  select p.prosrc, p.prosecdef, p.proconfig, p.proowner, owner_role.rolname
+    into v_source, v_security_definer, v_config, v_owner_oid, v_owner_name
+  from pg_catalog.pg_proc p
+  left join pg_catalog.pg_roles owner_role on owner_role.oid = p.proowner
+  where p.oid = v_function_oid;
+
+  if v_owner_oid is null or v_owner_name is null then
+    raise exception 'Migration 038 compatibility rejected unresolved is_admin() owner.' using errcode = '55000';
+  end if;
+
+  -- No non-superuser role may assume the actual function-owner role, directly
+  -- or through a transitive SET-capable membership path.
+  if exists (
+    select 1
+    from pg_catalog.pg_roles member_role
+    where member_role.oid <> v_owner_oid
+      and not member_role.rolsuper
+      and pg_catalog.pg_has_role(member_role.oid, v_owner_oid, 'SET')
+  ) then
+    raise exception 'Migration 038 compatibility rejected unauthorized SET ROLE membership to the is_admin() owner.' using errcode = '55000';
+  end if;
+
+  if v_security_definer is distinct from true
+    or v_config is distinct from array['search_path=public']::text[] then
+    raise exception 'Migration 038 compatibility rejected is_admin() SECURITY DEFINER/search_path drift.' using errcode = '55000';
+  end if;
+
+  execute format(
+    'select encode(%I.digest(convert_to($1, ''UTF8''), ''sha256''), ''hex'')',
+    v_crypto_schema
+  ) into v_source_hash using v_source;
+
+  if v_source_hash = '85e6838cf8feec05bcfe9e9051e5192bc8f0d42f7a53cb6c0450067d70bba74b' then
+    v_is_canonical := true;
+  elsif v_source_hash = '4fb49052b2e525d8b355123d430df7e536a4da5207fd6ef3d21f3b2d770e98e0' then
+    v_is_canonical := false;
+  else
+    raise exception 'Migration 038 compatibility rejected unreviewed is_admin() source.' using errcode = '55000';
+  end if;
+
+  -- Compare the effective ACL, including PostgreSQL's default ACL when proacl is NULL.
+  select COALESCE(jsonb_agg(jsonb_build_object(
+    'grantee', acl.grantee,
+    'grantor', acl.grantor,
+    'privilege', acl.privilege_type,
+    'grantable', acl.is_grantable
+  ) order by acl.grantee, acl.grantor, acl.privilege_type, acl.is_grantable), '[]'::jsonb)
+    into v_acl
+  from pg_catalog.aclexplode((
+    select COALESCE(p.proacl, pg_catalog.acldefault('f', p.proowner))
+    from pg_catalog.pg_proc p where p.oid = v_function_oid
+  )) acl;
+
+  if not has_function_privilege('service_role', v_function_oid, 'EXECUTE') then
+    raise exception 'Migration 038 compatibility rejected missing service_role EXECUTE privilege.' using errcode = '55000';
+  end if;
+
+  if not exists (
+    select 1 from pg_catalog.aclexplode((
+      select COALESCE(p.proacl, pg_catalog.acldefault('f', p.proowner))
+      from pg_catalog.pg_proc p where p.oid = v_function_oid
+    )) acl
+    where acl.grantee = 'anon'::regrole::oid
+      and acl.privilege_type = 'EXECUTE'
+      and not acl.is_grantable
+  ) or not exists (
+    select 1 from pg_catalog.aclexplode((
+      select COALESCE(p.proacl, pg_catalog.acldefault('f', p.proowner))
+      from pg_catalog.pg_proc p where p.oid = v_function_oid
+    )) acl
+    where acl.grantee = 'authenticated'::regrole::oid
+      and acl.privilege_type = 'EXECUTE'
+      and not acl.is_grantable
+  ) then
+    raise exception 'Migration 038 compatibility rejected missing historical anon/authenticated EXECUTE grants.' using errcode = '55000';
+  end if;
+
+  if exists (
+    select 1
+    from pg_catalog.aclexplode((
+      select COALESCE(p.proacl, pg_catalog.acldefault('f', p.proowner))
+      from pg_catalog.pg_proc p where p.oid = v_function_oid
+    )) acl
+    where acl.privilege_type <> 'EXECUTE'
+      or acl.is_grantable
+      or acl.grantor <> v_owner_oid
+      or acl.grantee not in (0, v_owner_oid, 'anon'::regrole::oid, 'authenticated'::regrole::oid, 'service_role'::regrole::oid)
+  ) then
+    raise exception 'Migration 038 compatibility rejected unexpected direct function EXECUTE ACL grantee or grant option.' using errcode = '55000';
+  end if;
+
+  select exists (
+    select 1 from pg_catalog.aclexplode((
+      select COALESCE(p.proacl, pg_catalog.acldefault('f', p.proowner))
+      from pg_catalog.pg_proc p where p.oid = v_function_oid
+    )) acl
+    where acl.grantee = 0 and acl.privilege_type = 'EXECUTE'
+  ) into v_public_execute;
+
+  -- Without PUBLIC EXECUTE, only the function owner, historical application
+  -- grantees, and Migration 038 service_role may have effective EXECUTE.
+  if not v_public_execute and exists (
+    select 1
+    from pg_catalog.pg_roles r
+    where r.oid not in (v_owner_oid, 'anon'::regrole::oid, 'authenticated'::regrole::oid, 'service_role'::regrole::oid)
+      and not r.rolsuper
+      and (
+        pg_catalog.has_function_privilege(r.oid, v_function_oid, 'EXECUTE')
+        or pg_catalog.pg_has_role(r.oid, 'anon'::regrole::oid, 'SET')
+        or pg_catalog.pg_has_role(r.oid, 'authenticated'::regrole::oid, 'SET')
+        or pg_catalog.pg_has_role(r.oid, 'service_role'::regrole::oid, 'SET')
+      )
+  ) then
+    raise exception 'Migration 038 compatibility rejected unexpected inherited/effective function EXECUTE privilege.' using errcode = '55000';
+  end if;
+
+  -- Default ACLs do not retroactively change this function, but capture the exact
+  -- owner/global/public-schema defaults so replacement cannot conceal concurrent drift.
+  select COALESCE(jsonb_agg(jsonb_build_object(
+    'schema', d.defaclnamespace,
+    'acl', d.defaclacl::text
+  ) order by d.defaclnamespace), '[]'::jsonb)
+    into v_default_acl
+  from pg_catalog.pg_default_acl d
+  where d.defaclrole = v_owner_oid
+    and d.defaclobjtype = 'f'
+    and (d.defaclnamespace = 0 or d.defaclnamespace = 'public'::regnamespace);
+
+  perform set_config('deedlight.migration038.owner_oid', v_owner_oid::text, true);
+  perform set_config('deedlight.migration038.owner_name', v_owner_name::text, true);
+  perform set_config('deedlight.migration038.acl_snapshot', v_acl::text, true);
+  perform set_config('deedlight.migration038.default_acl_snapshot', v_default_acl::text, true);
+  perform set_config('deedlight.migration038.public_execute', v_public_execute::text, true);
+  perform set_config('deedlight.migration038.canonical_noop', v_is_canonical::text, true);
+end;
+$migration_038_admin_compatibility_preflight$;
+
+-- Canonical Migration 038 re-execution is an explicit verified no-op.
+-- The function is replaced only for the exact reviewed Sprint 6 fingerprint.
+do $migration_038_admin_compatibility_apply$
+begin
+  if not current_setting('deedlight.migration038.canonical_noop')::boolean then
+    execute
+      'create or replace function public.is_admin()' || E'\n' ||
+      'returns boolean' || E'\n' ||
+      'language sql' || E'\n' ||
+      'security definer' || E'\n' ||
+      'set search_path = public' || E'\n' ||
+      'as $fn$' || E'\n' ||
+      '  select exists (' || E'\n' ||
+      '    select 1' || E'\n' ||
+      '    from public.profiles' || E'\n' ||
+      '    where user_id = auth.uid()' || E'\n' ||
+      '      and role = ''admin''' || E'\n' ||
+      '      and is_suspended = false' || E'\n' ||
+      '  );' || E'\n' ||
+      '$fn$';
+  end if;
+end;
+$migration_038_admin_compatibility_apply$;
+
+do $migration_038_admin_compatibility_postflight$
+declare
+  v_source text;
+  v_source_hash text;
+  v_security_definer boolean;
+  v_config text[];
+  v_crypto_schema text;
+  v_owner_oid oid;
+  v_owner_name name;
+  v_acl jsonb;
+  v_default_acl jsonb;
+  v_public_execute boolean;
+  v_function_oid oid := 'public.is_admin()'::regprocedure;
+begin
+  select n.nspname into v_crypto_schema
+  from pg_catalog.pg_extension e
+  join pg_catalog.pg_namespace n on n.oid = e.extnamespace
+  where e.extname = 'pgcrypto';
+
+  select p.prosrc, p.prosecdef, p.proconfig, p.proowner, owner_role.rolname
+    into v_source, v_security_definer, v_config, v_owner_oid, v_owner_name
+  from pg_catalog.pg_proc p
+  left join pg_catalog.pg_roles owner_role on owner_role.oid = p.proowner
+  where p.oid = v_function_oid;
+
+  execute format(
+    'select encode(%I.digest(convert_to($1, ''UTF8''), ''sha256''), ''hex'')',
+    v_crypto_schema
+  ) into v_source_hash using v_source;
+
+  if v_source_hash is distinct from '85e6838cf8feec05bcfe9e9051e5192bc8f0d42f7a53cb6c0450067d70bba74b'
+    or v_security_definer is distinct from true
+    or v_config is distinct from array['search_path=public']::text[] then
+    raise exception 'Migration 038 compatibility failed to establish the exact reviewed is_admin() source and execution context.' using errcode = '55000';
+  end if;
+
+  if v_owner_oid::text is distinct from current_setting('deedlight.migration038.owner_oid')
+    or v_owner_name::text is distinct from current_setting('deedlight.migration038.owner_name') then
+    raise exception 'Migration 038 compatibility failed to preserve the exact is_admin() owner identity.' using errcode = '55000';
+  end if;
+
+  if exists (
+    select 1
+    from pg_catalog.pg_roles member_role
+    where member_role.oid <> v_owner_oid
+      and not member_role.rolsuper
+      and pg_catalog.pg_has_role(member_role.oid, v_owner_oid, 'SET')
+  ) then
+    raise exception 'Migration 038 compatibility postflight detected unauthorized SET ROLE membership to the is_admin() owner.' using errcode = '55000';
+  end if;
+
+  select COALESCE(jsonb_agg(jsonb_build_object(
+    'grantee', acl.grantee,
+    'grantor', acl.grantor,
+    'privilege', acl.privilege_type,
+    'grantable', acl.is_grantable
+  ) order by acl.grantee, acl.grantor, acl.privilege_type, acl.is_grantable), '[]'::jsonb)
+    into v_acl
+  from pg_catalog.aclexplode((
+    select COALESCE(p.proacl, pg_catalog.acldefault('f', p.proowner))
+    from pg_catalog.pg_proc p where p.oid = v_function_oid
+  )) acl;
+
+  select COALESCE(jsonb_agg(jsonb_build_object(
+    'schema', d.defaclnamespace,
+    'acl', d.defaclacl::text
+  ) order by d.defaclnamespace), '[]'::jsonb)
+    into v_default_acl
+  from pg_catalog.pg_default_acl d
+  where d.defaclrole = v_owner_oid
+    and d.defaclobjtype = 'f'
+    and (d.defaclnamespace = 0 or d.defaclnamespace = 'public'::regnamespace);
+
+  select exists (
+    select 1 from pg_catalog.aclexplode((
+      select COALESCE(p.proacl, pg_catalog.acldefault('f', p.proowner))
+      from pg_catalog.pg_proc p where p.oid = v_function_oid
+    )) acl
+    where acl.grantee = 0 and acl.privilege_type = 'EXECUTE'
+  ) into v_public_execute;
+
+  if v_acl::text is distinct from current_setting('deedlight.migration038.acl_snapshot')
+    or v_default_acl::text is distinct from current_setting('deedlight.migration038.default_acl_snapshot')
+    or v_public_execute::text is distinct from current_setting('deedlight.migration038.public_execute') then
+    raise exception 'Migration 038 compatibility failed to preserve the exact function ACL/default ACL contract.' using errcode = '55000';
+  end if;
+
+  if not has_function_privilege('anon', v_function_oid, 'EXECUTE')
+    or not has_function_privilege('authenticated', v_function_oid, 'EXECUTE') then
+    raise exception 'Migration 038 compatibility failed to preserve historical anon/authenticated EXECUTE behavior.' using errcode = '55000';
+  end if;
+
+  if not has_function_privilege('service_role', v_function_oid, 'EXECUTE') then
+    raise exception 'Migration 038 compatibility postflight detected missing service_role EXECUTE privilege.' using errcode = '55000';
+  end if;
+
+  -- Reject any unrelated role that can SET ROLE to service_role, including
+  -- transitive SET-only membership paths. service_role itself remains an
+  -- explicitly approved application grantee.
+  if exists (
+    select 1
+    from pg_catalog.pg_roles r
+    where r.oid not in (v_owner_oid, 'anon'::regrole::oid, 'authenticated'::regrole::oid, 'service_role'::regrole::oid)
+      and not r.rolsuper
+      and pg_catalog.pg_has_role(r.oid, 'service_role'::regrole::oid, 'SET')
+  ) then
+    raise exception 'Migration 038 compatibility postflight detected unauthorized SET ROLE membership to service_role.' using errcode = '55000';
+  end if;
+
+  -- Match preflight's approved application-role allowlist. service_role must
+  -- not be treated as an unexpected effective privilege when PUBLIC is absent.
+  if not v_public_execute and exists (
+    select 1
+    from pg_catalog.pg_roles r
+    where r.oid not in (v_owner_oid, 'anon'::regrole::oid, 'authenticated'::regrole::oid, 'service_role'::regrole::oid)
+      and not r.rolsuper
+      and (
+        pg_catalog.has_function_privilege(r.oid, v_function_oid, 'EXECUTE')
+        or pg_catalog.pg_has_role(r.oid, 'anon'::regrole::oid, 'SET')
+        or pg_catalog.pg_has_role(r.oid, 'authenticated'::regrole::oid, 'SET')
+        or pg_catalog.pg_has_role(r.oid, 'service_role'::regrole::oid, 'SET')
+      )
+  ) then
+    raise exception 'Migration 038 compatibility postflight detected unexpected inherited/effective function EXECUTE privilege.' using errcode = '55000';
+  end if;
+end;
+$migration_038_admin_compatibility_postflight$;
+
+commit;
+
+-- END MIGRATION 038 ADMIN COMPATIBILITY
+-- Forward-only hardening for provider event identity serialization and paginated admin review.
+-- Migrations 036 and 037 remain immutable. Unexpected source/ACL/configuration drift aborts atomically.
+begin;
+
+do $migration_038_preflight$
+declare
+  v_crypto_schema text;
+  v_expected record;
+  v_oid oid;
+  v_source text;
+  v_source_hash text;
+  v_security_definer boolean;
+  v_config text[];
+begin
+  if to_regclass('public.delivery_provider_integrity_cases') is null
+    or to_regclass('public.delivery_provider_integrity_conflict_evidence') is null
+    or to_regclass('public.delivery_provider_integrity_conflict_history') is null
+    or to_regprocedure('public.is_admin()') is null then
+    raise exception 'Migration 038 requires the complete migration-037 provider-integrity and administrator contract.';
+  end if;
+
+  select n.nspname into v_crypto_schema
+  from pg_catalog.pg_extension e
+  join pg_catalog.pg_namespace n on n.oid = e.extnamespace
+  where e.extname = 'pgcrypto';
+
+  if v_crypto_schema is null then
+    raise exception 'Migration 038 requires pgcrypto for exact provider RPC source attestation.';
+  end if;
+
+  if to_regprocedure('public.admin_list_delivery_provider_integrity_conflicts_page(text,integer,timestamptz,bigint)') is not null
+    or to_regprocedure('public.admin_get_delivery_provider_integrity_conflict(bigint)') is not null
+    or to_regprocedure('public.admin_list_delivery_provider_integrity_evidence_page(bigint,integer,timestamptz,bigint)') is not null
+    or to_regprocedure('public.admin_list_delivery_provider_integrity_history_page(bigint,integer,timestamptz,bigint)') is not null
+    or to_regclass('public.delivery_provider_integrity_cases_state_cursor_idx') is not null
+    or to_regclass('public.delivery_provider_integrity_history_reopened_idx') is not null then
+    raise exception 'Migration 038 refuses pre-existing pagination objects with an unknown origin.';
+  end if;
+
+  for v_expected in
+    select * from (values
+      ('public.is_admin()', '85e6838cf8feec05bcfe9e9051e5192bc8f0d42f7a53cb6c0450067d70bba74b', 'search_path=public', 'public'),
+      ('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)', '4b8c7b9c0ea7af1cea5e3d34ed3d1a21cbd5c17958a4d89f8c857cfa38f7581b', 'search_path=public, auth, pg_temp', 'service_role'),
+      ('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text)', '9be2593c7187516b0ca4a413f9443b02fd8f4ea9b02f539f1b5b504eb53eb694', 'search_path=public, auth, pg_temp', 'service_role'),
+      ('public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text)', 'abca9b6c4ccd2e51dc7b0523d18b4e6931a082baa3b260fe308b78e0e7563536', 'search_path=public, auth, pg_temp', 'service_role'),
+      ('public.record_delivery_provider_event(text,text,text,text,text)', '5896bffd634d825be05a5e8bdf78c6b0bae2ded24591b283fea764a74cb5343b', 'search_path=public, auth, pg_temp', 'service_role'),
+      ('public.record_delivery_provider_suppression_event(text,text,text,text,text,text,timestamptz,timestamptz,text)', '5e3eb059c12dd9caa50a060447fd09d3afc217142bd58e94d1afd5a1cbbb62a6', 'search_path=public, auth, pg_temp', 'service_role'),
+      ('public._record_delivery_provider_integrity_conflict(text,text,text,text,text,text,text,timestamptz,text,text,text,text,text,timestamptz,text,text,text)', 'efc5a85b3e0ca1ee32f38e12f5f2538a135ee08203f79d1c9d2e57a4d0950871', 'search_path=public, auth, pg_temp', 'private'),
+      ('public._record_delivery_provider_lifecycle_event_pre037_impl(text,text,text,text,timestamptz,text,text,text,text)', '68bf0948c041e70670499811334bee6fc4546254d0597d38b880e8aad18c7241', 'search_path=public, auth, pg_temp', 'private'),
+      ('public._record_delivery_provider_suppression_event_pre037_impl(text,text,text,text,text,text,timestamptz,timestamptz,text)', 'd67c0f2da59cd87e769938a9c86878791080a2e9597409113796be078e87e64a', 'search_path=public, auth, pg_temp', 'private'),
+      ('public._deny_delivery_provider_integrity_audit_mutation()', '2dff07aeeb597e3d8e8bca99108a4df8d1538161ab0b0e4c34e47d71790d96c9', 'search_path=pg_catalog', 'private'),
+      ('public.admin_list_delivery_provider_integrity_conflicts(text,integer)', 'c77643294b78d01bdad25cce4cfc0e7bac10f7d12f9898c2b169fa012add6bc0', 'search_path=public, auth, pg_temp', 'authenticated'),
+      ('public.admin_list_delivery_provider_integrity_evidence(bigint,integer)', '72609677508aa59960571a22c39b4b6cbbb0bcf3106339b995b5133a863d4b3f', 'search_path=public, auth, pg_temp', 'authenticated'),
+      ('public.admin_list_delivery_provider_integrity_history(bigint,integer)', 'c818efdd81bc98ad96adb7439ee70024cb101fbfcaa9cfe557bbf3c2dfe233a4', 'search_path=public, auth, pg_temp', 'authenticated'),
+      ('public.admin_resolve_delivery_provider_integrity_conflict(bigint,text)', '53de2fc64a9fa634efe33e18b7f639a474d9f359a2c57066b9bac760aa9b16e1', 'search_path=public, auth, pg_temp', 'authenticated')
+    ) as expected(signature, source_sha256, expected_search_path, access_role)
+  loop
+    v_oid := to_regprocedure(v_expected.signature);
+    if v_oid is null then
+      raise exception 'Migration 038 requires reviewed function signature %.', v_expected.signature;
+    end if;
+
+    select p.prosrc, p.prosecdef, p.proconfig
+      into v_source, v_security_definer, v_config
+    from pg_catalog.pg_proc p
+    where p.oid = v_oid;
+
+    if v_security_definer is distinct from true
+      or v_config is distinct from array[v_expected.expected_search_path]::text[] then
+      raise exception 'Migration 038 rejected SECURITY DEFINER/search_path drift in %.', v_expected.signature;
+    end if;
+
+    execute format(
+      'select encode(%I.digest(convert_to($1, ''UTF8''), ''sha256''), ''hex'')',
+      v_crypto_schema
+    ) into v_source_hash using v_source;
+
+    if v_source_hash is distinct from v_expected.source_sha256 then
+      raise exception 'Migration 038 rejected unreviewed function source for %.', v_expected.signature;
+    end if;
+
+    if v_expected.access_role = 'service_role' then
+      if has_function_privilege('anon', v_oid, 'EXECUTE')
+        or has_function_privilege('authenticated', v_oid, 'EXECUTE')
+        or not has_function_privilege('service_role', v_oid, 'EXECUTE') then
+        raise exception 'Migration 038 rejected non-service provider RPC grants for %.', v_expected.signature;
+      end if;
+    elsif v_expected.access_role = 'authenticated' then
+      if has_function_privilege('anon', v_oid, 'EXECUTE')
+        or has_function_privilege('service_role', v_oid, 'EXECUTE')
+        or not has_function_privilege('authenticated', v_oid, 'EXECUTE') then
+        raise exception 'Migration 038 rejected administrator RPC grants for %.', v_expected.signature;
+      end if;
+    elsif v_expected.access_role = 'public' then
+      if not has_function_privilege('anon', v_oid, 'EXECUTE')
+        or not has_function_privilege('authenticated', v_oid, 'EXECUTE')
+        or not has_function_privilege('service_role', v_oid, 'EXECUTE') then
+        raise exception 'Migration 038 rejected is_admin() public execution contract drift.';
+      end if;
+    elsif v_expected.access_role = 'private' then
+      if has_function_privilege('anon', v_oid, 'EXECUTE')
+        or has_function_privilege('authenticated', v_oid, 'EXECUTE')
+        or has_function_privilege('service_role', v_oid, 'EXECUTE') then
+        raise exception 'Migration 038 rejected private helper grants for %.', v_expected.signature;
+      end if;
+    else
+      raise exception 'Migration 038 has an invalid preflight access contract.';
+    end if;
+  end loop;
+
+  if not (select relrowsecurity from pg_catalog.pg_class where oid='public.delivery_provider_integrity_cases'::regclass)
+    or not (select relrowsecurity from pg_catalog.pg_class where oid='public.delivery_provider_integrity_conflict_evidence'::regclass)
+    or not (select relrowsecurity from pg_catalog.pg_class where oid='public.delivery_provider_integrity_conflict_history'::regclass)
+    or has_table_privilege('anon','public.delivery_provider_integrity_cases','SELECT')
+    or has_table_privilege('authenticated','public.delivery_provider_integrity_cases','SELECT')
+    or has_table_privilege('service_role','public.delivery_provider_integrity_cases','SELECT')
+    or has_table_privilege('anon','public.delivery_provider_integrity_conflict_evidence','SELECT')
+    or has_table_privilege('authenticated','public.delivery_provider_integrity_conflict_evidence','SELECT')
+    or has_table_privilege('service_role','public.delivery_provider_integrity_conflict_evidence','SELECT')
+    or has_table_privilege('anon','public.delivery_provider_integrity_conflict_history','SELECT')
+    or has_table_privilege('authenticated','public.delivery_provider_integrity_conflict_history','SELECT')
+    or has_table_privilege('service_role','public.delivery_provider_integrity_conflict_history','SELECT') then
+    raise exception 'Migration 038 rejected provider-integrity table privacy drift.';
+  end if;
+
+  if not exists (
+    select 1 from pg_catalog.pg_trigger
+    where tgrelid='public.delivery_provider_integrity_conflict_evidence'::regclass
+      and tgname='delivery_provider_integrity_conflict_evidence_immutable'
+      and tgfoid=to_regprocedure('public._deny_delivery_provider_integrity_audit_mutation()')
+      and tgtype = 27
+      and tgenabled in ('O', 'A')
+      and not tgisinternal
+  ) or not exists (
+    select 1 from pg_catalog.pg_trigger
+    where tgrelid='public.delivery_provider_integrity_conflict_history'::regclass
+      and tgname='delivery_provider_integrity_conflict_history_immutable'
+      and tgfoid=to_regprocedure('public._deny_delivery_provider_integrity_audit_mutation()')
+      and tgtype = 27
+      and tgenabled in ('O', 'A')
+      and not tgisinternal
+  ) then
+    raise exception 'Migration 038 requires both append-only audit triggers.';
+  end if;
+end;
+$migration_038_preflight$;
+
+-- Indexes match the keyset order and make the latest reopening independently discoverable.
+create index delivery_provider_integrity_cases_state_cursor_idx
+  on public.delivery_provider_integrity_cases (state, conflict_id desc);
+
+create index delivery_provider_integrity_history_reopened_idx
+  on public.delivery_provider_integrity_conflict_history (conflict_id, created_at desc, history_id desc)
+  where action = 'reopened';
+
+create or replace function public.record_delivery_provider_lifecycle_event(
+  p_event_id text,
+  p_event_type text,
+  p_provider_email_id text,
+  p_recipient_email text,
+  p_provider_created_at timestamptz,
+  p_bounce_type text,
+  p_failure_class text,
+  p_suppression_reason text,
+  p_payload_fingerprint text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $lifecycle_037$
+declare
+  v_email text;
+  v_existing public.delivery_provider_events%rowtype;
+  v_related public.delivery_provider_events%rowtype;
+  v_anomaly public.delivery_provider_integrity_anomalies%rowtype;
+  v_existing_lifecycle public.delivery_provider_lifecycle%rowtype;
+  v_had_lifecycle boolean := false;
+  v_result boolean;
+begin
+  if p_event_id is null or char_length(p_event_id) not between 1 and 255
+    or p_event_type is null
+    or p_event_type not in (
+      'email.sent', 'email.delivered', 'email.delivery_delayed', 'email.bounced',
+      'email.complained', 'email.suppressed', 'email.failed'
+    )
+    or p_provider_email_id is null
+    or char_length(p_provider_email_id) not between 1 and 255
+    or p_recipient_email is null
+    or char_length(p_recipient_email) > 320
+    or p_provider_created_at is null
+    or (p_payload_fingerprint is not null and p_payload_fingerprint !~ '^[0-9a-f]{64}$') then
+    raise exception 'Invalid delivery provider lifecycle event.' using errcode = '22023';
+  end if;
+
+  v_email := lower(btrim(p_recipient_email));
+  if char_length(v_email) not between 3 and 320
+    or v_email !~ '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$' then
+    raise exception 'Invalid delivery provider recipient.' using errcode = '22023';
+  end if;
+
+  if p_event_type = 'email.bounced' then
+    if p_bounce_type is null or p_bounce_type not in ('Permanent', 'Transient', 'Unknown') then
+      raise exception 'Invalid delivery bounce classification.' using errcode = '22023';
+    end if;
+  elsif p_bounce_type is not null then
+    raise exception 'Bounce classification is only valid for bounced events.' using errcode = '22023';
+  end if;
+
+  if p_event_type = 'email.failed' then
+    if p_failure_class is null or p_failure_class not in (
+      'invalid_recipient', 'provider_authentication', 'domain_verification',
+      'quota_exceeded', 'content_rejected', 'unknown'
+    ) then
+      raise exception 'Invalid normalized provider failure classification.' using errcode = '22023';
+    end if;
+  elsif p_failure_class is not null then
+    raise exception 'Failure classification is only valid for failed events.' using errcode = '22023';
+  end if;
+
+  if p_event_type = 'email.suppressed' then
+    if p_suppression_reason is null or p_suppression_reason not in (
+      'previous_bounce', 'previous_complaint', 'provider_suppressed'
+    ) then
+      raise exception 'Invalid normalized provider suppression reason.' using errcode = '22023';
+    end if;
+  elsif p_suppression_reason is not null then
+    raise exception 'Suppression reason is only valid for suppressed events.' using errcode = '22023';
+  end if;
+
+  -- Global order: event identity, normalized recipient, then provider correlation.
+  perform pg_catalog.pg_advisory_xact_lock(20261118, pg_catalog.hashtext(p_event_id));
+  perform pg_catalog.pg_advisory_xact_lock(20261119, pg_catalog.hashtext(v_email));
+  perform pg_catalog.pg_advisory_xact_lock(20261126, pg_catalog.hashtext(p_provider_email_id));
+
+  select e.* into v_existing
+  from public.delivery_provider_events e
+  where e.event_id = p_event_id
+  for update;
+
+  select l.* into v_existing_lifecycle
+  from public.delivery_provider_lifecycle l
+  where l.provider_email_id = p_provider_email_id
+  for update;
+  v_had_lifecycle := found;
+
+  -- Migration 027 used to raise and roll back on a provider-email-ID recipient
+  -- collision. Persist the rejected attempt as private evidence instead, return
+  -- NULL (the webhook route maps it to retryable HTTP 503), and keep the original
+  -- event/suppression state untouched.
+  select e.* into v_related
+  from public.delivery_provider_events e
+  where e.provider_email_id = p_provider_email_id
+    and e.recipient_email <> v_email
+  order by e.received_at, e.event_id
+  limit 1
+  for update;
+
+  if found then
+    perform public._record_delivery_provider_integrity_conflict(
+      v_email, p_event_id, v_related.event_id, 'provider_email_recipient_conflict',
+      p_event_type, p_provider_email_id, null, p_provider_created_at,
+      p_bounce_type, p_failure_class, p_suppression_reason, null, null, null,
+      p_payload_fingerprint, v_related.event_id, v_related.recipient_email
+    );
+
+    update public.delivery_provider_lifecycle
+    set status = 'integrity_anomaly',
+        status_rank = 80,
+        failure_class = null,
+        updated_at = clock_timestamp()
+    where provider_email_id = p_provider_email_id;
+
+    return null;
+  end if;
+
+  v_result := public._record_delivery_provider_lifecycle_event_pre037_impl(
+    p_event_id,
+    p_event_type,
+    p_provider_email_id,
+    v_email,
+    p_provider_created_at,
+    p_bounce_type,
+    p_failure_class,
+    p_suppression_reason,
+    p_payload_fingerprint
+  );
+
+  if v_result is null then
+    select a.* into v_anomaly
+    from public.delivery_provider_integrity_anomalies a
+    where a.event_id = p_event_id
+      and a.anomaly_type in ('duplicate_event_id_conflict', 'contradictory_terminal_outcome')
+    order by a.detected_at desc
+    limit 1;
+
+    if not found then
+      raise exception 'Provider lifecycle conflict was not durably classified.' using errcode = 'XX000';
+    end if;
+
+    select e.* into v_existing
+    from public.delivery_provider_events e
+    where e.event_id = p_event_id
+    for update;
+
+    if v_anomaly.anomaly_type = 'duplicate_event_id_conflict' then
+      if not found then
+        raise exception 'Conflicting duplicate provider event has no canonical event row.' using errcode = 'XX000';
+      end if;
+      perform public._record_delivery_provider_integrity_conflict(
+        v_email, p_event_id, null, v_anomaly.anomaly_type,
+        p_event_type, p_provider_email_id, null, p_provider_created_at,
+        p_bounce_type, p_failure_class, p_suppression_reason, null, null, null,
+        p_payload_fingerprint, v_existing.event_id, v_existing.recipient_email
+      );
+
+    else
+      select e.* into v_related
+      from public.delivery_provider_events e
+      where e.event_id = v_anomaly.related_event_id
+      for update;
+      if not found then
+        raise exception 'Contradictory provider event has no related canonical event.' using errcode = 'XX000';
+      end if;
+      perform public._record_delivery_provider_integrity_conflict(
+        v_email, p_event_id, v_anomaly.related_event_id, v_anomaly.anomaly_type,
+        p_event_type, p_provider_email_id, null, p_provider_created_at,
+        p_bounce_type, p_failure_class, p_suppression_reason, null, null, null,
+        p_payload_fingerprint, v_related.event_id, v_related.recipient_email
+      );
+
+      -- The prior implementation projected the conflicting terminal event over
+      -- the canonical one. Keep only the integrity status overlay and restore all
+      -- previously authoritative event/timestamp/classification fields.
+      if v_had_lifecycle then
+        update public.delivery_provider_lifecycle
+        set status = 'integrity_anomaly',
+            status_rank = 80,
+            provider_created_at = v_existing_lifecycle.provider_created_at,
+            received_at = v_existing_lifecycle.received_at,
+            event_id = v_existing_lifecycle.event_id,
+            failure_class = null,
+            updated_at = clock_timestamp()
+        where provider_email_id = p_provider_email_id;
+      end if;
+    end if;
+  end if;
+
+  return v_result;
+end;
+$lifecycle_037$;
+
+create or replace function public.record_delivery_provider_lifecycle_event(
+  p_event_id text,
+  p_event_type text,
+  p_provider_email_id text,
+  p_recipient_email text,
+  p_provider_created_at timestamptz,
+  p_bounce_type text default null,
+  p_failure_class text default null
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $legacy_037$
+declare
+  v_email text;
+  v_existing_provider_created_at timestamptz;
+  v_suppression_reason text;
+begin
+  if p_event_id is null or char_length(p_event_id) not between 1 and 255
+    or p_provider_email_id is null or char_length(p_provider_email_id) not between 1 and 255
+    or p_recipient_email is null or char_length(p_recipient_email) > 320 then
+    raise exception 'Invalid legacy delivery provider event identity.' using errcode = '22023';
+  end if;
+
+  v_email := lower(btrim(p_recipient_email));
+  if char_length(v_email) not between 3 and 320
+    or v_email !~ '^[^[:space:]@]+@[^[:space:]@]+[.][^[:space:]@]+$' then
+    raise exception 'Invalid legacy delivery provider recipient.' using errcode = '22023';
+  end if;
+
+  -- The legacy timestamp lookup must happen only after the global event lock.
+  perform pg_catalog.pg_advisory_xact_lock(20261118, pg_catalog.hashtext(p_event_id));
+  perform pg_catalog.pg_advisory_xact_lock(20261119, pg_catalog.hashtext(v_email));
+  perform pg_catalog.pg_advisory_xact_lock(20261126, pg_catalog.hashtext(p_provider_email_id));
+
+  select e.provider_created_at into v_existing_provider_created_at
+  from public.delivery_provider_events e
+  where e.event_id = p_event_id
+  for update;
+
+  if p_event_type = 'email.suppressed' then
+    v_suppression_reason := 'provider_suppressed';
+  end if;
+
+  return public.record_delivery_provider_lifecycle_event(
+    p_event_id,
+    p_event_type,
+    p_provider_email_id,
+    p_recipient_email,
+    coalesce(v_existing_provider_created_at, p_provider_created_at, clock_timestamp()),
+    p_bounce_type,
+    p_failure_class,
+    v_suppression_reason,
+    null
+  );
+end;
+$legacy_037$;
+
+create or replace function public.record_delivery_provider_lifecycle_event(
+  p_event_id text,
+  p_event_type text,
+  p_provider_email_id text,
+  p_recipient_email text,
+  p_provider_created_at timestamptz,
+  p_bounce_type text,
+  p_failure_class text,
+  p_suppression_reason text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $compat_038$
+declare
+  v_email text;
+begin
+  if p_event_id is null or char_length(p_event_id) not between 1 and 255
+    or p_provider_email_id is null or char_length(p_provider_email_id) not between 1 and 255
+    or p_recipient_email is null or char_length(p_recipient_email) > 320 then
+    raise exception 'Invalid legacy delivery provider event identity.' using errcode = '22023';
+  end if;
+
+  v_email := lower(btrim(p_recipient_email));
+  if char_length(v_email) not between 3 and 320
+    or v_email !~ '^[^[:space:]@]+@[^[:space:]@]+[.][^[:space:]@]+$' then
+    raise exception 'Invalid legacy delivery provider recipient.' using errcode = '22023';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(20261118, pg_catalog.hashtext(p_event_id));
+  perform pg_catalog.pg_advisory_xact_lock(20261119, pg_catalog.hashtext(v_email));
+  perform pg_catalog.pg_advisory_xact_lock(20261126, pg_catalog.hashtext(p_provider_email_id));
+
+  return public.record_delivery_provider_lifecycle_event(
+    p_event_id,
+    p_event_type,
+    p_provider_email_id,
+    v_email,
+    p_provider_created_at,
+    p_bounce_type,
+    p_failure_class,
+    p_suppression_reason,
+    null
+  );
+end;
+$compat_038$;
+
+create or replace function public.record_delivery_provider_event(
+  p_event_id text,
+  p_event_type text,
+  p_provider_email_id text,
+  p_recipient_email text,
+  p_bounce_type text default null
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $legacy_038$
+declare
+  v_email text;
+begin
+  if p_event_type not in ('email.bounced', 'email.complained', 'email.suppressed') then
+    raise exception 'Unsupported legacy provider event type.' using errcode = '22023';
+  end if;
+  if p_event_id is null or char_length(p_event_id) not between 1 and 255
+    or p_provider_email_id is null or char_length(p_provider_email_id) not between 1 and 255
+    or p_recipient_email is null or char_length(p_recipient_email) > 320 then
+    raise exception 'Invalid legacy delivery provider event identity.' using errcode = '22023';
+  end if;
+
+  v_email := lower(btrim(p_recipient_email));
+  if char_length(v_email) not between 3 and 320
+    or v_email !~ '^[^[:space:]@]+@[^[:space:]@]+[.][^[:space:]@]+$' then
+    raise exception 'Invalid legacy delivery provider recipient.' using errcode = '22023';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(20261118, pg_catalog.hashtext(p_event_id));
+  perform pg_catalog.pg_advisory_xact_lock(20261119, pg_catalog.hashtext(v_email));
+  perform pg_catalog.pg_advisory_xact_lock(20261126, pg_catalog.hashtext(p_provider_email_id));
+
+  return public.record_delivery_provider_lifecycle_event(
+    p_event_id,
+    p_event_type,
+    p_provider_email_id,
+    v_email,
+    clock_timestamp(),
+    p_bounce_type,
+    null
+  );
+end;
+$legacy_038$;
+
+create or replace function public.record_delivery_provider_suppression_event(
+  p_event_id text,
+  p_event_type text,
+  p_provider_suppression_id text,
+  p_recipient_email text,
+  p_suppression_origin text,
+  p_suppression_source_id text,
+  p_suppression_created_at timestamptz,
+  p_provider_created_at timestamptz,
+  p_payload_fingerprint text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $suppression_037$
+declare
+  v_email text;
+  v_related public.delivery_provider_events%rowtype;
+  v_existing public.delivery_provider_events%rowtype;
+  v_anomaly public.delivery_provider_integrity_anomalies%rowtype;
+  v_result boolean;
+begin
+  if p_event_id is null or char_length(p_event_id) not between 1 and 255
+    or p_event_id !~ '^[[:graph:]]+$'
+    or p_event_type is null or p_event_type not in ('suppression.added', 'suppression.removed')
+    or p_provider_suppression_id is null
+    or char_length(p_provider_suppression_id) not between 1 and 255
+    or p_provider_suppression_id !~ '^[[:graph:]]+$'
+    or p_recipient_email is null
+    or char_length(p_recipient_email) > 320
+    or p_suppression_origin is null
+    or p_suppression_origin not in ('bounce', 'complaint', 'manual')
+    or (p_suppression_source_id is not null
+      and (char_length(p_suppression_source_id) not between 1 and 255
+        or p_suppression_source_id !~ '^[[:graph:]]+$'))
+    or p_suppression_created_at is null
+    or p_provider_created_at is null
+    or p_payload_fingerprint is null
+    or p_payload_fingerprint !~ '^[0-9a-f]{64}$' then
+    raise exception 'Invalid provider suppression event.' using errcode = '22023';
+  end if;
+
+  v_email := lower(btrim(p_recipient_email));
+  if char_length(v_email) not between 3 and 320
+    or v_email !~ '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$' then
+    raise exception 'Invalid provider suppression recipient.' using errcode = '22023';
+  end if;
+
+  -- Global order: event identity, normalized recipient, then suppression correlation.
+  perform pg_catalog.pg_advisory_xact_lock(20261118, pg_catalog.hashtext(p_event_id));
+  perform pg_catalog.pg_advisory_xact_lock(20261119, pg_catalog.hashtext(v_email));
+  perform pg_catalog.pg_advisory_xact_lock(20261127, pg_catalog.hashtext(p_provider_suppression_id));
+
+  select e.* into v_existing
+  from public.delivery_provider_events e
+  where e.event_id = p_event_id
+  for update;
+
+  select e.* into v_related
+  from public.delivery_provider_events e
+  where e.provider_suppression_id = p_provider_suppression_id
+    and e.recipient_email <> v_email
+  order by e.received_at, e.event_id
+  limit 1
+  for update;
+
+  if found then
+    perform public._record_delivery_provider_integrity_conflict(
+      v_email, p_event_id, v_related.event_id, 'provider_suppression_recipient_conflict',
+      p_event_type, null, p_provider_suppression_id, p_provider_created_at,
+      null, null, null, p_suppression_origin, p_suppression_source_id,
+      p_suppression_created_at, p_payload_fingerprint,
+      v_related.event_id, v_related.recipient_email
+    );
+    return null;
+  end if;
+
+  v_result := public._record_delivery_provider_suppression_event_pre037_impl(
+    p_event_id,
+    p_event_type,
+    p_provider_suppression_id,
+    v_email,
+    p_suppression_origin,
+    p_suppression_source_id,
+    p_suppression_created_at,
+    p_provider_created_at,
+    p_payload_fingerprint
+  );
+
+  if v_result is null or v_result is true then
+    select a.* into v_anomaly
+    from public.delivery_provider_integrity_anomalies a
+    where a.event_id = p_event_id
+      and a.anomaly_type in ('duplicate_event_id_conflict', 'suppression_event_timestamp_conflict')
+    order by a.detected_at desc
+    limit 1;
+
+    if found then
+      select e.* into v_existing
+      from public.delivery_provider_events e
+      where e.event_id = coalesce(v_anomaly.related_event_id, v_anomaly.event_id)
+      for update;
+
+      if not found then
+        raise exception 'Conflicting suppression event has no canonical event row.' using errcode = 'XX000';
+      end if;
+
+      perform public._record_delivery_provider_integrity_conflict(
+        v_email,
+        p_event_id,
+        v_anomaly.related_event_id,
+        v_anomaly.anomaly_type,
+        p_event_type,
+        null,
+        p_provider_suppression_id,
+        p_provider_created_at,
+        null,
+        null,
+        null,
+        p_suppression_origin,
+        p_suppression_source_id,
+        p_suppression_created_at,
+        p_payload_fingerprint,
+        v_existing.event_id,
+        v_existing.recipient_email
+      );
+    elsif v_result is null then
+      raise exception 'Provider suppression conflict was not durably classified.' using errcode = 'XX000';
+    end if;
+  end if;
+
+  return v_result;
+end;
+$suppression_037$;
+
+create function public.admin_list_delivery_provider_integrity_conflicts_page(
+  p_state text default 'open',
+  p_limit integer default 50,
+  p_before_last_detected_at timestamptz default null,
+  p_before_conflict_id bigint default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $integrity_conflict_page$
+declare
+  v_total_count bigint;
+  v_result jsonb;
+begin
+  if auth.uid() is null or not public.is_admin() then
+    raise exception 'Administrator authorization is required.' using errcode = '42501';
+  end if;
+  -- p_before_last_detected_at is retained for legacy callers but never participates in pagination.
+  if p_state is null or p_state not in ('open', 'resolved', 'all')
+    or p_limit is null or p_limit not between 1 and 100
+    or (p_before_last_detected_at is not null and p_before_conflict_id is null)
+    or (p_before_conflict_id is not null and p_before_conflict_id <= 0) then
+    raise exception 'Invalid provider-integrity case page parameters.' using errcode = '22023';
+  end if;
+
+  select count(*) into v_total_count
+  from public.delivery_provider_integrity_cases c
+  where p_state = 'all' or c.state = p_state;
+
+  with page_plus_one as (
+    select
+      c.conflict_id,
+      c.recipient_email,
+      c.anomaly_type,
+      c.state,
+      c.first_detected_at,
+      c.last_detected_at,
+      (select count(*) from public.delivery_provider_integrity_conflict_evidence e
+       where e.conflict_id = c.conflict_id)::bigint as evidence_count,
+      c.resolved_at,
+      c.resolved_by,
+      c.resolution_note
+    from public.delivery_provider_integrity_cases c
+    where (p_state = 'all' or c.state = p_state)
+      and (p_before_conflict_id is null or c.conflict_id < p_before_conflict_id)
+    order by c.conflict_id desc
+    limit p_limit + 1
+  ),
+  page as (
+    select * from page_plus_one
+    order by conflict_id desc
+    limit p_limit
+  ),
+  metadata as (
+    select count(*) > p_limit as has_more from page_plus_one
+  ),
+  tail as (
+    select conflict_id
+    from page
+    order by conflict_id asc
+    limit 1
+  )
+  select jsonb_build_object(
+    'total_count', v_total_count,
+    'has_more', metadata.has_more,
+    'next_cursor', case when metadata.has_more then
+      (select jsonb_build_object(
+        'conflict_id', tail.conflict_id::text
+      ) from tail)
+      else null end,
+    'items', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'conflict_id', page.conflict_id::text,
+        'recipient_email', page.recipient_email,
+        'anomaly_type', page.anomaly_type,
+        'state', page.state,
+        'first_detected_at', page.first_detected_at,
+        'last_detected_at', page.last_detected_at,
+        'evidence_count', page.evidence_count,
+        'resolved_at', page.resolved_at,
+        'resolved_by', page.resolved_by,
+        'resolution_note', page.resolution_note
+      ) order by page.conflict_id desc)
+      from page
+    ), '[]'::jsonb)
+  ) into v_result
+  from metadata;
+
+  return v_result;
+end;
+$integrity_conflict_page$;
+
+create function public.admin_get_delivery_provider_integrity_conflict(
+  p_conflict_id bigint
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $integrity_conflict_get$
+declare
+  v_result jsonb;
+begin
+  if auth.uid() is null or not public.is_admin() then
+    raise exception 'Administrator authorization is required.' using errcode = '42501';
+  end if;
+  if p_conflict_id is null or p_conflict_id <= 0 then
+    raise exception 'A valid provider-integrity case ID is required.' using errcode = '22023';
+  end if;
+
+  select jsonb_build_object(
+    'conflict_id', c.conflict_id::text,
+    'recipient_email', c.recipient_email,
+    'anomaly_type', c.anomaly_type,
+    'state', c.state,
+    'first_detected_at', c.first_detected_at,
+    'last_detected_at', c.last_detected_at,
+    'evidence_count', (
+      select count(*) from public.delivery_provider_integrity_conflict_evidence e
+      where e.conflict_id = c.conflict_id
+    ),
+    'history_count', (
+      select count(*) from public.delivery_provider_integrity_conflict_history h
+      where h.conflict_id = c.conflict_id
+    ),
+    'resolved_at', c.resolved_at,
+    'resolved_by', c.resolved_by,
+    'resolution_note', c.resolution_note,
+    'latest_reopened', (
+      select jsonb_build_object(
+        'created_at', h.created_at,
+        'note', h.note,
+        'evidence_id', h.evidence_id::text
+      )
+      from public.delivery_provider_integrity_conflict_history h
+      where h.conflict_id = c.conflict_id
+        and h.action = 'reopened'
+      order by h.created_at desc, h.history_id desc
+      limit 1
+    )
+  ) into v_result
+  from public.delivery_provider_integrity_cases c
+  where c.conflict_id = p_conflict_id;
+
+  return v_result;
+end;
+$integrity_conflict_get$;
+
+create function public.admin_list_delivery_provider_integrity_evidence_page(
+  p_conflict_id bigint,
+  p_limit integer default 50,
+  p_before_observed_at timestamptz default null,
+  p_before_evidence_id bigint default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $integrity_evidence_page$
+declare
+  v_total_count bigint;
+  v_result jsonb;
+begin
+  if auth.uid() is null or not public.is_admin() then
+    raise exception 'Administrator authorization is required.' using errcode = '42501';
+  end if;
+  if p_conflict_id is null or p_conflict_id <= 0
+    or p_limit is null or p_limit not between 1 and 100
+    or (p_before_observed_at is null) <> (p_before_evidence_id is null)
+    or (p_before_evidence_id is not null and p_before_evidence_id <= 0) then
+    raise exception 'Invalid provider-integrity evidence page parameters.' using errcode = '22023';
+  end if;
+  if not exists (select 1 from public.delivery_provider_integrity_cases c where c.conflict_id = p_conflict_id) then
+    raise exception 'Provider-integrity conflict case was not found.' using errcode = '22023';
+  end if;
+
+  select count(*) into v_total_count
+  from public.delivery_provider_integrity_conflict_evidence e
+  where e.conflict_id = p_conflict_id;
+
+  with page_plus_one as (
+    select e.*
+    from public.delivery_provider_integrity_conflict_evidence e
+    where e.conflict_id = p_conflict_id
+      and (p_before_observed_at is null
+        or (e.observed_at, e.evidence_id) < (p_before_observed_at, p_before_evidence_id))
+    order by e.observed_at desc, e.evidence_id desc
+    limit p_limit + 1
+  ),
+  page as (
+    select * from page_plus_one
+    order by observed_at desc, evidence_id desc
+    limit p_limit
+  ),
+  metadata as (
+    select count(*) > p_limit as has_more from page_plus_one
+  ),
+  tail as (
+    select observed_at, evidence_id
+    from page
+    order by observed_at asc, evidence_id asc
+    limit 1
+  )
+  select jsonb_build_object(
+    'total_count', v_total_count,
+    'has_more', metadata.has_more,
+    'next_cursor', case when metadata.has_more then
+      (select jsonb_build_object(
+        'observed_at', tail.observed_at,
+        'evidence_id', tail.evidence_id::text
+      ) from tail)
+      else null end,
+    'items', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'evidence_id', page.evidence_id::text,
+        'observed_at', page.observed_at,
+        'recipient_email', page.recipient_email,
+        'event_id', page.event_id,
+        'related_event_id', page.related_event_id,
+        'event_type', page.event_type,
+        'provider_email_id', page.provider_email_id,
+        'provider_suppression_id', page.provider_suppression_id,
+        'provider_created_at', page.provider_created_at,
+        'bounce_type', page.bounce_type,
+        'failure_class', page.failure_class,
+        'suppression_reason', page.suppression_reason,
+        'suppression_origin', page.suppression_origin,
+        'suppression_source_id', page.suppression_source_id,
+        'suppression_created_at', page.suppression_created_at,
+        'payload_fingerprint', page.payload_fingerprint,
+        'stored_event_id', page.stored_event_id,
+        'stored_recipient_email', page.stored_recipient_email,
+        'evidence_source', page.evidence_source
+      ) order by page.observed_at desc, page.evidence_id desc)
+      from page
+    ), '[]'::jsonb)
+  ) into v_result
+  from metadata;
+
+  return v_result;
+end;
+$integrity_evidence_page$;
+
+create function public.admin_list_delivery_provider_integrity_history_page(
+  p_conflict_id bigint,
+  p_limit integer default 50,
+  p_before_created_at timestamptz default null,
+  p_before_history_id bigint default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $integrity_history_page$
+declare
+  v_total_count bigint;
+  v_result jsonb;
+begin
+  if auth.uid() is null or not public.is_admin() then
+    raise exception 'Administrator authorization is required.' using errcode = '42501';
+  end if;
+  if p_conflict_id is null or p_conflict_id <= 0
+    or p_limit is null or p_limit not between 1 and 100
+    or (p_before_created_at is null) <> (p_before_history_id is null)
+    or (p_before_history_id is not null and p_before_history_id <= 0) then
+    raise exception 'Invalid provider-integrity history page parameters.' using errcode = '22023';
+  end if;
+  if not exists (select 1 from public.delivery_provider_integrity_cases c where c.conflict_id = p_conflict_id) then
+    raise exception 'Provider-integrity conflict case was not found.' using errcode = '22023';
+  end if;
+
+  select count(*) into v_total_count
+  from public.delivery_provider_integrity_conflict_history h
+  where h.conflict_id = p_conflict_id;
+
+  with page_plus_one as (
+    select h.*
+    from public.delivery_provider_integrity_conflict_history h
+    where h.conflict_id = p_conflict_id
+      and (p_before_created_at is null
+        or (h.created_at, h.history_id) < (p_before_created_at, p_before_history_id))
+    order by h.created_at desc, h.history_id desc
+    limit p_limit + 1
+  ),
+  page as (
+    select * from page_plus_one
+    order by created_at desc, history_id desc
+    limit p_limit
+  ),
+  metadata as (
+    select count(*) > p_limit as has_more from page_plus_one
+  ),
+  tail as (
+    select created_at, history_id
+    from page
+    order by created_at asc, history_id asc
+    limit 1
+  )
+  select jsonb_build_object(
+    'total_count', v_total_count,
+    'has_more', metadata.has_more,
+    'next_cursor', case when metadata.has_more then
+      (select jsonb_build_object(
+        'created_at', tail.created_at,
+        'history_id', tail.history_id::text
+      ) from tail)
+      else null end,
+    'items', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'history_id', page.history_id::text,
+        'action', page.action,
+        'actor_id', page.actor_id,
+        'note', page.note,
+        'evidence_id', page.evidence_id::text,
+        'created_at', page.created_at
+      ) order by page.created_at desc, page.history_id desc)
+      from page
+    ), '[]'::jsonb)
+  ) into v_result
+  from metadata;
+
+  return v_result;
+end;
+$integrity_history_page$;
+
+revoke all privileges on function public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)
+  from public, anon, authenticated, service_role;
+grant execute on function public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text) to service_role;
+comment on function public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)
+  is 'deedlight:038:event-id-recipient-provider-lock-order:v1';
+
+revoke all privileges on function public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text)
+  from public, anon, authenticated, service_role;
+grant execute on function public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text) to service_role;
+comment on function public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text)
+  is 'deedlight:038:event-id-recipient-provider-lock-order:v1';
+
+revoke all privileges on function public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text)
+  from public, anon, authenticated, service_role;
+grant execute on function public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text) to service_role;
+comment on function public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text)
+  is 'deedlight:038:event-id-recipient-provider-lock-order:v1';
+
+revoke all privileges on function public.record_delivery_provider_event(text,text,text,text,text)
+  from public, anon, authenticated, service_role;
+grant execute on function public.record_delivery_provider_event(text,text,text,text,text) to service_role;
+comment on function public.record_delivery_provider_event(text,text,text,text,text)
+  is 'deedlight:038:event-id-recipient-provider-lock-order:v1';
+
+revoke all privileges on function public.record_delivery_provider_suppression_event(text,text,text,text,text,text,timestamptz,timestamptz,text)
+  from public, anon, authenticated, service_role;
+grant execute on function public.record_delivery_provider_suppression_event(text,text,text,text,text,text,timestamptz,timestamptz,text)
+  to service_role;
+comment on function public.record_delivery_provider_suppression_event(text,text,text,text,text,text,timestamptz,timestamptz,text)
+  is 'deedlight:038:event-id-recipient-provider-lock-order:v1';
+
+revoke all privileges on function public.admin_list_delivery_provider_integrity_conflicts_page(text,integer,timestamptz,bigint)
+  from public, anon, authenticated, service_role;
+grant execute on function public.admin_list_delivery_provider_integrity_conflicts_page(text,integer,timestamptz,bigint)
+  to authenticated;
+
+revoke all privileges on function public.admin_get_delivery_provider_integrity_conflict(bigint)
+  from public, anon, authenticated, service_role;
+grant execute on function public.admin_get_delivery_provider_integrity_conflict(bigint)
+  to authenticated;
+
+revoke all privileges on function public.admin_list_delivery_provider_integrity_evidence_page(bigint,integer,timestamptz,bigint)
+  from public, anon, authenticated, service_role;
+grant execute on function public.admin_list_delivery_provider_integrity_evidence_page(bigint,integer,timestamptz,bigint)
+  to authenticated;
+
+revoke all privileges on function public.admin_list_delivery_provider_integrity_history_page(bigint,integer,timestamptz,bigint)
+  from public, anon, authenticated, service_role;
+grant execute on function public.admin_list_delivery_provider_integrity_history_page(bigint,integer,timestamptz,bigint)
+  to authenticated;
+
+comment on function public.admin_list_delivery_provider_integrity_conflicts_page(text,integer,timestamptz,bigint)
+  is 'Admin-only keyset page of private provider-integrity cases with exact filtered total and continuation cursor.';
+comment on function public.admin_get_delivery_provider_integrity_conflict(bigint)
+  is 'Admin-only direct case retrieval independent of list pagination; includes exact counts and latest reopening summary.';
+comment on function public.admin_list_delivery_provider_integrity_evidence_page(bigint,integer,timestamptz,bigint)
+  is 'Admin-only keyset page of append-only normalized provider evidence with exact total and continuation cursor.';
+comment on function public.admin_list_delivery_provider_integrity_history_page(bigint,integer,timestamptz,bigint)
+  is 'Admin-only newest-first keyset page of append-only resolution/reopening history with exact total and continuation cursor.';
+
+notify pgrst, 'reload schema';
+commit;
+
+-- END MIGRATION SQL

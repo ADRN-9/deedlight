@@ -10,6 +10,14 @@ const legacyGuardMigration = read("supabase/migrations/202611210029_delivery_leg
 const suppressionSyncMigration = read("supabase/migrations/202611220032_resend_suppression_list_sync.sql");
 const crossStreamMigration = read("supabase/migrations/202611220033_delivery_cross_stream_suppression_order.sql");
 const suppressionTimestampMigration = read("supabase/migrations/202611230034_delivery_suppression_timestamp_order.sql");
+const integrityEvidenceMigration = read("supabase/migrations/202611240037_delivery_provider_integrity_conflict_evidence.sql");
+const integrityPaginationMigration = read("supabase/migrations/202611240038_delivery_provider_integrity_lock_order_pagination.sql");
+const providerIntegrityListPage = read("app/admin/provider-integrity/page.tsx");
+const providerIntegrityDetailPage = read("app/admin/provider-integrity/[conflictId]/page.tsx");
+const providerIntegrityActions = read("app/admin/provider-integrity/actions.ts");
+const adminLayout = read("app/admin/layout.tsx");
+const adminHome = read("app/admin/page.tsx");
+const providerDocs = read("docs/DELIVERY_PROVIDER_WEBHOOKS.md");
 const leaseMigration = read("supabase/migrations/202611210028_delivery_claim_lock_expiry.sql");
 const idempotencyMigration = read("supabase/migrations/202611210030_delivery_idempotency_receipt_guard.sql");
 const suppressionTests = read("scripts/test-delivery-provider-suppressions.sql");
@@ -54,6 +62,38 @@ assert(migrationOrderTest.includes("202611220032_resend_suppression_list_sync.sq
 assert(migrationOrderTest.includes("scripts/test-delivery-provider-suppressions.sql"));
 assert(databaseTests.includes("202611220032_resend_suppression_list_sync.sql"));
 assert(databaseTests.includes("202611220033_delivery_cross_stream_suppression_order.sql"));
+assert(databaseTests.includes("202611240037_delivery_provider_integrity_conflict_evidence.sql"));
+for (const value of [
+  "delivery_provider_integrity_cases",
+  "delivery_provider_integrity_conflict_evidence",
+  "delivery_provider_integrity_conflict_history",
+  "legacy_anomaly_backfill",
+  "provider_email_recipient_conflict",
+  "provider_suppression_recipient_conflict",
+  "admin_resolve_delivery_provider_integrity_conflict",
+  "New conflicting provider evidence arrived after resolution",
+  "pg_advisory_xact_lock(20261119, hashtext(v_email))",
+  "pg_advisory_xact_lock(20261126, hashtext(p_provider_email_id))",
+  "pg_advisory_xact_lock(20261127, hashtext(p_provider_suppression_id))",
+  "rename to _record_delivery_provider_lifecycle_event_pre037_impl",
+  "rename to _record_delivery_provider_suppression_event_pre037_impl",
+  "v_existing_lifecycle.event_id",
+  "provider_created_at = v_existing_lifecycle.provider_created_at",
+  "failure_class = null",
+]) assert(integrityEvidenceMigration.includes(value), "Migration 037 missing provider-integrity invariant: " + value);
+for (const value of [
+  "migration_037_legacy_anomaly_backfill",
+  "new_evidence_reopens_resolved_case",
+  "provider_integrity_private_grants",
+  "admin_resolve_delivery_provider_integrity_conflict",
+  "conflicting_projection_preserves_original_event",
+  "Conflicting provider events erased the original failure classification",
+]) assert(databaseTests.includes(value), "Missing migration 037 SQL regression assertion: " + value);
+assert(suppressionTests.includes("provider_suppression_recipient_conflict"));
+assert(concurrencyTests.includes("provider_email_recipient_conflict"));
+assert(concurrencyTests.includes("provider_suppression_recipient_conflict"));
+assert(providerDocs.includes("Recipient-scoped provider-integrity evidence (migration 037)"));
+
 assert(databaseTests.includes("test-delivery-provider-suppressions.sql"));
 assert(/alter function public\.record_delivery_provider_lifecycle_event\([\s\S]*?rename to _record_delivery_provider_lifecycle_event_fingerprinted_impl/i.test(legacyGuardMigration));
 for (const signature of [
@@ -459,4 +499,414 @@ assert(suppressionTests.includes("'cross_stream_older_removal_after_newer_lifecy
 assert(concurrencyTests.includes("Concurrent older removal-first timestamp ordering: PASS"));
 assert(concurrencyTests.includes("Concurrent newer lifecycle-first timestamp ordering: PASS"));
 assert(databaseTests.includes("Cross-stream stale manual removal bypassed final transport authorization."));
-console.log("Resend webhook authenticity, bounded signatures, cross-stream suppression ordering, migration-028 attestation and privacy assertions: PASS");
+
+assert(providerIntegrityListPage.includes('requireDatabaseAdmin("/admin/provider-integrity")'));
+assert(providerIntegrityListPage.includes('"admin_list_delivery_provider_integrity_conflicts_page"'));
+assert(providerIntegrityListPage.includes("p_limit: 50"));
+assert(providerIntegrityListPage.includes("next_cursor"));
+assert(providerIntegrityListPage.includes("Private administrator workspace"));
+assert(!/service_role|SUPABASE_SERVICE_ROLE_KEY|delivery_provider_integrity_conflict_evidence/.test(providerIntegrityListPage),
+  "Provider-integrity discovery must use the guarded RPC, not privileged credentials or direct evidence tables.");
+assert(providerIntegrityDetailPage.includes("requireDatabaseAdmin"));
+assert(providerIntegrityDetailPage.includes('"admin_get_delivery_provider_integrity_conflict"'));
+assert(providerIntegrityDetailPage.includes('"admin_list_delivery_provider_integrity_evidence_page"'));
+assert(providerIntegrityDetailPage.includes('"admin_list_delivery_provider_integrity_history_page"'));
+assert(providerIntegrityDetailPage.includes("latest_reopened"));
+assert(providerIntegrityDetailPage.includes("hasReopening"));
+assert(providerIntegrityDetailPage.includes("Most recent reopening event"));
+assert(providerIntegrityDetailPage.includes("Reopened after new provider evidence"));
+assert(providerIntegrityDetailPage.includes("Load older evidence"));
+assert(providerIntegrityDetailPage.includes("Load older history"));
+assert(providerIntegrityDetailPage.includes("newest first"));
+assert(providerIntegrityDetailPage.includes("Normalized event fields and fingerprints only.") && providerIntegrityDetailPage.includes("request bodies and provider diagnostics are not exposed here."));
+assert(!/service_role|SUPABASE_SERVICE_ROLE_KEY|\.from\(["']delivery_provider_integrity_/.test(providerIntegrityDetailPage),
+  "Provider-integrity detail must use the guarded admin RPCs only.");
+assert(providerIntegrityActions.includes("requireDatabaseAdmin"));
+assert(providerIntegrityActions.includes('"admin_resolve_delivery_provider_integrity_conflict"'));
+assert(providerIntegrityActions.includes("note.length < 12 || note.length > 2000"));
+assert(providerIntegrityActions.includes("data !== true"));
+assert(adminLayout.includes('href: "/admin/provider-integrity", label: "Provider Integrity", databaseAdminOnly: true'));
+assert(adminHome.includes('href="/admin/provider-integrity"'));
+assert(/perform \* from public\.admin_list_delivery_provider_integrity_evidence\(v_case_id, 100\)[\s\S]*?sqlstate '42501'/i.test(databaseTests),
+  "Authenticated non-admins must be denied evidence RPC access.");
+assert(/perform \* from public\.admin_list_delivery_provider_integrity_history\(v_case_id, 100\)[\s\S]*?sqlstate '42501'/i.test(databaseTests),
+  "Authenticated non-admins must be denied history RPC access.");
+assert(/admin_resolve_delivery_provider_integrity_conflict\(\s*v_case_id,[\s\S]*?sqlstate '42501'/i.test(databaseTests),
+  "Authenticated non-admins must be denied provider-integrity resolution.");
+assert(aggregate.includes(integrityEvidenceMigration.trim()), "Migration 037 must be mirrored verbatim in the SQL Editor aggregate");
+assert(aggregate.includes(integrityPaginationMigration.trim()), "Migration 038 must be mirrored verbatim in the SQL Editor aggregate");
+assert(databaseTests.includes("202611240038_delivery_provider_integrity_lock_order_pagination.sql"));
+assert(integrityPaginationMigration.includes("p.prosrc"));
+assert(integrityPaginationMigration.includes("p.prosecdef"));
+assert(integrityPaginationMigration.includes("p.proconfig"));
+assert(integrityPaginationMigration.includes("has_function_privilege"));
+assert(integrityPaginationMigration.includes("Migration 038 rejected unreviewed function source"));
+assert(integrityPaginationMigration.includes("Migration 038 rejected SECURITY DEFINER/search_path drift"));
+assert(integrityPaginationMigration.includes("Migration 038 rejected administrator RPC grants"));
+assert(integrityPaginationMigration.includes("Migration 038 rejected private helper grants"));
+assert(integrityPaginationMigration.includes("Migration 038 rejected provider-integrity table privacy drift"));
+assert(integrityPaginationMigration.includes("delivery_provider_integrity_conflict_evidence_immutable"));
+assert(integrityPaginationMigration.includes("delivery_provider_integrity_conflict_history_immutable"));
+assert((integrityPaginationMigration.match(/tgtype = 27/g) ?? []).length === 2);
+assert((integrityPaginationMigration.match(/tgenabled in \('O', 'A'\)/g) ?? []).length === 2);
+assert(integrityPaginationMigration.includes("admin_list_delivery_provider_integrity_conflicts_page"));
+assert(integrityPaginationMigration.includes("admin_get_delivery_provider_integrity_conflict"));
+assert(integrityPaginationMigration.includes("admin_list_delivery_provider_integrity_evidence_page"));
+assert(integrityPaginationMigration.includes("admin_list_delivery_provider_integrity_history_page"));
+assert(integrityPaginationMigration.includes("'total_count', v_total_count"));
+assert(integrityPaginationMigration.includes("'has_more', metadata.has_more"));
+assert(integrityPaginationMigration.includes("'next_cursor'"));
+assert(integrityPaginationMigration.includes("'latest_reopened'"));
+function migrationFunctionBody(source, tag) {
+  const marker = "as $" + tag + "$";
+  const start = source.indexOf(marker);
+  assert(start >= 0, "Missing migration 038 function body: " + tag);
+  const bodyStart = start + marker.length;
+  const end = source.indexOf("$" + tag + "$;", bodyStart);
+  assert(end > bodyStart, "Unterminated migration 038 function body: " + tag);
+  return source.slice(bodyStart, end);
+}
+const casePaginationBody = migrationFunctionBody(integrityPaginationMigration, "integrity_conflict_page");
+assert(casePaginationBody.includes("c.conflict_id < p_before_conflict_id"), "Case pagination must continue by immutable conflict_id.");
+assert(casePaginationBody.includes("order by c.conflict_id desc"), "Case pagination must order by immutable conflict_id DESC.");
+assert(!casePaginationBody.includes("c.last_detected_at, c.conflict_id"), "Mutable last_detected_at must not participate in the case cursor.");
+assert(databaseTests.includes("New evidence between case page requests was skipped or reordered."), "Case pagination must test evidence arriving between requests.");
+assert(providerIntegrityListPage.includes("p_before_last_detected_at: null"), "The administrator UI must not send a mutable timestamp cursor.");
+assert(!providerIntegrityListPage.includes("before_last_detected_at="), "The administrator UI must not encode a mutable timestamp in case continuation links.");
+
+function assertProviderLockOrder(tag, correlationNamespace) {
+  const body = migrationFunctionBody(integrityPaginationMigration, tag);
+  const eventLock = body.indexOf("pg_advisory_xact_lock(20261118, pg_catalog.hashtext(p_event_id))");
+  const recipientLock = body.indexOf("pg_advisory_xact_lock(20261119, pg_catalog.hashtext(v_email))");
+  const correlationLock = body.indexOf("pg_advisory_xact_lock(" + correlationNamespace + ", pg_catalog.hashtext(");
+  if (tag === "legacy_037") {
+    const timestampLookup = body.indexOf("select e.provider_created_at into v_existing_provider_created_at");
+    assert(correlationLock >= 0 && correlationLock < timestampLookup, "Legacy timestamp lookup must follow event, recipient and provider locks.");
+  }
+  assert(eventLock >= 0 && eventLock < recipientLock && recipientLock < correlationLock,
+    "Provider lock order must be event ID, recipient, then correlation in " + tag);
+}
+assertProviderLockOrder("lifecycle_037", 20261126);
+assertProviderLockOrder("legacy_037", 20261126);
+assertProviderLockOrder("compat_038", 20261126);
+assertProviderLockOrder("legacy_038", 20261126);
+assertProviderLockOrder("suppression_037", 20261127);
+for (const value of [
+  "85e6838cf8feec05bcfe9e9051e5192bc8f0d42f7a53cb6c0450067d70bba74b",
+  "4b8c7b9c0ea7af1cea5e3d34ed3d1a21cbd5c17958a4d89f8c857cfa38f7581b",
+  "9be2593c7187516b0ca4a413f9443b02fd8f4ea9b02f539f1b5b504eb53eb694",
+  "abca9b6c4ccd2e51dc7b0523d18b4e6931a082baa3b260fe308b78e0e7563536",
+  "5896bffd634d825be05a5e8bdf78c6b0bae2ded24591b283fea764a74cb5343b",
+  "5e3eb059c12dd9caa50a060447fd09d3afc217142bd58e94d1afd5a1cbbb62a6",
+  "c77643294b78d01bdad25cce4cfc0e7bac10f7d12f9898c2b169fa012add6bc0",
+  "72609677508aa59960571a22c39b4b6cbbb0bcf3106339b995b5133a863d4b3f",
+  "c818efdd81bc98ad96adb7439ee70024cb101fbfcaa9cfe557bbf3c2dfe233a4",
+  "53de2fc64a9fa634efe33e18b7f639a474d9f359a2c57066b9bac760aa9b16e1",
+]) assert(integrityPaginationMigration.includes(value), "Migration 038 preflight source identity list is incomplete.");
+assert(databaseTests.includes("Cycle 356 source fingerprint fixture does not match migration 037."));
+assert(databaseTests.includes("C356 deliberate source drift"));
+assert(databaseTests.includes("Migration 038 source drift rejection was not atomic."));
+for (const value of [
+  "rollback;",
+  "Administrator UPDATE of provider-integrity evidence was not denied.",
+  "Administrator DELETE of provider-integrity evidence was not denied.",
+  "Administrator UPDATE of provider-integrity history was not denied.",
+  "Administrator DELETE of provider-integrity history was not denied.",
+  "Non-admin authenticated member resolved a provider-integrity case.",
+  "Case pagination accepted a partial cursor.",
+  "History pagination accepted a partial cursor.",
+  "Latest reopening was hidden after a case was subsequently resolved.",
+  "test.c356_resolved_case_id",
+  "current_setting('test.c356_resolved_case_id')",
+]) assert(databaseTests.toLowerCase().includes(value.toLowerCase()), "Missing Cycle 356 pagination/privacy regression: " + value);
+for (const value of [
+  "grant execute on function public.record_delivery_provider_lifecycle_event",
+  "security invoker",
+  "set search_path = public;",
+  "update public.delivery_provider_integrity_conflict_evidence",
+  "delete from public.delivery_provider_integrity_conflict_evidence",
+  "update public.delivery_provider_integrity_conflict_history",
+  "delete from public.delivery_provider_integrity_conflict_history",
+  "admin_get_delivery_provider_integrity_conflict",
+  "admin_list_delivery_provider_integrity_conflicts_page",
+  "admin_list_delivery_provider_integrity_evidence_page",
+  "admin_list_delivery_provider_integrity_history_page",
+]) assert(databaseTests.toLowerCase().includes(value.toLowerCase()), "Missing Cycle 356 provider-integrity SQL regression: " + value);
+assert(concurrencyTests.includes("C356_SIMULTANEOUS_FIRST_INSERT_EVENT_LOCK_HELD"));
+assert(concurrencyTests.includes("Concurrent simultaneous first-insert event-ID conflict: PASS"));
+assert(concurrencyTests.includes("C356_LEGACY_EVENT_LOCK_HELD"));
+assert(concurrencyTests.includes("C356_COMPAT_EVENT_LOCK_HELD"));
+assert(concurrencyTests.includes("C356_LEGACY_EVENT_WRAPPER_LOCK_HELD"));
+assert(concurrencyTests.includes("Legacy seven-argument lifecycle wrapper event-ID-first locking: PASS"));
+assert(concurrencyTests.includes("Legacy eight-argument compatibility wrapper event-ID-first locking: PASS"));
+assert(concurrencyTests.includes("Five-argument legacy event wrapper event-ID-first locking: PASS"));
+assert(concurrencyTests.includes("C356_SUPPRESSION_FIRST_INSERT_EVENT_LOCK_HELD"));
+assert(concurrencyTests.includes("Concurrent suppression first-insert event-ID conflict: PASS"));
+for (const value of [
+  "command_timeout_seconds=25",
+  "wait_timeout_seconds=32",
+  "reap_deadline=$((SECONDS + reap_timeout_seconds))",
+  "suite_timeout_seconds=840",
+  "timeout --verbose --signal=TERM --kill-after=5s",
+  "wait_bounded()",
+  "track_child()",
+  "trap cleanup EXIT",
+  "C362_EXPECTED_LOCK_TIMEOUT_SQLSTATE=55P03",
+  "Bounded advisory-lock conflict SQLSTATE 55P03 and unchanged database state: PASS",
+  "command -v setsid",
+  "Timeout supervisor terminates a TERM-resistant child: PASS",
+  `watchdog_probe_status" != "137"`,
+  "Bounded wait terminates and reaps a TERM-resistant child: PASS",
+]) assert(concurrencyTests.includes(value), "Missing bounded concurrency safety assertion: " + value);
+const concurrencyScenarioBody = concurrencyTests.slice(concurrencyTests.indexOf("# An exact duplicate"));
+assert(!/^[ \\t]*wait "[A-Za-z_][A-Za-z0-9_]*"$/m.test(concurrencyScenarioBody),
+  "Concurrency scenario child waits must use the bounded wait helper.");
+console.log("Resend webhook authenticity, provider-integrity administration, bounded signatures, suppression ordering and privacy assertions: PASS");
+
+const productionOwnershipAudit = read("docs/PRODUCTION_READ_ONLY_MIGRATION_AUDIT.md");
+const expectedSecurityDefinerOwnershipSignatures = [
+  "public.is_admin()",
+  "public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text,text)",
+  "public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text,text)",
+  "public.record_delivery_provider_lifecycle_event(text,text,text,text,timestamptz,text,text)",
+  "public.record_delivery_provider_event(text,text,text,text,text)",
+  "public.record_delivery_provider_suppression_event(text,text,text,text,text,text,timestamptz,timestamptz,text)",
+  "public._record_delivery_provider_integrity_conflict(text,text,text,text,text,text,text,timestamptz,text,text,text,text,text,timestamptz,text,text,text)",
+  "public._record_delivery_provider_lifecycle_event_pre037_impl(text,text,text,text,timestamptz,text,text,text,text)",
+  "public._record_delivery_provider_suppression_event_pre037_impl(text,text,text,text,text,text,timestamptz,timestamptz,text)",
+  "public._deny_delivery_provider_integrity_audit_mutation()",
+  "public.admin_list_delivery_provider_integrity_conflicts(text,integer)",
+  "public.admin_list_delivery_provider_integrity_evidence(bigint,integer)",
+  "public.admin_list_delivery_provider_integrity_history(bigint,integer)",
+  "public.admin_resolve_delivery_provider_integrity_conflict(bigint,text)",
+  "public.admin_list_delivery_provider_integrity_conflicts_page(text,integer,timestamptz,bigint)",
+  "public.admin_get_delivery_provider_integrity_conflict(bigint)",
+  "public.admin_list_delivery_provider_integrity_evidence_page(bigint,integer,timestamptz,bigint)",
+  "public.admin_list_delivery_provider_integrity_history_page(bigint,integer,timestamptz,bigint)",
+];
+assert.equal(expectedSecurityDefinerOwnershipSignatures.length, 18,
+  "The Production ownership audit must cover exactly 18 reviewed SECURITY DEFINER signatures.");
+
+function extractOwnershipSqlBlock(markdown, heading) {
+  const headingIndex = markdown.indexOf(heading);
+  assert(headingIndex >= 0, "Missing ownership audit section: " + heading);
+  const nextHeadingIndex = markdown.indexOf("\n### ", headingIndex + heading.length);
+  const section = markdown.slice(headingIndex, nextHeadingIndex < 0 ? undefined : nextHeadingIndex);
+  const blocks = [...section.matchAll(/```sql\s*\n([\s\S]*?)\n```/gi)];
+  assert.equal(blocks.length, 1, "Ownership audit section must contain exactly one fenced SQL block: " + heading);
+  return blocks[0][1].trim();
+}
+
+function assertExactOwnershipInventory(query, label) {
+  assert(/^WITH(?: RECURSIVE)? expected\(signature\) AS/m.test(query),
+    label + " must declare the exact expected-signature inventory inside its SQL block.");
+  for (const signature of expectedSecurityDefinerOwnershipSignatures) {
+    const literal = "('" + signature + "')";
+    assert.equal(query.split(literal).length - 1, 1,
+      label + " must contain each exact function signature exactly once: " + signature);
+  }
+}
+
+function validateOwnershipQuery8A(query) {
+  assertExactOwnershipInventory(query, "Query 8A");
+  for (const value of [
+    "pg_catalog.to_regprocedure(expected.signature)",
+    "LEFT JOIN pg_catalog.pg_proc AS procedure",
+    "procedure.proowner AS owner_role_oid",
+    "pg_catalog.pg_get_userbyid(procedure.proowner) AS function_owner",
+    "LEFT JOIN pg_catalog.pg_roles AS owner_role",
+    "procedure.prosecdef",
+    "procedure.proconfig",
+    "procedure.proacl::text AS explicit_function_acl",
+    "pg_catalog.acldefault('f', procedure.proowner)",
+    "COALESCE(",
+    "effective_defaulted_function_acl",
+    "owner_role.rolsuper",
+    "owner_role.rolinherit",
+    "owner_role.rolcreaterole",
+    "owner_role.rolcreatedb",
+    "owner_role.rolcanlogin",
+    "owner_role.rolreplication",
+    "owner_role.rolbypassrls",
+    "'MISSING_FUNCTION'",
+    "'MISSING_OWNER_ROLE'",
+    "'NOT_SECURITY_DEFINER'",
+    "'PRESENT'",
+  ]) assert(query.includes(value), "Query 8A is missing required ownership/ACL structure: " + value);
+}
+
+function validateOwnershipQuery8B(query) {
+  assertExactOwnershipInventory(query, "Query 8B");
+  for (const value of [
+    "WITH RECURSIVE expected(signature) AS",
+    "membership_walk(",
+    "UNION ALL",
+    "JOIN pg_catalog.pg_auth_members AS membership",
+    "WHERE NOT membership.roleid = ANY(membership_walk.role_path)",
+    "membership.inherit_option",
+    "membership.set_option",
+    "membership_walk.inherit_path AS membership_edge_inherit_options",
+    "membership_walk.set_path AS membership_edge_set_options",
+    "'MEMBER'",
+    "'USAGE'",
+    "'SET'",
+    "AS owner_is_member",
+    "AS owner_inherits_privileges",
+    "AS owner_can_set_role",
+    "granted_role.rolsuper",
+    "granted_role.rolbypassrls",
+  ]) assert(query.includes(value), "Query 8B is missing required recursive/effective-privilege structure: " + value);
+  assert.equal((query.match(/JOIN pg_catalog\.pg_auth_members AS membership/g) ?? []).length, 2,
+    "Query 8B must traverse both direct and recursive membership edges.");
+  assert.equal((query.match(/pg_catalog\.pg_has_role\(/g) ?? []).length, 3,
+    "Query 8B must independently report MEMBER, USAGE and SET effective privileges.");
+}
+
+const ownershipQuery8A = extractOwnershipSqlBlock(
+  productionOwnershipAudit,
+  "### Query 8A — exact SECURITY DEFINER ownership inventory (18 signatures)",
+);
+const ownershipQuery8B = extractOwnershipSqlBlock(
+  productionOwnershipAudit,
+  "### Query 8B — direct and transitive memberships of function owners",
+);
+validateOwnershipQuery8A(ownershipQuery8A);
+validateOwnershipQuery8B(ownershipQuery8B);
+
+// Negative fixtures mutate the extracted SQL, not surrounding prose or unrelated query blocks.
+assert.throws(
+  () => validateOwnershipQuery8A(ownershipQuery8A.replace(
+    "procedure.proowner AS owner_role_oid,",
+    "NULL::oid AS owner_role_oid,",
+  )),
+  (error) => error.message.includes("procedure.proowner AS owner_role_oid"),
+  "Removing the function-owner catalog identity must fail verification.",
+);
+assert.throws(
+  () => validateOwnershipQuery8A(ownershipQuery8A.replace(
+    "procedure.proacl::text AS explicit_function_acl,",
+    "NULL::text AS explicit_function_acl,",
+  )),
+  (error) => error.message.includes("procedure.proacl::text AS explicit_function_acl"),
+  "Removing the explicit function ACL evidence must fail verification.",
+);
+assert.throws(
+  () => validateOwnershipQuery8B(ownershipQuery8B.replace(
+    "WITH RECURSIVE expected(signature) AS",
+    "WITH expected(signature) AS",
+  )),
+  (error) => error.message.includes("WITH RECURSIVE"),
+  "Removing recursive membership traversal must fail verification.",
+);
+assert.throws(
+  () => validateOwnershipQuery8B(ownershipQuery8B.replace(
+    "pg_catalog.pg_has_role(\n    membership_walk.owner_oid, membership_walk.granted_role_oid, 'SET'\n  ) AS owner_can_set_role,",
+    "false AS owner_can_set_role,",
+  )),
+  (error) => error.message.includes("'SET'"),
+  "Removing the effective SET ROLE privilege check must fail verification.",
+);
+
+for (const value of [
+  "transaction_read_only = on",
+  "xaipiovflxomcbfwtwmu",
+  "exactly 18 rows",
+  "explicitly approves the per-signature expected owner mapping",
+]) assert(productionOwnershipAudit.includes(value),
+  "Production ownership audit procedure is missing a required safety/approval condition: " + value);
+
+console.log("Production ownership audit SQL extraction, 18-signature inventory, ownership/ACL, recursive membership and effective privilege assertions: PASS");
+console.log("Ownership audit verification is lexical/source-structural only; Query 8A/8B were not executed against PostgreSQL.");
+
+const webhookConcurrencyScript = read("scripts/test-delivery-provider-webhook-concurrency.sh");
+const trackedWebhookChildren = [...webhookConcurrencyScript.matchAll(/^(\s*)([A-Za-z_][A-Za-z0-9_]*_pid)=\$!\n\1track_child "\$\2"$/gm)];
+const webhookChildRegistrations = [...webhookConcurrencyScript.matchAll(/^\s*track_child "\$([A-Za-z_][A-Za-z0-9_]*_pid)"$/gm)];
+assert.equal(trackedWebhookChildren.length, webhookChildRegistrations.length,
+  "Every tracked webhook child must register the actual PID immediately after launch.");
+assert(trackedWebhookChildren.length >= 30, "The complete webhook concurrency child inventory must remain tracked.");
+assert(!webhookConcurrencyScript.includes('track_child "$1"'),
+  "Webhook concurrency cleanup must not register a literal placeholder instead of a PID.");
+assert(webhookConcurrencyScript.includes("if (( BASH_SUBSHELL > 0 )); then"),
+  "The process-group exec wrapper must only replace a subshell, never the parent test shell.");
+assert(webhookConcurrencyScript.includes('setsid timeout --verbose --signal=TERM --kill-after=5s'),
+  "Each PostgreSQL command must run in a supervised process group with an explicit execution deadline.");
+assert(webhookConcurrencyScript.includes('PGCONNECT_TIMEOUT="$connect_timeout_seconds"'),
+  "PostgreSQL connection establishment must have an explicit timeout.");
+assert(webhookConcurrencyScript.includes('lock_timeout=${lock_timeout_seconds}s')
+  && webhookConcurrencyScript.includes('statement_timeout=${statement_timeout_seconds}s'),
+  "PostgreSQL lock acquisition and statement execution must be bounded.");
+assert(webhookConcurrencyScript.includes('cleanup_deadline=$((SECONDS + 15))')
+  && webhookConcurrencyScript.includes('Timed out removing temporary concurrency-test resources'),
+  "Cleanup must have a finite process-reap and temporary-resource deadline.");
+assert(webhookConcurrencyScript.includes('if [[ -f "$file" ]] && grep -q "$marker" "$file"; then return 0; fi'),
+  "Marker synchronization must tolerate the brief interval before a background process creates its redirected log file.");
+assert(webhookConcurrencyScript.includes('wait_for_advisory_lock()')
+  && webhookConcurrencyScript.includes('wait_for_marker()')
+  && !webhookConcurrencyScript.includes('for _ in {1..100}'),
+  "Synchronization marker and advisory-lock observation waits must be deadline-based.");
+for (const marker of [
+  "evt_cross_recipient_second",
+  "sup_concurrent_cross",
+  "evt_c323_concurrent_old_email_suppressed",
+  "evt_c323_concurrent_later_add",
+  "evt_c331_concurrent_newer_lifecycle_after_removal",
+  "evt_c331_concurrent_old_manual_add",
+  "evt_c356_simultaneous_first_insert",
+  "evt_historical_026_complaint",
+  "evt_historical_025_suppressed",
+  "evt_c356_suppression_first_insert",
+]) assert(webhookConcurrencyScript.includes(marker),
+  "A required provider lock-order or legacy-wrapper concurrency scenario was removed: " + marker);
+assert(webhookConcurrencyScript.includes("suite_complete=1")
+  && webhookConcurrencyScript.includes("Concurrency suite exited before completing all scenarios; refusing a false PASS.")
+  && webhookConcurrencyScript.includes("Concurrency test process deadlines, bounded waits, and cleanup watchdog: PASS"),
+  "The concurrency harness must fail closed if it exits before every scenario reaches the final sentinel.");
+
+const deadlockStart = webhookConcurrencyScript.indexOf("# Two independent transactions hold opposite advisory locks");
+const lockTimeoutStart = webhookConcurrencyScript.indexOf("# A controlled event-ID advisory-lock conflict must fail as PostgreSQL lock_not_available (55P03).");
+assert(deadlockStart >= 0 && lockTimeoutStart > deadlockStart,
+  "The controlled deadlock regression must precede and remain separate from the existing 55P03 regression.");
+const deadlockRegression = webhookConcurrencyScript.slice(deadlockStart, lockTimeoutStart);
+for (const value of [
+  "set local deadlock_timeout = '200ms';",
+  "set local lock_timeout = '8s';",
+  "DEEDLIGHT_DEADLOCK_A_WAIT",
+  "DEEDLIGHT_DEADLOCK_B_WAIT",
+  "DEADLOCK_A_LOCK_HELD",
+  "DEADLOCK_B_LOCK_HELD",
+  "40P01: deadlock detected",
+  "wait_for_advisory_lock",
+  "wait_bounded \"$deadlock_a_pid\"",
+  "wait_bounded \"$deadlock_b_pid\"",
+  "DEADLOCK_$" + "{deadlock_survivor}_CROSS_LOCK_ACQUIRED",
+  "DEADLOCK_$" + "{deadlock_survivor}_COMMITTED",
+  "deedlight_webhook_deadlock_regression",
+  "deadlock_final_count",
+  "Controlled PostgreSQL deadlock SQLSTATE 40P01, survivor commit and final database state: PASS",
+]) assert(deadlockRegression.includes(value),
+  "The controlled PostgreSQL deadlock regression is missing required behavior: " + value);
+assert(deadlockRegression.includes('deadlock_victim="B"\n  deadlock_survivor="A"')
+  && deadlockRegression.includes('deadlock_victim="A"\n  deadlock_survivor="B"'),
+  "The successful transaction must be identified as survivor and the nonzero transaction as deadlock victim.");
+assert(deadlockRegression.indexOf("set local deadlock_timeout") < deadlockRegression.indexOf("set local lock_timeout"),
+  "Deadlock detection must be configured to run before the transaction lock timeout.");
+assert(!deadlockRegression.includes("set_config('lock_timeout', '250ms'"),
+  "The deadlock regression must not simulate deadlocks with a short lock timeout.");
+assert(workflow.includes("name: Provider webhook concurrency behavior")
+  && workflow.includes("run: bash scripts/test-delivery-provider-webhook-concurrency.sh"),
+  "The PostgreSQL deadlock regression must remain integrated in the provider database CI job.");
+
+assert(webhookConcurrencyScript.includes("C362_EXPECTED_LOCK_TIMEOUT_SQLSTATE=55P03")
+  && webhookConcurrencyScript.includes("Bounded advisory-lock conflict SQLSTATE 55P03 and unchanged database state: PASS"),
+  "The controlled lock-timeout regression and fail-closed state assertion must remain.");
+
+
+const ownershipAuditBehavior = read("scripts/test-security-definer-ownership-audit.mjs");
+assert(workflow.includes("security_definer_ownership_audit_database_behavior:")
+  && workflow.includes("node scripts/test-security-definer-ownership-audit.mjs"),
+  "The PostgreSQL 16 ownership audit behavior suite must remain an executable CI job.");
+for (const value of [
+  "DEEDLIGHT_OWNERSHIP_AUDIT_CI", "deedlight_ownership_audit_test",
+  "MISSING_OWNER_ROLE", "NOT_SECURITY_DEFINER", "MISSING_FUNCTION",
+  "owner_inherits_privileges", "owner_can_set_role", "deedlight_audit_unexpected_bypassrls",
+]) assert(ownershipAuditBehavior.includes(value), "Ownership audit behavior fixture missing: " + value);

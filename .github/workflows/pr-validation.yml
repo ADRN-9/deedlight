@@ -57,6 +57,15 @@ jobs:
       - name: Diff integrity
         run: git diff --check
 
+      - name: Verify pinned migration inventory and SQL Editor aggregate
+        run: node scripts/verify-migration-inventory-aggregate.mjs
+
+      - name: Migration inventory and aggregate negative fixtures
+        run: node --test scripts/test-migration-inventory-aggregate.mjs
+
+      - name: Migration reconciliation analyzer adversarial security regressions
+        run: node --test scripts/test-reconcile-migration-evidence.mjs
+
       - name: Sprint 12.1 security assertions
         run: node scripts/verify-sprint12-1-security.mjs
 
@@ -82,6 +91,9 @@ jobs:
           scripts/test-delivery-webhook.mjs
           scripts/verify-delivery-reliability.mjs
           scripts/verify-delivery-provider-webhooks.mjs
+          app/admin/provider-integrity/page.tsx
+          app/admin/provider-integrity/actions.ts
+          'app/admin/provider-integrity/[conflictId]/page.tsx'
 
       - name: Auth pgcrypto schema-qualification assertions
         run: node scripts/verify-auth-pgcrypto-schema-qualification.mjs
@@ -448,3 +460,106 @@ jobs:
       - name: Run DeedLight privacy authorization database behavior
         run: bash scripts/test-privacy-authorization-database.sh
 
+  security_definer_ownership_audit_database_behavior:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: deedlight_ownership_audit_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d deedlight_ownership_audit_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DEEDLIGHT_OWNERSHIP_AUDIT_CI: "1"
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: deedlight_ownership_audit_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Fail closed on production configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${DEEDLIGHT_OWNERSHIP_AUDIT_CI}" = "1"
+          test "${PGHOST}" = "127.0.0.1"
+          test "${PGDATABASE}" = "deedlight_ownership_audit_test"
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}"
+          test -z "${SUPABASE_DB_PASSWORD:-}"
+          test -z "${SUPABASE_ACCESS_TOKEN:-}"
+          test -z "${RESEND_API_KEY:-}"
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Validate fail-closed Production owner manifest mechanics with fixture-only identities
+        run: node --test scripts/test-production-function-owner-manifest.mjs
+
+      - name: Verify signed Production owner approvals and evidence with ephemeral fixture keys
+        run: node --test scripts/test-production-owner-approval-bundle.mjs
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Execute actual Query 8A and Query 8B against disposable PostgreSQL 16
+        run: node scripts/test-security-definer-ownership-audit.mjs
+
+  migration_inventory_aggregate_database_behavior:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: deedlight_migration_aggregate_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d deedlight_migration_aggregate_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: deedlight_migration_aggregate_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Fail closed on Production configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${PGHOST}" = "127.0.0.1"
+          test "${PGDATABASE}" = "deedlight_migration_aggregate_test"
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}"
+          test -z "${SUPABASE_DB_PASSWORD:-}"
+          test -z "${SUPABASE_ACCESS_TOKEN:-}"
+          test -z "${SUPABASE_PROJECT_REF:-}"
+          test -z "${RESEND_API_KEY:-}"
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Execute complete SQL Editor aggregate and prove Migration 038 compatibility guards
+        run: bash scripts/test-migration-aggregate-postgres.sh

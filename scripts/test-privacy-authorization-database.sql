@@ -166,6 +166,11 @@ INSERT INTO public.daily_lights (
   current_date + 1, 'published', 'Privacy test Daily Light',
   'Synthetic private Journey fixture.', 'A quiet act of kindness.',
   'What mattered today?'
+), (
+  '00000000-0000-4000-8000-000000000402',
+  current_date + 2, 'published', 'Privacy test second Daily Light',
+  'Synthetic fixture for private reflection insert behavior.', 'A second quiet act of kindness.',
+  'What would you carry forward?'
 );
 
 INSERT INTO public.daily_reflections (user_id, daily_light_id, reflection, intention)
@@ -311,6 +316,16 @@ BEGIN
   END;
   IF NOT v_denied THEN
     RAISE EXCEPTION 'anon unexpectedly has direct access to public.profiles.';
+  END IF;
+
+  v_denied := false;
+  BEGIN
+    PERFORM 1 FROM public.daily_reflections LIMIT 1;
+  EXCEPTION WHEN insufficient_privilege THEN
+    v_denied := true;
+  END;
+  IF NOT v_denied THEN
+    RAISE EXCEPTION 'anon unexpectedly has direct access to private Daily reflections.';
   END IF;
 
   v_denied := false;
@@ -838,11 +853,59 @@ $$;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-000000000102', true);
 DO $$
-DECLARE v_denied boolean;
+DECLARE v_denied boolean; v_rows bigint;
 BEGIN
   IF (SELECT count(*) FROM public.daily_reflections WHERE daily_light_id='00000000-0000-4000-8000-000000000401') <> 1
-     OR EXISTS (SELECT 1 FROM public.daily_reflections WHERE daily_light_id='00000000-0000-4000-8000-000000000401' AND user_id='00000000-0000-4000-8000-000000000101') THEN
+     OR EXISTS (SELECT 1 FROM public.daily_reflections WHERE daily_light_id='00000000-0000-4000-8000-000000000401' AND user_id='00000000-0000-4000-8000-000000000101')
+     OR EXISTS (SELECT 1 FROM public.daily_reflections WHERE daily_post_id IS NOT NULL AND user_id='00000000-0000-4000-8000-000000000101') THEN
     RAISE EXCEPTION 'Member B read another member''s private Daily reflection/Journey.';
+  END IF;
+
+  UPDATE public.daily_reflections
+  SET reflection = 'C408_MEMBER_B_UPDATED_REFLECTION',
+      intention = 'C408_MEMBER_B_UPDATED_INTENTION'
+  WHERE daily_light_id = '00000000-0000-4000-8000-000000000401'
+    AND user_id = auth.uid();
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows <> 1 THEN
+    RAISE EXCEPTION 'Member B could not update their own private Daily reflection.';
+  END IF;
+
+  INSERT INTO public.daily_reflections (user_id, daily_light_id, reflection, intention)
+  VALUES (
+    auth.uid(),
+    '00000000-0000-4000-8000-000000000402',
+    'C408_MEMBER_B_INSERTED_REFLECTION',
+    'C408_MEMBER_B_INSERTED_INTENTION'
+  );
+
+  v_denied := false;
+  BEGIN
+    INSERT INTO public.daily_reflections (user_id, daily_light_id, reflection, intention)
+    VALUES (
+      '00000000-0000-4000-8000-000000000101',
+      '00000000-0000-4000-8000-000000000402',
+      'C408_CROSS_OWNER_INSERT',
+      'C408_CROSS_OWNER_INSERT'
+    );
+  EXCEPTION WHEN insufficient_privilege THEN
+    v_denied := true;
+  END;
+  IF NOT v_denied THEN
+    RAISE EXCEPTION 'Member B inserted a private Daily reflection for another member.';
+  END IF;
+
+  UPDATE public.daily_reflections
+  SET reflection = 'C408_CROSS_OWNER_UPDATE'
+  WHERE daily_light_id = '00000000-0000-4000-8000-000000000401'
+    AND user_id = '00000000-0000-4000-8000-000000000101';
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows <> 0 THEN
+    RAISE EXCEPTION 'Member B updated another member''s private Daily reflection.';
+  END IF;
+
+  IF has_table_privilege(current_user, 'public.daily_reflections', 'DELETE') THEN
+    RAISE EXCEPTION 'Authenticated browser role unexpectedly has Daily reflection DELETE privilege.';
   END IF;
   IF (SELECT count(*) FROM public.daily_deed_completions WHERE daily_light_id='00000000-0000-4000-8000-000000000401') <> 1
      OR EXISTS (SELECT 1 FROM public.daily_deed_completions WHERE daily_light_id='00000000-0000-4000-8000-000000000401' AND user_id='00000000-0000-4000-8000-000000000101') THEN
@@ -925,7 +988,14 @@ RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-000000000104', true);
 DO $$
-DECLARE v_members bigint; v_context jsonb; v_denied boolean; v_member_list text;
+DECLARE
+  v_members bigint;
+  v_context jsonb;
+  v_denied boolean;
+  v_member_list text;
+  v_reflection_reads bigint;
+  v_reflection_updates bigint;
+  v_reflection_deletes bigint;
 BEGIN
   SELECT count(*) INTO v_members FROM public.admin_list_members('all')
   WHERE member_user_id='00000000-0000-4000-8000-000000000101';
@@ -944,6 +1014,32 @@ BEGIN
      OR position('private-member@privacy-test.invalid' in v_context::text)>0 THEN
     RAISE EXCEPTION 'Admin moderation context exposed private reflections or member preference/attribution data.';
   END IF;
+  SELECT count(*) INTO v_reflection_reads
+  FROM public.daily_reflections
+  WHERE user_id <> auth.uid();
+
+  UPDATE public.daily_reflections
+  SET reflection = 'C408_UNAUTHORIZED_ADMIN_UPDATE'
+  WHERE user_id <> auth.uid();
+  GET DIAGNOSTICS v_reflection_updates = ROW_COUNT;
+
+  v_denied := false;
+  BEGIN
+    DELETE FROM public.daily_reflections
+    WHERE user_id <> auth.uid();
+    GET DIAGNOSTICS v_reflection_deletes = ROW_COUNT;
+  EXCEPTION WHEN insufficient_privilege THEN
+    v_denied := true;
+    v_reflection_deletes := 0;
+  END;
+
+  IF v_reflection_reads <> 0
+     OR v_reflection_updates <> 0
+     OR v_reflection_deletes <> 0
+     OR has_table_privilege(current_user, 'public.daily_reflections', 'DELETE') THEN
+    RAISE EXCEPTION 'Administrator accessed or mutated another member''s private Daily reflections.';
+  END IF;
+
   IF (SELECT count(*) FROM public.daily_deed_completions) <> 0
      OR (SELECT count(*) FROM public.daily_reminder_preferences) <> 0
      OR (SELECT count(*) FROM public.newsletter_preferences) <> 1

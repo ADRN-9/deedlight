@@ -15,6 +15,7 @@ const adminLinks = [
   { href: "/admin/weekly", label: "Weekly Goodness", databaseAdminOnly: true },
   { href: "/admin/reports", label: "Reports", databaseAdminOnly: false },
   { href: "/admin/members", label: "Members", databaseAdminOnly: true },
+  { href: "/admin/provider-integrity", label: "Provider Integrity", databaseAdminOnly: true },
   { href: "/today", label: "View Today", databaseAdminOnly: false },
 ];
 

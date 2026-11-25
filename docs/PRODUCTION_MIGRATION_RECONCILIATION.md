@@ -1,34 +1,238 @@
+# Cycle 390 — Sprint 6 / Migration 038 administrator fingerprint compatibility
+
+**Verified starting HEAD:** `f95ccb9b7bb37eb625dace69e41d2655fb85025d`  
+**PR #22:** OPEN / DRAFT / UNMERGED  
+**PR #22 base:** PR #10 branch `security/delivery-transport-consent-gates` at `6a3660bbe2fd6beb2ddada43d5e77ff5ac9f3793`  
+**Stack verification:** 223 commits ahead, 0 behind; merge base exactly equals PR #10 head.  
+**Production:** NO-GO. No Production SQL, migration history, deploy, merge, or retarget operation was performed.
+
+## Finding: exact source mismatch
+
+The two historical Sprint 6/7 files sharing prefix `202607260007` are distinct and unchanged. Sprint 6 migration 007 explicitly replaces `public.is_admin()` with this SQL body:
+
+```sql
+select exists (
+  select 1
+  from public.profiles
+  where user_id = auth.uid()
+    and role = 'admin'
+    and coalesce(is_suspended, false) = false
+);
+```
+
+The initial schema migration 001 declares `profiles.is_suspended boolean not null default false`. Sprint 6's `coalesce(is_suspended, false) = false` therefore has the same truth table as the earlier migration 002 source `is_suspended = false` for every valid row under the schema's enforced NOT NULL constraint. It is not source-identical, however.
+
+Historical evolution is explicit: migration 002 first defines the direct-equality body; migrations 004 and 005 each re-create the same body byte-for-byte (the same `85e6838c…` SHA-256); migration 006 does not redefine it; Sprint 6's `202607260007` is the only later replacement and introduces `coalesce(is_suspended, false)`; the distinct Sprint 7 `202607260007` does not define `is_admin()`. Migrations 009–011 and 036–038 do not redefine it either. Thus the last definition before 038 in the ordered aggregate is the Sprint 6 COALESCE variant, while 002/004/005 all carry the exact 038-approved source.\n\nMigration 038 intentionally fingerprints `pg_proc.prosrc`, not a normalized SQL AST or full `pg_get_functiondef`. Its approved `public.is_admin()` SHA-256 is `85e6838cf8feec05bcfe9e9051e5192bc8f0d42f7a53cb6c0450067d70bba74b`, which matches the migration 002 body. The Sprint 6 COALESCE body hashes to `4fb49052b2e525d8b355123d430df7e536a4da5207fd6ef3d21f3b2d770e98e0`. Consequently, after migrations 001–037 the Migration 038 preflight rejects the exact historical Sprint 6 helper as an unreviewed source. This is a deliberate exact-source mismatch, not an authorization failure or a difference in behavior while the NOT NULL invariant holds.
+
+Migration 038 also requires `SECURITY DEFINER`, exactly `search_path=public`, and the existing public execution grant contract for `is_admin()`. Its checks are not weakened or changed by this work.
+
+## Approved aggregate-only compatibility bridge
+
+An explicit, separately pinned bootstrap artifact now sits after immutable migration 037 and immediately before immutable migration 038:
+
+`supabase/bootstrap/migration_038_admin_compatibility.sql`
+
+It is not a historical migration and is not added to the 39-file migration inventory. The aggregate generator pins its Git blob SHA-1 and includes it with provenance. Its preflight:
+- requires `public.profiles`, `public.is_admin()`, and pgcrypto;
+- requires the live `profiles.is_suspended` column to be catalog-verified NOT NULL and rejects any NULL row;
+- requires the exact known Sprint 6 COALESCE `prosrc` hash, `SECURITY DEFINER`, and `search_path=public`;
+- requires existing execute grants for anon, authenticated and service_role;
+- fails closed on any unknown source, context, privilege, or schema state.
+
+Only after all checks pass does it replace the helper body with the exact previously reviewed migration-002 source, preserving the same administrator predicate (`role = 'admin'` and `is_suspended = false`). It then verifies the exact Migration 038 source hash, definer/search_path and grants again. The NOT NULL precondition is essential: if the column were nullable, replacing COALESCE with direct equality would change NULL semantics and the bridge must not run.
+
+This is deliberately not a rewrite of either 007 file, nor of migrations 036–038. The artifact is a deterministic aggregate bootstrap compatibility step. The generator inserts it only after version 037 and before version 038 and rejects artifact-byte drift. The source migrations remain immutable and independently pinned.
+
+## PostgreSQL 16 regression coverage
+
+The disposable PostgreSQL harness now executes the complete aggregate through Migration 038, then verifies:
+- Migration 038 pagination functions and the 037 provider-integrity objects exist;
+- all three bootstrap seed upserts have executed in their intended position;
+- `profiles.is_suspended` remains NOT NULL;
+- `public.is_admin()` has the exact 038 fingerprint and expected execute grants;
+- an unsuspended admin is authorized, a suspended admin is denied, a normal member is denied, and an anonymous/no-subject request is denied;
+- dropping NOT NULL causes the compatibility artifact to fail closed;
+- an unexpected replacement `is_admin()` body causes the compatibility artifact to fail closed;
+- restoring the exact Sprint 6 body allows the bridge to run reproducibly.
+
+The inventory fixture suite additionally verifies that the compatibility artifact is included exactly once between synthetic 037 and 038 bodies and rejects any changed artifact blob. No SQL is parsed by splitting on semicolons.
+
+## Decision and limitations
+
+The incompatibility is safely resolvable for the aggregate's known schema path because migration 001 establishes `is_suspended NOT NULL`, Sprint 6 changes only the expression's NULL handling, and the bridge proves that invariant plus the exact known source and authorization context before replacing the function. The bridge does not silently accept an unknown function definition or nullable suspension state.
+
+This does **not** establish that Production has the same schema, source body, column constraint, ACLs, or migration history. The aggregate's disposable PostgreSQL result is repository-level execution evidence only. Production remains NO-GO until separately authorized, read-only Production evidence establishes the schema and migration-history state and the outstanding delivery rollout gates are completed.
+
+---
+
+# Cycle 389 — Current repository inventory and SQL aggregate integrity
+
+**Current source snapshot before Cycle 389 changes:** `afb63b53650222d901b0b32835678d138ac0761e`  
+**Repository:** ADRN-9/deedlight  
+**PR:** #22 — OPEN / DRAFT / UNMERGED  
+**Branch:** security/private-daily-journey-admin-isolation-c408  
+**Stack:** PR #22 targets PR #10's branch at `6a3660bbe2fd6beb2ddada43d5e77ff5ac9f3793`; comparison is 199 commits ahead / 0 behind with that exact merge base.  
+**Current inventory:** 39 migration files; 38 unique version prefixes.  
+**Current Production disposition:** all 39 migrations UNKNOWN; no Production execution or schema-equivalence claim is made.
+
+> Historical C421/C410/C404 and earlier observations below are retained as historical snapshots. In particular, the old C421 count of 37 files / 36 prefixes and its 37 UNKNOWN classifications describes its then-current tree, not the Cycle 389 tree. The two additional migrations now present are 037 and 038.
+
+## Current exact migration inventory
+
+The pinned inventory is `supabase/migration-inventory.json`, whose own Git blob SHA-1 is pinned in the verifier as `95d514a0bd97ff448c9507252eb1f5e69a507442`. Each migration Git blob SHA-1 is the exact Git object hash of the original migration bytes. The complete inventory has 39 rows, 38 distinct 12-digit prefixes, and exactly one intentional duplicate group: both distinct `202607260007` files. No migration file was renamed, merged, or rewritten.
+
+| Version | Exact filename | Git blob SHA-1 |
+|---|---|---|
+| 202607210001 | `202607210001_initial_schema.sql` | `a244ab0df3e766b0f36e29a222b3160f9f74c502` |
+| 202607210002 | `202607210002_rls_policies.sql` | `f96b482c0d1cf396baae5b91d7c96112f7e88284` |
+| 202607220003 | `202607220003_sprint3_offerings_review.sql` | `74e02f2e60b82cf07a6aac5f8cf57dcdb6fe1382` |
+| 202607260004 | `202607260004_sprint4_reactions.sql` | `c25dce46ecf69d082fcdbea2bb931b6acd9180fc` |
+| 202607260005 | `202607260005_sprint5_moderation.sql` | `b48b4b8b3eea9fb55b68068011fa1371559228c2` |
+| 202607260006 | `202607260006_sprint5_admin_edit_hide_hotfix.sql` | `9e163de5119c3813724341b7a9eabeba6fdc2970` |
+| 202607260007 | `202607260007_sprint6_daily_deedlight.sql` | `e0c2379255003b8c7bc85a1fab781e23051f5e47` |
+| 202607260007 | `202607260007_sprint7_pwa_daily_engagement.sql` | `8b051cfce05ea75b1ee7a726864e2ad760f6fe5f` |
+| 202607270008 | `202607270008_sprint8_short_video_studio.sql` | `5b583bd99562e14db554943d034c748ce302f5ee` |
+| 202608060009 | `202608060009_sprint9_profiles_privacy.sql` | `6594ce6daa0183944fcc548885d6514e8adb9436` |
+| 202608100010 | `202608100010_sprint9_2_community_identity_consistency.sql` | `774708b7705d88a5a1e0da97e72a9d1b47c8884c` |
+| 202608100011 | `202608100011_sprint9_3_moderation_aware_members.sql` | `1d1b7b844b88077351d2658af4be2b2db92eda97` |
+| 202608110012 | `202608110012_sprint10_1_daily_deed_completion.sql` | `0973f72e39ce07b41e053a20f1b781c394578877` |
+| 202608110013 | `202608110013_sprint10_2_saved_lights_gentle_rhythm.sql` | `5fd2f4a796a8a1dfd6237ccf36d1ab62c1dc1714` |
+| 202608120014 | `202608120014_sprint10_3_gentle_reminder_preferences.sql` | `2af1a6a2aa5cffc6ef6d08849b6f71fab44a54d0` |
+| 202608130015 | `202608130015_sprint11_2_weekly_goodness.sql` | `394c774032d8206c0b7a373640859c2a331667a9` |
+| 202608130016 | `202608130016_sprint11_3_invitations_newsletter_foundation.sql` | `8d68ed19859e1a820af52a43c110a38b6a460d48` |
+| 202608130017 | `202608130017_sprint12_1_offering_ownership_engagement.sql` | `bc23b12fe454c1f49b096fd2c7199e3a2aea5bb4` |
+| 202608140018 | `202608140018_sprint12_1_owner_removal_guard_hotfix.sql` | `0ea7eaf04d5c99e4c5a25893aae7694affdd44bc` |
+| 202609230019 | `202609230019_sprint12_2_gentle_delivery_foundation.sql` | `1403b9324e786a2b724176875a70ffce92961d9b` |
+| 202609230020 | `202609230020_delivery_reliability_hardening.sql` | `554615da3d15fc4c0d395691103d3be5676856fa` |
+| 202609230021 | `202609230021_gentle_delivery_transport.sql` | `e50a06bd3a5ed386c54e789435c64b2bb4a54ab9` |
+| 202609240022 | `202609240022_auth_pgcrypto_schema_qualification.sql` | `f42afb3474f80c7d95cf5b47023b82cf5a948d4d` |
+| 202611120023 | `202611120023_delivery_consent_linearization.sql` | `75f5086feab2cbda381066cb9094390190c3332f` |
+| 202611120024 | `202611120024_delivery_identity_lease_capacity.sql` | `240271fd75081c062627cfc3d40bdc0c5feda049` |
+| 202611190025 | `202611190025_delivery_provider_webhooks.sql` | `e97c5c0ad645dfe43f11a88f01b030fa23dd5822` |
+| 202611190026 | `202611190026_delivery_provider_lifecycle.sql` | `6a06d780ad65babf2293a2746c68913758313af8` |
+| 202611200027 | `202611200027_delivery_provider_integrity.sql` | `a1469938ea13b5cb9d7cd883772bc60e4a058026` |
+| 202611210028 | `202611210028_delivery_claim_lock_expiry.sql` | `09d1927fba81d711bb37d214609931d2da2173a1` |
+| 202611210029 | `202611210029_delivery_legacy_replay_guard.sql` | `872fc49ec47e49b17e96ecf6ccaf5c8eb0e6322a` |
+| 202611210030 | `202611210030_delivery_idempotency_receipt_guard.sql` | `c5e3955c4e0dde708a8ffdc9c420807c4241fa32` |
+| 202611220031 | `202611220031_delivery_final_recipient_suppression_gate.sql` | `26d69a0a4e73bc7cfd05814f3f6129bc199da02b` |
+| 202611220032 | `202611220032_resend_suppression_list_sync.sql` | `6a0c0193d85ece99335f8715a65243ac42617f97` |
+| 202611220033 | `202611220033_delivery_cross_stream_suppression_order.sql` | `1cd0c2db5415a37b9a31ed8ef7de54db9019a88f` |
+| 202611230034 | `202611230034_delivery_suppression_timestamp_order.sql` | `4ec8aa578ad851918f4c4b2535c476b4ceb40f1d` |
+| 202611230035 | `202611230035_private_offering_base_table_rls.sql` | `3d0ce8dfd4abb88fccccd23c5ffb9c35f699c098` |
+| 202611230036 | `202611230036_private_daily_reflection_admin_isolation.sql` | `61a1fbf48b4557873ba6016e74fd3995bc62ba14` |
+| 202611240037 | `202611240037_delivery_provider_integrity_conflict_evidence.sql` | `ac0449b50a881e3a895ef40a8eee28bea95a6ec0` |
+| 202611240038 | `202611240038_delivery_provider_integrity_lock_order_pagination.sql` | `38951751fc5abeb79b75c4e37e55da01262a18b8` |
+
+Bootstrap seed: `supabase/seed.sql`, Git blob SHA-1 `e85554aed1553dec407e83966a1b0093f5d1e9a3`, 2574 bytes, exactly three idempotent upserts (themes, daily_posts, badges).
+
+## SQL Editor aggregate execution order and compatibility
+
+The previous aggregate contained complete byte-identical bodies for 001, 002 and 009–038, plus the seed artifact, but omitted the complete original bodies of 003, 004, 005, 006, both distinct 007 migrations, and 008. Those seven bodies are now restored from their pinned source files.
+
+The deterministic aggregate order is:
+1. All 39 migration sources in lexicographic filename order.
+2. The bootstrap seed is deliberately executed immediately after 001 and 002, before 003–038. Those initial migrations create the themes, daily_posts and badges tables required by the three seed upserts.
+3. Seed-before-007 is also a compatibility requirement: Sprint 6 migration 007 conditionally inserts its fallback daily post only when `daily_posts` is empty. The initial schema's `daily_posts.date` is NOT NULL without a default, while that fallback INSERT does not provide `date`; the seed's daily_posts upsert ensures the table is nonempty so the fallback INSERT is skipped. Do not move the seed after 007 or run the bodies in an arbitrary order.
+4. Sprint 7 migration 007 creates `daily_lights` and extends `daily_reflections`; 008 depends on the Sprint 7 007 body. Migration 012 depends on both 007 bodies (the Sprint 6 `daily_post_id` and Sprint 7 `daily_light_id` models). The two 007 files must remain independent and execute in filename order.
+
+The aggregate now has a deterministic source-provenance header with each migration filename, Git blob SHA-1 and byte length, an inventory blob identifier, and explicit migration/seed section markers. The source SQL bytes are included verbatim; the generator does not split SQL on semicolons or rewrite migration contents. The committed aggregate is verified byte-for-byte against generator output.
+
+## Migration 037 and 038 dependencies and effects
+
+**037 — `202611240037_delivery_provider_integrity_conflict_evidence.sql`** (blob `ac0449b50a881e3a895ef40a8eee28bea95a6ec0`):
+- Depends on the delivery provider event, lifecycle and integrity model introduced by 025–027, including recipient correlation and the lifecycle/suppression RPC contracts.
+- Creates durable `delivery_provider_integrity_cases`, `delivery_provider_integrity_conflict_evidence`, and `delivery_provider_integrity_conflict_history` tables with indexes, RLS and restricted mutation paths.
+- Backfills only recoverable historical anomaly markers, labels legacy evidence honestly, and preserves fingerprint-less legacy conflicts as separate evidence when identity cannot be established.
+- Adds recipient-scoped conflict recording, lifecycle/suppression wrappers and administrator list/resolve operations. It uses recipient-then-provider-ID transaction locking to serialize event identity and evidence.
+
+**038 — `202611240038_delivery_provider_integrity_lock_order_pagination.sql`** (blob `38951751fc5abeb79b75c4e37e55da01262a18b8`):
+- Depends on 037's durable cases/evidence/history tables and wrapper functions, and the provider event/suppression ordering contracts from 027 and 032–034.
+- Adds keyset pagination indexes and replaces the conflict/evidence/history list interfaces with bounded keyset pages, exact filtered totals and continuation cursors; adds direct conflict retrieval independent of list pagination.
+- Reasserts recipient-then-provider-ID lock ordering and the service-only provider mutation ACLs, and adds explicit function provenance comments. The migration's preflights abort on unexpected source, ACL or configuration drift.
+
+These are source-level dependencies and effects. The existence of either file or its inclusion in the SQL Editor aggregate does not prove Production application.
+
+## Duplicate-007 migration-history limitation
+
+Supabase CLI migration history is keyed by the 12-digit version prefix. Two distinct migration files share `202607260007`, so one history row cannot independently attest that both SQL bodies ran. The SQL aggregate can execute both bodies in deterministic order, but it does not reconcile the CLI's timestamp-keyed history or prove which body a historical row represents. The existing duplicate-007 CLI/order regression remains relevant. Do not rename, consolidate, delete, or blindly mark either migration applied; do not run Production `supabase db push`. A human-approved reconciliation design against the proven live schema and authorized read-only migration history remains required.
+
+## Aggregate and inventory verifier contract
+
+`scripts/verify-migration-inventory-aggregate.mjs` checks:
+- exact expected file count, exact filenames, unique version count and the sole approved duplicate group;
+- each source's Git blob SHA-1 and byte length, plus missing, unexpected, renamed and modified files;
+- the pinned seed blob and exactly three INSERT / ON CONFLICT upserts;
+- deterministic aggregate generation from immutable source bytes and the maintained seed artifact;
+- exact byte-for-byte equality between generated output and `supabase/run_in_sql_editor_all.sql`.
+
+The companion Node test suite includes positive and negative fixtures for missing, modified, renamed and unexpected migration files; the independently preserved 007 pair; missing/duplicated aggregate bodies; 037/038 modification; reversed order; truncated source and inventory; missing/duplicated seed data; and unexpected SQL. SQL is treated as bytes; tests do not parse it by splitting semicolons.
+
+The CI database harness uses a disposable PostgreSQL 16 instance with a minimal test-only Supabase compatibility surface. It is not a Production clone and cannot establish Production schema equivalence, migration history, or application status.
+
+## Cycle 389 verification evidence and remaining execution blocker
+
+**Implementation/test HEAD:** `3897bb47544af9e6c1454cba06d5bed3efff5357`  
+**Exact-head GitHub Actions:** [run 45510421319](https://github.com/ADRN-9/deedlight/actions/runs/45510421319) — SUCCESS, 10/10 jobs.  
+**Migration inventory:** 39/39 files; 38 unique prefixes; the two distinct 007 files are independently pinned.  
+**Bootstrap seed:** exact pinned blob; three upserts with conflict handling.  
+**Generated SQL aggregate:** exact byte-for-byte match; 390,310 bytes; SHA-256 `242e86a11c1c7af2eadb064621f0dd3068b9f51cfc7fd542d45b0ba5e8560e4a`.  
+**Negative fixture suite:** 18 tests, 18 passed, 0 failed.  
+**Disposable PostgreSQL 16 harness:** the 001–037 source sequence and all three bootstrap upserts executed; migration 038 rejected the aggregate and its transaction rollback was verified.
+
+### Confirmed source incompatibility blocking full aggregate execution
+
+The disposable PostgreSQL test exposed a real, fail-closed incompatibility; it is not a harness bootstrap issue:
+
+- Migration 038's immutable preflight pins `public.is_admin()` source SHA-256 `85e6838cf8feec05bcfe9e9051e5192bc8f0d42f7a53cb6c0450067d70bba74b`, corresponding to the function body that tests `is_suspended = false`.
+- Sprint 6 migration `202607260007_sprint6_daily_deedlight.sql` replaces that function with a body using `coalesce(is_suspended, false) = false`.
+- No later migration before 038 restores the expected source. Migration 038 therefore raises `Migration 038 rejected unreviewed function source for public.is_admin().` and aborts before its own changes.
+- The CI harness confirms that 037's cases/evidence/history tables and the three seed upserts exist after the failure, and that 038's paginated function was not committed by the aborted transaction.
+
+The two source files are protected by the task instructions and remain unchanged. Do not weaken 038's preflight, edit either 007, insert an unapproved SQL patch into the aggregate, or report full aggregate execution as PASS. The aggregate is complete and byte-verifiable, but its full disposable execution is **BLOCKED by the historical 007/038 source-fingerprint conflict**. A separate, reviewed migration-compatibility decision is required before this aggregate can execute end-to-end. The expected-failure database harness makes this blocker executable and visible in CI instead of silently bypassing it.
+
+### Production disposition
+
+All 39 migrations remain **UNKNOWN** for Production application. This repository-only inventory, aggregate verification and disposable PostgreSQL run do not establish live schema equivalence, applied migration history, or Production behavior. The duplicate `202607260007` version-history ambiguity remains unresolved. Production read-only migration/catalog evidence and a human-approved reconciliation remain prerequisites. No Production SQL, `supabase db push`, migration-history repair, deployment, or merge was performed.
+
+---
+
 # DeedLight Production migration-history reconciliation
 
-**Authoritative current snapshot:** C404 documentation reconciliation  
+**Authoritative source inventory snapshot:** C421 synchronization tree (the C410 reviewer and Production evidence below remains historical)  
 **Repository:** ADRN-9/deedlight  
-**PR:** #10 — OPEN / DRAFT / UNMERGED  
-**Branch:** security/delivery-transport-consent-gates  
-**Source HEAD inspected:** c256a1e959f42d0a66b47ad16b3aef3b4705f11e  
-**Source tree:** 3aafe015a5dacadb87d5408a3ba01c5fa7155286  
-**PR base:** main at ce82b3fdf1a73510de70e3729a487d4ae00e66e3  
-**Snapshot date:** 2026-11-23  
-**Inventory:** 36 migration files; 35 unique filename version prefixes  
+**PR:** #22 — OPEN / DRAFT / UNMERGED  
+**Branch:** security/private-daily-journey-admin-isolation-c408  
+**Source HEAD inspected for the C421 inventory refresh:** c5bf9d205934e089d310fbc6677ddc5014314689  
+**Source tree:** ed49efef679ae00b28f22e458256ae26671ada96  
+**PR base:** security/delivery-transport-consent-gates at 6a3660bbe2fd6beb2ddada43d5e77ff5ac9f3793 (current base HEAD after synchronization)  
+**Snapshot date:** 2026-11-24  
+**Inventory:** 37 migration files; 36 unique filename version prefixes  
 **Disposition:** INCOMPLETE — Production read-only access unavailable; every migration and schema effect remains UNKNOWN
 
-> This C404 section is the authoritative current inventory for the source HEAD above. Historical C240/C245/C247 sections retained below describe earlier snapshots and are archival only. Do not use their older 31-file inventory or blob hashes as current source evidence.
+> This C421 section is the authoritative source inventory for the synchronization tree above. Historical C404/C240/C245/C247/C410 sections retained below describe earlier evidence snapshots. Do not use their older HEAD/tree references as current branch state.
+
+## C421 synchronization addendum
+
+PR #22 was synchronized with the latest PR #10 branch using a normal two-parent merge commit. The merge commit is `c5bf9d205934e089d310fbc6677ddc5014314689` (tree `ed49efef679ae00b28f22e458256ae26671ada96`); parents are prior PR #22 HEAD `ff53e43e9cee7da4189d0d06b576934589f6bfcb` and PR #10 HEAD `6a3660bbe2fd6beb2ddada43d5e77ff5ac9f3793`. PR #10's single commit beyond the shared base adds only `docs/DELIVERY_RELIABILITY_AUDIT_CYCLE_344.md` (blob `cd02f4ed6548faf84057e1e7c7406ab597778ee2`). No conflicting paths were found; migration 036 and its blob `61a1fbf48b4557873ba6016e74fd3995bc62ba14` are unchanged.
+
+The complete recursive synchronization tree is not truncated and contains 37 numbered migration files and 36 unique version prefixes. All 37 filename/blob rows in the inventory below were compared against that tree; there are zero mismatches, missing entries or extra entries. The two distinct `202607260007` files remain unchanged. No migration 037 was created. All 37 Production classifications and every independently identifiable Production effect remain UNKNOWN. The synchronization and inventory refresh are repository-only evidence, not Production application evidence.
 
 ## Executive result
 
-The recursive Git tree at c256a1e959f42d0a66b47ad16b3aef3b4705f11e was complete (not truncated) and contains 36 files under supabase/migrations matching the numbered SQL migration naming pattern. The files contain 35 unique version prefixes because two distinct files share version 202607260007:
+The recursive Git tree at c5bf9d205934e089d310fbc6677ddc5014314689 (tree ed49efef679ae00b28f22e458256ae26671ada96) was complete (not truncated) and contains 37 files under supabase/migrations matching the numbered SQL migration naming pattern. The files contain 36 unique version prefixes because two distinct files share version 202607260007:
 
 - 202607260007_sprint6_daily_deedlight.sql — blob e0c2379255003b8c7bc85a1fab781e23051f5e47
 - 202607260007_sprint7_pwa_daily_engagement.sql — blob 8b051cfce05ea75b1ee7a726864e2ad760f6fe5f
 
 They are separate SQL bodies, not aliases or duplicate copies. Keep both source files unchanged. The collision means a timestamp-keyed Supabase migration history cannot unambiguously record both bodies as separate migration versions. Existing isolated PostgreSQL/Supabase CLI evidence shows order-sensitive behavior; see the retained C247 archive below.
 
-The repository source establishes what the candidate migrations intend to change. It does not establish what has run in Production. No authorized Production history, catalog, SQL Editor audit, or deployment record was obtained. Accordingly, all 36 file-level classifications and every independently identifiable effect-level classification remain UNKNOWN. Git presence, comments claiming a Production hotfix, aggregate SQL text, successful disposable-database tests, and CI are not Production execution evidence.
+The repository source establishes what the candidate migrations intend to change. It does not establish what has run in Production. No new authorized Production history, catalog, SQL Editor audit, or deployment evidence was collected for C421. Accordingly, all 37 file-level classifications and every independently identifiable effect-level classification remain UNKNOWN. Git presence, comments claiming a Production hotfix, aggregate SQL text, successful disposable-database tests, and CI are not Production execution evidence.
 
-The exact current PR #10 source HEAD is c256a1e959f42d0a66b47ad16b3aef3b4705f11e. PR #10 is OPEN / DRAFT / UNMERGED. No migration SQL, Production database, migration history, credentials, scheduler, provider, deployment, or delivery setting was changed for this documentation task.
+The PR #22 source integration snapshot is c5bf9d205934e089d310fbc6677ddc5014314689 (tree ed49efef679ae00b28f22e458256ae26671ada96), a normal merge commit with previous PR #22 HEAD ff53e43e9cee7da4189d0d06b576934589f6bfcb and PR #10 HEAD 6a3660bbe2fd6beb2ddada43d5e77ff5ac9f3793 as parents. PR #22 is OPEN / DRAFT / UNMERGED; its base is security/delivery-transport-consent-gates at 6a3660bbe2fd6beb2ddada43d5e77ff5ac9f3793 (the PR #10 HEAD merged into this branch). Historical C408 implementation CI run 45174106399 passed 8/8 jobs on the earlier implementation HEAD 6d0e8fcc397a61bb7aaf0c1858b1147c5f81dae1; it does not validate the C421 synchronization commit or the subsequent documentation refresh. The PR review endpoint returned zero submitted reviews at the C410 snapshot; a separate post-synchronization query also returned zero, so independent security acceptance is not established. No migration SQL, Production database, migration history, credentials, scheduler, provider, deployment, or delivery setting was changed for C421.
 
 ## Production access and human-only dependency
 
-The Production project reference used by the repository guard is xaipiovflxomcbfwtwmu. The connected Supabase identities did not list this project. Read-only get_project and list_migrations calls returned permission denied; a read-only list_tables attempt was also denied. These results establish lack of access for the connected identities, not absence of the project or schema.
+The Production project reference used by the repository guard is xaipiovflxomcbfwtwmu. The last recorded C404 read-only get_project, list_migrations and list_tables attempts were denied for the connected identities. Neither the C410 documentation snapshot nor C421 attempted new Production access. These historical denials establish lack of access for those identities at that time, not absence of the project or schema.
 
 **Human-only prerequisite:** a Production project owner/administrator must either (a) grant an existing connected identity project-scoped read-only access sufficient to list migration history and inspect catalogs, or (b) provide an approved, dedicated read-only PostgreSQL connection for project xaipiovflxomcbfwtwmu. The database role must be SELECT-only for migration history and relevant catalogs. It must not have schema-write, migration-repair, service-role, credential-management, or outbound-delivery authority. Do not request or expose a service-role key for this audit.
 
@@ -36,7 +240,7 @@ Until that prerequisite is met, no Production migration may be classified as app
 
 ## Current migration inventory — one row per file
 
-The Git blob SHA is the exact blob returned by the recursive Git tree at source HEAD c256a1e959f42d0a66b47ad16b3aef3b4705f11e. Dependencies below are source-level prerequisites inferred from the migration SQL and established migration-order tests; they are not claims about Production execution order. All Production classifications are UNKNOWN.
+The Git blob SHA is the exact blob returned by the complete recursive Git tree at C421 synchronization HEAD c5bf9d205934e089d310fbc6677ddc5014314689 (tree ed49efef679ae00b28f22e458256ae26671ada96). Dependencies below are source-level prerequisites inferred from the migration SQL and established migration-order tests; they are not claims about Production execution order. All Production classifications are UNKNOWN.
 
 | Version | Exact migration filename | Git blob SHA | Source dependencies | Source-level changes and identifiable effects | Production |
 |---|---|---|---|---|---|
@@ -76,6 +280,7 @@ The Git blob SHA is the exact blob returned by the recursive Git tree at source 
 | 202611220033 | 202611220033_delivery_cross_stream_suppression_order.sql | 1cd0c2db5415a37b9a31ed8ef7de54db9019a88f | 032 suppression state and private 029 lifecycle implementation; 025–027 provider objects. | Replaces lifecycle RPC to reconcile email.suppressed events with Resend suppression-list state using provider timestamps and shared ordering. | UNKNOWN |
 | 202611230034 | 202611230034_delivery_suppression_timestamp_order.sql | 4ec8aa578ad851918f4c4b2535c476b4ceb40f1d | 032–033; provider events, suppression state, integrity anomalies and lifecycle projection. | Adds generic-suppression timestamp-order index and replaces suppression-event RPC; older/equal/unknown lifecycle evidence blocks stale manual removal; complaint/permanent-bounce holds remain. | UNKNOWN |
 | 202611230035 | 202611230035_private_offering_base_table_rls.sql | 3d0ce8dfd4abb88fccccd23c5ffb9c35f699c098 | 001 offerings table, 002 RLS, stale public-read policies from 002/005; public views remain separate. | Drops stale offerings_select_public_or_own and offerings_public_approved_read base-table policies; preserves owner/admin access and offerings_public projection. | UNKNOWN |
+| 202611230036 | 202611230036_private_daily_reflection_admin_isolation.sql | 61a1fbf48b4557873ba6016e74fd3995bc62ba14 | Both 007 bodies: Sprint 6 creates daily_reflections; Sprint 7 adds Daily Light fields and the second admin-readable policy-name variant. Supabase Auth auth.uid() and public/anon/authenticated/service_role roles. No SQL dependency on 035 or the delivery chain. | Enables RLS; removes both historical admin-readable SELECT policy variants and admin-enabled UPDATE/DELETE policy variants; recreates owner-only SELECT/INSERT/UPDATE; revokes PUBLIC/anon/authenticated table privileges then grants authenticated SELECT/INSERT/UPDATE; retains service_role-only trusted server capability. | UNKNOWN |
 
 ## Version collision and dependency hazards
 
@@ -101,7 +306,7 @@ These are disposable-database results only. They do not identify which 007 body 
 - 023 requires the reviewed 019–021 baseline and exact consent/curation functions. 024 checks 023's source-level attestations and replaces recipient identity/lease behavior.
 - 025–027 establish provider events, suppression, lifecycle and integrity projections. 028 hardens delivery transitions; 029 pins the 027 implementation identity; 030 requires 024/028 and transport-start state.
 - 031 requires the 030 pre-send gate and replaces it with a final recipient-bound suppression/consent check.
-- 032 creates provider suppression-list state; 033 reconciles cross-stream lifecycle ordering against 032; 034 corrects provider timestamp ordering; 035 removes stale public-read policies from the Offering base table.
+- 032 creates provider suppression-list state; 033 reconciles cross-stream lifecycle ordering against 032; 034 corrects provider timestamp ordering; 035 removes stale public-read policies from the Offering base table. 036 is a separate privacy correction on daily_reflections: it depends on the table and both legacy policy-name variants from the two 007 bodies, not on 035; it replaces administrator-readable reflection policies with owner-only browser access while retaining the trusted service_role capability. Migration 011's admin_get_member_context source explicitly avoids querying daily_reflections.
 
 The dependency graph must be verified against actual live definitions and data before any history or schema operation. A matching object name is insufficient: columns, nullability, constraints, index predicates, function bodies, argument identity, security attributes, ACLs, policies, triggers, and data preconditions are part of the effect.
 
@@ -114,9 +319,11 @@ Classify each migration file and each independently identifiable effect separate
 3. **Unapplied:** authoritative history and catalog/audit evidence jointly prove the effects are absent and no partial/manual execution occurred.
 4. **Partial, drifted, conflicting or unknown:** any effect is missing, altered, conflicting, unverified, or cannot be mapped to a unique source body. Stop; do not push or repair history.
 
-Current counts: 0 verified applied-and-recorded; 0 verified schema-present/history-missing; 0 verified unapplied; 36 UNKNOWN at file level. Effect-level counts are also UNKNOWN. This is an evidence limitation, not a claim that Production has zero objects.
+Current counts: 0 verified applied-and-recorded; 0 verified schema-present/history-missing; 0 verified unapplied; 37 UNKNOWN at file level. Effect-level counts are also UNKNOWN. This is an evidence limitation, not a claim that Production has zero objects.
 
 ## Required live evidence before reconciliation
+
+The owner-facing SELECT-only query packet is [PRODUCTION_READ_ONLY_MIGRATION_AUDIT.md](PRODUCTION_READ_ONLY_MIGRATION_AUDIT.md). It verifies target identity, catalog metadata, migration history, the duplicate 007 collision, and migration 036 policy/ACL effects without reading application-member rows. The packet is preparation only; it does not change any Production classification from UNKNOWN.
 
 Obtain a timestamped, read-only evidence package for the exact project reference and database identity:
 
@@ -128,6 +335,8 @@ Obtain a timestamped, read-only evidence package for the exact project reference
 - Supabase SQL Editor history, dashboard query logs, deployment logs and approved change records that could establish manual execution of 018, 022, or any other migration.
 - Source and SQL Editor aggregate bundle fingerprints. The aggregate supabase/run_in_sql_editor_all.sql is not a migration execution record and historical snapshots show it is not a byte-for-byte replay of every early migration.
 - Verified backup/PITR availability, restore point, retention and a rehearsed restore plan before any future Production mutation.
+
+- For migration 036, compare the exact live daily_reflections policy set and effective table ACLs for PUBLIC, anon, authenticated and service_role; verify member-only SELECT/INSERT/UPDATE, absence of browser DELETE, and that admin_get_member_context does not expose reflection content.
 
 Never infer success from a version row alone when the corresponding source body is uncertain. Never infer non-execution from a missing history row when manual SQL Editor execution is possible.
 
@@ -171,15 +380,28 @@ A file-level result must not conceal partial effects. If one function or policy 
 
 | Evidence class | Established | Not established |
 |---|---|---|
-| Repository source | Exact PR #10 HEAD/tree, 36 filenames, 35 prefixes, blob SHA per file, source dependencies/effects | Whether any file/effect exists in Production |
-| Disposable PostgreSQL/CLI | C247 duplicate-007 ordering and downstream dependency behavior; C331/C332 database assertions in CI | Production schema/history, manual SQL Editor execution, real provider behavior |
-| CI | C331/C332 branch push and PR integration validation passed at recorded source heads | Independent security acceptance, Production deployment, scheduler, email sends, kill-switch behavior |
+| Repository source | Exact PR #22 HEAD/tree, 37 filenames, 36 prefixes, exact blob SHA per file, source dependencies/effects including migration 036 | Whether any file/effect exists in Production |
+| Disposable PostgreSQL/CLI | C247 duplicate-007 ordering and downstream dependency behavior; PR #22 privacy authorization PostgreSQL behavior job 137690786519 | Production schema/history, manual SQL Editor execution, real provider behavior |
+| CI | PR #22 exact source HEAD push run 45174106399 completed SUCCESS, 8/8 jobs, including privacy authorization database behavior | Independent security acceptance, Production deployment, scheduler, email sends, kill-switch behavior |
 | Supabase connector | Connected identities could not read Production project/history/catalog | Project absence, empty history, missing schema or non-execution |
 | Human authorization | Exact need for owner-provided scoped read-only access | Any permission grant or Production access currently exists |
 
-## C404 documentation execution scope
+## C404 documentation execution scope (historical)
 
 This update changes only docs/PRODUCTION_MIGRATION_RECONCILIATION.md and docs/DELIVERY_ROLLOUT_TRACKER.md. It does not change migration SQL, aggregate SQL, application code, CI workflows, credentials, Supabase configuration, Production schema/history, scheduler, provider, Cron, or delivery settings. PR #11 and PR #19 remain untouched. The source baseline inspected before the documentation commit is c256a1e959f42d0a66b47ad16b3aef3b4705f11e; the resulting fast-forward commit is recorded in the C404 execution handoff.
+
+## C410 documentation execution scope
+
+This update is limited to docs/PRODUCTION_MIGRATION_RECONCILIATION.md and docs/DELIVERY_ROLLOUT_TRACKER.md. It does not alter migration SQL, aggregate SQL, application code, CI workflows, credentials, Supabase configuration, Production schema/history, scheduler, provider, Cron, or delivery settings.
+
+- Remote source baseline: branch security/private-daily-journey-admin-isolation-c408, HEAD 6d0e8fcc397a61bb7aaf0c1858b1147c5f81dae1, tree 1d8cc21b2e3a51826b593fae3fca106cc829e3d7. The complete recursive tree contains 37 numbered SQL migrations and 36 unique version prefixes. The duplicate 202607260007 bodies remain distinct and unchanged.
+- Migration 036 blob: 61a1fbf48b4557873ba6016e74fd3995bc62ba14. Its source requires the daily_reflections table and both historical admin-readable policy naming variants introduced by the two 007 bodies. It enforces owner-only browser SELECT/INSERT/UPDATE, removes browser DELETE access and retains the trusted service_role grant. It has no SQL dependency on migration 035 or the delivery migrations.
+- At the initial source inspection, PR #22 was OPEN / DRAFT / UNMERGED with implementation HEAD 6d0e8fcc397a61bb7aaf0c1858b1147c5f81dae1 and base security/delivery-transport-consent-gates at cfe05475dbe7822f96be639fd2c777a6062aedc4. Its four then-current files were docs/SPRINT_10_1_DAILY_DEED_COMPLETION.md, scripts/test-privacy-authorization-database.sh, scripts/test-privacy-authorization-database.sql, and migration 036. C410 added docs/PRODUCTION_MIGRATION_RECONCILIATION.md and docs/DELIVERY_ROLLOUT_TRACKER.md to the same PR branch, so the current PR diff contains six files. PR #22 remains OPEN / DRAFT / UNMERGED and was not merged.
+- Exact-head CI: [run 45174106399](https://github.com/ADRN-9/deedlight/actions/runs/45174106399), event push, branch security/private-daily-journey-admin-isolation-c408, head 6d0e8fcc397a61bb7aaf0c1858b1147c5f81dae1, SUCCESS 8/8. Jobs: validate (137690786472), delivery_migration_order_database_behavior (137690786170), privacy_authorization_database_behavior (137690786519), auth_pgcrypto_database_behavior (137690786551), sprint12_2_database_behavior (137690786579), gentle_delivery_transport_database_behavior (137690786720), delivery_provider_webhook_database_behavior (137690786804), and delivery_reliability_database_behavior (137690786847). The privacy job passed on disposable PostgreSQL. This is source/CI evidence only.
+- PR #22's formal review endpoint returned zero submitted reviews. Independent security acceptance remains outstanding; developer implementation and CI are not independent approval.
+- No Production migration is classified as applied, absent, or partially applied. All 37 files and independently identifiable effects remain UNKNOWN. Production remains NO-GO pending authorized read-only history/catalog/audit evidence, independent review, and the broader rollout gates.
+- GitHub's remote ref/tree API exposes committed repository state, not a local working tree. No claim is made about uncommitted local changes; only the remote branch HEAD and committed tree were inspected.
+- PRs #10, #11 and #19 were inspected read-only and remain OPEN / DRAFT / UNMERGED; none was modified. No PR was merged and no Production operation was performed.
 
 ## Historical evidence archive
 
@@ -566,3 +788,54 @@ Every entry is a separate migration file. Tables, columns, indexes, constraints,
 - Branch-push #778, run 44965914853, completed SUCCESS with 7/7 jobs. Validate checked out exact branch HEAD c73902feb46768dd76044f63d2908d6ab746e74a, tree 1b7bd9b2bf526ab04be4daba2cba9ce2b19ed2d6.
 - PR integration #779, run 44965919311, completed SUCCESS with 7/7 jobs. Validate checked out synthetic merge commit 94af4082989f98eff0390ec2fce8d6bfaae2ffe1, tree 1b7bd9b2bf526ab04be4daba2cba9ce2b19ed2d6; parents ce82b3fdf1a73510de70e3729a487d4ae00e66e3 and c73902feb46768dd76044f63d2908d6ab746e74a.
 - Each run passed all seven jobs: validate, delivery_provider_webhook_database_behavior, delivery_migration_order_database_behavior, auth_pgcrypto_database_behavior, delivery_reliability_database_behavior, sprint12_2_database_behavior, and gentle_delivery_transport_database_behavior.
+
+
+## Cycle 342 — Production audit recovery and current-head inventory verification
+
+**Review date:** 2026-11-23  
+**Implementation HEAD inspected before Cycle 342 documentation-only evidence commits:** c939d4a24293342deb6161eab2f28fb66765a237  
+**Implementation tree inspected:** e321be2b406043b01c4ed4dd4cda003c54dbdd0e  
+**Matrix blob before this addendum:** 7027543f0c8215dbabf804bb6ca235609f9e6f50
+
+### Current source inventory verification
+
+The complete recursive Git tree at the current PR #22 HEAD was inspected and was not truncated. It contains 37 numbered migration SQL files and 36 unique version prefixes. The 37 rows in the matrix above were compared against that exact tree:
+
+- Exact filename and Git blob SHA matched for all 37 rows.
+- Missing matrix rows: 0.
+- Unlisted migration files: 0.
+- Filename/blob mismatches: 0.
+- Production classifications: 37 UNKNOWN.
+
+The existing 37-row matrix is therefore retained rather than duplicated. Its dependency and effect descriptions remain source-level analysis; they do not establish Production execution. The two 202607260007 files remain separate source bodies with separate blob identities.
+
+### Current authorized-access attempt
+
+The connected Supabase integrations were checked for the repository-recorded Production project reference `xaipiovflxomcbfwtwmu`.
+
+- `list_projects` was read through both currently connected Supabase accounts; neither returned the target project reference.
+- `get_project`, `list_migrations`, and `list_tables` were attempted against the exact target project using both connected accounts. Each was denied with the connector response `MCP error -32600: You do not have permission to perform this action`.
+- A strictly SELECT-only identity/history-presence query through `execute_sql` was attempted against the same project using both accounts. Both attempts were denied with the same permission error; no SQL result was returned.
+- No Production migration history, schema/catalog result, policy/grant result, function/trigger result, or migration-036 application result was obtained.
+
+These denials establish that the currently connected identities do not have the required access. They do **not** establish that the Production project is absent, that migration history is empty, that an object is missing, or that a migration did not execute.
+
+### Recovered prior evidence — scope and limits
+
+- Historical C404 documentation records earlier denied `get_project`, `list_migrations`, and `list_tables` attempts. The current Cycle 342 checks independently reproduce the permission boundary; they do not replace owner authorization.
+- C247's isolated duplicate-007 verification is retained in CI. Branch-push run [44965336520](https://github.com/ADRN-9/deedlight/actions/runs/44965336520) and PR-validation run [44965340590](https://github.com/ADRN-9/deedlight/actions/runs/44965340590) passed their seven-job workflows. The migration-order jobs [137033022850](https://github.com/ADRN-9/deedlight/actions/runs/44965336520/job/137033022850) and [137033014594](https://github.com/ADRN-9/deedlight/actions/runs/44965340590/job/137033014594) ran Supabase CLI 3.2.0 against disposable PostgreSQL 16.16. Sprint 6 007 then Sprint 7 007 reached schema execution but failed history insertion with SQLSTATE 23505; Sprint 7 then Sprint 6 failed on missing `daily_post_id` with SQLSTATE 42703; the tested Sprint 6 + Sprint 7 + 008 + 012 + 013 sequence passed. These results establish isolated replay behavior only.
+- PR #22 implementation exact-head push run [45185173965](https://github.com/ADRN-9/deedlight/actions/runs/45185173965) passed 8/8 jobs on HEAD `c939d4a24293342deb6161eab2f28fb66765a237`. Its privacy authorization database job [137728788900](https://github.com/ADRN-9/deedlight/actions/runs/45185173965/job/137728788900) applied migration 036 and passed the authorization assertions on disposable PostgreSQL. This is not Production application evidence.
+
+The two Cycle 342 evidence-document commits were then validated by exact-head push run [45193172482](https://github.com/ADRN-9/deedlight/actions/runs/45193172482), SUCCESS, 8/8 jobs, at documentation-only branch HEAD `45346482af0ffbb5fa8e3ce29feb6bbf5c937f39`. This confirms the documentation update did not break CI; it does not add Production evidence.\n\n### Outstanding authorization and evidence requirements
+
+A Production project owner/administrator must either grant an existing connected identity project-scoped read-only access to the exact project or provide an approved dedicated read-only PostgreSQL connection. Before any catalog query, independently verify the project reference and Production environment. The database role must be enforced read-only and limited to CONNECT, required schema USAGE, SELECT on migration history, and normal catalog visibility. It must not inherit service-role, administrator, migration, schema-write, credential-management, or outbound-delivery authority.
+
+Until that access is supplied and the evidence is independently reviewed, the following remain UNKNOWN:
+
+- All 37 file-level Production migration classifications and all independently identifiable effects.
+- Which duplicate 007 body or bodies were executed in Production, and their execution order.
+- Production migration-history rows for 007 and all other versions.
+- Production schema, columns, constraints, indexes, RLS policies, table/schema/function/default grants, functions, and triggers.
+- Whether migration 036 has been applied and whether its owner-only RLS/ACL effects are active.
+
+Do not use `supabase db push`, `db pull`, `db reset`, migration repair, manual DDL, or any history mutation to resolve this evidence gap. Do not request or place credentials in repository files, PR comments, or chat. Production remains NO-GO.
