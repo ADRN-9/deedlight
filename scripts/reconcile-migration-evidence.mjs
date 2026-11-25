@@ -206,7 +206,7 @@ function validateCollectorAuthority(claims, provenance, evidenceDigest, authorit
   const inventoryObjects = evidence && evidence.catalog && Array.isArray(evidence.catalog.objects) ? evidence.catalog.objects : [];
   const expectedSchemas = inventoryObjects.filter((entry) => entry.kind === "schemas").map((entry) => entry.identity).sort();
   const expectedObjects = inventoryObjects.filter((entry) => PRIVILEGE_OBJECT_KINDS.has(entry.kind))
-    .map((entry) => ({ kind: entry.kind, identity: entry.identity })).sort((a, b) => a.kind.localeCompare(b.kind) || a.identity.localeCompare(b.identity));
+    .map((entry) => ({ kind: entry.kind, identity: entry.identity })).sort((a, b) => String(a.kind).localeCompare(String(b.kind)) || String(a.identity).localeCompare(String(b.identity)));
   const schemaRows = Array.isArray(db.schemaPrivileges) ? db.schemaPrivileges : [];
   const objectRows = Array.isArray(db.objectPrivileges) ? db.objectPrivileges : [];
   const schemaIds = schemaRows.map((entry) => entry && entry.schema).sort();
