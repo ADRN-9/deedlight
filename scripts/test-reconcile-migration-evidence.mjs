@@ -745,6 +745,76 @@ test("acceptance mode returns nonzero for unresolved duplicate-007 ambiguity; re
   } finally { f.cleanup(); }
 });
 
+test("strict timestamp parser accepts canonical UTC millisecond timestamps", () => {
+  const f = fixture();
+  try {
+    const report = f.analyze();
+    assert.equal(report.trustVerified, true);
+    assert.equal(report.counts.Unknown, 0);
+    assert.equal(report.trustProblems.length, 0, report.trustProblems.join("; "));
+  } finally { f.cleanup(); }
+});
+
+test("all timestamp-bearing evidence fields reject non-string and noncanonical values", () => {
+  const invalidValues = [0, 1, null, false, true, [], {}, "not-a-timestamp",
+    "2026-02-30T00:00:00.000Z", "2026-11-25T01:00:00Z",
+    "2026-11-25T01:00:00.000+00:00"];
+  const cases = [
+    ["evidence capture", (f, value) => { f.evidence.provenance.capturedAt = value; f.reapprove(); },
+      (report) => report.trustProblems.some((reason) => reason.includes("evidence capture timestamp"))],
+    ["collector start", (f, value) => f.reapprove(undefined, (receipt) => { receipt.startedAt = value; }),
+      (report) => report.trustProblems.some((reason) => reason.includes("collector execution startedAt"))],
+    ["collector completion", (f, value) => f.reapprove(undefined, (receipt) => { receipt.completedAt = value; }),
+      (report) => report.trustProblems.some((reason) => reason.includes("collector execution completedAt"))],
+    ["history execution", (f, value) => { f.evidence.history.rows[0].executedAt = value; f.reapprove(); },
+      (report) => report.trustProblems.some((reason) => reason.includes("history row lacks exact name or valid execution metadata"))],
+    ["approval issuedAt", (f, value) => {
+      const current = f.approvals.evidenceApproval;
+      f.approvals.evidenceApproval = artifact(current.kind, "evidence-approver", current.claims, { issuedAt: value });
+    }, (report) => report.trustProblems.some((reason) => reason.includes("approval issuedAt"))],
+    ["approval expiresAt", (f, value) => {
+      const current = f.approvals.evidenceApproval;
+      f.approvals.evidenceApproval = artifact(current.kind, "evidence-approver", current.claims, { expiresAt: value });
+    }, (report) => report.trustProblems.some((reason) => reason.includes("approval expiresAt"))],
+    ["trust-root notBefore", (f, value) => { f.trustRoots.keys[0].notBefore = value; },
+      (report) => report.trustProblems.some((reason) => reason.includes("trust-root notBefore"))],
+    ["trust-root notAfter", (f, value) => { f.trustRoots.keys[0].notAfter = value; },
+      (report) => report.trustProblems.some((reason) => reason.includes("trust-root notAfter"))],
+  ];
+  for (const [label, mutate, assertReason] of cases) {
+    for (const value of invalidValues) {
+      const f = fixture();
+      try {
+        mutate(f, value);
+        const report = f.analyze();
+        assert.equal(report.counts.Unknown, 39, label + " accepted " + JSON.stringify(value));
+        assert.ok(assertReason(report), label + " did not report invalid timestamp " + JSON.stringify(value));
+      } finally { f.cleanup(); }
+    }
+  }
+});
+
+test("collector completion after evidence capture fails closed", () => {
+  const f = fixture();
+  try {
+    f.reapprove(undefined, (receipt) => { receipt.completedAt = "2026-11-25T00:31:00.000Z"; });
+    const report = f.analyze();
+    assert.equal(report.counts.Unknown, 39);
+    assert.ok(report.trustProblems.some((reason) => reason.includes("execution receipt")));
+  } finally { f.cleanup(); }
+});
+
+test("evidence capture after the current time fails closed", () => {
+  const f = fixture();
+  try {
+    f.evidence.provenance.capturedAt = new Date(Date.now() + 60_000).toISOString();
+    f.reapprove();
+    const report = f.analyze();
+    assert.equal(report.counts.Unknown, 39);
+    assert.ok(report.trustProblems.some((reason) => reason.includes("future")));
+  } finally { f.cleanup(); }
+});
+
 test("strict timestamp parsing rejects non-string and noncanonical execution timestamps", () => {
   for (const value of [0, 1, null, false, true, [], {}, "not-a-timestamp", "2026-02-30T00:00:00.000Z"]) {
     const f = fixture();
