@@ -335,9 +335,9 @@ test("history names and exact source execution metadata are required for Applied
     assert.equal(result.exactExecutionEstablished, false);
     assert.equal(report.acceptance, "NOT_ACCEPTED");
   } finally { f.cleanup(); }
-  const f = fixture();
+  const second = fixture();
   try {
-    const row = f.evidence.history.rows.find((entry) => entry.version === "202607260004");
+    const row = second.evidence.history.rows.find((entry) => entry.version === "202607260004");
     delete row.sourceBlobSha1;
     second.reapprove();
     const report = second.analyze();
