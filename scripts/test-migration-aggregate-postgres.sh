@@ -511,8 +511,10 @@ WHEN TAG IN ('CREATE FUNCTION')
 EXECUTE FUNCTION public.__migration_038_test_grant_service_set();
 SQL
 service_set_before="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "
-SELECT jsonb_build_object('source', p.prosrc, 'owner_oid', p.proowner, 'acl', p.proacl::text, 'config', p.proconfig)::text
-FROM pg_catalog.pg_proc p WHERE p.oid = 'public.is_admin()'::regprocedure;
+SELECT jsonb_build_object('source', p.prosrc, 'owner_oid', p.proowner, 'owner_name', owner_role.rolname, 'acl', p.proacl::text, 'config', p.proconfig)::text
+FROM pg_catalog.pg_proc p
+JOIN pg_catalog.pg_roles owner_role ON owner_role.oid = p.proowner
+WHERE p.oid = 'public.is_admin()'::regprocedure;
 ")"
 if psql --no-psqlrc --set ON_ERROR_STOP=1 --file supabase/bootstrap/migration_038_admin_compatibility.sql >"$compat_log" 2>&1; then
   echo "Compatibility bridge unexpectedly accepted post-replacement SET-only membership to service_role." >&2
@@ -533,8 +535,10 @@ DROP EVENT TRIGGER migration_038_test_grant_service_set;
 DROP FUNCTION public.__migration_038_test_grant_service_set();
 SQL
 service_set_after="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "
-SELECT jsonb_build_object('source', p.prosrc, 'owner_oid', p.proowner, 'acl', p.proacl::text, 'config', p.proconfig)::text
-FROM pg_catalog.pg_proc p WHERE p.oid = 'public.is_admin()'::regprocedure;
+SELECT jsonb_build_object('source', p.prosrc, 'owner_oid', p.proowner, 'owner_name', owner_role.rolname, 'acl', p.proacl::text, 'config', p.proconfig)::text
+FROM pg_catalog.pg_proc p
+JOIN pg_catalog.pg_roles owner_role ON owner_role.oid = p.proowner
+WHERE p.oid = 'public.is_admin()'::regprocedure;
 ")"
 test "$service_set_before" = "$service_set_after"
 if [ "$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT pg_catalog.pg_has_role('migration_038_service_set_parent', 'service_role', 'SET') OR pg_catalog.pg_has_role('migration_038_service_set_only', 'service_role', 'SET')")" != "f" ]; then
