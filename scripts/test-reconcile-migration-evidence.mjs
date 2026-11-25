@@ -49,7 +49,7 @@ function fixture() {
       description: "Exact schema definition and structural attributes",
     };
     const dataEffect = {
-      kind: "data",
+      kind: "backfills",
       identity: "fixture.backfill." + index,
       fingerprint: hash("backfill:" + index),
       description: "Backfill transformation and postcondition evidence",
@@ -235,7 +235,7 @@ test("unsigned and forged evidence approvals fail closed", () => {
       const report = f.analyze();
       assert.equal(report.counts.Unknown, 39);
       assert.equal(report.acceptance, "NOT_ACCEPTED");
-      assert.ok(report.trustProblems.some((reason) => reason.includes("signed evidence approval does not bind the exact evidence")));
+      assert.ok(report.trustProblems.some((reason) => reason.includes("signature verification failed")));
     } finally { f.cleanup(); }
   }
 });
