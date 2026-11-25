@@ -75,7 +75,7 @@ function verifySignedArtifact(artifact, requiredKind, requiredRole, trustRoots, 
     return null;
   }
   const roots = trustRoots && Array.isArray(trustRoots.keys) ? trustRoots.keys : [];
-  const key = roots.find((candidate) => candidate.keyId === artifact.keyId && candidate.signerId === artifact.signerId);
+  const key = roots.find((candidate) => candidate && candidate.keyId === artifact.keyId && candidate.signerId === artifact.signerId);
   if (!key || key.algorithm !== "Ed25519" || key.role !== requiredRole || key.status !== "active") {
     problems.push(requiredKind + " signer is untrusted, revoked, inactive or lacks the required role");
     return null;
@@ -113,8 +113,10 @@ function verifySignedArtifact(artifact, requiredKind, requiredRole, trustRoots, 
       expiresAt: artifact.expiresAt,
       claims: artifact.claims,
     };
-    const signature = Buffer.from(artifact.signature || "", "base64");
-    if (signature.length !== 64 || !verifySignature(null, Buffer.from(canonicalJson(unsigned)), publicKey, signature)) {
+    const signatureText = artifact.signature;
+    const signature = Buffer.from(typeof signatureText === "string" && signatureText.length <= 128 ? signatureText : "", "base64");
+    if (typeof key.publicKeyPem !== "string" || key.publicKeyPem.length > 4096 || key.publicKeyPem.includes("PRIVATE KEY")
+      || signature.length !== 64 || !verifySignature(null, Buffer.from(canonicalJson(unsigned)), publicKey, signature)) {
       problems.push(requiredKind + " signature verification failed");
       return null;
     }
@@ -326,7 +328,7 @@ export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approval
     if (!/^[a-f0-9]{64}$/.test(trustedTrustRootsSha256 || "") || trustedTrustRootsSha256 !== rootDigest) {
       problems.push("external trust roots do not match the independently provisioned trust-root digest");
     }
-    const keyIds = trustRoots.keys.map((key) => key.keyId);
+    const keyIds = trustRoots.keys.map((key) => key && key.keyId);
     if (new Set(keyIds).size !== keyIds.length) problems.push("trust-root bundle contains duplicate key IDs");
     if (trustRoots.revokedApprovalIds !== undefined && !Array.isArray(trustRoots.revokedApprovalIds)) {
       problems.push("trust-root revoked approval registry is malformed");
