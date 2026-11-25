@@ -181,6 +181,12 @@ psql_as() {
 run_audit() {
   local login_role="${1:-deedlight_catalog_auditor}"
   local auth_context="${2:-deedlight_catalog_auditor}"
+  local actual_login
+  actual_login="$(psql_as "${login_role}" -X -qAt -c 'SELECT session_user')"
+  if [[ "${actual_login}" != "${login_role}" ]]; then
+    echo "FAIL: direct fixture connection authenticated as ${actual_login}, expected ${login_role}" >&2
+    return 1
+  fi
   local project_ref="${3:-xaipiovflxomcbfwtwmu}"
   local repository_sha="${4:-0123456789abcdef0123456789abcdef01234567}"
   local role_switch="${5:-__NONE__}"
