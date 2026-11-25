@@ -238,6 +238,109 @@ GRANT USAGE ON SEQUENCE public.audit_fixture_sequence TO deedlight_catalog_audit
 expect_failure application_sequence_usage "prohibited USAGE access to application sequence"
 REVOKE USAGE ON SEQUENCE public.audit_fixture_sequence FROM deedlight_catalog_auditor;
 
+# Canonical safe search_path ordering is accepted; reversed and duplicate paths fail closed.
+CREATE FUNCTION public.audit_fixture_reversed_search_path()
+RETURNS integer LANGUAGE sql
+SET search_path = 'public, pg_catalog'
+AS 'SELECT 1';
+expect_failure reversed_routine_search_path "Unexpected or unsafe routine configuration"
+DROP FUNCTION public.audit_fixture_reversed_search_path();
+
+CREATE FUNCTION public.audit_fixture_duplicate_search_path()
+RETURNS integer LANGUAGE sql
+SET search_path = 'pg_catalog, public, public'
+AS 'SELECT 1';
+expect_failure duplicate_routine_search_path "Unexpected or unsafe routine configuration"
+DROP FUNCTION public.audit_fixture_duplicate_search_path();
+
+# row_security and default_transaction_read_only may not be disabled by routines.
+CREATE FUNCTION public.audit_fixture_row_security_off()
+RETURNS integer LANGUAGE sql
+SET row_security = off
+AS 'SELECT 1';
+expect_failure unsafe_routine_row_security "Unexpected or unsafe routine configuration"
+DROP FUNCTION public.audit_fixture_row_security_off();
+
+CREATE FUNCTION public.audit_fixture_default_read_only_off()
+RETURNS integer LANGUAGE sql
+SET default_transaction_read_only = off
+AS 'SELECT 1';
+expect_failure unsafe_routine_default_read_only "Unexpected or unsafe routine configuration"
+DROP FUNCTION public.audit_fixture_default_read_only_off();
+
+# Unlimited and excessively large timeouts are rejected.
+CREATE FUNCTION public.audit_fixture_unlimited_statement_timeout()
+RETURNS integer LANGUAGE sql
+SET statement_timeout = 0
+AS 'SELECT 1';
+expect_failure unlimited_routine_statement_timeout "Unexpected or unsafe routine configuration"
+DROP FUNCTION public.audit_fixture_unlimited_statement_timeout();
+
+CREATE FUNCTION public.audit_fixture_excessive_statement_timeout()
+RETURNS integer LANGUAGE sql
+SET statement_timeout = '6min'
+AS 'SELECT 1';
+expect_failure excessive_routine_statement_timeout "Unexpected or unsafe routine configuration"
+DROP FUNCTION public.audit_fixture_excessive_statement_timeout();
+
+CREATE FUNCTION public.audit_fixture_excessive_lock_timeout()
+RETURNS integer LANGUAGE sql
+SET lock_timeout = '31s'
+AS 'SELECT 1';
+expect_failure excessive_routine_lock_timeout "Unexpected or unsafe routine configuration"
+DROP FUNCTION public.audit_fixture_excessive_lock_timeout();
+
+CREATE FUNCTION public.audit_fixture_excessive_idle_timeout()
+RETURNS integer LANGUAGE sql
+SET idle_in_transaction_session_timeout = '61s'
+AS 'SELECT 1';
+expect_failure excessive_routine_idle_timeout "Unexpected or unsafe routine configuration"
+DROP FUNCTION public.audit_fixture_excessive_idle_timeout();
+
+CREATE FUNCTION public.audit_fixture_unlimited_temp_file_limit()
+RETURNS integer LANGUAGE sql
+SET temp_file_limit = -1
+AS 'SELECT 1';
+expect_failure unlimited_routine_temp_file_limit "Unexpected or unsafe routine configuration"
+DROP FUNCTION public.audit_fixture_unlimited_temp_file_limit();
+
+CREATE FUNCTION public.audit_fixture_excessive_temp_file_limit()
+RETURNS integer LANGUAGE sql
+SET temp_file_limit = '2GB'
+AS 'SELECT 1';
+expect_failure excessive_routine_temp_file_limit "Unexpected or unsafe routine configuration"
+DROP FUNCTION public.audit_fixture_excessive_temp_file_limit();
+
+# A permitted schema is unsafe if PUBLIC or an untrusted login can CREATE in it.
+GRANT CREATE ON SCHEMA public TO PUBLIC;
+CREATE FUNCTION public.audit_fixture_public_create_search_path()
+RETURNS integer LANGUAGE sql
+SET search_path = 'pg_catalog, public'
+AS 'SELECT 1';
+expect_failure public_create_routine_search_path "Unexpected or unsafe routine configuration"
+DROP FUNCTION public.audit_fixture_public_create_search_path();
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+
+CREATE SCHEMA auth AUTHORIZATION deedlight_audit_spoofed_login;
+CREATE FUNCTION public.audit_fixture_login_owned_schema_search_path()
+RETURNS integer LANGUAGE sql
+SET search_path = 'pg_catalog, auth'
+AS 'SELECT 1';
+expect_failure login_owned_routine_schema "Unexpected or unsafe routine configuration"
+DROP FUNCTION public.audit_fixture_login_owned_schema_search_path();
+DROP SCHEMA auth;
+
+CREATE SCHEMA auth AUTHORIZATION postgres;
+GRANT USAGE, CREATE ON SCHEMA auth TO deedlight_audit_spoofed_login;
+CREATE FUNCTION public.audit_fixture_untrusted_schema_creator_search_path()
+RETURNS integer LANGUAGE sql
+SET search_path = 'pg_catalog, auth'
+AS 'SELECT 1';
+expect_failure untrusted_routine_schema_creator "Unexpected or unsafe routine configuration"
+DROP FUNCTION public.audit_fixture_untrusted_schema_creator_search_path();
+REVOKE CREATE ON SCHEMA auth FROM deedlight_audit_spoofed_login;
+DROP SCHEMA auth;
+
 # Unexpected routine GUCs and unsafe values fail before any routine setting is emitted.
 CREATE FUNCTION public.audit_fixture_custom_guc()
 RETURNS integer LANGUAGE sql
