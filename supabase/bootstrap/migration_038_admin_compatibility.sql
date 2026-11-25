@@ -73,7 +73,7 @@ begin
   end if;
 
   execute format(
-    'select encode(%I.digest(convert_to($1, ''UTF8''), ''hex''), ''hex'')',
+    'select encode(%I.digest(convert_to($1, ''UTF8''), ''sha256''), ''hex'')',
     v_crypto_schema
   ) into v_source_hash using v_source;
 
@@ -223,7 +223,7 @@ begin
   where p.oid = v_function_oid;
 
   execute format(
-    'select encode(%I.digest(convert_to($1, ''UTF8''), ''hex''), ''hex'')',
+    'select encode(%I.digest(convert_to($1, ''UTF8''), ''sha256''), ''hex'')',
     v_crypto_schema
   ) into v_source_hash using v_source;
 
