@@ -8,6 +8,118 @@ const sql = readFileSync(
   "utf8",
 );
 
+function sqlLexicalError(source) {
+  let state = "code";
+  let returnState = "code";
+  let dollarTag = "";
+  let depth = 0;
+  const openParens = [];
+  let line = 1;
+
+  for (let i = 0; i < source.length;) {
+    const char = source[i];
+    const next = source[i + 1];
+
+    if (state === "line-comment") {
+      if (char === "\n") { state = returnState; line += 1; }
+      i += 1;
+      continue;
+    }
+    if (state === "block-comment") {
+      if (char === "*" && next === "/") { state = returnState; i += 2; continue; }
+      if (char === "\n") line += 1;
+      i += 1;
+      continue;
+    }
+    if (state === "single-quote") {
+      if (char === "'" && next === "'") { i += 2; continue; }
+      if (char === "'") state = returnState;
+      if (char === "\n") line += 1;
+      i += 1;
+      continue;
+    }
+    if (state === "double-quote") {
+      if (char === '"' && next === '"') { i += 2; continue; }
+      if (char === '"') state = returnState;
+      if (char === "\n") line += 1;
+      i += 1;
+      continue;
+    }
+    if (state === "dollar-quote" && source.startsWith(dollarTag, i)) {
+      state = returnState;
+      i += dollarTag.length;
+      continue;
+    }
+
+    if (char === "-" && next === "-") {
+      returnState = state;
+      state = "line-comment";
+      i += 2;
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      returnState = state;
+      state = "block-comment";
+      i += 2;
+      continue;
+    }
+    if (char === "'") {
+      returnState = state;
+      state = "single-quote";
+      i += 1;
+      continue;
+    }
+    if (char === '"') {
+      returnState = state;
+      state = "double-quote";
+      i += 1;
+      continue;
+    }
+    if (char === "$") {
+      const tag = source.slice(i).match(/^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/)?.[0];
+      if (tag) {
+        dollarTag = tag;
+        returnState = state;
+        state = "dollar-quote";
+        i += tag.length;
+        continue;
+      }
+    }
+    if (char === "(") {
+      depth += 1;
+      openParens.push(line);
+    } else if (char === ")") {
+      depth -= 1;
+      if (depth < 0) return `unmatched closing parenthesis at line ${line}`;
+      openParens.pop();
+    }
+    if (char === "\n") line += 1;
+    i += 1;
+  }
+
+  if (state !== "code" && state !== "line-comment") return `unterminated ${state}`;
+  if (depth !== 0) return `unclosed parenthesis opened at line ${openParens.at(-1)}`;
+  return null;
+}
+
+test("audit SQL is structurally complete and lexically well formed", () => {
+  assert.equal(sqlLexicalError(sql), null, sqlLexicalError(sql) ?? undefined);
+  assert.equal((sql.match(/^BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;$/gim) ?? []).length, 1);
+  assert.equal((sql.match(/^DO \$audit_preflight\$/gm) ?? []).length, 1);
+  assert.equal((sql.match(/^END\n\$audit_preflight\$;$/gm) ?? []).length, 1);
+  assert.equal((sql.match(/^ROLLBACK;$/gm) ?? []).length, 1);
+  assert.match(sql, /ROLLBACK;\s*$/);
+  const sections = [...sql.matchAll(/^-- (\d{2})\./gm)].map((match) => Number(match[1]));
+  assert.deepEqual(sections, Array.from({ length: 13 }, (_, index) => index + 1));
+});
+
+test("SQL malformed-input detector rejects broken delimiters and quotes", () => {
+  assert.match(sqlLexicalError("SELECT (1;"), /unclosed parenthesis/);
+  assert.match(sqlLexicalError("SELECT 'unterminated;"), /unterminated single-quote/);
+  assert.match(sqlLexicalError("DO $broken$ BEGIN NULL;"), /unterminated dollar-quote/);
+  assert.match(sqlLexicalError("SELECT 1);"), /unmatched closing parenthesis/);
+});
+
 test("audit uses a repeatable-read read-only transaction and rolls back", () => {
   assert.match(sql, /BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;/i);
   assert.match(sql, /current_setting\('transaction_read_only'\)\s*<>\s*'on'/i);
