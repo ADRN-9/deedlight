@@ -42,7 +42,7 @@
 -- SOURCE 202611240037 202611240037_delivery_provider_integrity_conflict_evidence.sql blob=ac0449b50a881e3a895ef40a8eee28bea95a6ec0 bytes=44182
 -- SOURCE 202611240038 202611240038_delivery_provider_integrity_lock_order_pagination.sql blob=38951751fc5abeb79b75c4e37e55da01262a18b8 bytes=43748
 -- BOOTSTRAP SEED supabase/seed.sql blob=e85554aed1553dec407e83966a1b0093f5d1e9a3 bytes=2574 upserts=3
--- COMPATIBILITY supabase/bootstrap/migration_038_admin_compatibility.sql blob=e62fd86f90bc56d7357dfdc2d06b6df8246890fb bytes=12921 placement=after-202611240037-before-202611240038
+-- COMPATIBILITY supabase/bootstrap/migration_038_admin_compatibility.sql blob=5739fb2cbdd9baf21e2379393de1146bdd932f63 bytes=14391 placement=after-202611240037-before-202611240038
 -- END SOURCE PROVENANCE
 -- BEGIN MIGRATION SQL
 create extension if not exists pgcrypto;
@@ -10451,6 +10451,18 @@ begin
     raise exception 'Migration 038 compatibility rejected unresolved is_admin() owner.' using errcode = '55000';
   end if;
 
+  -- No non-superuser role may assume the actual function-owner role, directly
+  -- or through a transitive SET-capable membership path.
+  if exists (
+    select 1
+    from pg_catalog.pg_roles member_role
+    where member_role.oid <> v_owner_oid
+      and not member_role.rolsuper
+      and pg_catalog.pg_has_role(member_role.oid, v_owner_oid, 'SET')
+  ) then
+    raise exception 'Migration 038 compatibility rejected unauthorized SET ROLE membership to the is_admin() owner.' using errcode = '55000';
+  end if;
+
   if v_security_definer is distinct from true
     or v_config is distinct from array['search_path=public']::text[] then
     raise exception 'Migration 038 compatibility rejected is_admin() SECURITY DEFINER/search_path drift.' using errcode = '55000';
@@ -10482,6 +10494,10 @@ begin
     from pg_catalog.pg_proc p where p.oid = v_function_oid
   )) acl;
 
+  if not has_function_privilege('service_role', v_function_oid, 'EXECUTE') then
+    raise exception 'Migration 038 compatibility rejected missing service_role EXECUTE privilege.' using errcode = '55000';
+  end if;
+
   if not exists (
     select 1 from pg_catalog.aclexplode((
       select COALESCE(p.proacl, pg_catalog.acldefault('f', p.proowner))
@@ -10511,7 +10527,7 @@ begin
     where acl.privilege_type <> 'EXECUTE'
       or acl.is_grantable
       or acl.grantor <> v_owner_oid
-      or acl.grantee not in (0, v_owner_oid, 'anon'::regrole::oid, 'authenticated'::regrole::oid)
+      or acl.grantee not in (0, v_owner_oid, 'anon'::regrole::oid, 'authenticated'::regrole::oid, 'service_role'::regrole::oid)
   ) then
     raise exception 'Migration 038 compatibility rejected unexpected direct function EXECUTE ACL grantee or grant option.' using errcode = '55000';
   end if;
@@ -10524,17 +10540,18 @@ begin
     where acl.grantee = 0 and acl.privilege_type = 'EXECUTE'
   ) into v_public_execute;
 
-  -- Without PUBLIC EXECUTE, only the function owner and the two historical
-  -- application grantees may have effective EXECUTE, including through membership.
+  -- Without PUBLIC EXECUTE, only the function owner, historical application
+  -- grantees, and Migration 038 service_role may have effective EXECUTE.
   if not v_public_execute and exists (
     select 1
     from pg_catalog.pg_roles r
-    where r.oid not in (v_owner_oid, 'anon'::regrole::oid, 'authenticated'::regrole::oid)
+    where r.oid not in (v_owner_oid, 'anon'::regrole::oid, 'authenticated'::regrole::oid, 'service_role'::regrole::oid)
       and not r.rolsuper
       and (
         pg_catalog.has_function_privilege(r.oid, v_function_oid, 'EXECUTE')
         or pg_catalog.pg_has_role(r.oid, 'anon'::regrole::oid, 'SET')
         or pg_catalog.pg_has_role(r.oid, 'authenticated'::regrole::oid, 'SET')
+        or pg_catalog.pg_has_role(r.oid, 'service_role'::regrole::oid, 'SET')
       )
   ) then
     raise exception 'Migration 038 compatibility rejected unexpected inherited/effective function EXECUTE privilege.' using errcode = '55000';
@@ -10626,6 +10643,16 @@ begin
     raise exception 'Migration 038 compatibility failed to preserve the exact is_admin() owner identity.' using errcode = '55000';
   end if;
 
+  if exists (
+    select 1
+    from pg_catalog.pg_roles member_role
+    where member_role.oid <> v_owner_oid
+      and not member_role.rolsuper
+      and pg_catalog.pg_has_role(member_role.oid, v_owner_oid, 'SET')
+  ) then
+    raise exception 'Migration 038 compatibility postflight detected unauthorized SET ROLE membership to the is_admin() owner.' using errcode = '55000';
+  end if;
+
   select COALESCE(jsonb_agg(jsonb_build_object(
     'grantee', acl.grantee,
     'grantor', acl.grantor,
@@ -10665,6 +10692,10 @@ begin
   if not has_function_privilege('anon', v_function_oid, 'EXECUTE')
     or not has_function_privilege('authenticated', v_function_oid, 'EXECUTE') then
     raise exception 'Migration 038 compatibility failed to preserve historical anon/authenticated EXECUTE behavior.' using errcode = '55000';
+  end if;
+
+  if not has_function_privilege('service_role', v_function_oid, 'EXECUTE') then
+    raise exception 'Migration 038 compatibility postflight detected missing service_role EXECUTE privilege.' using errcode = '55000';
   end if;
 
   if not v_public_execute and exists (
