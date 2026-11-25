@@ -219,6 +219,10 @@ test("collector rejects effective application access and role escalation", () =>
   ]) assert.ok(sql.includes(token), `missing least-privilege guard: ${token}`);
   assert.match(sql, /pg_read_all_data/);
   assert.match(sql, /pg_write_all_data/);
+  const fixture = readFileSync(
+    path.join(process.cwd(), "scripts/test-production-migration-readonly-audit-postgres16-fixture.sql"),
+    "utf8",
+  );
   const runner = readFileSync(
     path.join(process.cwd(), "scripts/test-production-migration-readonly-audit-postgres16.sh"),
     "utf8",
