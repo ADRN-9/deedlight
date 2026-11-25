@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstatSync, readFileSync, realpathSync } from "node:fs";
+import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { gitBlobSha1, validateInventory } from "./verify-migration-inventory-aggregate.mjs";
 
@@ -22,7 +22,8 @@ function canonical(value) {
   return value;
 }
 export function evidencePayload(evidence) {
-  const { provenance, ...payload } = evidence;
+  const payload = { ...evidence, provenance: { ...(evidence && evidence.provenance) } };
+  if (payload.provenance) delete payload.provenance.payloadSha256;
   return Buffer.from(JSON.stringify(canonical(payload)));
 }
 function readRegularFile(rootDir, relativePath) {
@@ -38,6 +39,12 @@ function validateSourceInventory(rootDir, manifest, expectedInventoryBlobSha1) {
   validateInventory(manifest);
   const inventoryBytes = readRegularFile(rootDir, "supabase/migration-inventory.json");
   assert(gitBlobSha1(inventoryBytes) === expectedInventoryBlobSha1, "inventory manifest fingerprint mismatch");
+  const migrationDir = path.join(rootDir, "supabase/migrations");
+  const actualEntries = readdirSync(migrationDir, { withFileTypes: true });
+  const actualSql = actualEntries.filter((entry) => entry.isFile() && entry.name.endsWith(".sql")).map((entry) => entry.name).sort();
+  assert(!actualEntries.some((entry) => entry.isSymbolicLink()), "migration directory contains a symlink");
+  const expectedSql = manifest.migrations.map((item) => path.basename(item.path)).sort();
+  assert(JSON.stringify(actualSql) === JSON.stringify(expectedSql), "migration source directory has missing or unexpected SQL files");
   const source = new Map();
   for (const item of manifest.migrations) {
     const bytes = readRegularFile(rootDir, item.path);
@@ -72,7 +79,13 @@ function validateEvidence(evidence, now, trustedEvidenceSha256) {
     if (!evidence || !evidence.catalog || !Array.isArray(evidence.catalog.completeKinds) || !evidence.catalog.completeKinds.includes(kind)) reasons.push("catalog export does not attest complete " + kind);
   }
   if (!evidence || !Array.isArray(evidence.migrationEffects) || evidence.migrationEffects.length !== 39) reasons.push("reviewed migration-effect mapping must contain all 39 migrations");
-  if (!evidence || !evidence.mapping || !/^[a-f0-9]{64}$/.test(evidence.mapping.reviewedSha256 || "") || typeof evidence.mapping.reviewer !== "string" || !evidence.mapping.reviewer.trim()) {
+  if (evidence && evidence.history && Array.isArray(evidence.history.rows)) {
+    const versions = new Set((evidence.migrations || []).map((item) => item.version));
+    for (const row of evidence.history.rows) {
+      if (!row || typeof row.version !== "string" || !/^\\d{12}$/.test(row.version)) reasons.push("migration history contains a malformed version row");
+    }
+  }
+  if (!evidence || !evidence.mapping || evidence.mapping.complete !== true || !/^[a-f0-9]{64}$/.test(evidence.mapping.reviewedSha256 || "") || typeof evidence.mapping.reviewer !== "string" || !evidence.mapping.reviewer.trim()) {
     reasons.push("reviewed source-to-schema effect mapping is missing");
   }
   return reasons;
