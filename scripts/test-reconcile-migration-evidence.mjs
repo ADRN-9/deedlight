@@ -290,7 +290,7 @@ test("plausible mapping with missing effect domains cannot be approved into Appl
     f.reapprove();
     const report = f.analyze();
     assert.equal(report.counts.Unknown, 39);
-    assert.ok(report.trustProblems.some((reason) => reason.includes("omits one or more required effect domains")));
+    assert.ok(report.trustProblems.some((reason) => reason.includes("omits, or adds unsupported, effect domains")));
   } finally { f.cleanup(); }
 });
 
