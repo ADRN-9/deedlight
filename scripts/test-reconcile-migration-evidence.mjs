@@ -184,7 +184,11 @@ function fixture() {
         completed: true,
         readOnlyTransaction: true,
         statementCount: 4,
-        resultDigest: hash(Buffer.from(canonicalJson(databaseAuthority))),
+        resultDigest: hash(Buffer.from(canonicalJson({
+          history: evidence.history,
+          catalog: evidence.catalog,
+          databaseAuthority,
+        }))),
       };
       if (mutateExecutionEvidence) mutateExecutionEvidence(executionEvidence);
       evidence.collectorAuthority = {
