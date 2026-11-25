@@ -150,7 +150,7 @@ port=5433
 dbname=deedlight_migration_order_test
 user=postgres
 SERVICE
-redirect_probe="$(PGHOST="$DEEDLIGHT_REDIRECT_SERVER_ADDR" PGHOSTADDR=127.0.0.1 PGPORT=5433 PGDATABASE=postgres PGUSER=attacker PGPASSWORD=attacker PGSERVICE=deedlight-redirect PGSERVICEFILE="$service_file" PGOPTIONS='-c search_path=public' psql -X -At -F '|' -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.current_database(), pg_catalog.inet_server_addr()::text, pg_catalog.inet_server_port(), session_user")"
+redirect_probe="$(PGHOST="$DEEDLIGHT_REDIRECT_SERVER_ADDR" PGHOSTADDR=127.0.0.1 PGPORT=5433 PGDATABASE=postgres PGUSER=attacker PGPASSWORD=attacker PGSERVICE=deedlight-redirect PGSERVICEFILE="$service_file" PGOPTIONS='-c search_path=public' psql -X -At -F '|' -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.current_database(), pg_catalog.host(pg_catalog.inet_server_addr()), pg_catalog.inet_server_port(), session_user")"
 IFS='|' read -r probe_database probe_addr probe_port probe_user <<<"$redirect_probe"
 if [[ "$probe_database" != "$PGDATABASE" || "$probe_addr" != "$DEEDLIGHT_EXPECTED_SERVER_ADDR" || "$probe_port" != "5432" || "$probe_user" != "postgres" ]]; then
   echo "FAIL: inherited PGHOSTADDR/service overrides redirected the sanitized connection" >&2
