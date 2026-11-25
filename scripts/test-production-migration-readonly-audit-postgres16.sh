@@ -7,12 +7,13 @@ unset PGHOSTADDR PGSERVICE PGSERVICEFILE PGPASSFILE PGOPTIONS \
   PGSSLROOTCERT PGSSLCERT PGSSLKEY PGSSLCRL PGSSLCRLDIR PGSSLMODE \
   PGGSSENCMODE PGCHANNELBINDING PGREQUIREAUTH PGCLIENTENCODING \
   PGKRBSRVNAME PGREALM PGAPPNAME
-# Every connection is rebuilt from this fixed allowlist and explicit destination.
-PGHOST="127.0.0.1"
-PGPORT="5432"
-PGUSER="postgres"
-PGPASSWORD="postgres"
-PGDATABASE="deedlight_migration_order_test"
+# Trusted connection constants cannot be replaced by inherited libpq variables.
+readonly DEEDLIGHT_LIBPQ_HOST="127.0.0.1"
+readonly DEEDLIGHT_LIBPQ_PORT="5432"
+readonly DEEDLIGHT_LIBPQ_USER="postgres"
+readonly DEEDLIGHT_LIBPQ_PASSWORD="postgres"
+readonly DEEDLIGHT_LIBPQ_DATABASE="deedlight_migration_order_test"
+unset DEEDLIGHT_PSQL_USER DEEDLIGHT_PSQL_PASSWORD
 : "${DEEDLIGHT_EXPECTED_SERVER_ADDR:?CI must provide the PostgreSQL service container IP}"
 : "${DEEDLIGHT_REDIRECT_SERVER_ADDR:?CI must provide the adversarial PostgreSQL service IP}"
 if [[ ! "${DEEDLIGHT_EXPECTED_SERVER_ADDR}" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ||
@@ -22,14 +23,14 @@ if [[ ! "${DEEDLIGHT_EXPECTED_SERVER_ADDR}" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ||
 fi
 
 psql() {
-  local connect_user="${PGUSER:-postgres}"
-  local connect_password="${PGPASSWORD:-postgres}"
+  local connect_user="${DEEDLIGHT_PSQL_USER:-$DEEDLIGHT_LIBPQ_USER}"
+  local connect_password="${DEEDLIGHT_PSQL_PASSWORD:-$DEEDLIGHT_LIBPQ_PASSWORD}"
   local connect_app="${PGAPPNAME:-deedlight_migration_audit_fixture}"
   local -a clean_env
   clean_env=(
     "PATH=${PATH}" "HOME=${HOME:-/tmp}"
-    "PGHOST=${PGHOST}" "PGPORT=${PGPORT}" "PGUSER=${connect_user}"
-    "PGPASSWORD=${connect_password}" "PGDATABASE=${PGDATABASE}"
+    "PGHOST=${DEEDLIGHT_LIBPQ_HOST}" "PGPORT=${DEEDLIGHT_LIBPQ_PORT}" "PGUSER=${connect_user}"
+    "PGPASSWORD=${connect_password}" "PGDATABASE=${DEEDLIGHT_LIBPQ_DATABASE}"
     "PGCONNECT_TIMEOUT=5" "PGSSLMODE=disable" "PGAPPNAME=${connect_app}"
     "DEEDLIGHT_EXPECTED_SERVER_ADDR=${DEEDLIGHT_EXPECTED_SERVER_ADDR}"
     "DEEDLIGHT_FIXTURE_AUDITOR_PASSWORD=${DEEDLIGHT_FIXTURE_AUDITOR_PASSWORD:-}"
@@ -40,8 +41,8 @@ psql() {
     clean_env+=("DEEDLIGHT_DISPOSABLE_FIXTURE_AUTHORIZATION=${DEEDLIGHT_DISPOSABLE_FIXTURE_AUTHORIZATION:-}")
   fi
   command env -i "${clean_env[@]}" psql \
-    --host="${PGHOST}" --port="${PGPORT}" --username="${connect_user}" \
-    --dbname="${PGDATABASE}" "$@"
+    --host="${DEEDLIGHT_LIBPQ_HOST}" --port="${DEEDLIGHT_LIBPQ_PORT}" --username="${connect_user}" \
+    --dbname="${DEEDLIGHT_LIBPQ_DATABASE}" "$@"
 }
 
 # Ephemeral fixture credentials are generated at runtime and never stored in the repository.
@@ -103,9 +104,9 @@ expect_fixture_guard_rejection() {
   echo "PASS: fixture guard rejects ${name}"
 }
 
-actual_host="${PGHOST}"
-actual_port="${PGPORT}"
-actual_user="${PGUSER}"
+actual_host="$DEEDLIGHT_LIBPQ_HOST"
+actual_port="$DEEDLIGHT_LIBPQ_PORT"
+actual_user="$DEEDLIGHT_LIBPQ_USER"
 actual_authorization="${DEEDLIGHT_DISPOSABLE_FIXTURE_AUTHORIZATION:-}"
 server_identity="$(psql -X -At -F '|' -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.current_database(), pg_catalog.current_setting('server_version_num'), pg_catalog.host(pg_catalog.inet_server_addr()), pg_catalog.inet_server_port(), session_user")"
 IFS='|' read -r actual_database actual_server_version actual_server_addr actual_server_port actual_server_user <<<"$server_identity"
@@ -149,7 +150,7 @@ port=5433
 dbname=deedlight_migration_order_test
 user=postgres
 SERVICE
-redirect_probe="$(PGHOST="$DEEDLIGHT_REDIRECT_SERVER_ADDR" PGHOSTADDR=127.0.0.1 PGPORT=5433 PGDATABASE="$PGDATABASE" PGUSER=postgres PGPASSWORD=postgres PGSERVICE=deedlight-redirect PGSERVICEFILE="$service_file" PGOPTIONS='-c search_path=public' psql -X -At -F '|' -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.current_database(), pg_catalog.inet_server_addr()::text, pg_catalog.inet_server_port(), session_user")"
+redirect_probe="$(PGHOST="$DEEDLIGHT_REDIRECT_SERVER_ADDR" PGHOSTADDR=127.0.0.1 PGPORT=5433 PGDATABASE=postgres PGUSER=attacker PGPASSWORD=attacker PGSERVICE=deedlight-redirect PGSERVICEFILE="$service_file" PGOPTIONS='-c search_path=public' psql -X -At -F '|' -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.current_database(), pg_catalog.inet_server_addr()::text, pg_catalog.inet_server_port(), session_user")"
 IFS='|' read -r probe_database probe_addr probe_port probe_user <<<"$redirect_probe"
 if [[ "$probe_database" != "$PGDATABASE" || "$probe_addr" != "$DEEDLIGHT_EXPECTED_SERVER_ADDR" || "$probe_port" != "5432" || "$probe_user" != "postgres" ]]; then
   echo "FAIL: inherited PGHOSTADDR/service overrides redirected the sanitized connection" >&2
@@ -327,7 +328,7 @@ psql_as() {
     deedlight_audit_privileged_login) password="${DEEDLIGHT_FIXTURE_PRIVILEGED_PASSWORD}" ;;
     *) echo "Unsupported fixture login role" >&2; return 2 ;;
   esac
-  PGPASSWORD="${password}" PGUSER="${login_role}" psql "$@"
+  DEEDLIGHT_PSQL_PASSWORD="${password}" DEEDLIGHT_PSQL_USER="${login_role}" psql "$@"
 }
 
 run_audit() {
