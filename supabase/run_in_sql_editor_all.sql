@@ -42,7 +42,7 @@
 -- SOURCE 202611240037 202611240037_delivery_provider_integrity_conflict_evidence.sql blob=ac0449b50a881e3a895ef40a8eee28bea95a6ec0 bytes=44182
 -- SOURCE 202611240038 202611240038_delivery_provider_integrity_lock_order_pagination.sql blob=38951751fc5abeb79b75c4e37e55da01262a18b8 bytes=43748
 -- BOOTSTRAP SEED supabase/seed.sql blob=e85554aed1553dec407e83966a1b0093f5d1e9a3 bytes=2574 upserts=3
--- COMPATIBILITY supabase/bootstrap/migration_038_admin_compatibility.sql blob=5739fb2cbdd9baf21e2379393de1146bdd932f63 bytes=14391 placement=after-202611240037-before-202611240038
+-- COMPATIBILITY supabase/bootstrap/migration_038_admin_compatibility.sql blob=92e93d88e23d3579f405de266cdf63cba0112472 bytes=15298 placement=after-202611240037-before-202611240038
 -- END SOURCE PROVENANCE
 -- BEGIN MIGRATION SQL
 create extension if not exists pgcrypto;
@@ -10698,15 +10698,31 @@ begin
     raise exception 'Migration 038 compatibility postflight detected missing service_role EXECUTE privilege.' using errcode = '55000';
   end if;
 
+  -- Reject any unrelated role that can SET ROLE to service_role, including
+  -- transitive SET-only membership paths. service_role itself remains an
+  -- explicitly approved application grantee.
+  if exists (
+    select 1
+    from pg_catalog.pg_roles r
+    where r.oid not in (v_owner_oid, 'anon'::regrole::oid, 'authenticated'::regrole::oid, 'service_role'::regrole::oid)
+      and not r.rolsuper
+      and pg_catalog.pg_has_role(r.oid, 'service_role'::regrole::oid, 'SET')
+  ) then
+    raise exception 'Migration 038 compatibility postflight detected unauthorized SET ROLE membership to service_role.' using errcode = '55000';
+  end if;
+
+  -- Match preflight's approved application-role allowlist. service_role must
+  -- not be treated as an unexpected effective privilege when PUBLIC is absent.
   if not v_public_execute and exists (
     select 1
     from pg_catalog.pg_roles r
-    where r.oid not in (v_owner_oid, 'anon'::regrole::oid, 'authenticated'::regrole::oid)
+    where r.oid not in (v_owner_oid, 'anon'::regrole::oid, 'authenticated'::regrole::oid, 'service_role'::regrole::oid)
       and not r.rolsuper
       and (
         pg_catalog.has_function_privilege(r.oid, v_function_oid, 'EXECUTE')
         or pg_catalog.pg_has_role(r.oid, 'anon'::regrole::oid, 'SET')
         or pg_catalog.pg_has_role(r.oid, 'authenticated'::regrole::oid, 'SET')
+        or pg_catalog.pg_has_role(r.oid, 'service_role'::regrole::oid, 'SET')
       )
   ) then
     raise exception 'Migration 038 compatibility postflight detected unexpected inherited/effective function EXECUTE privilege.' using errcode = '55000';
