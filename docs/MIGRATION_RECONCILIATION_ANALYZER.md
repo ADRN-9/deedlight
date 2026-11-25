@@ -114,6 +114,9 @@ The mapping reviewer must inspect source SQL and document all effects and explic
 
 The approved collector and mapping reviewer must agree on canonical fingerprints:
 
+- Schemas: exact schema identity and owner/ACL attributes, including every schema required by the approved catalog query.
+- Tables and views: schema, relation name, persistence/partition attributes and relation definition.
+- Sequences: schema, relation name, type, increment/bounds/cache/cycle attributes and ownership.
 - Tables: schema, relation name, persistence/partition attributes and relation definition.
 - Columns: schema/table, ordinal, name, type, nullability, default, generated/identity attributes.
 - Constraints: schema/table/name, type, validation/deferrability and canonical definition.
