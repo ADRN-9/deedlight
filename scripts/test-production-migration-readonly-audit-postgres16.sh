@@ -55,13 +55,23 @@ SELECT
     SELECT string_agg(r.rolname, ',')
     FROM pg_catalog.pg_roles r
     WHERE r.rolcanlogin AND NOT r.rolsuper
-      AND pg_catalog.pg_get_userbyid(n.nspowner) <> 'pg_database_owner'
+      AND r.oid <> (
+        SELECT database_owner.datdba
+        FROM pg_catalog.pg_database database_owner
+        WHERE database_owner.datname = current_database()
+      )
       AND pg_catalog.pg_has_role(r.oid, n.nspowner, 'MEMBER')
   ), '<none>') AS untrusted_owner_members,
   COALESCE((
     SELECT string_agg(r.rolname, ',')
     FROM pg_catalog.pg_roles r
-    WHERE NOT r.rolsuper AND r.oid <> n.nspowner
+    WHERE NOT r.rolsuper
+      AND r.oid <> n.nspowner
+      AND r.oid <> (
+        SELECT database_owner.datdba
+        FROM pg_catalog.pg_database database_owner
+        WHERE database_owner.datname = current_database()
+      )
       AND pg_catalog.has_schema_privilege(r.oid, n.oid, 'CREATE')
       AND NOT pg_catalog.pg_has_role(r.oid, n.nspowner, 'MEMBER')
   ), '<none>') AS untrusted_create_roles,
@@ -106,7 +116,11 @@ SELECT
     SELECT 1
     FROM pg_catalog.pg_roles owner_member
     WHERE owner_member.rolcanlogin AND NOT owner_member.rolsuper
-      AND path_owner.rolname <> 'pg_database_owner'
+      AND owner_member.oid <> (
+        SELECT database_owner.datdba
+        FROM pg_catalog.pg_database database_owner
+        WHERE database_owner.datname = current_database()
+      )
       AND pg_catalog.pg_has_role(owner_member.oid, path_owner.oid, 'MEMBER')
   ) AS untrusted_owner_member,
   EXISTS (
@@ -121,6 +135,11 @@ SELECT
     FROM pg_catalog.pg_roles creator
     WHERE NOT creator.rolsuper
       AND creator.oid <> path_ns.nspowner
+      AND creator.oid <> (
+        SELECT database_owner.datdba
+        FROM pg_catalog.pg_database database_owner
+        WHERE database_owner.datname = current_database()
+      )
       AND pg_catalog.has_schema_privilege(creator.oid, path_ns.oid, 'CREATE')
       AND NOT pg_catalog.pg_has_role(creator.oid, path_ns.nspowner, 'MEMBER')
   ) AS untrusted_create_role,
@@ -221,7 +240,7 @@ echo "PASS: approved authenticated collector, allowlisted routine metadata and r
 
 # A SECURITY DEFINER owner changes current_user but preserves the authenticated login.
 definer_result="$(
-  psql_as deedlight_catalog_auditor -X -At -v ON_ERROR_STOP=1 <<'SQL'
+  psql_as deedlight_catalog_auditor -X -qAt -v ON_ERROR_STOP=1 <<'SQL'
 SET deedlight.authenticated_principal = 'deedlight_catalog_auditor';
 SELECT public.audit_fixture_security_definer_identity();
 SQL
