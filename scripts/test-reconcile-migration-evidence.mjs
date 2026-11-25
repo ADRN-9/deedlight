@@ -11,7 +11,7 @@ const repoRoot = process.cwd();
 const sourceManifest = JSON.parse(readFileSync(path.join(repoRoot, "supabase/migration-inventory.json"), "utf8"));
 const sourceInventoryBytes = readFileSync(path.join(repoRoot, "supabase/migration-inventory.json"));
 const catalogKinds = ["tables", "columns", "constraints", "indexes", "triggers", "policies", "routines", "privileges", "ownership", "data", "dependencies", "preconditions", "postconditions"];
-const categories = ["schema", "privileges", "ownership", "routines", "data", "dependencies", "preconditions", "postconditions"];
+const categories = ["schema", "privileges", "ownership", "routines", "dataTransformations", "backfills", "dependencies", "preconditions", "postconditions"];
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const keys = Object.fromEntries(["evidence-approver", "mapping-approver", "collector"].map((role) => [role, generateKeyPairSync("ed25519")]));
 const signerIds = { "evidence-approver": "fixture-evidence-authority", "mapping-approver": "fixture-mapping-authority", collector: "fixture-collector-authority" };
@@ -62,7 +62,13 @@ function fixture() {
         privileges: [],
         ownership: [],
         routines: [],
-        data: [dataEffect],
+        dataTransformations: [{
+          kind: "dataTransformations",
+          identity: "fixture.transform." + index,
+          fingerprint: hash("transform:" + index),
+          description: "Data transformation with exact source and result invariants",
+        }],
+        backfills: [dataEffect],
         dependencies: [],
         preconditions: [],
         postconditions: [],
