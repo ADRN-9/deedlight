@@ -74,6 +74,12 @@ function verifySignedArtifact(artifact, requiredKind, requiredRole, trustRoots, 
     problems.push(requiredKind + " signed artifact is missing or has an unsupported schema/kind");
     return null;
   }
+  const artifactKeys = ["approvalId", "claims", "expiresAt", "issuedAt", "keyId", "kind", "schemaVersion", "signature", "signerId"];
+  if (Object.keys(artifact).sort().join(",") !== artifactKeys.sort().join(",")
+    || !artifact.claims || typeof artifact.claims !== "object" || Array.isArray(artifact.claims)) {
+    problems.push(requiredKind + " signed artifact has missing claims or an unsupported envelope");
+    return null;
+  }
   const roots = trustRoots && Array.isArray(trustRoots.keys) ? trustRoots.keys : [];
   const key = roots.find((candidate) => candidate && candidate.keyId === artifact.keyId && candidate.signerId === artifact.signerId);
   if (!key || key.algorithm !== "Ed25519" || key.role !== requiredRole || key.status !== "active") {
