@@ -36,7 +36,7 @@ function sqlBlock(markdown, heading) {
   assert.notEqual(start, -1, 'Missing audit heading: ' + heading);
   const end = markdown.indexOf('\n### ', start + heading.length);
   const section = markdown.slice(start, end < 0 ? undefined : end);
-  const blocks = [...section.matchAll(/`{3}sql\s*\n([\s\S]*?)\n`{3}/gi)];
+  const blocks = [...section.matchAll(/(?:`{3}|~{3})sql\s*\n([\s\S]*?)\n(?:`{3}|~{3})/gi)];
   assert.equal(blocks.length, 1, 'Expected one fenced SQL block: ' + heading);
   return blocks[0][1].trim();
 }
