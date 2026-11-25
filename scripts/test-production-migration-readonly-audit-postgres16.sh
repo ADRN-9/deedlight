@@ -300,7 +300,7 @@ END;
 $fixture$;
 ALTER FUNCTION public.audit_fixture_privileged_definer_identity()
   OWNER TO deedlight_audit_privileged_login;
-GRANT EXECUTE ON FUNCTION public.audit_fixture_privileged_definer_identity()
+GRANT EXECUTE ON FUNCTION public.audit_fixture_privileged_definer_identity() TO deedlight_catalog_auditor;
 SQL
 
 if psql_as deedlight_catalog_auditor -X -v ON_ERROR_STOP=1 >"${tmp_dir}/privileged_security_definer.log" 2>&1 <<'SQL'
