@@ -36,6 +36,7 @@ export function evidencePayload(evidence) {
 export function mappingDigest(mapping) {
   return sha256(Buffer.from(canonicalJson(mapping)));
 }
+// Require canonical UTC RFC 3339 timestamps with millisecond precision; reject coercion and calendar normalization.
 function strictTimestamp(value) {
   if (typeof value !== "string" || !/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$/.test(value)) return NaN;
   const time = Date.parse(value);
@@ -451,6 +452,7 @@ function classifyOne(item, manifest, evidence, source, mappedEffects) {
 export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approvals, trustRoots, expectedInventoryBlobSha1 = INVENTORY_BLOB_SHA1 }) {
   const problems = [];
   const now = Date.now();
+  // The trust digest is deployment configuration, never a caller-supplied API option.
   const trustedTrustRootsSha256 = process.env.DEEDLIGHT_MIGRATION_TRUST_ROOTS_SHA256;
   if (!trustRoots || trustRoots.schemaVersion !== 1 || !Array.isArray(trustRoots.keys)) problems.push("external trust-root bundle is missing or malformed");
   else {
