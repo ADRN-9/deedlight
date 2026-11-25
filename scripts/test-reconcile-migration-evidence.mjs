@@ -227,7 +227,7 @@ test("unsigned and forged evidence approvals fail closed", () => {
       const report = f.analyze();
       assert.equal(report.counts.Unknown, 39);
       assert.equal(report.acceptance, "NOT_ACCEPTED");
-      assert.ok(report.trustProblems.some((reason) => reason.includes("signature verification failed")));
+      assert.ok(report.trustProblems.some((reason) => reason.includes("signed evidence approval does not bind the exact evidence")));
     } finally { f.cleanup(); }
   }
 });
@@ -348,6 +348,7 @@ test("collector attestation must bind the exact project and query bundle", () =>
     });
     const report = f.analyze();
     assert.equal(report.counts.Unknown, 39);
+    assert.ok(report.trustProblems.some((reason) => reason.includes("collector attestation does not bind exact queryBundleSha256")));
   } finally { f.cleanup(); }
 });
 
