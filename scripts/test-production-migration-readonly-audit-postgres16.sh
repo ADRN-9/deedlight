@@ -8,6 +8,12 @@ set -euo pipefail
 : "${PGDATABASE:=deedlight_migration_order_test}"
 export PGHOST PGPORT PGUSER PGPASSWORD PGDATABASE
 
+# Ephemeral fixture credentials are generated at runtime and never stored in the repository.
+: "${DEEDLIGHT_FIXTURE_AUDITOR_PASSWORD:=$(openssl rand -hex 32)}"
+: "${DEEDLIGHT_FIXTURE_SPOOFED_PASSWORD:=$(openssl rand -hex 32)}"
+: "${DEEDLIGHT_FIXTURE_PRIVILEGED_PASSWORD:=$(openssl rand -hex 32)}"
+export DEEDLIGHT_FIXTURE_AUDITOR_PASSWORD DEEDLIGHT_FIXTURE_SPOOFED_PASSWORD DEEDLIGHT_FIXTURE_PRIVILEGED_PASSWORD
+
 tmp_dir="${RUNNER_TEMP:-/tmp}/deedlight-migration-audit-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}"
 rm -rf "${tmp_dir}"
 mkdir -p "${tmp_dir}"
@@ -54,27 +60,38 @@ GRANT SELECT ON supabase_migrations.schema_migrations TO deedlight_catalog_audit
 SQL
 }
 
+psql_as() {
+  local login_role="$1"
+  shift
+  local password
+  case "${login_role}" in
+    deedlight_catalog_auditor) password="${DEEDLIGHT_FIXTURE_AUDITOR_PASSWORD}" ;;
+    deedlight_audit_spoofed_login) password="${DEEDLIGHT_FIXTURE_SPOOFED_PASSWORD}" ;;
+    deedlight_audit_privileged_login) password="${DEEDLIGHT_FIXTURE_PRIVILEGED_PASSWORD}" ;;
+    *) echo "Unsupported fixture login role" >&2; return 2 ;;
+  esac
+  PGPASSWORD="${password}" PGUSER="${login_role}" psql "$@"
+}
+
 run_audit() {
-  local session_role="${1:-deedlight_catalog_auditor}"
+  local login_role="${1:-deedlight_catalog_auditor}"
   local auth_context="${2:-deedlight_catalog_auditor}"
   local project_ref="${3:-xaipiovflxomcbfwtwmu}"
   local repository_sha="${4:-0123456789abcdef0123456789abcdef01234567}"
   local role_switch="${5:-__NONE__}"
   {
-    printf 'SET SESSION AUTHORIZATION %s;\n' "${session_role}"
     if [[ "${auth_context}" != "__MISSING__" ]]; then
-      printf "SET deedlight.authenticated_principal = '%s';\n" "${auth_context}"
+      printf "SET deedlight.authenticated_principal = '%s';\\n" "${auth_context}"
     fi
-    printf "SET deedlight.expected_project_ref = '%s';\n" "${project_ref}"
-    printf "SET deedlight.repository_sha = '%s';\n" "${repository_sha}"
+    printf "SET deedlight.expected_project_ref = '%s';\\n" "${project_ref}"
+    printf "SET deedlight.repository_sha = '%s';\\n" "${repository_sha}"
     if [[ "${role_switch}" != "__NONE__" ]]; then
-      printf 'SET ROLE %s;\n' "${role_switch}"
+      printf 'SET ROLE %s;\\n' "${role_switch}"
     fi
-    printf '\\i scripts/production-migration-readonly-audit.sql\n'
-    printf "SELECT 'AUDIT_TRANSACTION_ROLLED_BACK' WHERE current_setting('transaction_read_only') = 'off';\n"
-  } | psql -X -v ON_ERROR_STOP=1
+    printf '\\i scripts/production-migration-readonly-audit.sql\\n'
+    printf "SELECT 'AUDIT_TRANSACTION_ROLLED_BACK' WHERE current_setting('transaction_read_only') = 'off';\\n"
+  } | psql_as "${login_role}" -X -v ON_ERROR_STOP=1
 }
-
 expect_failure() {
   local name="$1"
   local expected="$2"
@@ -117,8 +134,7 @@ echo "PASS: approved authenticated collector, allowlisted routine metadata and r
 
 # A SECURITY DEFINER owner changes current_user but preserves the authenticated login.
 definer_result="$(
-  psql -X -At -v ON_ERROR_STOP=1 <<'SQL'
-SET SESSION AUTHORIZATION deedlight_catalog_auditor;
+  psql_as deedlight_catalog_auditor -X -At -v ON_ERROR_STOP=1 <<'SQL'
 SET deedlight.authenticated_principal = 'deedlight_catalog_auditor';
 SELECT public.audit_fixture_security_definer_identity();
 SQL
@@ -126,8 +142,7 @@ SQL
 test "${definer_result}" = "deedlight_audit_definer_owner:deedlight_catalog_auditor"
 echo "PASS: SECURITY DEFINER preserves and validates the authenticated principal"
 
-if psql -X -v ON_ERROR_STOP=1 >"${tmp_dir}/privileged_security_definer.log" 2>&1 <<'SQL'
-SET SESSION AUTHORIZATION deedlight_catalog_auditor;
+if psql_as deedlight_catalog_auditor -X -v ON_ERROR_STOP=1 >"${tmp_dir}/privileged_security_definer.log" 2>&1 <<'SQL'
 SET deedlight.authenticated_principal = 'deedlight_catalog_auditor';
 SELECT public.audit_fixture_privileged_definer_identity();
 SQL
@@ -140,7 +155,7 @@ echo "PASS: privileged SECURITY DEFINER effective role is rejected"
 
 expect_failure missing_auth_context "Authenticated collector principal is missing" deedlight_catalog_auditor __MISSING__
 expect_failure malformed_auth_context "Authenticated collector principal is missing" deedlight_catalog_auditor "deedlight_catalog_auditor,spoofed"
-expect_failure spoofed_session_authorization "Authenticated collector principal is missing" deedlight_audit_spoofed_login deedlight_catalog_auditor
+expect_failure spoofed_login_identity "Authenticated collector principal is missing" deedlight_audit_spoofed_login deedlight_catalog_auditor
 expect_failure privileged_login_set_role_impersonation "Authenticated collector principal is missing" deedlight_audit_privileged_login deedlight_catalog_auditor xaipiovflxomcbfwtwmu 0123456789abcdef0123456789abcdef01234567 deedlight_catalog_auditor
 
 # Direct SET ROLE is rejected even when the target role itself has no elevated attributes.
@@ -161,7 +176,12 @@ REVOKE pg_read_all_data FROM deedlight_catalog_auditor;
 
 # Authentication/authorization revocation is a hard failure, never a stronger-role fallback.
 ALTER ROLE deedlight_catalog_auditor NOLOGIN;
-expect_failure revoked_login_authorization "Authenticated or effective role violates the least-privilege identity contract."
+if psql_as deedlight_catalog_auditor -X -At -v ON_ERROR_STOP=1 -c "SELECT 1" >"${tmp_dir}/revoked_login_authorization.log" 2>&1; then
+  echo "FAIL: collector authenticated after LOGIN was revoked" >&2
+  exit 1
+fi
+grep -Eiq "not permitted to log in|cannot log in" "${tmp_dir}/revoked_login_authorization.log"
+echo "PASS: revoked LOGIN prevents direct collector authentication"
 ALTER ROLE deedlight_catalog_auditor LOGIN;
 REVOKE SELECT ON pg_catalog.pg_class FROM deedlight_catalog_auditor;
 expect_failure revoked_catalog_authorization "Required catalog SELECT access unavailable"
