@@ -152,6 +152,24 @@ function validateCollectorAuthority(claims, provenance, problems) {
     || db.effectivePrivileges.some((privilege) => !READ_ONLY_PRIVILEGES.has(privilege))) {
     problems.push("collector effective privileges are not exactly CONNECT, USAGE and SELECT");
   }
+  if (db.databasePrivilegesComplete !== true || !Array.isArray(db.databasePrivileges)
+    || db.databasePrivileges.length !== 1 || db.databasePrivileges[0] !== "CONNECT") {
+    problems.push("collector database-level privilege export is incomplete or not read-only");
+  }
+  if (db.schemaPrivilegesComplete !== true || !Array.isArray(db.schemaPrivileges) || db.schemaPrivileges.length === 0
+    || db.schemaPrivileges.some((entry) => !entry || typeof entry.schema !== "string" || !entry.schema
+      || !Array.isArray(entry.privileges) || entry.privileges.length !== 1 || entry.privileges[0] !== "USAGE")) {
+    problems.push("collector effective schema privileges are incomplete or include schema mutation authority");
+  }
+  if (db.objectPrivilegesComplete !== true || !Array.isArray(db.objectPrivileges) || db.objectPrivileges.length === 0
+    || db.objectPrivileges.some((entry) => !entry || typeof entry.identity !== "string" || !entry.identity
+      || !Array.isArray(entry.privileges) || entry.privileges.length !== 1 || entry.privileges[0] !== "SELECT")) {
+    problems.push("collector effective object privileges are incomplete or include write/execute authority");
+  }
+  if (db.catalogPrivilegesComplete !== true || !Array.isArray(db.catalogPrivileges)
+    || db.catalogPrivileges.length !== 1 || db.catalogPrivileges[0] !== "SELECT") {
+    problems.push("collector catalog read privileges are not completely attested");
+  }
   if (!Array.isArray(db.roleMemberships) || db.roleMemberships.length !== 0) {
     problems.push("collector has inherited role memberships or membership evidence is missing");
   }
