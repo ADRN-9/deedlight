@@ -338,6 +338,23 @@ export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approval
     }
     const keyIds = trustRoots.keys.map((key) => key && key.keyId);
     if (new Set(keyIds).size !== keyIds.length) problems.push("trust-root bundle contains duplicate key IDs");
+    const allowedRoles = new Set(["evidence-approver", "mapping-approver", "collector"]);
+    for (const key of trustRoots.keys) {
+      if (!key || typeof key.keyId !== "string" || !key.keyId || typeof key.signerId !== "string" || !key.signerId
+        || key.algorithm !== "Ed25519" || !allowedRoles.has(key.role)
+        || typeof key.publicKeyPem !== "string" || key.publicKeyPem.length > 4096 || key.publicKeyPem.includes("PRIVATE KEY")) {
+        problems.push("trust-root bundle contains an unsupported key, role or private signing material");
+        continue;
+      }
+      try {
+        if (createPublicKey(key.publicKeyPem).asymmetricKeyType !== "ed25519") {
+          problems.push("trust-root bundle contains a non-Ed25519 public key");
+        }
+      } catch {
+        problems.push("trust-root bundle contains an invalid public key");
+      }
+      if (!["active", "revoked"].includes(key.status)) problems.push("trust-root key status is unsupported");
+    }
     if (trustRoots.revokedApprovalIds !== undefined && !Array.isArray(trustRoots.revokedApprovalIds)) {
       problems.push("trust-root revoked approval registry is malformed");
     }
