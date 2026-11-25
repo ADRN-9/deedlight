@@ -136,7 +136,7 @@ function verifySignedArtifact(artifact, requiredKind, requiredRole, trustRoots, 
 function sameClaims(actual, expected) {
   return canonicalJson(actual) === canonicalJson(expected);
 }
-function validateCollectorAuthority(claims, provenance, evidenceDigest, authority, catalogObjects, now, problems) {
+function validateCollectorAuthority(claims, provenance, evidenceDigest, authority, evidence, now, problems) {
   if (!claims) return;
   const expected = {
     projectRef: PROJECT_REF,
@@ -171,7 +171,11 @@ function validateCollectorAuthority(claims, provenance, evidenceDigest, authorit
     || !/^[a-f0-9]{64}$/.test(execution.resultDigest || "")
     || !Number.isFinite(startedAt) || !Number.isFinite(completedAt)
     || startedAt > completedAt || completedAt > capturedAt || capturedAt > now
-    || execution.resultDigest !== sha256(Buffer.from(canonicalJson(authority.databaseAuthority)))) {
+    || execution.resultDigest !== sha256(Buffer.from(canonicalJson({
+      history: evidence && evidence.history,
+      catalog: evidence && evidence.catalog,
+      databaseAuthority: authority.databaseAuthority,
+    })))) {
     problems.push("collector query execution receipt is incomplete or not bound to the exact approved query, project, identity, capture and result");
   }
   const authorityEvidenceDigest = sha256(Buffer.from(canonicalJson(authority)));
@@ -195,32 +199,32 @@ function validateCollectorAuthority(claims, provenance, evidenceDigest, authorit
     || db.effectivePrivileges.some((privilege) => !READ_ONLY_PRIVILEGES.has(privilege))) {
     problems.push("collector effective privileges are not exactly CONNECT, USAGE and SELECT");
   }
-  if (db.databasePrivilegesComplete !== true || !Array.isArray(db.databasePrivileges)
+  if (!Array.isArray(db.databasePrivileges)
     || db.databasePrivileges.length !== 1 || db.databasePrivileges[0] !== "CONNECT") {
     problems.push("collector database-level privilege export is incomplete or not read-only");
   }
-  const inventoryObjects = Array.isArray(catalogObjects) ? catalogObjects : [];
+  const inventoryObjects = evidence && evidence.catalog && Array.isArray(evidence.catalog.objects) ? evidence.catalog.objects : [];
   const expectedSchemas = inventoryObjects.filter((entry) => entry.kind === "schemas").map((entry) => entry.identity).sort();
   const expectedObjects = inventoryObjects.filter((entry) => PRIVILEGE_OBJECT_KINDS.has(entry.kind)).map((entry) => entry.identity).sort();
   const schemaRows = Array.isArray(db.schemaPrivileges) ? db.schemaPrivileges : [];
   const objectRows = Array.isArray(db.objectPrivileges) ? db.objectPrivileges : [];
   const schemaIds = schemaRows.map((entry) => entry && entry.schema).sort();
   const objectIds = objectRows.map((entry) => entry && entry.identity).sort();
-  if (!expectedSchemas.length || db.schemaPrivilegesComplete !== true
+  if (!expectedSchemas.length
     || schemaIds.some((value) => typeof value !== "string") || new Set(schemaIds).size !== schemaIds.length
     || canonicalJson(schemaIds) !== canonicalJson(expectedSchemas)
     || schemaRows.some((entry) => !entry || Object.keys(entry).sort().join(",") !== "privileges,schema"
       || !Array.isArray(entry.privileges) || entry.privileges.length !== 1 || entry.privileges[0] !== "USAGE")) {
     problems.push("collector schema privilege identities do not exactly match the complete schema catalog inventory");
   }
-  if (!expectedObjects.length || db.objectPrivilegesComplete !== true
+  if (!expectedObjects.length
     || objectIds.some((value) => typeof value !== "string") || new Set(objectIds).size !== objectIds.length
     || canonicalJson(objectIds) !== canonicalJson(expectedObjects)
     || objectRows.some((entry) => !entry || Object.keys(entry).sort().join(",") !== "identity,privileges"
       || !Array.isArray(entry.privileges) || entry.privileges.length !== 1 || entry.privileges[0] !== "SELECT")) {
     problems.push("collector object privilege identities do not exactly match the complete table, sequence and routine catalog inventory");
   }
-  if (db.catalogPrivilegesComplete !== true || !Array.isArray(db.catalogPrivileges)
+  if (!Array.isArray(db.catalogPrivileges)
     || db.catalogPrivileges.length !== 1 || db.catalogPrivileges[0] !== "SELECT") {
     problems.push("collector catalog read privileges are not completely attested");
   }
@@ -329,8 +333,8 @@ function validateEvidence(evidence, now, manifest, problems) {
   if (!p || !/^[a-f0-9]{64}$/.test(p.queryBundleSha256 || "")) problems.push("query-bundle fingerprint is missing");
   const captured = parseTime(p && p.capturedAt, "evidence capture timestamp", problems);
   if (Number.isFinite(captured) && (now - captured < 0 || now - captured > MAX_EVIDENCE_AGE_MS)) problems.push("evidence is stale or timestamp is in the future");
-  if (!evidence || !evidence.history || evidence.history.complete !== true || !Array.isArray(evidence.history.rows)) problems.push("migration history export is incomplete");
-  if (!evidence || !evidence.catalog || evidence.catalog.complete !== true || !Array.isArray(evidence.catalog.objects)) problems.push("live catalog export is incomplete");
+  if (!evidence || !evidence.history || !Array.isArray(evidence.history.rows)) problems.push("migration history export is incomplete");
+  if (!evidence || !evidence.catalog || !Array.isArray(evidence.catalog.objects)) problems.push("live catalog export is incomplete");
   const completeKinds = evidence && evidence.catalog && evidence.catalog.completeKinds;
   if (!Array.isArray(completeKinds) || new Set(completeKinds).size !== CATALOG_KINDS.length
     || canonicalJson([...completeKinds].sort()) !== canonicalJson([...CATALOG_KINDS].sort())) {
@@ -514,7 +518,7 @@ export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approval
   if (evidenceClaims && !sameClaims(evidenceClaims, expectedEvidenceClaims)) problems.push("signed evidence approval does not bind the exact evidence, mapping, project, collector, query bundle and capture timestamp");
   if (mappingClaims && !sameClaims(mappingClaims, expectedMappingClaims)) problems.push("signed mapping approval does not bind the exact complete mapping and inventory");
   validateCollectorAuthority(collectorClaims, provenance, evidenceDigest, evidence && evidence.collectorAuthority,
-    evidence && evidence.catalog && evidence.catalog.objects, now, problems);
+    evidence, now, problems);
   const reports = manifest.migrations.map((item) => {
     if (problems.length) return { path: item.path, version: item.version, blobSha1: item.blobSha1, status: "Unknown", reasons: ["one or more evidence, approval, mapping or collector trust checks failed"] };
     return { path: item.path, version: item.version, blobSha1: item.blobSha1, ...classifyOne(item, manifest, evidence, source, mappedEffects) };
