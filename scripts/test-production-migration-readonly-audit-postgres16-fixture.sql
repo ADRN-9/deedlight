@@ -39,7 +39,6 @@ CREATE ROLE deedlight_audit_spoofed_login LOGIN PASSWORD :'fixture_spoofed_passw
 CREATE ROLE deedlight_audit_switch_target NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE ROLE deedlight_audit_nested_parent NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE ROLE deedlight_audit_nested_leaf NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
-CREATE ROLE deedlight_audit_privileged_login LOGIN PASSWORD :'fixture_privileged_password' SUPERUSER;
 CREATE ROLE deedlight_audit_definer_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
@@ -115,48 +114,4 @@ ALTER FUNCTION public.audit_fixture_security_definer_identity()
 GRANT EXECUTE ON FUNCTION public.audit_fixture_security_definer_identity()
   TO deedlight_catalog_auditor;
 
-CREATE FUNCTION public.audit_fixture_privileged_definer_identity()
-RETURNS text
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = 'pg_catalog, public'
-AS $fixture$
-DECLARE
-  v_session_role_oid oid;
-  v_effective_role_oid oid;
-BEGIN
-  IF session_user <> 'deedlight_catalog_auditor'
-    OR current_setting('deedlight.authenticated_principal', true) IS DISTINCT FROM session_user
-    OR current_setting('role', true) IS DISTINCT FROM 'none' THEN
-    RAISE EXCEPTION 'Fixture SECURITY DEFINER identity rejected.';
-  END IF;
-  SELECT oid INTO v_session_role_oid FROM pg_catalog.pg_roles WHERE rolname = session_user;
-  SELECT oid INTO v_effective_role_oid FROM pg_catalog.pg_roles WHERE rolname = current_user;
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_catalog.pg_roles
-    WHERE oid = v_session_role_oid AND rolcanlogin
-      AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb
-      AND NOT rolreplication AND NOT rolbypassrls
-  ) OR NOT EXISTS (
-    SELECT 1 FROM pg_catalog.pg_roles
-    WHERE oid = v_effective_role_oid
-      AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb
-      AND NOT rolreplication AND NOT rolbypassrls
-  ) OR EXISTS (
-    SELECT 1 FROM pg_catalog.pg_roles r
-    WHERE r.oid <> v_session_role_oid
-      AND pg_catalog.pg_has_role(v_session_role_oid, r.oid, 'MEMBER')
-  ) OR EXISTS (
-    SELECT 1 FROM pg_catalog.pg_roles r
-    WHERE r.oid <> v_effective_role_oid
-      AND pg_catalog.pg_has_role(v_effective_role_oid, r.oid, 'MEMBER')
-  ) THEN
-    RAISE EXCEPTION 'Fixture SECURITY DEFINER role attributes or memberships rejected.';
-  END IF;
-  RETURN current_user || ':' || session_user;
-END;
-$fixture$;
-ALTER FUNCTION public.audit_fixture_privileged_definer_identity()
-  OWNER TO deedlight_audit_privileged_login;
-GRANT EXECUTE ON FUNCTION public.audit_fixture_privileged_definer_identity()
   TO deedlight_catalog_auditor;
