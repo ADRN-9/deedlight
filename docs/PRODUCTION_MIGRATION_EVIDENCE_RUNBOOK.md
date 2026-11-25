@@ -6,9 +6,11 @@
 
 - DBA/security owner authorizes a read-only audit window and identifies the exact Production project/endpoint through an independently trusted channel.
 - Collector runs from a controlled, isolated host. Verify TLS certificate/hostname and expected Supabase project reference independently; the SQL-supplied project label is metadata, not endpoint authentication.
-- Use a dedicated database identity with SELECT access to required PostgreSQL catalogs and `supabase_migrations.schema_migrations`. Do not use service_role, owner, superuser or a credential capable of schema/data mutation unless DBA has independently proven and approved a constrained read-only identity. The SQL transaction is read-only as a second control.
+- Use a dedicated, non-owner collector role with direct grants only. The approved contract is: no superuser, role/database creation, replication or BYPASSRLS attributes; no membership, direct or inherited, in any other role (including every predefined `pg_*` role, especially `pg_read_all_data` and `pg_write_all_data`, and `service_role`); no database CREATE, application-schema CREATE, application table/view/foreign-table privileges (including column ACLs), application sequence USAGE/SELECT/UPDATE, or ownership of application objects/schemas.
+- Grant SELECT only on the explicitly enumerated PostgreSQL catalogs/views required by the audit and SELECT on `supabase_migrations.schema_migrations`. The collector must not own the history table or have table/column write privileges on it. The SQL enforces these effective privileges before collection; a failed check is a hard stop, not a prompt to use a stronger role.
+- Do not grant application table or sequence access to make catalog queries work. Catalog metadata is read through `pg_catalog`; the audit never needs to read application rows. The SQL transaction is a second control, not a substitute for the role contract.
 - Credentials must come from an approved secret manager or an external `PGSERVICEFILE`/`PGPASSFILE` with restrictive filesystem permissions. Never put credentials, connection URIs, tokens or passwords in repository files, command arguments, shell history, CI logs or evidence artifacts.
-- Record repository SHA `def0de7e33d57a05e2ee6e38e43796c24562b425` and inventory blob SHA `95d514a0bd97ff448c9507252eb1f5e69a507442` in the collector receipt. A controlled runner must verify the checked-out commit and migration inventory before collection.
+- Record the exact repository SHA being audited (the package implementation commit is `6ca30f8ad1cb07184ded05770838c620ecf6d59c` before this remediation) and inventory blob SHA `95d514a0bd97ff448c9507252eb1f5e69a507442` in the collector receipt. A controlled runner must verify the checked-out commit and migration inventory before collection.
 - Provide non-secret connection metadata through PostgreSQL custom settings:
   - `deedlight.expected_project_ref=xaipiovflxomcbfwtwmu`
   - `deedlight.repository_sha=<exact 40-character commit SHA>`
@@ -26,17 +28,29 @@ psql -X --no-psqlrc --set=ON_ERROR_STOP=1 \
 
 The referenced service definition and password file must live outside the repository and be mounted by the secret manager. Configure the two non-secret custom GUC labels via the controlled connection profile/PGOPTIONS. Do not print connection settings. Do not run Supabase CLI link, db pull, db push, reset, migration, RPC or application queries as part of this audit.
 
-The SQL starts a REPEATABLE READ READ ONLY transaction, sets bounded statement/lock timeouts, validates required project/SHA metadata and history-table availability, queries PostgreSQL catalogs plus migration version/name/statement-count metadata only, and ends with ROLLBACK. Missing required history access or a schema-contract mismatch aborts collection. Missing catalog access must not be worked around by a more privileged browser/application role; escalate to the DBA for a separately approved read-only grant and rerun.
+The SQL starts a REPEATABLE READ READ ONLY transaction, sets bounded statement/lock timeouts, validates required project/SHA metadata, enforces the collector privilege contract, validates the supported migration-history schema (`version text`, `name text`, `statements text[]`), queries PostgreSQL catalogs plus explicit migration version/name/statement-count columns only, and ends with ROLLBACK. Whole-row JSON serialization is prohibited. Missing required history/catalog access or an unsupported history shape aborts collection. Missing catalog access must not be worked around by a more privileged browser/application role; escalate to the DBA for a separately approved direct read-only grant and rerun.
+
+## PostgreSQL 16 disposable execution validation
+
+The CI fixture `scripts/test-production-migration-readonly-audit-postgres16.sh` runs only against a disposable PostgreSQL 16 service with no Production connection or credentials. It exercises:
+- approved catalog-only role success and explicit transaction rollback;
+- predefined `pg_read_all_data` membership rejection;
+- missing migration-history SELECT and missing catalog SELECT rejection;
+- table-level, column-level and sequence privilege rejection;
+- invalid project and repository metadata;
+- an actual migration-history lock-timeout interruption and a client disconnect during a read-only transaction.
+
+The fixture creates synthetic roles, a synthetic history row and synthetic application objects. Never point this harness at Production. It does not validate the provider-specific endpoint identity or establish Production state.
 
 ## Evidence boundary and output handling
 
 Permitted export content:
 - database/server identity metadata and exact UTC capture time;
-- schema object names, types, owners, column definitions/defaults;
+- schema object names, types, owners, column definitions/defaults, sequences and their ownership dependencies;
 - function identity signatures, owners, SECURITY DEFINER flags, language, volatility and configuration (not function bodies);
 - ACL edges, grants/revokes, role attributes/memberships and default privileges;
 - RLS flags and policy expressions;
-- constraints, indexes, trigger definitions;
+- constraints, index definitions plus validity/readiness/liveness/uniqueness flags, trigger definitions;
 - installed extension names/versions/schemas/owners;
 - migration-history table structure and migration version/name/statement counts only.
 

@@ -8,36 +8,51 @@ const sql = readFileSync(
   "utf8",
 );
 
-test("audit runs in a repeatable-read read-only transaction and rolls back", () => {
+test("audit uses a repeatable-read read-only transaction and rolls back", () => {
   assert.match(sql, /BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;/i);
   assert.match(sql, /current_setting\('transaction_read_only'\)\s*<>\s*'on'/i);
   assert.match(sql, /ROLLBACK;\s*$/i);
 });
 
-test("audit requires the exact project reference and a 40-character repository SHA", () => {
+test("audit requires exact non-secret project and repository metadata", () => {
   assert.match(sql, /deedlight\.expected_project_ref/);
   assert.match(sql, /xaipiovflxomcbfwtwmu/);
   assert.match(sql, /deedlight\.repository_sha/);
   assert.match(sql, /\[0-9a-f\]\{40\}/);
 });
 
-test("audit fails closed when migration history or SELECT authority is missing", () => {
-  assert.match(sql, /to_regclass\('supabase_migrations\.schema_migrations'\)/);
-  assert.match(sql, /has_table_privilege\(current_user, v_history_oid, 'SELECT'\)/);
+test("audit fails closed for missing catalogs and unsupported migration history", () => {
+  assert.match(sql, /Required catalog SELECT access unavailable/);
   assert.match(sql, /Required Supabase migration-history table is unavailable/);
+  assert.match(sql, /expected version, name and array statements columns/);
 });
 
-test("audit includes all required catalog evidence surfaces", () => {
+test("collector contract rejects role escalation, memberships and effective application access", () => {
   for (const token of [
-    "pg_class", "pg_attribute", "pg_proc", "pg_roles", "pg_auth_members",
-    "pg_policies", "pg_constraint", "pg_indexes", "pg_trigger",
-    "pg_default_acl", "pg_extension", "supabase_migrations.schema_migrations",
-    "pg_get_function_identity_arguments", "prosecdef", "relrowsecurity",
-    "relforcerowsecurity", "aclexplode",
+    "rolsuper", "rolcreaterole", "rolcreatedb", "rolreplication", "rolbypassrls",
+    "pg_read_all_data", "pg_write_all_data", "pg_has_role",
+    "has_table_privilege", "has_any_column_privilege", "has_sequence_privilege",
+    "has_schema_privilege", "has_database_privilege",
+  ]) assert.ok(sql.includes(token), `missing least-privilege guard: ${token}`);
+  assert.doesNotMatch(sql, /rolconfig/);
+});
+
+test("sequence definitions, ownership, ACLs and index health are captured", () => {
+  for (const token of [
+    "pg_catalog.pg_sequence", "pg_catalog.pg_depend", "owned_table_schema",
+    "pg_catalog.acldefault('S'", "pg_catalog.pg_index", "indisvalid",
+    "indisready", "indislive", "indisunique", "indisprimary",
   ]) assert.ok(sql.includes(token), `missing catalog evidence: ${token}`);
 });
 
-test("audit contains no SQL mutation or privilege-changing statements, including DO blocks", () => {
+test("migration history uses explicit version/name/array projections only", () => {
+  assert.match(sql, /h\.version::text AS version/);
+  assert.match(sql, /h\.name::text AS migration_name/);
+  assert.match(sql, /cardinality\(h\.statements\)/);
+  assert.doesNotMatch(sql, /to_jsonb\(h\)|row_to_json\(h\)/i);
+});
+
+test("audit contains no SQL mutation or privilege-changing statements", () => {
   const withoutCommentsAndLiterals = sql
     .replace(/--[^\n]*/g, "")
     .replace(/'(?:''|[^'])*'/g, " ");
@@ -47,7 +62,7 @@ test("audit contains no SQL mutation or privilege-changing statements, including
   );
 });
 
-test("audit excludes application rows, function bodies and secrets", () => {
+test("audit excludes application rows, function bodies and credential material", () => {
   assert.match(sql, /Function bodies are excluded/i);
   assert.match(sql, /Migration-history identifiers only/i);
   assert.doesNotMatch(sql, /SUPABASE_SERVICE_ROLE_KEY|postgres:\/\/|password\s*=/i);

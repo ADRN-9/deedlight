@@ -366,6 +366,9 @@ jobs:
       - name: Verify duplicate 007 order and CLI migration semantics
         run: bash scripts/test-duplicate-migration-007.sh
 
+      - name: Production migration audit PostgreSQL 16 behavior and interruption tests
+        run: bash scripts/test-production-migration-readonly-audit-postgres16.sh
+
   delivery_provider_webhook_database_behavior:
     runs-on: ubuntu-latest
     timeout-minutes: 10

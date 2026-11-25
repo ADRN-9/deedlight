@@ -18,6 +18,9 @@ DECLARE
   v_repository_sha text := current_setting('deedlight.repository_sha', true);
   v_history_oid oid := to_regclass('supabase_migrations.schema_migrations');
   v_catalog text;
+  v_role_oid oid;
+  v_relation record;
+  v_privilege text;
 BEGIN
   IF current_setting('transaction_read_only') <> 'on' THEN
     RAISE EXCEPTION 'Audit must execute in a read-only transaction.';
@@ -28,45 +31,114 @@ BEGIN
   IF v_repository_sha IS NULL OR v_repository_sha !~ '^[0-9a-f]{40}$' THEN
     RAISE EXCEPTION 'Exact repository SHA is required as collector metadata.';
   END IF;
-  IF EXISTS (
-    SELECT 1 FROM pg_catalog.pg_roles
-    WHERE rolname = current_user
-      AND (rolsuper OR rolcreaterole OR rolcreatedb OR rolbypassrls)
-  ) THEN
-    RAISE EXCEPTION 'Collector role is over-privileged; use a dedicated read-only role.';
-  END IF;
-  IF to_regrole('service_role') IS NOT NULL
-    AND pg_catalog.pg_has_role(current_user, to_regrole('service_role'), 'MEMBER') THEN
-    RAISE EXCEPTION 'Collector role must not inherit or belong to service_role.';
-  END IF;
+  v_role_oid := to_regrole(current_user)::oid;
   FOREACH v_catalog IN ARRAY ARRAY[
     'pg_catalog.pg_class', 'pg_catalog.pg_attribute', 'pg_catalog.pg_proc',
-    'pg_catalog.pg_roles', 'pg_catalog.pg_auth_members', 'pg_catalog.pg_policies',
-    'pg_catalog.pg_constraint', 'pg_catalog.pg_indexes', 'pg_catalog.pg_trigger',
-    'pg_catalog.pg_default_acl', 'pg_catalog.pg_extension'
+    'pg_catalog.pg_roles', 'pg_catalog.pg_auth_members', 'pg_catalog.pg_namespace',
+    'pg_catalog.pg_language', 'pg_catalog.pg_policies', 'pg_catalog.pg_constraint',
+    'pg_catalog.pg_indexes', 'pg_catalog.pg_trigger', 'pg_catalog.pg_default_acl',
+    'pg_catalog.pg_extension', 'pg_catalog.pg_sequence', 'pg_catalog.pg_index',
+    'pg_catalog.pg_depend', 'pg_catalog.pg_type'
   ] LOOP
     IF to_regclass(v_catalog) IS NULL
       OR NOT has_table_privilege(current_user, to_regclass(v_catalog), 'SELECT') THEN
       RAISE EXCEPTION 'Required catalog SELECT access unavailable: %', v_catalog;
     END IF;
   END LOOP;
+  IF EXISTS (
+    SELECT 1 FROM pg_catalog.pg_roles
+    WHERE oid = v_role_oid
+      AND (rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls)
+  ) THEN
+    RAISE EXCEPTION 'Collector role violates the catalog-audit role attribute contract.';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM pg_catalog.pg_roles r
+    WHERE r.oid <> v_role_oid AND pg_catalog.pg_has_role(v_role_oid, r.oid, 'MEMBER')
+  ) THEN
+    RAISE EXCEPTION 'Collector role has role membership; only direct grants are permitted.';
+  END IF;
   IF v_history_oid IS NULL THEN
     RAISE EXCEPTION 'Required Supabase migration-history table is unavailable.';
   END IF;
-  IF NOT has_table_privilege(current_user, v_history_oid, 'SELECT') THEN
-    RAISE EXCEPTION 'Collector cannot read the Supabase migration-history table.';
+  IF (SELECT relowner FROM pg_catalog.pg_class WHERE oid = v_history_oid) = v_role_oid
+    OR NOT has_table_privilege(v_role_oid, v_history_oid, 'SELECT') THEN
+    RAISE EXCEPTION 'Collector must have SELECT-only access to migration history without owning it.';
+  END IF;
+  FOREACH v_privilege IN ARRAY ARRAY['INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'] LOOP
+    IF has_table_privilege(v_role_oid, v_history_oid, v_privilege) THEN
+      RAISE EXCEPTION 'Collector has prohibited % access to migration history.', v_privilege;
+    END IF;
+  END LOOP;
+  IF EXISTS (
+    SELECT 1 FROM pg_catalog.pg_attribute a
+    WHERE a.attrelid = v_history_oid AND a.attnum > 0 AND NOT a.attisdropped
+      AND (has_column_privilege(v_role_oid, v_history_oid, a.attname, 'INSERT')
+        OR has_column_privilege(v_role_oid, v_history_oid, a.attname, 'UPDATE')
+        OR has_column_privilege(v_role_oid, v_history_oid, a.attname, 'REFERENCES'))
+  ) THEN
+    RAISE EXCEPTION 'Collector has prohibited column-level write access to migration history.';
   END IF;
   IF NOT EXISTS (
     SELECT 1 FROM pg_catalog.pg_attribute
-    WHERE attrelid = v_history_oid AND attname = 'version'
-      AND attnum > 0 AND NOT attisdropped
+    WHERE attrelid = v_history_oid AND attname = 'version' AND attnum > 0 AND NOT attisdropped
   ) OR NOT EXISTS (
     SELECT 1 FROM pg_catalog.pg_attribute
-    WHERE attrelid = v_history_oid AND attname = 'statements'
-      AND attnum > 0 AND NOT attisdropped
+    WHERE attrelid = v_history_oid AND attname = 'name' AND attnum > 0 AND NOT attisdropped
+  ) OR NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_attribute a JOIN pg_catalog.pg_type t ON t.oid = a.atttypid
+    WHERE a.attrelid = v_history_oid AND a.attname = 'statements'
+      AND a.attnum > 0 AND NOT a.attisdropped AND t.typcategory = 'A'
   ) THEN
-    RAISE EXCEPTION 'Migration-history table does not match the expected version/statements contract.';
+    RAISE EXCEPTION 'Unsupported migration-history schema; expected version, name and array statements columns.';
   END IF;
+  IF has_database_privilege(v_role_oid, current_database(), 'CREATE') THEN
+    RAISE EXCEPTION 'Collector role has database CREATE privilege.';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM pg_catalog.pg_namespace n
+    WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+      AND n.nspname NOT LIKE 'pg_toast%'
+      AND (n.nspowner = v_role_oid OR has_schema_privilege(v_role_oid, n.oid, 'CREATE'))
+  ) THEN
+    RAISE EXCEPTION 'Collector role owns an application schema or has schema CREATE privilege.';
+  END IF;
+
+  -- This also rejects membership in pg_read_all_data, pg_write_all_data,
+  -- pg_monitor, pg_read_all_settings, pg_read_server_files and service_role.
+  FOR v_relation IN
+    SELECT c.oid, c.relkind, c.relowner, n.nspname, c.relname
+    FROM pg_catalog.pg_class c
+    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+      AND n.nspname NOT LIKE 'pg_toast%' AND c.oid <> v_history_oid
+      AND c.relkind IN ('r','p','v','m','f','S')
+  LOOP
+    IF v_relation.relowner = v_role_oid THEN
+      RAISE EXCEPTION 'Collector owns application object %.%.', v_relation.nspname, v_relation.relname;
+    END IF;
+    IF v_relation.relkind = 'S' THEN
+      FOREACH v_privilege IN ARRAY ARRAY['USAGE','SELECT','UPDATE'] LOOP
+        IF has_sequence_privilege(v_role_oid, v_relation.oid, v_privilege) THEN
+          RAISE EXCEPTION 'Collector has prohibited % access to application sequence %.%.',
+            v_privilege, v_relation.nspname, v_relation.relname;
+        END IF;
+      END LOOP;
+    ELSE
+      FOREACH v_privilege IN ARRAY ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'] LOOP
+        IF has_table_privilege(v_role_oid, v_relation.oid, v_privilege) THEN
+          RAISE EXCEPTION 'Collector has prohibited % access to application relation %.%.',
+            v_privilege, v_relation.nspname, v_relation.relname;
+        END IF;
+      END LOOP;
+      FOREACH v_privilege IN ARRAY ARRAY['SELECT','INSERT','UPDATE','REFERENCES'] LOOP
+        IF has_any_column_privilege(v_role_oid, v_relation.oid, v_privilege) THEN
+          RAISE EXCEPTION 'Collector has prohibited column-level % access to application relation %.%.',
+            v_privilege, v_relation.nspname, v_relation.relname;
+        END IF;
+      END LOOP;
+    END IF;
+  END LOOP;
 END
 $audit_preflight$;
 
@@ -213,8 +285,7 @@ SELECT
   r.rolbypassrls,
   r.rolinherit,
   r.rolconnlimit,
-  r.rolvaliduntil,
-  r.rolconfig
+  r.rolvaliduntil
 FROM pg_catalog.pg_roles r
 ORDER BY r.rolname;
 
@@ -223,8 +294,8 @@ SELECT
   member.rolname AS member_role,
   grantor.rolname AS grantor_role,
   m.admin_option,
-  to_jsonb(m)->>'inherit_option' AS inherit_option,
-  to_jsonb(m)->>'set_option' AS set_option
+  m.inherit_option,
+  m.set_option
 FROM pg_catalog.pg_auth_members m
 JOIN pg_catalog.pg_roles parent ON parent.oid = m.roleid
 JOIN pg_catalog.pg_roles member ON member.oid = m.member
@@ -260,10 +331,25 @@ JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
 ORDER BY n.nspname, c.relname, con.conname;
 
-SELECT schemaname, tablename, indexname, tablespace, indexdef
-FROM pg_catalog.pg_indexes
-WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
-ORDER BY schemaname, tablename, indexname;
+SELECT
+  n.nspname AS schema_name,
+  tbl.relname AS table_name,
+  idx.relname AS index_name,
+  i.indisunique AS is_unique,
+  i.indisprimary AS is_primary,
+  i.indisexclusion AS is_exclusion,
+  i.indisvalid AS is_valid,
+  i.indisready AS is_ready,
+  i.indislive AS is_live,
+  i.indisreplident AS is_replica_identity,
+  i.indnullsnotdistinct AS nulls_not_distinct,
+  pg_catalog.pg_get_indexdef(i.indexrelid) AS index_definition
+FROM pg_catalog.pg_index i
+JOIN pg_catalog.pg_class idx ON idx.oid = i.indexrelid
+JOIN pg_catalog.pg_class tbl ON tbl.oid = i.indrelid
+JOIN pg_catalog.pg_namespace n ON n.oid = tbl.relnamespace
+WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+ORDER BY n.nspname, tbl.relname, idx.relname;
 
 SELECT
   n.nspname AS schema_name,
@@ -278,6 +364,56 @@ JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
   AND NOT t.tgisinternal
 ORDER BY n.nspname, c.relname, t.tgname;
+
+-- Sequence definitions, ownership dependencies and ACLs.
+SELECT
+  n.nspname AS schema_name,
+  seqrel.relname AS sequence_name,
+  pg_catalog.pg_get_userbyid(seqrel.relowner) AS owner_name,
+  pg_catalog.format_type(s.seqtypid, NULL) AS sequence_data_type,
+  s.seqstart AS start_value,
+  s.seqincrement AS increment_by,
+  s.seqmin AS minimum_value,
+  s.seqmax AS maximum_value,
+  s.seqcache AS cache_size,
+  s.seqcycle AS cycles,
+  owner_ns.nspname AS owned_table_schema,
+  owner_tbl.relname AS owned_table_name,
+  owner_col.attname AS owned_column_name
+FROM pg_catalog.pg_class seqrel
+JOIN pg_catalog.pg_namespace n ON n.oid = seqrel.relnamespace
+JOIN pg_catalog.pg_sequence s ON s.seqrelid = seqrel.oid
+LEFT JOIN pg_catalog.pg_depend d
+  ON d.classid = 'pg_catalog.pg_class'::regclass
+  AND d.objid = seqrel.oid
+  AND d.refclassid = 'pg_catalog.pg_class'::regclass
+  AND d.deptype IN ('a','i')
+  AND d.refobjsubid > 0
+LEFT JOIN pg_catalog.pg_class owner_tbl ON owner_tbl.oid = d.refobjid
+LEFT JOIN pg_catalog.pg_namespace owner_ns ON owner_ns.oid = owner_tbl.relnamespace
+LEFT JOIN pg_catalog.pg_attribute owner_col
+  ON owner_col.attrelid = owner_tbl.oid AND owner_col.attnum = d.refobjsubid
+WHERE seqrel.relkind = 'S'
+  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+ORDER BY n.nspname, seqrel.relname;
+
+SELECT
+  n.nspname AS schema_name,
+  c.relname AS sequence_name,
+  pg_catalog.pg_get_userbyid(c.relowner) AS owner_name,
+  CASE WHEN x.grantee = 0 THEN 'PUBLIC'
+       ELSE pg_catalog.pg_get_userbyid(x.grantee) END AS grantee,
+  pg_catalog.pg_get_userbyid(x.grantor) AS grantor,
+  x.privilege_type,
+  x.is_grantable
+FROM pg_catalog.pg_class c
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+CROSS JOIN LATERAL pg_catalog.aclexplode(
+  COALESCE(c.relacl, pg_catalog.acldefault('S', c.relowner))
+) x
+WHERE c.relkind = 'S'
+  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+ORDER BY n.nspname, c.relname, grantee, x.privilege_type;
 
 -- 10. Default privileges, preserving owner/schema/object-kind and each ACL edge.
 SELECT
@@ -318,15 +454,11 @@ ORDER BY a.attnum;
 
 -- 13. Migration-history identifiers only. Never export statements or application data.
 SELECT
-  to_jsonb(h)->>'version' AS version,
-  to_jsonb(h)->>'name' AS migration_name,
-  CASE
-    WHEN jsonb_typeof(to_jsonb(h)->'statements') = 'array'
-      THEN jsonb_array_length(to_jsonb(h)->'statements')
-    ELSE NULL
-  END AS recorded_statement_count
-FROM supabase_migrations.schema_migrations h
-ORDER BY to_jsonb(h)->>'version', to_jsonb(h)->>'name';
+  h.version::text AS version,
+  h.name::text AS migration_name,
+  cardinality(h.statements) AS recorded_statement_count
+FROM supabase_migrations.schema_migrations AS h
+ORDER BY h.version, h.name;
 
 -- The collector captures the result digest and commits its own signed receipt outside this database.
 -- Roll back the read-only snapshot explicitly; no database state is changed.
