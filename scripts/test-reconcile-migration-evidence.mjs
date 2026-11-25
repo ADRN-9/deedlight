@@ -10,7 +10,7 @@ import { analyzeMigrationEvidence, canonicalJson, evidencePayload, mappingDigest
 const repoRoot = process.cwd();
 const sourceManifest = JSON.parse(readFileSync(path.join(repoRoot, "supabase/migration-inventory.json"), "utf8"));
 const sourceInventoryBytes = readFileSync(path.join(repoRoot, "supabase/migration-inventory.json"));
-const catalogKinds = ["tables", "columns", "constraints", "indexes", "triggers", "policies", "routines", "privileges", "ownership", "dataTransformations", "backfills", "dependencies", "preconditions", "postconditions"];
+const catalogKinds = ["schemas", "tables", "sequences", "columns", "constraints", "indexes", "triggers", "policies", "routines", "privileges", "ownership", "dataTransformations", "backfills", "dependencies", "preconditions", "postconditions"];
 const categories = ["schema", "privileges", "ownership", "routines", "dataTransformations", "backfills", "dependencies", "preconditions", "postconditions"];
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const keys = Object.fromEntries(["evidence-approver", "mapping-approver", "collector"].map((role) => [role, generateKeyPairSync("ed25519")]));
@@ -73,14 +73,20 @@ function fixture() {
     const lineCount = readFileSync(path.join(repoRoot, item.path), "utf8").split(String.fromCharCode(10)).length;
     const coverage = Object.fromEntries(categories.map((category) => [category, {
       disposition: effects[category].length ? "effects" : "none",
-      rationale: "Reviewed the complete migration source for this effect domain.",
+      rationale: effects[category].length
+        ? "Synthetic fixture maps a representative " + category + " effect to the pinned migration source range."
+        : "Synthetic fixture explicitly records no " + category + " effect in the pinned migration source range.",
       sourceRanges: [{ startLine: 1, endLine: lineCount }],
     }]));
     return { path: item.path, blobSha1: item.blobSha1, effects, coverage };
   });
   const mapping = { schemaVersion: 1, migrations: migrationEffects };
   const expected = migrationEffects.flatMap((entry) => categories.flatMap((category) => entry.effects[category]));
-  const catalog = expected.map((effect) => ({ kind: effect.kind, identity: effect.identity, fingerprint: effect.fingerprint }));
+  const catalog = [
+    ...expected.map((effect) => ({ kind: effect.kind, identity: effect.identity, fingerprint: effect.fingerprint })),
+    { kind: "schemas", identity: "public", fingerprint: hash("schema:public") },
+    { kind: "tables", identity: "public.profiles", fingerprint: hash("table:public.profiles") },
+  ];
   const historyRows = [];
   const byVersion = new Map();
   for (const item of sourceManifest.migrations) {
@@ -134,7 +140,7 @@ function fixture() {
       rmSync(rootDir, { recursive: true, force: true });
       rmSync(trustDir, { recursive: true, force: true });
     },
-    reapprove() {
+    reapprove(mutateDatabaseAuthority) {
       const mapHash = mappingDigest(mapping);
       const common = {
         projectRef: "xaipiovflxomcbfwtwmu",
@@ -154,16 +160,32 @@ function fixture() {
         databasePrivilegesComplete: true,
         databasePrivileges: ["CONNECT"],
         schemaPrivilegesComplete: true,
-        schemaPrivileges: [{ schema: "public", privileges: ["USAGE"] }],
+        schemaPrivileges: evidence.catalog.objects.filter((entry) => entry.kind === "schemas")
+          .map((entry) => ({ schema: entry.identity, privileges: ["USAGE"] })),
         objectPrivilegesComplete: true,
-        objectPrivileges: [{ identity: "public.profiles", privileges: ["SELECT"] }],
+        objectPrivileges: evidence.catalog.objects.filter((entry) => ["tables", "sequences", "routines"].includes(entry.kind))
+          .map((entry) => ({ identity: entry.identity, privileges: ["SELECT"] })),
         catalogPrivilegesComplete: true,
         catalogPrivileges: ["SELECT"],
         roleMemberships: [],
         ownedSchemas: [],
         proofQueryBundleSha256: evidence.provenance.queryBundleSha256,
       };
+      if (mutateDatabaseAuthority) mutateDatabaseAuthority(databaseAuthority);
       const executionId = "fixture-collector-query-execution";
+      const executionEvidence = {
+        projectRef: common.projectRef,
+        collectorIdentity: common.collectorIdentity,
+        capturedAt: common.capturedAt,
+        queryBundleSha256: common.queryBundleSha256,
+        executionId,
+        startedAt: "2026-11-25T00:20:00.000Z",
+        completedAt: "2026-11-25T00:25:00.000Z",
+        completed: true,
+        readOnlyTransaction: true,
+        statementCount: 4,
+        resultDigest: hash(Buffer.from(canonicalJson(databaseAuthority))),
+      };
       evidence.collectorAuthority = {
         schemaVersion: 1,
         projectRef: common.projectRef,
@@ -174,6 +196,7 @@ function fixture() {
         completed: true,
         readOnlyTransaction: true,
         databaseAuthority,
+        executionEvidence,
       };
       const evidenceDigest = hash(evidencePayload(evidence));
       const authorityEvidenceDigest = hash(Buffer.from(canonicalJson(evidence.collectorAuthority)));
@@ -262,20 +285,26 @@ test("signed artifacts with missing claims or unsigned extra approval references
   }
 });
 
-test("unsigned and forged evidence approvals fail closed", () => {
-  for (const mutate of [
-    (f) => { delete f.approvals.evidenceApproval.signature; },
-    (f) => { f.approvals.evidenceApproval.signature = Buffer.alloc(64).toString("base64"); },
-  ]) {
-    const f = fixture();
-    try {
-      mutate(f);
-      const report = f.analyze();
-      assert.equal(report.counts.Unknown, 39);
-      assert.equal(report.acceptance, "NOT_ACCEPTED");
-      assert.ok(report.trustProblems.some((reason) => reason.includes("signature verification failed")));
-    } finally { f.cleanup(); }
-  }
+test("unsigned approval envelope is rejected before signature verification", () => {
+  const f = fixture();
+  try {
+    delete f.approvals.evidenceApproval.signature;
+    const report = f.analyze();
+    assert.equal(report.counts.Unknown, 39);
+    assert.equal(report.acceptance, "NOT_ACCEPTED");
+    assert.ok(report.trustProblems.some((reason) => reason.includes("missing claims or an unsupported envelope")));
+  } finally { f.cleanup(); }
+});
+
+test("forged approval signature fails cryptographic verification", () => {
+  const f = fixture();
+  try {
+    f.approvals.evidenceApproval.signature = Buffer.alloc(64).toString("base64");
+    const report = f.analyze();
+    assert.equal(report.counts.Unknown, 39);
+    assert.equal(report.acceptance, "NOT_ACCEPTED");
+    assert.ok(report.trustProblems.some((reason) => reason.includes("signature verification failed")));
+  } finally { f.cleanup(); }
 });
 
 test("expired approval, revoked signer key and revoked approval ID fail closed", () => {
@@ -452,6 +481,75 @@ test("write-capable collector, inherited roles or unproven read-only privilege f
       const report = f.analyze();
       assert.equal(report.counts.Unknown, 39);
       assert.equal(report.acceptance, "NOT_ACCEPTED");
+    } finally { f.cleanup(); }
+  }
+});
+
+test("collector schema and object privilege identity sets must exactly match catalog inventory", () => {
+  const mutations = [
+    (db) => { db.schemaPrivileges = []; },
+    (db) => { db.schemaPrivileges.push({ schema: "private_extra", privileges: ["USAGE"] }); },
+    (db) => { db.schemaPrivileges.push({ ...db.schemaPrivileges[0] }); },
+    (db) => { db.objectPrivileges = db.objectPrivileges.slice(1); },
+    (db) => { db.objectPrivileges.push({ identity: "public.unexpected", privileges: ["SELECT"] }); },
+    (db) => { db.objectPrivileges.push({ ...db.objectPrivileges[0] }); },
+  ];
+  for (const mutate of mutations) {
+    const f = fixture();
+    try {
+      f.reapprove(mutate);
+      const report = f.analyze();
+      assert.equal(report.counts.Unknown, 39);
+      assert.equal(report.acceptance, "NOT_ACCEPTED");
+      assert.ok(report.trustProblems.some((reason) => reason.includes("privilege identities do not exactly match")));
+    } finally { f.cleanup(); }
+  }
+});
+
+test("collector execution receipt binds project, collector, query digest, capture and result", () => {
+  for (const mutate of [
+    (e) => { e.queryBundleSha256 = hash("wrong-query"); },
+    (e) => { e.projectRef = "other-project"; },
+    (e) => { e.collectorIdentity = "other-collector"; },
+    (e) => { e.completedAt = "2026-11-25T00:40:00.000Z"; },
+    (e) => { e.resultDigest = hash("wrong-result"); },
+    (e) => { e.statementCount = 0; },
+  ]) {
+    const f = fixture();
+    try {
+      f.reapprove();
+      mutate(f.evidence.collectorAuthority.executionEvidence);
+      const receipt = f.evidence.collectorAuthority.executionEvidence;
+      const db = f.evidence.collectorAuthority.databaseAuthority;
+      receipt.resultDigest = hash(Buffer.from(canonicalJson(db)));
+      const authorityDigest = hash(Buffer.from(canonicalJson(f.evidence.collectorAuthority)));
+      const evidenceDigest = hash(evidencePayload(f.evidence));
+      const common = f.approvals.collectorAttestation.claims;
+      f.approvals.collectorAttestation = artifact("read-only-collector-attestation", "collector", {
+        ...common,
+        evidenceDigest,
+        authorityEvidenceDigest: authorityDigest,
+      });
+      f.approvals.evidenceApproval = artifact("production-evidence-approval", "evidence-approver", {
+        ...f.approvals.evidenceApproval.claims, evidenceDigest,
+      });
+      const report = f.analyze();
+      assert.equal(report.counts.Unknown, 39);
+      assert.equal(report.acceptance, "NOT_ACCEPTED");
+      assert.ok(report.trustProblems.some((reason) => reason.includes("execution receipt")));
+    } finally { f.cleanup(); }
+  }
+});
+
+test("migration execution timestamps cannot be later than capture or current time", () => {
+  for (const executedAt of ["2026-11-25T00:31:00.000Z", "2026-11-25T01:01:00.000Z"]) {
+    const f = fixture();
+    try {
+      f.evidence.history.rows[0].executedAt = executedAt;
+      f.reapprove();
+      const report = f.analyze();
+      assert.equal(report.counts.Unknown, 39);
+      assert.ok(report.trustProblems.some((reason) => reason.includes("executedAt <= evidence capturedAt <= current time")));
     } finally { f.cleanup(); }
   }
 });
