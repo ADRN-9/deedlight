@@ -535,6 +535,7 @@ test("collector schema and object privilege identity sets must exactly match cat
     (db) => { db.schemaPrivileges.push({ schema: "private_extra", privileges: ["USAGE"] }); },
     (db) => { db.schemaPrivileges.push({ ...db.schemaPrivileges[0] }); },
     (db) => { db.objectPrivileges = db.objectPrivileges.slice(1); },
+    (db) => { db.objectPrivileges[0].kind = db.objectPrivileges[0].kind === "tables" ? "sequences" : "tables"; },
     (db) => { db.objectPrivileges.push({ kind: "tables", identity: "public.unexpected", privileges: ["SELECT"] }); },
     (db) => { db.objectPrivileges.push({ ...db.objectPrivileges[0] }); },
   ];
