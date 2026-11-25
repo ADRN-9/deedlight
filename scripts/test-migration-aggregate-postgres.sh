@@ -209,6 +209,245 @@ END
 "
 
 
+# Exercise the actual function-owner SET ROLE boundary with a non-superuser owner.
+# The role membership is SET-only: INHERIT is deliberately false.
+original_is_admin_owner="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "
+SELECT owner_role.rolname
+FROM pg_catalog.pg_proc p
+JOIN pg_catalog.pg_roles owner_role ON owner_role.oid = p.proowner
+WHERE p.oid = 'public.is_admin()'::regprocedure;
+")"
+psql --no-psqlrc --set ON_ERROR_STOP=1 <<'SQL'
+CREATE ROLE migration_038_fixture_owner NOLOGIN;
+CREATE ROLE migration_038_owner_set_only NOLOGIN;
+GRANT CREATE ON SCHEMA public TO migration_038_fixture_owner;
+ALTER FUNCTION public.is_admin() OWNER TO migration_038_fixture_owner;
+SET ROLE migration_038_fixture_owner;
+REVOKE EXECUTE ON FUNCTION public.is_admin() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.is_admin() TO anon, authenticated, service_role;
+RESET ROLE;
+GRANT migration_038_fixture_owner TO migration_038_owner_set_only WITH INHERIT FALSE, SET TRUE;
+SQL
+if [ "$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT pg_catalog.pg_has_role('migration_038_owner_set_only', 'migration_038_fixture_owner', 'SET')")" != "t" ]; then
+  echo "PostgreSQL 16 fixture did not establish SET-only membership to the function owner." >&2
+  exit 1
+fi
+owner_set_before="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "
+SELECT jsonb_build_object(
+  'source', p.prosrc,
+  'owner_oid', p.proowner,
+  'owner_name', owner_role.rolname,
+  'acl', p.proacl::text,
+  'config', p.proconfig
+)::text
+FROM pg_catalog.pg_proc p
+JOIN pg_catalog.pg_roles owner_role ON owner_role.oid = p.proowner
+WHERE p.oid = 'public.is_admin()'::regprocedure;
+")"
+if psql --no-psqlrc --set ON_ERROR_STOP=1 --file supabase/bootstrap/migration_038_admin_compatibility.sql >"$compat_log" 2>&1; then
+  echo "Compatibility bridge unexpectedly accepted SET-only membership to the function owner." >&2
+  exit 1
+fi
+if ! grep -Fq "rejected unauthorized SET ROLE membership to the is_admin() owner" "$compat_log"; then
+  cat "$compat_log"
+  echo "Compatibility bridge failed for an unexpected reason in owner SET-only preflight test." >&2
+  exit 1
+fi
+owner_set_after="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "
+SELECT jsonb_build_object(
+  'source', p.prosrc,
+  'owner_oid', p.proowner,
+  'owner_name', owner_role.rolname,
+  'acl', p.proacl::text,
+  'config', p.proconfig
+)::text
+FROM pg_catalog.pg_proc p
+JOIN pg_catalog.pg_roles owner_role ON owner_role.oid = p.proowner
+WHERE p.oid = 'public.is_admin()'::regprocedure;
+")"
+test "$owner_set_before" = "$owner_set_after"
+psql --no-psqlrc --set ON_ERROR_STOP=1 <<'SQL'
+REVOKE migration_038_fixture_owner FROM migration_038_owner_set_only;
+SQL
+
+# A direct service_role grant is required when PUBLIC and role inheritance do not supply it.
+psql --no-psqlrc --set ON_ERROR_STOP=1 <<'SQL'
+SET ROLE migration_038_fixture_owner;
+REVOKE EXECUTE ON FUNCTION public.is_admin() FROM service_role;
+RESET ROLE;
+SQL
+service_preflight_before="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "
+SELECT jsonb_build_object('source', p.prosrc, 'owner_oid', p.proowner, 'acl', p.proacl::text, 'config', p.proconfig)::text
+FROM pg_catalog.pg_proc p WHERE p.oid = 'public.is_admin()'::regprocedure;
+")"
+if psql --no-psqlrc --set ON_ERROR_STOP=1 --file supabase/bootstrap/migration_038_admin_compatibility.sql >"$compat_log" 2>&1; then
+  echo "Compatibility bridge unexpectedly accepted missing effective service_role EXECUTE." >&2
+  exit 1
+fi
+if ! grep -Fq "rejected missing service_role EXECUTE privilege" "$compat_log"; then
+  cat "$compat_log"
+  echo "Compatibility bridge failed for an unexpected reason in service_role preflight test." >&2
+  exit 1
+fi
+service_preflight_after="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "
+SELECT jsonb_build_object('source', p.prosrc, 'owner_oid', p.proowner, 'acl', p.proacl::text, 'config', p.proconfig)::text
+FROM pg_catalog.pg_proc p WHERE p.oid = 'public.is_admin()'::regprocedure;
+")"
+test "$service_preflight_before" = "$service_preflight_after"
+psql --no-psqlrc --set ON_ERROR_STOP=1 <<'SQL'
+SET ROLE migration_038_fixture_owner;
+GRANT EXECUTE ON FUNCTION public.is_admin() TO service_role;
+RESET ROLE;
+GRANT anon TO service_role WITH INHERIT TRUE, SET TRUE;
+SQL
+if [ "$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT has_function_privilege('service_role', 'public.is_admin()', 'EXECUTE')")" != "t" ]; then
+  echo "service_role test fixture did not establish effective EXECUTE." >&2
+  exit 1
+fi
+
+# The ACL itself remains unchanged while an event trigger removes the role-membership
+# path that supplies service_role EXECUTE. Postflight must detect the lost effective grant.
+psql --no-psqlrc --set ON_ERROR_STOP=1 <<'SQL'
+CREATE FUNCTION public.__migration_038_test_revoke_service_membership()
+RETURNS event_trigger
+LANGUAGE plpgsql
+AS $event$
+DECLARE
+  command record;
+BEGIN
+  FOR command IN SELECT * FROM pg_catalog.pg_event_trigger_ddl_commands() LOOP
+    IF command.object_type = 'function'
+      AND command.object_identity = 'public.is_admin()' THEN
+      EXECUTE 'REVOKE anon FROM service_role';
+    END IF;
+  END LOOP;
+END;
+$event$;
+CREATE EVENT TRIGGER migration_038_test_revoke_service_membership
+ON ddl_command_end
+WHEN TAG IN ('CREATE FUNCTION')
+EXECUTE FUNCTION public.__migration_038_test_revoke_service_membership();
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS boolean
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $sprint6$
+  select exists (
+    select 1
+    from public.profiles
+    where user_id = auth.uid()
+      and role = 'admin'
+      and coalesce(is_suspended, false) = false
+  );
+$sprint6$;
+SQL
+service_postflight_before="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "
+SELECT jsonb_build_object('source', p.prosrc, 'owner_oid', p.proowner, 'acl', p.proacl::text, 'config', p.proconfig)::text
+FROM pg_catalog.pg_proc p WHERE p.oid = 'public.is_admin()'::regprocedure;
+")"
+if psql --no-psqlrc --set ON_ERROR_STOP=1 --file supabase/bootstrap/migration_038_admin_compatibility.sql >"$compat_log" 2>&1; then
+  echo "Compatibility bridge unexpectedly accepted loss of service_role EXECUTE during replacement." >&2
+  exit 1
+fi
+if ! grep -Fq "postflight detected missing service_role EXECUTE privilege" "$compat_log"; then
+  cat "$compat_log"
+  echo "Compatibility bridge failed for an unexpected reason in service_role postflight test." >&2
+  exit 1
+fi
+psql --no-psqlrc --set ON_ERROR_STOP=1 <<'SQL'
+DROP EVENT TRIGGER migration_038_test_revoke_service_membership;
+DROP FUNCTION public.__migration_038_test_revoke_service_membership();
+SQL
+service_postflight_after="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "
+SELECT jsonb_build_object('source', p.prosrc, 'owner_oid', p.proowner, 'acl', p.proacl::text, 'config', p.proconfig)::text
+FROM pg_catalog.pg_proc p WHERE p.oid = 'public.is_admin()'::regprocedure;
+")"
+test "$service_postflight_before" = "$service_postflight_after"
+if [ "$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT has_function_privilege('service_role', 'public.is_admin()', 'EXECUTE')")" != "t" ]; then
+  echo "Postflight rollback did not restore effective service_role EXECUTE." >&2
+  exit 1
+fi
+psql --no-psqlrc --set ON_ERROR_STOP=1 <<'SQL'
+REVOKE anon FROM service_role;
+SQL
+
+# Inject a SET-only membership grant after replacement; postflight must reject it
+# and the transaction must roll back the membership and function replacement together.
+psql --no-psqlrc --set ON_ERROR_STOP=1 <<'SQL'
+CREATE FUNCTION public.__migration_038_test_grant_owner_set()
+RETURNS event_trigger
+LANGUAGE plpgsql
+AS $event$
+DECLARE
+  command record;
+BEGIN
+  FOR command IN SELECT * FROM pg_catalog.pg_event_trigger_ddl_commands() LOOP
+    IF command.object_type = 'function'
+      AND command.object_identity = 'public.is_admin()' THEN
+      EXECUTE 'GRANT migration_038_fixture_owner TO migration_038_owner_set_only WITH INHERIT FALSE, SET TRUE';
+    END IF;
+  END LOOP;
+END;
+$event$;
+CREATE EVENT TRIGGER migration_038_test_grant_owner_set
+ON ddl_command_end
+WHEN TAG IN ('CREATE FUNCTION')
+EXECUTE FUNCTION public.__migration_038_test_grant_owner_set();
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS boolean
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $sprint6$
+  select exists (
+    select 1
+    from public.profiles
+    where user_id = auth.uid()
+      and role = 'admin'
+      and coalesce(is_suspended, false) = false
+  );
+$sprint6$;
+SQL
+owner_postflight_before="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "
+SELECT jsonb_build_object('source', p.prosrc, 'owner_oid', p.proowner, 'acl', p.proacl::text, 'config', p.proconfig)::text
+FROM pg_catalog.pg_proc p WHERE p.oid = 'public.is_admin()'::regprocedure;
+")"
+if psql --no-psqlrc --set ON_ERROR_STOP=1 --file supabase/bootstrap/migration_038_admin_compatibility.sql >"$compat_log" 2>&1; then
+  echo "Compatibility bridge unexpectedly accepted post-replacement SET-only membership to its owner." >&2
+  exit 1
+fi
+if ! grep -Fq "postflight detected unauthorized SET ROLE membership to the is_admin() owner" "$compat_log"; then
+  cat "$compat_log"
+  echo "Compatibility bridge failed for an unexpected reason in owner SET-only postflight test." >&2
+  exit 1
+fi
+psql --no-psqlrc --set ON_ERROR_STOP=1 <<'SQL'
+DROP EVENT TRIGGER migration_038_test_grant_owner_set;
+DROP FUNCTION public.__migration_038_test_grant_owner_set();
+SQL
+owner_postflight_after="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "
+SELECT jsonb_build_object('source', p.prosrc, 'owner_oid', p.proowner, 'acl', p.proacl::text, 'config', p.proconfig)::text
+FROM pg_catalog.pg_proc p WHERE p.oid = 'public.is_admin()'::regprocedure;
+")"
+test "$owner_postflight_before" = "$owner_postflight_after"
+if [ "$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT pg_catalog.pg_has_role('migration_038_owner_set_only', 'migration_038_fixture_owner', 'SET')")" != "f" ]; then
+  echo "Postflight rollback did not remove injected owner SET ROLE membership." >&2
+  exit 1
+fi
+
+# Restore the original disposable-test owner and the historical/public ACL shape.
+psql --no-psqlrc --set ON_ERROR_STOP=1 --set=original_owner="$original_is_admin_owner" <<'SQL'
+ALTER FUNCTION public.is_admin() OWNER TO :"original_owner";
+SET ROLE :"original_owner";
+REVOKE EXECUTE ON FUNCTION public.is_admin() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.is_admin() TO PUBLIC, anon, authenticated;
+RESET ROLE;
+REVOKE CREATE ON SCHEMA public FROM migration_038_fixture_owner;
+DROP ROLE migration_038_owner_set_only;
+DROP ROLE migration_038_fixture_owner;
+SQL
+
 # Unexpected direct ACL grants must be rejected without revoking or normalizing them.
 psql --no-psqlrc --set ON_ERROR_STOP=1 <<'SQL'
 CREATE ROLE migration_038_unexpected_direct NOLOGIN;
