@@ -299,6 +299,9 @@ SET ROLE migration_038_fixture_owner;
 GRANT EXECUTE ON FUNCTION public.is_admin() TO service_role;
 RESET ROLE;
 GRANT anon TO service_role WITH INHERIT TRUE, SET TRUE;
+SET ROLE migration_038_fixture_owner;
+REVOKE EXECUTE ON FUNCTION public.is_admin() FROM service_role;
+RESET ROLE;
 SQL
 if [ "$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT has_function_privilege('service_role', 'public.is_admin()', 'EXECUTE')")" != "t" ]; then
   echo "service_role test fixture did not establish effective EXECUTE." >&2
@@ -370,6 +373,9 @@ if [ "$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --comman
 fi
 psql --no-psqlrc --set ON_ERROR_STOP=1 <<'SQL'
 REVOKE anon FROM service_role;
+SET ROLE migration_038_fixture_owner;
+GRANT EXECUTE ON FUNCTION public.is_admin() TO service_role;
+RESET ROLE;
 SQL
 
 # Inject a SET-only membership grant after replacement; postflight must reject it
