@@ -116,10 +116,1251 @@ BEGIN
     LEFT JOIN LATERAL (
       SELECT pg_catalog.regexp_match(
         parsed.setting_value,
-        '^([1-9][0-9]*)(us|ms|s|min|h|d)?$',
+        '^([1-9][0-9]{0,8})(us|ms|s|min|h|d)?
+    WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+      AND n.nspname NOT LIKE 'pg_toast%'
+      AND (
+        position('=' IN cfg.setting) = 0
+        OR NOT (
+          (
+            parsed.setting_name = 'search_path'
+            AND parsed.setting_value ~ '^(pg_catalog|public|extensions|auth|storage)(, ?(pg_catalog|public|extensions|auth|storage))*(, ?pg_temp)?$'
+            AND cardinality(string_to_array(replace(parsed.setting_value, ' ', ''), ','))
+              = cardinality(ARRAY(
+                SELECT DISTINCT schema_name
+                FROM unnest(string_to_array(replace(parsed.setting_value, ' ', ''), ',')) AS path_schemas(schema_name)
+              ))
+            AND NOT EXISTS (
+              SELECT 1
+              FROM unnest(string_to_array(replace(parsed.setting_value, ' ', ''), ',')) WITH ORDINALITY path(schema_name, ordinal)
+              WHERE (path.schema_name = 'pg_catalog' AND path.ordinal <> 1)
+                OR (path.schema_name = 'pg_temp' AND path.ordinal <>
+                  cardinality(string_to_array(replace(parsed.setting_value, ' ', ''), ',')))
+            )
+            AND NOT EXISTS (
+              SELECT 1
+              FROM unnest(string_to_array(replace(parsed.setting_value, ' ', ''), ',')) WITH ORDINALITY earlier(schema_name, ordinal)
+              JOIN unnest(string_to_array(replace(parsed.setting_value, ' ', ''), ',')) WITH ORDINALITY later(schema_name, ordinal)
+                ON earlier.ordinal < later.ordinal
+              WHERE array_position(
+                ARRAY['pg_catalog','public','extensions','auth','storage','pg_temp']::text[],
+                earlier.schema_name
+              ) >= array_position(
+                ARRAY['pg_catalog','public','extensions','auth','storage','pg_temp']::text[],
+                later.schema_name
+              )
+            )
+            AND NOT EXISTS (
+              SELECT 1
+              FROM unnest(string_to_array(replace(parsed.setting_value, ' ', ''), ',')) path(schema_name)
+              WHERE path.schema_name <> 'pg_temp'
+                AND NOT EXISTS (
+                  SELECT 1 FROM pg_catalog.pg_namespace path_ns
+                  WHERE path_ns.nspname = path.schema_name
+                )
+            )
+            AND NOT EXISTS (
+              SELECT 1
+              FROM unnest(string_to_array(replace(parsed.setting_value, ' ', ''), ',')) path(schema_name)
+              JOIN pg_catalog.pg_namespace path_ns ON path_ns.nspname = path.schema_name
+              JOIN pg_catalog.pg_roles path_owner ON path_owner.oid = path_ns.nspowner
+              WHERE path.schema_name <> 'pg_catalog'
+                AND (
+                  path_owner.rolcanlogin AND NOT path_owner.rolsuper
+                  OR EXISTS (
+                    SELECT 1
+                    FROM pg_catalog.pg_roles owner_member
+                    WHERE owner_member.rolcanlogin AND NOT owner_member.rolsuper
+                      AND pg_catalog.pg_has_role(owner_member.oid, path_owner.oid, 'MEMBER')
+                  )
+                  OR EXISTS (
+                    SELECT 1
+                    FROM pg_catalog.aclexplode(
+                      COALESCE(path_ns.nspacl, pg_catalog.acldefault('n', path_ns.nspowner))
+                    ) acl
+                    WHERE acl.grantee = 0 AND acl.privilege_type = 'CREATE'
+                  )
+                  OR EXISTS (
+                    SELECT 1
+                    FROM pg_catalog.pg_roles creator
+                    WHERE NOT creator.rolsuper
+                      AND creator.oid <> path_ns.nspowner
+                      AND pg_catalog.has_schema_privilege(creator.oid, path_ns.oid, 'CREATE')
+                      AND NOT pg_catalog.pg_has_role(creator.oid, path_ns.nspowner, 'MEMBER')
+                  )
+                )
+            )
+          )
+          OR (parsed.setting_name = 'row_security' AND parsed.setting_value = 'on')
+          OR (parsed.setting_name = 'default_transaction_read_only' AND parsed.setting_value = 'on')
+          OR (
+            parsed.setting_name IN (
+              'statement_timeout', 'lock_timeout', 'idle_in_transaction_session_timeout'
+            )
+            AND timeout_value.parts IS NOT NULL
+            AND timeout_value.parts[1]::numeric *
+              CASE lower(COALESCE(timeout_value.parts[2], 'ms'))
+                WHEN 'us' THEN 0.001
+                WHEN 'ms' THEN 1
+                WHEN 's' THEN 1000
+                WHEN 'min' THEN 60000
+                WHEN 'h' THEN 3600000
+                WHEN 'd' THEN 86400000
+              END
+              <= CASE parsed.setting_name
+                WHEN 'statement_timeout' THEN 300000
+                WHEN 'lock_timeout' THEN 30000
+                WHEN 'idle_in_transaction_session_timeout' THEN 60000
+              END
+          )
+          OR (
+            parsed.setting_name = 'temp_file_limit'
+            AND temp_file_value.parts IS NOT NULL
+            AND temp_file_value.parts[1]::numeric *
+              CASE lower(COALESCE(temp_file_value.parts[2], 'b'))
+                WHEN 'b' THEN 1
+                WHEN 'kb' THEN 1024
+                WHEN 'mb' THEN 1048576
+                WHEN 'gb' THEN 1073741824
+              END
+              <= 1073741824
+          )
+        )
+      )
+  ) THEN
+    RAISE EXCEPTION 'Unexpected or unsafe routine configuration; allowlisted settings only.';
+  END IF;
+
+  v_history_oid := to_regclass('supabase_migrations.schema_migrations');
+  IF v_history_oid IS NULL THEN
+    RAISE EXCEPTION 'Required Supabase migration-history table is unavailable.';
+  END IF;
+  IF NOT has_table_privilege(v_session_role_oid, v_history_oid, 'SELECT')
+    OR NOT has_table_privilege(v_effective_role_oid, v_history_oid, 'SELECT')
+    OR (SELECT relowner FROM pg_catalog.pg_class WHERE oid = v_history_oid)
+      IN (v_session_role_oid, v_effective_role_oid) THEN
+    RAISE EXCEPTION 'Collector must have SELECT-only access to migration history without owning it.';
+  END IF;
+  FOREACH v_privilege IN ARRAY ARRAY['INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'] LOOP
+    IF has_table_privilege(v_session_role_oid, v_history_oid, v_privilege)
+      OR has_table_privilege(v_effective_role_oid, v_history_oid, v_privilege) THEN
+      RAISE EXCEPTION 'Collector has prohibited % access to migration history.', v_privilege;
+    END IF;
+  END LOOP;
+  IF EXISTS (
+    SELECT 1 FROM pg_catalog.pg_attribute a
+    WHERE a.attrelid = v_history_oid AND a.attnum > 0 AND NOT a.attisdropped
+      AND (
+        has_column_privilege(v_session_role_oid, v_history_oid, a.attname, 'INSERT')
+        OR has_column_privilege(v_session_role_oid, v_history_oid, a.attname, 'UPDATE')
+        OR has_column_privilege(v_session_role_oid, v_history_oid, a.attname, 'REFERENCES')
+        OR has_column_privilege(v_effective_role_oid, v_history_oid, a.attname, 'INSERT')
+        OR has_column_privilege(v_effective_role_oid, v_history_oid, a.attname, 'UPDATE')
+        OR has_column_privilege(v_effective_role_oid, v_history_oid, a.attname, 'REFERENCES')
+      )
+  ) THEN
+    RAISE EXCEPTION 'Collector has prohibited column-level write access to migration history.';
+  END IF;
+
+  SELECT count(*)::integer INTO v_history_column_count
+  FROM pg_catalog.pg_attribute
+  WHERE attrelid = v_history_oid AND attnum > 0 AND NOT attisdropped;
+  SELECT attnum INTO v_version_attnum
+  FROM pg_catalog.pg_attribute
+  WHERE attrelid = v_history_oid AND attname = 'version'
+    AND attnum > 0 AND NOT attisdropped;
+  IF v_history_column_count <> 3
+    OR v_version_attnum IS NULL
+    OR NOT EXISTS (
+      SELECT 1 FROM pg_catalog.pg_attribute a
+      WHERE a.attrelid = v_history_oid AND a.attname = 'version'
+        AND a.atttypid = 'pg_catalog.text'::regtype AND a.attnotnull
+        AND a.attgenerated = '' AND a.attidentity = ''
+    )
+    OR NOT EXISTS (
+      SELECT 1 FROM pg_catalog.pg_attribute a
+      WHERE a.attrelid = v_history_oid AND a.attname = 'name'
+        AND a.atttypid = 'pg_catalog.text'::regtype AND NOT a.attnotnull
+        AND a.attgenerated = '' AND a.attidentity = ''
+    )
+    OR NOT EXISTS (
+      SELECT 1 FROM pg_catalog.pg_attribute a
+      WHERE a.attrelid = v_history_oid AND a.attname = 'statements'
+        AND a.atttypid = 'pg_catalog.text[]'::regtype AND NOT a.attnotnull
+        AND a.attgenerated = '' AND a.attidentity = ''
+    )
+    OR EXISTS (
+      SELECT 1 FROM pg_catalog.pg_attrdef d
+      WHERE d.adrelid = v_history_oid
+    )
+  THEN
+    RAISE EXCEPTION 'Unsupported migration-history schema; expected exactly version text NOT NULL, name text NULL, statements text[] NULL.';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM pg_catalog.pg_constraint c
+    WHERE c.conrelid = v_history_oid
+      AND NOT (
+        c.contype = 'p' AND c.conkey = ARRAY[v_version_attnum]::smallint[]
+        AND c.convalidated AND NOT c.condeferrable AND NOT c.condeferred
+      )
+  ) OR (
+    SELECT count(*) FROM pg_catalog.pg_constraint c
+    WHERE c.conrelid = v_history_oid
+  ) <> 1 THEN
+    RAISE EXCEPTION 'Unsupported migration-history constraints; require one validated non-deferrable primary key on version only.';
+  END IF;
+
+  SELECT count(*)::integer INTO v_history_index_count
+  FROM pg_catalog.pg_index
+  WHERE indrelid = v_history_oid;
+  IF v_history_index_count <> 1 OR NOT EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_index i
+    JOIN pg_catalog.pg_class index_relation ON index_relation.oid = i.indexrelid
+    JOIN pg_catalog.pg_am am ON am.oid = index_relation.relam
+    JOIN pg_catalog.pg_constraint c ON c.conindid = i.indexrelid
+      AND c.conrelid = i.indrelid AND c.contype = 'p'
+    WHERE i.indrelid = v_history_oid
+      AND index_relation.relkind = 'i'
+      AND i.indisprimary AND i.indisunique AND i.indimmediate
+      AND i.indisvalid AND i.indisready AND i.indislive
+      AND i.indnkeyatts = 1 AND i.indnatts = 1
+      AND i.indkey[0] = v_version_attnum
+      AND i.indpred IS NULL AND i.indexprs IS NULL
+      AND am.amname = 'btree'
+  ) THEN
+    RAISE EXCEPTION 'Unsupported migration-history indexes; require one valid, ready, live btree primary-key index on version.';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_class c
+    WHERE c.oid = v_history_oid AND c.relkind = 'r'
+      AND c.relpersistence = 'p' AND NOT c.relrowsecurity AND NOT c.relforcerowsecurity
+  ) THEN
+    RAISE EXCEPTION 'Migration-history table must be a permanent ordinary table without row-level security.';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations h
+    WHERE h.version !~ '^[0-9]{12}$'
+      OR (h.name IS NOT NULL AND h.name !~ '^[A-Za-z0-9_-]+$')
+  ) THEN
+    RAISE EXCEPTION 'Migration-history contains invalid version or migration-name metadata.';
+  END IF;
+
+  IF has_database_privilege(v_session_role_oid, current_database(), 'CREATE')
+    OR has_database_privilege(v_effective_role_oid, current_database(), 'CREATE') THEN
+    RAISE EXCEPTION 'Collector role has database CREATE privilege.';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM pg_catalog.pg_namespace n
+    WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+      AND n.nspname NOT LIKE 'pg_toast%'
+      AND (n.nspowner IN (v_session_role_oid, v_effective_role_oid)
+        OR has_schema_privilege(v_session_role_oid, n.oid, 'CREATE')
+        OR has_schema_privilege(v_effective_role_oid, n.oid, 'CREATE'))
+  ) THEN
+    RAISE EXCEPTION 'Collector role owns an application schema or has schema CREATE privilege.';
+  END IF;
+
+  -- This also rejects membership in pg_read_all_data, pg_write_all_data,
+  -- pg_monitor, pg_read_all_settings, pg_read_server_files and service_role.
+  FOR v_relation IN
+    SELECT c.oid, c.relkind, c.relowner, n.nspname, c.relname
+    FROM pg_catalog.pg_class c
+    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+      AND n.nspname NOT LIKE 'pg_toast%' AND c.oid <> v_history_oid
+      AND c.relkind IN ('r','p','v','m','f','S')
+  LOOP
+    IF v_relation.relowner IN (v_session_role_oid, v_effective_role_oid) THEN
+      RAISE EXCEPTION 'Collector owns application object %.%.', v_relation.nspname, v_relation.relname;
+    END IF;
+    IF v_relation.relkind = 'S' THEN
+      FOREACH v_privilege IN ARRAY ARRAY['USAGE','SELECT','UPDATE'] LOOP
+        IF has_sequence_privilege(v_session_role_oid, v_relation.oid, v_privilege)
+          OR has_sequence_privilege(v_effective_role_oid, v_relation.oid, v_privilege) THEN
+          RAISE EXCEPTION 'Collector has prohibited % access to application sequence %.%.',
+            v_privilege, v_relation.nspname, v_relation.relname;
+        END IF;
+      END LOOP;
+    ELSE
+      FOREACH v_privilege IN ARRAY ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'] LOOP
+        IF has_table_privilege(v_session_role_oid, v_relation.oid, v_privilege)
+          OR has_table_privilege(v_effective_role_oid, v_relation.oid, v_privilege) THEN
+          RAISE EXCEPTION 'Collector has prohibited % access to application relation %.%.',
+            v_privilege, v_relation.nspname, v_relation.relname;
+        END IF;
+      END LOOP;
+      FOREACH v_privilege IN ARRAY ARRAY['SELECT','INSERT','UPDATE','REFERENCES'] LOOP
+        IF has_any_column_privilege(v_session_role_oid, v_relation.oid, v_privilege)
+          OR has_any_column_privilege(v_effective_role_oid, v_relation.oid, v_privilege) THEN
+          RAISE EXCEPTION 'Collector has prohibited column-level % access to application relation %.%.',
+            v_privilege, v_relation.nspname, v_relation.relname;
+        END IF;
+      END LOOP;
+    END IF;
+  END LOOP;
+END
+$audit_preflight$;
+
+-- 01. Capture identity and time. Endpoint/TLS verification is performed independently by the collector.
+SELECT
+  current_setting('deedlight.expected_project_ref') AS expected_project_ref,
+  current_setting('deedlight.repository_sha') AS repository_sha,
+  current_database() AS database_name,
+  current_user AS current_role,
+  session_user AS session_role,
+  current_setting('server_version') AS server_version,
+  inet_server_addr()::text AS server_address,
+  inet_server_port() AS server_port,
+  to_char(clock_timestamp() AT TIME ZONE 'UTC',
+    'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS captured_at_utc,
+  current_setting('transaction_read_only') AS transaction_read_only;
+
+-- 02. Relation, view and column inventory; no application rows are selected.
+SELECT
+  n.nspname AS schema_name,
+  c.relname AS relation_name,
+  c.relkind AS relation_kind,
+  pg_catalog.pg_get_userbyid(c.relowner) AS owner_name,
+  c.relpersistence AS persistence,
+  c.relrowsecurity AS row_security_enabled,
+  c.relforcerowsecurity AS row_security_forced,
+  a.attnum AS ordinal_position,
+  a.attname AS column_name,
+  pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
+  a.attnotnull AS not_null,
+  pg_catalog.pg_get_expr(ad.adbin, ad.adrelid) AS default_expression,
+  CASE WHEN c.relkind IN ('v', 'm')
+    THEN pg_catalog.pg_get_viewdef(c.oid, true) END AS view_definition
+FROM pg_catalog.pg_class c
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+LEFT JOIN pg_catalog.pg_attribute a
+  ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+LEFT JOIN pg_catalog.pg_attrdef ad
+  ON ad.adrelid = c.oid AND ad.adnum = a.attnum
+WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+  AND n.nspname NOT LIKE 'pg_toast%'
+  AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+ORDER BY n.nspname, c.relname, a.attnum;
+
+-- 03. Function/procedure identity, owner and SECURITY DEFINER status. Function bodies are excluded.
+SELECT
+  n.nspname AS schema_name,
+  p.proname AS routine_name,
+  p.prokind AS routine_kind,
+  pg_catalog.pg_get_function_identity_arguments(p.oid) AS identity_arguments,
+  pg_catalog.pg_get_function_result(p.oid) AS result_type,
+  l.lanname AS language_name,
+  pg_catalog.pg_get_userbyid(p.proowner) AS owner_name,
+  p.prosecdef AS security_definer,
+  p.proleakproof AS leakproof,
+  p.provolatile AS volatility,
+  COALESCE((
+    SELECT jsonb_agg(
+      jsonb_build_object(
+        'name', split_part(cfg.setting, '=', 1),
+        'value', substring(cfg.setting FROM position('=' IN cfg.setting) + 1)
+      )
+      ORDER BY split_part(cfg.setting, '=', 1),
+        substring(cfg.setting FROM position('=' IN cfg.setting) + 1)
+    )
+    FROM unnest(COALESCE(p.proconfig, ARRAY[]::text[])) cfg(setting)
+  ), '[]'::jsonb) AS routine_settings
+FROM pg_catalog.pg_proc p
+JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+JOIN pg_catalog.pg_language l ON l.oid = p.prolang
+WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+  AND n.nspname NOT LIKE 'pg_toast%'
+ORDER BY n.nspname, p.proname, identity_arguments;
+
+-- 04. Relation ACLs, including column ACLs and explicit/default ACL expansion.
+SELECT
+  'relation' AS acl_scope,
+  n.nspname AS schema_name,
+  c.relname AS object_name,
+  NULL::text AS column_name,
+  CASE WHEN x.grantee = 0 THEN 'PUBLIC'
+       ELSE pg_catalog.pg_get_userbyid(x.grantee) END AS grantee,
+  pg_catalog.pg_get_userbyid(x.grantor) AS grantor,
+  x.privilege_type,
+  x.is_grantable
+FROM pg_catalog.pg_class c
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+CROSS JOIN LATERAL pg_catalog.aclexplode(
+  COALESCE(c.relacl, pg_catalog.acldefault('r', c.relowner))
+) x
+WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+  AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+UNION ALL
+SELECT
+  'column' AS acl_scope,
+  n.nspname,
+  c.relname,
+  a.attname,
+  CASE WHEN x.grantee = 0 THEN 'PUBLIC'
+       ELSE pg_catalog.pg_get_userbyid(x.grantee) END,
+  pg_catalog.pg_get_userbyid(x.grantor),
+  x.privilege_type,
+  x.is_grantable
+FROM pg_catalog.pg_attribute a
+JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+CROSS JOIN LATERAL pg_catalog.aclexplode(a.attacl) x
+WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+  AND a.attnum > 0 AND NOT a.attisdropped AND a.attacl IS NOT NULL
+ORDER BY 2, 3, 1, 4, 5, 7;
+
+-- 05. Schema ACLs.
+SELECT
+  n.nspname AS schema_name,
+  pg_catalog.pg_get_userbyid(n.nspowner) AS owner_name,
+  CASE WHEN x.grantee = 0 THEN 'PUBLIC'
+       ELSE pg_catalog.pg_get_userbyid(x.grantee) END AS grantee,
+  pg_catalog.pg_get_userbyid(x.grantor) AS grantor,
+  x.privilege_type,
+  x.is_grantable
+FROM pg_catalog.pg_namespace n
+CROSS JOIN LATERAL pg_catalog.aclexplode(
+  COALESCE(n.nspacl, pg_catalog.acldefault('n', n.nspowner))
+) x
+WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+ORDER BY n.nspname, grantee, x.privilege_type;
+
+-- 06. Routine ACLs, including EXECUTE grants and grant options.
+SELECT
+  n.nspname AS schema_name,
+  p.proname AS routine_name,
+  pg_catalog.pg_get_function_identity_arguments(p.oid) AS identity_arguments,
+  CASE WHEN x.grantee = 0 THEN 'PUBLIC'
+       ELSE pg_catalog.pg_get_userbyid(x.grantee) END AS grantee,
+  pg_catalog.pg_get_userbyid(x.grantor) AS grantor,
+  x.privilege_type,
+  x.is_grantable
+FROM pg_catalog.pg_proc p
+JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+CROSS JOIN LATERAL pg_catalog.aclexplode(
+  COALESCE(p.proacl, pg_catalog.acldefault('f', p.proowner))
+) x
+WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+ORDER BY n.nspname, p.proname, identity_arguments, grantee;
+
+-- 07. Role attributes and inherited/direct membership edges.
+SELECT
+  r.rolname,
+  r.rolcanlogin,
+  r.rolsuper,
+  r.rolcreatedb,
+  r.rolcreaterole,
+  r.rolreplication,
+  r.rolbypassrls,
+  r.rolinherit,
+  r.rolconnlimit,
+  r.rolvaliduntil
+FROM pg_catalog.pg_roles r
+ORDER BY r.rolname;
+
+SELECT
+  parent.rolname AS granted_role,
+  member.rolname AS member_role,
+  grantor.rolname AS grantor_role,
+  m.admin_option,
+  m.inherit_option,
+  m.set_option
+FROM pg_catalog.pg_auth_members m
+JOIN pg_catalog.pg_roles parent ON parent.oid = m.roleid
+JOIN pg_catalog.pg_roles member ON member.oid = m.member
+JOIN pg_catalog.pg_roles grantor ON grantor.oid = m.grantor
+ORDER BY parent.rolname, member.rolname;
+
+-- 08. RLS policy definitions and command/role boundaries.
+SELECT
+  schemaname,
+  tablename,
+  policyname,
+  permissive,
+  roles,
+  cmd,
+  qual,
+  with_check
+FROM pg_catalog.pg_policies
+ORDER BY schemaname, tablename, policyname;
+
+-- 09. Constraints, indexes and non-internal triggers.
+SELECT
+  n.nspname AS schema_name,
+  c.relname AS table_name,
+  con.conname AS constraint_name,
+  con.contype AS constraint_type,
+  con.convalidated AS validated,
+  con.condeferrable AS deferrable,
+  con.condeferred AS initially_deferred,
+  pg_catalog.pg_get_constraintdef(con.oid, true) AS definition
+FROM pg_catalog.pg_constraint con
+JOIN pg_catalog.pg_class c ON c.oid = con.conrelid
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+ORDER BY n.nspname, c.relname, con.conname;
+
+SELECT
+  n.nspname AS schema_name,
+  tbl.relname AS table_name,
+  idx.relname AS index_name,
+  i.indisunique AS is_unique,
+  i.indisprimary AS is_primary,
+  i.indisexclusion AS is_exclusion,
+  i.indisvalid AS is_valid,
+  i.indisready AS is_ready,
+  i.indislive AS is_live,
+  i.indisreplident AS is_replica_identity,
+  i.indnullsnotdistinct AS nulls_not_distinct,
+  pg_catalog.pg_get_indexdef(i.indexrelid) AS index_definition
+FROM pg_catalog.pg_index i
+JOIN pg_catalog.pg_class idx ON idx.oid = i.indexrelid
+JOIN pg_catalog.pg_class tbl ON tbl.oid = i.indrelid
+JOIN pg_catalog.pg_namespace n ON n.oid = tbl.relnamespace
+WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+ORDER BY n.nspname, tbl.relname, idx.relname;
+
+SELECT
+  n.nspname AS schema_name,
+  c.relname AS table_name,
+  t.tgname AS trigger_name,
+  t.tgenabled AS enabled_state,
+  t.tgisinternal AS internal_trigger,
+  pg_catalog.pg_get_triggerdef(t.oid, true) AS definition
+FROM pg_catalog.pg_trigger t
+JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+  AND NOT t.tgisinternal
+ORDER BY n.nspname, c.relname, t.tgname;
+
+-- Sequence definitions, ownership dependencies and ACLs.
+SELECT
+  n.nspname AS schema_name,
+  seqrel.relname AS sequence_name,
+  pg_catalog.pg_get_userbyid(seqrel.relowner) AS owner_name,
+  pg_catalog.format_type(s.seqtypid, NULL) AS sequence_data_type,
+  s.seqstart AS start_value,
+  s.seqincrement AS increment_by,
+  s.seqmin AS minimum_value,
+  s.seqmax AS maximum_value,
+  s.seqcache AS cache_size,
+  s.seqcycle AS cycles,
+  owner_ns.nspname AS owned_table_schema,
+  owner_tbl.relname AS owned_table_name,
+  owner_col.attname AS owned_column_name
+FROM pg_catalog.pg_class seqrel
+JOIN pg_catalog.pg_namespace n ON n.oid = seqrel.relnamespace
+JOIN pg_catalog.pg_sequence s ON s.seqrelid = seqrel.oid
+LEFT JOIN pg_catalog.pg_depend d
+  ON d.classid = 'pg_catalog.pg_class'::regclass
+  AND d.objid = seqrel.oid
+  AND d.refclassid = 'pg_catalog.pg_class'::regclass
+  AND d.deptype IN ('a','i')
+  AND d.refobjsubid > 0
+LEFT JOIN pg_catalog.pg_class owner_tbl ON owner_tbl.oid = d.refobjid
+LEFT JOIN pg_catalog.pg_namespace owner_ns ON owner_ns.oid = owner_tbl.relnamespace
+LEFT JOIN pg_catalog.pg_attribute owner_col
+  ON owner_col.attrelid = owner_tbl.oid AND owner_col.attnum = d.refobjsubid
+WHERE seqrel.relkind = 'S'
+  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+ORDER BY n.nspname, seqrel.relname;
+
+SELECT
+  n.nspname AS schema_name,
+  c.relname AS sequence_name,
+  pg_catalog.pg_get_userbyid(c.relowner) AS owner_name,
+  CASE WHEN x.grantee = 0 THEN 'PUBLIC'
+       ELSE pg_catalog.pg_get_userbyid(x.grantee) END AS grantee,
+  pg_catalog.pg_get_userbyid(x.grantor) AS grantor,
+  x.privilege_type,
+  x.is_grantable
+FROM pg_catalog.pg_class c
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+CROSS JOIN LATERAL pg_catalog.aclexplode(
+  COALESCE(c.relacl, pg_catalog.acldefault('S', c.relowner))
+) x
+WHERE c.relkind = 'S'
+  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+ORDER BY n.nspname, c.relname, grantee, x.privilege_type;
+
+-- 10. Default privileges, preserving owner/schema/object-kind and each ACL edge.
+SELECT
+  pg_catalog.pg_get_userbyid(d.defaclrole) AS owner_role,
+  COALESCE(n.nspname, '<all schemas>') AS schema_name,
+  d.defaclobjtype AS object_kind,
+  CASE WHEN x.grantee = 0 THEN 'PUBLIC'
+       ELSE pg_catalog.pg_get_userbyid(x.grantee) END AS grantee,
+  pg_catalog.pg_get_userbyid(x.grantor) AS grantor,
+  x.privilege_type,
+  x.is_grantable
+FROM pg_catalog.pg_default_acl d
+LEFT JOIN pg_catalog.pg_namespace n ON n.oid = d.defaclnamespace
+CROSS JOIN LATERAL pg_catalog.aclexplode(d.defaclacl) x
+ORDER BY owner_role, schema_name, object_kind, grantee, x.privilege_type;
+
+-- 11. Installed extensions and their schema/owner/version.
+SELECT
+  e.extname,
+  e.extversion,
+  n.nspname AS schema_name,
+  pg_catalog.pg_get_userbyid(e.extowner) AS owner_name
+FROM pg_catalog.pg_extension e
+JOIN pg_catalog.pg_namespace n ON n.oid = e.extnamespace
+ORDER BY e.extname;
+
+-- 12. Supabase migration-history table structure (names/types only).
+SELECT
+  a.attnum AS ordinal_position,
+  a.attname AS column_name,
+  pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
+  a.attnotnull AS not_null
+FROM pg_catalog.pg_attribute a
+WHERE a.attrelid = to_regclass('supabase_migrations.schema_migrations')
+  AND a.attnum > 0
+  AND NOT a.attisdropped
+ORDER BY a.attnum;
+
+-- 13. Migration-history identifiers only. Never export statements or application data.
+SELECT
+  h.version::text AS version,
+  h.name::text AS migration_name,
+  cardinality(h.statements) AS recorded_statement_count
+FROM supabase_migrations.schema_migrations AS h
+ORDER BY h.version, h.name;
+
+-- The collector captures the result digest and commits its own signed receipt outside this database.
+-- Roll back the read-only snapshot explicitly; no database state is changed.
+ROLLBACK;
+,
         'i'
       ) AS parts
     ) timeout_value ON true
+    LEFT JOIN LATERAL (
+      SELECT pg_catalog.regexp_match(
+        parsed.setting_value,
+        '^([1-9][0-9]{0,9})(kb|mb|gb)?
+    WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+      AND n.nspname NOT LIKE 'pg_toast%'
+      AND (
+        position('=' IN cfg.setting) = 0
+        OR NOT (
+          (
+            parsed.setting_name = 'search_path'
+            AND parsed.setting_value ~ '^(pg_catalog|public|extensions|auth|storage)(, ?(pg_catalog|public|extensions|auth|storage))*(, ?pg_temp)?$'
+            AND cardinality(string_to_array(replace(parsed.setting_value, ' ', ''), ','))
+              = cardinality(ARRAY(
+                SELECT DISTINCT schema_name
+                FROM unnest(string_to_array(replace(parsed.setting_value, ' ', ''), ',')) AS path_schemas(schema_name)
+              ))
+            AND NOT EXISTS (
+              SELECT 1
+              FROM unnest(string_to_array(replace(parsed.setting_value, ' ', ''), ',')) WITH ORDINALITY path(schema_name, ordinal)
+              WHERE (path.schema_name = 'pg_catalog' AND path.ordinal <> 1)
+                OR (path.schema_name = 'pg_temp' AND path.ordinal <>
+                  cardinality(string_to_array(replace(parsed.setting_value, ' ', ''), ',')))
+            )
+            AND NOT EXISTS (
+              SELECT 1
+              FROM unnest(string_to_array(replace(parsed.setting_value, ' ', ''), ',')) WITH ORDINALITY earlier(schema_name, ordinal)
+              JOIN unnest(string_to_array(replace(parsed.setting_value, ' ', ''), ',')) WITH ORDINALITY later(schema_name, ordinal)
+                ON earlier.ordinal < later.ordinal
+              WHERE array_position(
+                ARRAY['pg_catalog','public','extensions','auth','storage','pg_temp']::text[],
+                earlier.schema_name
+              ) >= array_position(
+                ARRAY['pg_catalog','public','extensions','auth','storage','pg_temp']::text[],
+                later.schema_name
+              )
+            )
+            AND NOT EXISTS (
+              SELECT 1
+              FROM unnest(string_to_array(replace(parsed.setting_value, ' ', ''), ',')) path(schema_name)
+              WHERE path.schema_name <> 'pg_temp'
+                AND NOT EXISTS (
+                  SELECT 1 FROM pg_catalog.pg_namespace path_ns
+                  WHERE path_ns.nspname = path.schema_name
+                )
+            )
+            AND NOT EXISTS (
+              SELECT 1
+              FROM unnest(string_to_array(replace(parsed.setting_value, ' ', ''), ',')) path(schema_name)
+              JOIN pg_catalog.pg_namespace path_ns ON path_ns.nspname = path.schema_name
+              JOIN pg_catalog.pg_roles path_owner ON path_owner.oid = path_ns.nspowner
+              WHERE path.schema_name <> 'pg_catalog'
+                AND (
+                  path_owner.rolcanlogin AND NOT path_owner.rolsuper
+                  OR EXISTS (
+                    SELECT 1
+                    FROM pg_catalog.pg_roles owner_member
+                    WHERE owner_member.rolcanlogin AND NOT owner_member.rolsuper
+                      AND pg_catalog.pg_has_role(owner_member.oid, path_owner.oid, 'MEMBER')
+                  )
+                  OR EXISTS (
+                    SELECT 1
+                    FROM pg_catalog.aclexplode(
+                      COALESCE(path_ns.nspacl, pg_catalog.acldefault('n', path_ns.nspowner))
+                    ) acl
+                    WHERE acl.grantee = 0 AND acl.privilege_type = 'CREATE'
+                  )
+                  OR EXISTS (
+                    SELECT 1
+                    FROM pg_catalog.pg_roles creator
+                    WHERE NOT creator.rolsuper
+                      AND creator.oid <> path_ns.nspowner
+                      AND pg_catalog.has_schema_privilege(creator.oid, path_ns.oid, 'CREATE')
+                      AND NOT pg_catalog.pg_has_role(creator.oid, path_ns.nspowner, 'MEMBER')
+                  )
+                )
+            )
+          )
+          OR (parsed.setting_name = 'row_security' AND parsed.setting_value = 'on')
+          OR (parsed.setting_name = 'default_transaction_read_only' AND parsed.setting_value = 'on')
+          OR (
+            parsed.setting_name IN (
+              'statement_timeout', 'lock_timeout', 'idle_in_transaction_session_timeout'
+            )
+            AND timeout_value.parts IS NOT NULL
+            AND timeout_value.parts[1]::numeric *
+              CASE lower(COALESCE(timeout_value.parts[2], 'ms'))
+                WHEN 'us' THEN 0.001
+                WHEN 'ms' THEN 1
+                WHEN 's' THEN 1000
+                WHEN 'min' THEN 60000
+                WHEN 'h' THEN 3600000
+                WHEN 'd' THEN 86400000
+              END
+              <= CASE parsed.setting_name
+                WHEN 'statement_timeout' THEN 300000
+                WHEN 'lock_timeout' THEN 30000
+                WHEN 'idle_in_transaction_session_timeout' THEN 60000
+              END
+          )
+          OR (
+            parsed.setting_name = 'temp_file_limit'
+            AND CASE
+              WHEN parsed.setting_value ~* '^[1-9][0-9]*(kb|mb|gb)?$'
+                THEN pg_catalog.pg_size_bytes(parsed.setting_value) <= 1073741824
+              ELSE false
+            END
+          )
+        )
+      )
+  ) THEN
+    RAISE EXCEPTION 'Unexpected or unsafe routine configuration; allowlisted settings only.';
+  END IF;
+
+  v_history_oid := to_regclass('supabase_migrations.schema_migrations');
+  IF v_history_oid IS NULL THEN
+    RAISE EXCEPTION 'Required Supabase migration-history table is unavailable.';
+  END IF;
+  IF NOT has_table_privilege(v_session_role_oid, v_history_oid, 'SELECT')
+    OR NOT has_table_privilege(v_effective_role_oid, v_history_oid, 'SELECT')
+    OR (SELECT relowner FROM pg_catalog.pg_class WHERE oid = v_history_oid)
+      IN (v_session_role_oid, v_effective_role_oid) THEN
+    RAISE EXCEPTION 'Collector must have SELECT-only access to migration history without owning it.';
+  END IF;
+  FOREACH v_privilege IN ARRAY ARRAY['INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'] LOOP
+    IF has_table_privilege(v_session_role_oid, v_history_oid, v_privilege)
+      OR has_table_privilege(v_effective_role_oid, v_history_oid, v_privilege) THEN
+      RAISE EXCEPTION 'Collector has prohibited % access to migration history.', v_privilege;
+    END IF;
+  END LOOP;
+  IF EXISTS (
+    SELECT 1 FROM pg_catalog.pg_attribute a
+    WHERE a.attrelid = v_history_oid AND a.attnum > 0 AND NOT a.attisdropped
+      AND (
+        has_column_privilege(v_session_role_oid, v_history_oid, a.attname, 'INSERT')
+        OR has_column_privilege(v_session_role_oid, v_history_oid, a.attname, 'UPDATE')
+        OR has_column_privilege(v_session_role_oid, v_history_oid, a.attname, 'REFERENCES')
+        OR has_column_privilege(v_effective_role_oid, v_history_oid, a.attname, 'INSERT')
+        OR has_column_privilege(v_effective_role_oid, v_history_oid, a.attname, 'UPDATE')
+        OR has_column_privilege(v_effective_role_oid, v_history_oid, a.attname, 'REFERENCES')
+      )
+  ) THEN
+    RAISE EXCEPTION 'Collector has prohibited column-level write access to migration history.';
+  END IF;
+
+  SELECT count(*)::integer INTO v_history_column_count
+  FROM pg_catalog.pg_attribute
+  WHERE attrelid = v_history_oid AND attnum > 0 AND NOT attisdropped;
+  SELECT attnum INTO v_version_attnum
+  FROM pg_catalog.pg_attribute
+  WHERE attrelid = v_history_oid AND attname = 'version'
+    AND attnum > 0 AND NOT attisdropped;
+  IF v_history_column_count <> 3
+    OR v_version_attnum IS NULL
+    OR NOT EXISTS (
+      SELECT 1 FROM pg_catalog.pg_attribute a
+      WHERE a.attrelid = v_history_oid AND a.attname = 'version'
+        AND a.atttypid = 'pg_catalog.text'::regtype AND a.attnotnull
+        AND a.attgenerated = '' AND a.attidentity = ''
+    )
+    OR NOT EXISTS (
+      SELECT 1 FROM pg_catalog.pg_attribute a
+      WHERE a.attrelid = v_history_oid AND a.attname = 'name'
+        AND a.atttypid = 'pg_catalog.text'::regtype AND NOT a.attnotnull
+        AND a.attgenerated = '' AND a.attidentity = ''
+    )
+    OR NOT EXISTS (
+      SELECT 1 FROM pg_catalog.pg_attribute a
+      WHERE a.attrelid = v_history_oid AND a.attname = 'statements'
+        AND a.atttypid = 'pg_catalog.text[]'::regtype AND NOT a.attnotnull
+        AND a.attgenerated = '' AND a.attidentity = ''
+    )
+    OR EXISTS (
+      SELECT 1 FROM pg_catalog.pg_attrdef d
+      WHERE d.adrelid = v_history_oid
+    )
+  THEN
+    RAISE EXCEPTION 'Unsupported migration-history schema; expected exactly version text NOT NULL, name text NULL, statements text[] NULL.';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM pg_catalog.pg_constraint c
+    WHERE c.conrelid = v_history_oid
+      AND NOT (
+        c.contype = 'p' AND c.conkey = ARRAY[v_version_attnum]::smallint[]
+        AND c.convalidated AND NOT c.condeferrable AND NOT c.condeferred
+      )
+  ) OR (
+    SELECT count(*) FROM pg_catalog.pg_constraint c
+    WHERE c.conrelid = v_history_oid
+  ) <> 1 THEN
+    RAISE EXCEPTION 'Unsupported migration-history constraints; require one validated non-deferrable primary key on version only.';
+  END IF;
+
+  SELECT count(*)::integer INTO v_history_index_count
+  FROM pg_catalog.pg_index
+  WHERE indrelid = v_history_oid;
+  IF v_history_index_count <> 1 OR NOT EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_index i
+    JOIN pg_catalog.pg_class index_relation ON index_relation.oid = i.indexrelid
+    JOIN pg_catalog.pg_am am ON am.oid = index_relation.relam
+    JOIN pg_catalog.pg_constraint c ON c.conindid = i.indexrelid
+      AND c.conrelid = i.indrelid AND c.contype = 'p'
+    WHERE i.indrelid = v_history_oid
+      AND index_relation.relkind = 'i'
+      AND i.indisprimary AND i.indisunique AND i.indimmediate
+      AND i.indisvalid AND i.indisready AND i.indislive
+      AND i.indnkeyatts = 1 AND i.indnatts = 1
+      AND i.indkey[0] = v_version_attnum
+      AND i.indpred IS NULL AND i.indexprs IS NULL
+      AND am.amname = 'btree'
+  ) THEN
+    RAISE EXCEPTION 'Unsupported migration-history indexes; require one valid, ready, live btree primary-key index on version.';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_class c
+    WHERE c.oid = v_history_oid AND c.relkind = 'r'
+      AND c.relpersistence = 'p' AND NOT c.relrowsecurity AND NOT c.relforcerowsecurity
+  ) THEN
+    RAISE EXCEPTION 'Migration-history table must be a permanent ordinary table without row-level security.';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations h
+    WHERE h.version !~ '^[0-9]{12}$'
+      OR (h.name IS NOT NULL AND h.name !~ '^[A-Za-z0-9_-]+$')
+  ) THEN
+    RAISE EXCEPTION 'Migration-history contains invalid version or migration-name metadata.';
+  END IF;
+
+  IF has_database_privilege(v_session_role_oid, current_database(), 'CREATE')
+    OR has_database_privilege(v_effective_role_oid, current_database(), 'CREATE') THEN
+    RAISE EXCEPTION 'Collector role has database CREATE privilege.';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM pg_catalog.pg_namespace n
+    WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+      AND n.nspname NOT LIKE 'pg_toast%'
+      AND (n.nspowner IN (v_session_role_oid, v_effective_role_oid)
+        OR has_schema_privilege(v_session_role_oid, n.oid, 'CREATE')
+        OR has_schema_privilege(v_effective_role_oid, n.oid, 'CREATE'))
+  ) THEN
+    RAISE EXCEPTION 'Collector role owns an application schema or has schema CREATE privilege.';
+  END IF;
+
+  -- This also rejects membership in pg_read_all_data, pg_write_all_data,
+  -- pg_monitor, pg_read_all_settings, pg_read_server_files and service_role.
+  FOR v_relation IN
+    SELECT c.oid, c.relkind, c.relowner, n.nspname, c.relname
+    FROM pg_catalog.pg_class c
+    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+      AND n.nspname NOT LIKE 'pg_toast%' AND c.oid <> v_history_oid
+      AND c.relkind IN ('r','p','v','m','f','S')
+  LOOP
+    IF v_relation.relowner IN (v_session_role_oid, v_effective_role_oid) THEN
+      RAISE EXCEPTION 'Collector owns application object %.%.', v_relation.nspname, v_relation.relname;
+    END IF;
+    IF v_relation.relkind = 'S' THEN
+      FOREACH v_privilege IN ARRAY ARRAY['USAGE','SELECT','UPDATE'] LOOP
+        IF has_sequence_privilege(v_session_role_oid, v_relation.oid, v_privilege)
+          OR has_sequence_privilege(v_effective_role_oid, v_relation.oid, v_privilege) THEN
+          RAISE EXCEPTION 'Collector has prohibited % access to application sequence %.%.',
+            v_privilege, v_relation.nspname, v_relation.relname;
+        END IF;
+      END LOOP;
+    ELSE
+      FOREACH v_privilege IN ARRAY ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'] LOOP
+        IF has_table_privilege(v_session_role_oid, v_relation.oid, v_privilege)
+          OR has_table_privilege(v_effective_role_oid, v_relation.oid, v_privilege) THEN
+          RAISE EXCEPTION 'Collector has prohibited % access to application relation %.%.',
+            v_privilege, v_relation.nspname, v_relation.relname;
+        END IF;
+      END LOOP;
+      FOREACH v_privilege IN ARRAY ARRAY['SELECT','INSERT','UPDATE','REFERENCES'] LOOP
+        IF has_any_column_privilege(v_session_role_oid, v_relation.oid, v_privilege)
+          OR has_any_column_privilege(v_effective_role_oid, v_relation.oid, v_privilege) THEN
+          RAISE EXCEPTION 'Collector has prohibited column-level % access to application relation %.%.',
+            v_privilege, v_relation.nspname, v_relation.relname;
+        END IF;
+      END LOOP;
+    END IF;
+  END LOOP;
+END
+$audit_preflight$;
+
+-- 01. Capture identity and time. Endpoint/TLS verification is performed independently by the collector.
+SELECT
+  current_setting('deedlight.expected_project_ref') AS expected_project_ref,
+  current_setting('deedlight.repository_sha') AS repository_sha,
+  current_database() AS database_name,
+  current_user AS current_role,
+  session_user AS session_role,
+  current_setting('server_version') AS server_version,
+  inet_server_addr()::text AS server_address,
+  inet_server_port() AS server_port,
+  to_char(clock_timestamp() AT TIME ZONE 'UTC',
+    'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS captured_at_utc,
+  current_setting('transaction_read_only') AS transaction_read_only;
+
+-- 02. Relation, view and column inventory; no application rows are selected.
+SELECT
+  n.nspname AS schema_name,
+  c.relname AS relation_name,
+  c.relkind AS relation_kind,
+  pg_catalog.pg_get_userbyid(c.relowner) AS owner_name,
+  c.relpersistence AS persistence,
+  c.relrowsecurity AS row_security_enabled,
+  c.relforcerowsecurity AS row_security_forced,
+  a.attnum AS ordinal_position,
+  a.attname AS column_name,
+  pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
+  a.attnotnull AS not_null,
+  pg_catalog.pg_get_expr(ad.adbin, ad.adrelid) AS default_expression,
+  CASE WHEN c.relkind IN ('v', 'm')
+    THEN pg_catalog.pg_get_viewdef(c.oid, true) END AS view_definition
+FROM pg_catalog.pg_class c
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+LEFT JOIN pg_catalog.pg_attribute a
+  ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+LEFT JOIN pg_catalog.pg_attrdef ad
+  ON ad.adrelid = c.oid AND ad.adnum = a.attnum
+WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+  AND n.nspname NOT LIKE 'pg_toast%'
+  AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+ORDER BY n.nspname, c.relname, a.attnum;
+
+-- 03. Function/procedure identity, owner and SECURITY DEFINER status. Function bodies are excluded.
+SELECT
+  n.nspname AS schema_name,
+  p.proname AS routine_name,
+  p.prokind AS routine_kind,
+  pg_catalog.pg_get_function_identity_arguments(p.oid) AS identity_arguments,
+  pg_catalog.pg_get_function_result(p.oid) AS result_type,
+  l.lanname AS language_name,
+  pg_catalog.pg_get_userbyid(p.proowner) AS owner_name,
+  p.prosecdef AS security_definer,
+  p.proleakproof AS leakproof,
+  p.provolatile AS volatility,
+  COALESCE((
+    SELECT jsonb_agg(
+      jsonb_build_object(
+        'name', split_part(cfg.setting, '=', 1),
+        'value', substring(cfg.setting FROM position('=' IN cfg.setting) + 1)
+      )
+      ORDER BY split_part(cfg.setting, '=', 1),
+        substring(cfg.setting FROM position('=' IN cfg.setting) + 1)
+    )
+    FROM unnest(COALESCE(p.proconfig, ARRAY[]::text[])) cfg(setting)
+  ), '[]'::jsonb) AS routine_settings
+FROM pg_catalog.pg_proc p
+JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+JOIN pg_catalog.pg_language l ON l.oid = p.prolang
+WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+  AND n.nspname NOT LIKE 'pg_toast%'
+ORDER BY n.nspname, p.proname, identity_arguments;
+
+-- 04. Relation ACLs, including column ACLs and explicit/default ACL expansion.
+SELECT
+  'relation' AS acl_scope,
+  n.nspname AS schema_name,
+  c.relname AS object_name,
+  NULL::text AS column_name,
+  CASE WHEN x.grantee = 0 THEN 'PUBLIC'
+       ELSE pg_catalog.pg_get_userbyid(x.grantee) END AS grantee,
+  pg_catalog.pg_get_userbyid(x.grantor) AS grantor,
+  x.privilege_type,
+  x.is_grantable
+FROM pg_catalog.pg_class c
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+CROSS JOIN LATERAL pg_catalog.aclexplode(
+  COALESCE(c.relacl, pg_catalog.acldefault('r', c.relowner))
+) x
+WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+  AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+UNION ALL
+SELECT
+  'column' AS acl_scope,
+  n.nspname,
+  c.relname,
+  a.attname,
+  CASE WHEN x.grantee = 0 THEN 'PUBLIC'
+       ELSE pg_catalog.pg_get_userbyid(x.grantee) END,
+  pg_catalog.pg_get_userbyid(x.grantor),
+  x.privilege_type,
+  x.is_grantable
+FROM pg_catalog.pg_attribute a
+JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+CROSS JOIN LATERAL pg_catalog.aclexplode(a.attacl) x
+WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+  AND a.attnum > 0 AND NOT a.attisdropped AND a.attacl IS NOT NULL
+ORDER BY 2, 3, 1, 4, 5, 7;
+
+-- 05. Schema ACLs.
+SELECT
+  n.nspname AS schema_name,
+  pg_catalog.pg_get_userbyid(n.nspowner) AS owner_name,
+  CASE WHEN x.grantee = 0 THEN 'PUBLIC'
+       ELSE pg_catalog.pg_get_userbyid(x.grantee) END AS grantee,
+  pg_catalog.pg_get_userbyid(x.grantor) AS grantor,
+  x.privilege_type,
+  x.is_grantable
+FROM pg_catalog.pg_namespace n
+CROSS JOIN LATERAL pg_catalog.aclexplode(
+  COALESCE(n.nspacl, pg_catalog.acldefault('n', n.nspowner))
+) x
+WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+ORDER BY n.nspname, grantee, x.privilege_type;
+
+-- 06. Routine ACLs, including EXECUTE grants and grant options.
+SELECT
+  n.nspname AS schema_name,
+  p.proname AS routine_name,
+  pg_catalog.pg_get_function_identity_arguments(p.oid) AS identity_arguments,
+  CASE WHEN x.grantee = 0 THEN 'PUBLIC'
+       ELSE pg_catalog.pg_get_userbyid(x.grantee) END AS grantee,
+  pg_catalog.pg_get_userbyid(x.grantor) AS grantor,
+  x.privilege_type,
+  x.is_grantable
+FROM pg_catalog.pg_proc p
+JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+CROSS JOIN LATERAL pg_catalog.aclexplode(
+  COALESCE(p.proacl, pg_catalog.acldefault('f', p.proowner))
+) x
+WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+ORDER BY n.nspname, p.proname, identity_arguments, grantee;
+
+-- 07. Role attributes and inherited/direct membership edges.
+SELECT
+  r.rolname,
+  r.rolcanlogin,
+  r.rolsuper,
+  r.rolcreatedb,
+  r.rolcreaterole,
+  r.rolreplication,
+  r.rolbypassrls,
+  r.rolinherit,
+  r.rolconnlimit,
+  r.rolvaliduntil
+FROM pg_catalog.pg_roles r
+ORDER BY r.rolname;
+
+SELECT
+  parent.rolname AS granted_role,
+  member.rolname AS member_role,
+  grantor.rolname AS grantor_role,
+  m.admin_option,
+  m.inherit_option,
+  m.set_option
+FROM pg_catalog.pg_auth_members m
+JOIN pg_catalog.pg_roles parent ON parent.oid = m.roleid
+JOIN pg_catalog.pg_roles member ON member.oid = m.member
+JOIN pg_catalog.pg_roles grantor ON grantor.oid = m.grantor
+ORDER BY parent.rolname, member.rolname;
+
+-- 08. RLS policy definitions and command/role boundaries.
+SELECT
+  schemaname,
+  tablename,
+  policyname,
+  permissive,
+  roles,
+  cmd,
+  qual,
+  with_check
+FROM pg_catalog.pg_policies
+ORDER BY schemaname, tablename, policyname;
+
+-- 09. Constraints, indexes and non-internal triggers.
+SELECT
+  n.nspname AS schema_name,
+  c.relname AS table_name,
+  con.conname AS constraint_name,
+  con.contype AS constraint_type,
+  con.convalidated AS validated,
+  con.condeferrable AS deferrable,
+  con.condeferred AS initially_deferred,
+  pg_catalog.pg_get_constraintdef(con.oid, true) AS definition
+FROM pg_catalog.pg_constraint con
+JOIN pg_catalog.pg_class c ON c.oid = con.conrelid
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+ORDER BY n.nspname, c.relname, con.conname;
+
+SELECT
+  n.nspname AS schema_name,
+  tbl.relname AS table_name,
+  idx.relname AS index_name,
+  i.indisunique AS is_unique,
+  i.indisprimary AS is_primary,
+  i.indisexclusion AS is_exclusion,
+  i.indisvalid AS is_valid,
+  i.indisready AS is_ready,
+  i.indislive AS is_live,
+  i.indisreplident AS is_replica_identity,
+  i.indnullsnotdistinct AS nulls_not_distinct,
+  pg_catalog.pg_get_indexdef(i.indexrelid) AS index_definition
+FROM pg_catalog.pg_index i
+JOIN pg_catalog.pg_class idx ON idx.oid = i.indexrelid
+JOIN pg_catalog.pg_class tbl ON tbl.oid = i.indrelid
+JOIN pg_catalog.pg_namespace n ON n.oid = tbl.relnamespace
+WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+ORDER BY n.nspname, tbl.relname, idx.relname;
+
+SELECT
+  n.nspname AS schema_name,
+  c.relname AS table_name,
+  t.tgname AS trigger_name,
+  t.tgenabled AS enabled_state,
+  t.tgisinternal AS internal_trigger,
+  pg_catalog.pg_get_triggerdef(t.oid, true) AS definition
+FROM pg_catalog.pg_trigger t
+JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+  AND NOT t.tgisinternal
+ORDER BY n.nspname, c.relname, t.tgname;
+
+-- Sequence definitions, ownership dependencies and ACLs.
+SELECT
+  n.nspname AS schema_name,
+  seqrel.relname AS sequence_name,
+  pg_catalog.pg_get_userbyid(seqrel.relowner) AS owner_name,
+  pg_catalog.format_type(s.seqtypid, NULL) AS sequence_data_type,
+  s.seqstart AS start_value,
+  s.seqincrement AS increment_by,
+  s.seqmin AS minimum_value,
+  s.seqmax AS maximum_value,
+  s.seqcache AS cache_size,
+  s.seqcycle AS cycles,
+  owner_ns.nspname AS owned_table_schema,
+  owner_tbl.relname AS owned_table_name,
+  owner_col.attname AS owned_column_name
+FROM pg_catalog.pg_class seqrel
+JOIN pg_catalog.pg_namespace n ON n.oid = seqrel.relnamespace
+JOIN pg_catalog.pg_sequence s ON s.seqrelid = seqrel.oid
+LEFT JOIN pg_catalog.pg_depend d
+  ON d.classid = 'pg_catalog.pg_class'::regclass
+  AND d.objid = seqrel.oid
+  AND d.refclassid = 'pg_catalog.pg_class'::regclass
+  AND d.deptype IN ('a','i')
+  AND d.refobjsubid > 0
+LEFT JOIN pg_catalog.pg_class owner_tbl ON owner_tbl.oid = d.refobjid
+LEFT JOIN pg_catalog.pg_namespace owner_ns ON owner_ns.oid = owner_tbl.relnamespace
+LEFT JOIN pg_catalog.pg_attribute owner_col
+  ON owner_col.attrelid = owner_tbl.oid AND owner_col.attnum = d.refobjsubid
+WHERE seqrel.relkind = 'S'
+  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+ORDER BY n.nspname, seqrel.relname;
+
+SELECT
+  n.nspname AS schema_name,
+  c.relname AS sequence_name,
+  pg_catalog.pg_get_userbyid(c.relowner) AS owner_name,
+  CASE WHEN x.grantee = 0 THEN 'PUBLIC'
+       ELSE pg_catalog.pg_get_userbyid(x.grantee) END AS grantee,
+  pg_catalog.pg_get_userbyid(x.grantor) AS grantor,
+  x.privilege_type,
+  x.is_grantable
+FROM pg_catalog.pg_class c
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+CROSS JOIN LATERAL pg_catalog.aclexplode(
+  COALESCE(c.relacl, pg_catalog.acldefault('S', c.relowner))
+) x
+WHERE c.relkind = 'S'
+  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+ORDER BY n.nspname, c.relname, grantee, x.privilege_type;
+
+-- 10. Default privileges, preserving owner/schema/object-kind and each ACL edge.
+SELECT
+  pg_catalog.pg_get_userbyid(d.defaclrole) AS owner_role,
+  COALESCE(n.nspname, '<all schemas>') AS schema_name,
+  d.defaclobjtype AS object_kind,
+  CASE WHEN x.grantee = 0 THEN 'PUBLIC'
+       ELSE pg_catalog.pg_get_userbyid(x.grantee) END AS grantee,
+  pg_catalog.pg_get_userbyid(x.grantor) AS grantor,
+  x.privilege_type,
+  x.is_grantable
+FROM pg_catalog.pg_default_acl d
+LEFT JOIN pg_catalog.pg_namespace n ON n.oid = d.defaclnamespace
+CROSS JOIN LATERAL pg_catalog.aclexplode(d.defaclacl) x
+ORDER BY owner_role, schema_name, object_kind, grantee, x.privilege_type;
+
+-- 11. Installed extensions and their schema/owner/version.
+SELECT
+  e.extname,
+  e.extversion,
+  n.nspname AS schema_name,
+  pg_catalog.pg_get_userbyid(e.extowner) AS owner_name
+FROM pg_catalog.pg_extension e
+JOIN pg_catalog.pg_namespace n ON n.oid = e.extnamespace
+ORDER BY e.extname;
+
+-- 12. Supabase migration-history table structure (names/types only).
+SELECT
+  a.attnum AS ordinal_position,
+  a.attname AS column_name,
+  pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
+  a.attnotnull AS not_null
+FROM pg_catalog.pg_attribute a
+WHERE a.attrelid = to_regclass('supabase_migrations.schema_migrations')
+  AND a.attnum > 0
+  AND NOT a.attisdropped
+ORDER BY a.attnum;
+
+-- 13. Migration-history identifiers only. Never export statements or application data.
+SELECT
+  h.version::text AS version,
+  h.name::text AS migration_name,
+  cardinality(h.statements) AS recorded_statement_count
+FROM supabase_migrations.schema_migrations AS h
+ORDER BY h.version, h.name;
+
+-- The collector captures the result digest and commits its own signed receipt outside this database.
+-- Roll back the read-only snapshot explicitly; no database state is changed.
+ROLLBACK;
+,
+        'i'
+      ) AS parts
+    ) temp_file_value ON true
     WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
       AND n.nspname NOT LIKE 'pg_toast%'
       AND (
