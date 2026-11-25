@@ -47,7 +47,7 @@ The CI fixture `scripts/test-production-migration-readonly-audit-postgres16.sh` 
 - invalid project and repository metadata;
 - malformed history schemas (extra columns, wrong PostgreSQL types/nullability, missing primary key, unexpected indexes and invalid migration metadata);
 - custom-GUC disclosure and unsafe `search_path` rejection, plus deterministic allowlisted routine-setting serialization;
-- direct/nested role switching, predefined privileged-role membership, privileged-login `SET ROLE` impersonation, spoofed/missing/malformed principal context, revoked LOGIN/catalog/history authorization, and legitimate SECURITY DEFINER execution;
+- direct/nested role switching, nested inheritance of both `pg_read_all_data` and application-table SELECT, predefined privileged-role membership, privileged-login `SET ROLE` impersonation rejection, and an explicit successful `SET SESSION AUTHORIZATION` limitation demonstration; spoofed/missing/malformed principal context, revoked LOGIN/catalog/history authorization, and legitimate plus privileged-owner SECURITY DEFINER execution;
 - an actual lock-timeout interruption and recovery; and
 - abrupt client termination while a transaction holds a table lock and uncommitted marker row, proving backend termination, rollback, lock release, no stale authentication context and successful subsequent collection.
 
