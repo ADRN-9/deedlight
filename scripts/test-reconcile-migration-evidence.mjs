@@ -995,6 +995,50 @@ test("evidence, mapping and collector approvals require distinct trusted signers
   } finally { f.cleanup(); }
 });
 
+test("evidence approval must be issued strictly after capture", () => {
+  const cases = [
+    { label: "earlier", issuedAt: "2026-11-25T00:29:00.000Z", accepted: false },
+    { label: "equal", issuedAt: "2026-11-25T00:30:00.000Z", accepted: false },
+    { label: "later", issuedAt: "2026-11-25T00:31:00.000Z", accepted: true },
+  ];
+  for (const scenario of cases) {
+    const f = fixture();
+    try {
+      const current = f.approvals.evidenceApproval;
+      f.approvals.evidenceApproval = artifact(current.kind, "evidence-approver", current.claims, {
+        issuedAt: scenario.issuedAt,
+      });
+      const report = f.analyze();
+      assert.equal(report.trustVerified, scenario.accepted, "evidence approval " + scenario.label + " capture");
+      if (!scenario.accepted) {
+        assert.ok(report.trustProblems.some((reason) => reason.includes("issued after the exact evidence capture")));
+      }
+    } finally { f.cleanup(); }
+  }
+});
+
+test("collector approval must be issued strictly after capture", () => {
+  const cases = [
+    { label: "earlier", issuedAt: "2026-11-25T00:29:00.000Z", accepted: false },
+    { label: "equal", issuedAt: "2026-11-25T00:30:00.000Z", accepted: false },
+    { label: "later", issuedAt: "2026-11-25T00:31:00.000Z", accepted: true },
+  ];
+  for (const scenario of cases) {
+    const f = fixture();
+    try {
+      const current = f.approvals.collectorAttestation;
+      f.approvals.collectorAttestation = artifact(current.kind, "collector", current.claims, {
+        issuedAt: scenario.issuedAt,
+      });
+      const report = f.analyze();
+      assert.equal(report.trustVerified, scenario.accepted, "collector approval " + scenario.label + " capture");
+      if (!scenario.accepted) {
+        assert.ok(report.trustProblems.some((reason) => reason.includes("issued after the exact evidence capture")));
+      }
+    } finally { f.cleanup(); }
+  }
+});
+
 test("evidence and collector approvals must be issued after capture", () => {
   const f = fixture();
   try {
