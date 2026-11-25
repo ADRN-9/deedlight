@@ -299,7 +299,6 @@ test("PostgreSQL 16 migration-audit fixture fails closed before destructive setu
   assert.match(runner, /readonly DEEDLIGHT_LIBPQ_HOST/);
   assert.match(runner, /probe_database.*DEEDLIGHT_LIBPQ_DATABASE/);
   assert.match(runner, /DEEDLIGHT_PSQL_PASSWORD=.*DEEDLIGHT_PSQL_USER=/);
-  assert.match(runner, /readonly DEEDLIGHT_LIBPQ_HOST/);
   assert.match(runner, /PGSERVICEFILE/);
   assert.match(runner, /PGOPTIONS/);
   assert.match(runner, /actual_server_addr/);
@@ -317,7 +316,7 @@ test("PostgreSQL 16 migration-audit fixture fails closed before destructive setu
   assert.match(fixture, /server_version_num/);
   assert.match(fixture, /Fixture-owned role or object names already exist/);
   assert.match(fixture, /DEEDLIGHT_EXPECTED_SERVER_ADDR/);
-  assert.match(fixture, /host\\(pg_catalog\\.inet_server_addr\\(\\)\\) IS DISTINCT FROM v_expected_server_addr/);
+  assert.match(fixture, /host\(pg_catalog\.inet_server_addr\(\)\) IS DISTINCT FROM v_expected_server_addr/);
   assert.match(fixture, /inet_server_port\(\) IS DISTINCT FROM 5432/);
   assert.doesNotMatch(fixture, /DROP SCHEMA|DROP OWNED BY|DROP ROLE/);
   assert.match(workflow, /DEEDLIGHT_DISPOSABLE_FIXTURE_AUTHORIZATION: deedlight-postgres16-ci-disposable-v1/);
