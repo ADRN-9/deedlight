@@ -412,7 +412,7 @@ function classifyOne(item, manifest, evidence, source, mappedEffects) {
   const duplicateVersion = manifest.migrations.filter((entry) => entry.version === item.version).length > 1;
   const expectedName = path.basename(item.path).replace(/^\d{12}_/, "").replace(/\.sql$/, "");
   const exactRows = rows.filter((row) => row.name === expectedName && row.sourceBlobSha1 === item.blobSha1
-    && Number.isFinite(Date.parse(row.executedAt)) && typeof row.executedBy === "string" && typeof row.executionId === "string");
+    && Number.isFinite(strictTimestamp(row.executedAt)) && typeof row.executedBy === "string" && typeof row.executionId === "string");
   const wrongName = rows.some((row) => row.name !== expectedName);
   if (matches.length === expected.length) {
     if (duplicateVersion || rows.length !== 1 || exactRows.length !== 1) {
