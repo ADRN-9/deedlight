@@ -39,7 +39,7 @@ export function mappingDigest(mapping) {
 }
 // Require canonical UTC RFC 3339 timestamps with millisecond precision; reject coercion and calendar normalization.
 function strictTimestamp(value) {
-  if (typeof value !== "string" || !/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$/.test(value)) return NaN;
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) return NaN;
   const time = Date.parse(value);
   if (!Number.isFinite(time)) return NaN;
   try {
