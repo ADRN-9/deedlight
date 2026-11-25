@@ -54,26 +54,29 @@ function fixture() {
       fingerprint: hash("backfill:" + index),
       description: "Backfill transformation and postcondition evidence",
     };
-    return {
-      path: item.path,
-      blobSha1: item.blobSha1,
-      effects: {
-        schema: [schemaEffect],
-        privileges: [],
-        ownership: [],
-        routines: [],
-        dataTransformations: [{
-          kind: "dataTransformations",
-          identity: "fixture.transform." + index,
-          fingerprint: hash("transform:" + index),
-          description: "Data transformation with exact source and result invariants",
-        }],
-        backfills: [dataEffect],
-        dependencies: [],
-        preconditions: [],
-        postconditions: [],
-      },
+    const effects = {
+      schema: [schemaEffect],
+      privileges: [],
+      ownership: [],
+      routines: [],
+      dataTransformations: [{
+        kind: "dataTransformations",
+        identity: "fixture.transform." + index,
+        fingerprint: hash("transform:" + index),
+        description: "Data transformation with exact source and result invariants",
+      }],
+      backfills: [dataEffect],
+      dependencies: [],
+      preconditions: [],
+      postconditions: [],
     };
+    const lineCount = readFileSync(path.join(repoRoot, item.path), "utf8").split(/\\r?\\n/).length;
+    const coverage = Object.fromEntries(categories.map((category) => [category, {
+      disposition: effects[category].length ? "effects" : "none",
+      rationale: "Reviewed the complete migration source for this effect domain.",
+      sourceRanges: [{ startLine: 1, endLine: lineCount }],
+    }]));
+    return { path: item.path, blobSha1: item.blobSha1, effects, coverage };
   });
   const mapping = { schemaVersion: 1, migrations: migrationEffects };
   const expected = migrationEffects.flatMap((entry) => categories.flatMap((category) => entry.effects[category]));
@@ -160,10 +163,24 @@ function fixture() {
         ownedSchemas: [],
         proofQueryBundleSha256: evidence.provenance.queryBundleSha256,
       };
+      const executionId = "fixture-collector-query-execution";
+      evidence.collectorAuthority = {
+        schemaVersion: 1,
+        projectRef: common.projectRef,
+        collectorIdentity: common.collectorIdentity,
+        capturedAt: common.capturedAt,
+        queryBundleSha256: common.queryBundleSha256,
+        executionId,
+        completed: true,
+        readOnlyTransaction: true,
+        databaseAuthority,
+      };
+      const evidenceDigest = hash(evidencePayload(evidence));
+      const authorityEvidenceDigest = hash(Buffer.from(canonicalJson(evidence.collectorAuthority)));
       f.approvals = {
         evidenceApproval: artifact("production-evidence-approval", "evidence-approver", {
           ...common,
-          evidenceDigest: hash(evidencePayload(evidence)),
+          evidenceDigest,
           mappingDigest: mapHash,
         }),
         mappingApproval: artifact("migration-mapping-approval", "mapping-approver", {
@@ -175,6 +192,9 @@ function fixture() {
         }),
         collectorAttestation: artifact("read-only-collector-attestation", "collector", {
           ...common,
+          evidenceDigest,
+          authorityEvidenceDigest,
+          executionId,
           databaseAuthority,
         }),
       };
@@ -496,7 +516,10 @@ test("acceptance mode returns nonzero for unresolved duplicate-007 ambiguity; re
     assert.match(accepted.stdout, /"acceptance": "NOT_ACCEPTED"/);
     const reportOnly = spawnSync(process.execPath, [script, ...args, "--mode=report"], { cwd: f.rootDir, encoding: "utf8", env });
     assert.equal(reportOnly.status, 0, reportOnly.stderr);
-    assert.match(reportOnly.stdout, /"acceptance": "NOT_ACCEPTED"/);
+    assert.match(reportOnly.stdout, /"executionMode": "REPORT_ONLY"/);
+    assert.match(reportOnly.stdout, /"acceptance": "REPORT_ONLY"/);
+    assert.match(reportOnly.stdout, /"analysisAcceptance": "NOT_ACCEPTED"/);
+    assert.match(reportOnly.stdout, /"reconciliationAccepted": false/);
   } finally { f.cleanup(); }
 });
 
