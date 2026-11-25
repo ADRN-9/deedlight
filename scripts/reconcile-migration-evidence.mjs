@@ -36,9 +36,19 @@ export function evidencePayload(evidence) {
 export function mappingDigest(mapping) {
   return sha256(Buffer.from(canonicalJson(mapping)));
 }
-function parseTime(value, label, reasons) {
+function strictTimestamp(value) {
+  if (typeof value !== "string" || !/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$/.test(value)) return NaN;
   const time = Date.parse(value);
-  if (typeof value !== "string" || !Number.isFinite(time)) reasons.push(label + " is missing or invalid");
+  if (!Number.isFinite(time)) return NaN;
+  try {
+    return new Date(time).toISOString() === value ? time : NaN;
+  } catch {
+    return NaN;
+  }
+}
+function parseTime(value, label, reasons) {
+  const time = strictTimestamp(value);
+  if (!Number.isFinite(time)) reasons.push(label + " must be a canonical UTC timestamp (YYYY-MM-DDTHH:mm:ss.sssZ)");
   return time;
 }
 function readRegularFile(rootDir, relativePath) {
@@ -87,9 +97,9 @@ function verifySignedArtifact(artifact, requiredKind, requiredRole, trustRoots, 
     problems.push(requiredKind + " signer is untrusted, revoked, inactive or lacks the required role");
     return null;
   }
-  const keyStart = Date.parse(key.notBefore);
-  const keyEnd = Date.parse(key.notAfter);
-  if (!Number.isFinite(keyStart) || !Number.isFinite(keyEnd) || now < keyStart || now > keyEnd || key.revokedAt) {
+  const keyStart = parseTime(key.notBefore, requiredKind + " trust-root notBefore", problems);
+  const keyEnd = parseTime(key.notAfter, requiredKind + " trust-root notAfter", problems);
+  if (!Number.isFinite(keyStart) || !Number.isFinite(keyEnd) || keyEnd <= keyStart || now < keyStart || now > keyEnd || key.revokedAt) {
     problems.push(requiredKind + " signing key is outside its validity window or revoked");
     return null;
   }
@@ -97,8 +107,8 @@ function verifySignedArtifact(artifact, requiredKind, requiredRole, trustRoots, 
     problems.push(requiredKind + " approval is missing an ID or has been revoked");
     return null;
   }
-  const issuedAt = Date.parse(artifact.issuedAt);
-  const expiresAt = Date.parse(artifact.expiresAt);
+  const issuedAt = parseTime(artifact.issuedAt, requiredKind + " approval issuedAt", problems);
+  const expiresAt = parseTime(artifact.expiresAt, requiredKind + " approval expiresAt", problems);
   if (!Number.isFinite(issuedAt) || !Number.isFinite(expiresAt) || issuedAt > now || expiresAt <= now || expiresAt <= issuedAt) {
     problems.push(requiredKind + " approval is unsigned-in-time, expired or has an invalid validity interval");
     return null;
@@ -160,9 +170,9 @@ function validateCollectorAuthority(claims, provenance, evidenceDigest, authorit
   }
   const execution = authority.executionEvidence;
   const executionKeys = ["capturedAt", "collectorIdentity", "completed", "completedAt", "executionId", "projectRef", "queryBundleSha256", "readOnlyTransaction", "resultDigest", "startedAt", "statementCount"];
-  const startedAt = Date.parse(execution && execution.startedAt);
-  const completedAt = Date.parse(execution && execution.completedAt);
-  const capturedAt = Date.parse(provenance.capturedAt);
+  const startedAt = parseTime(execution && execution.startedAt, "collector execution startedAt", problems);
+  const completedAt = parseTime(execution && execution.completedAt, "collector execution completedAt", problems);
+  const capturedAt = strictTimestamp(provenance.capturedAt);
   if (!execution || Object.keys(execution).sort().join(",") !== executionKeys.sort().join(",")
     || execution.projectRef !== PROJECT_REF || execution.collectorIdentity !== provenance.collectorIdentity
     || execution.queryBundleSha256 !== provenance.queryBundleSha256 || execution.capturedAt !== provenance.capturedAt
@@ -356,12 +366,12 @@ function validateEvidence(evidence, now, manifest, problems) {
     const versions = new Set(manifest.migrations.map((item) => item.version));
     const executionIds = new Set();
     for (const row of evidence.history.rows) {
-      const executedAt = Date.parse(row && row.executedAt);
-      const capturedAt = Date.parse(evidence.provenance && evidence.provenance.capturedAt);
+      const executedAt = strictTimestamp(row && row.executedAt);
+      const capturedAt = strictTimestamp(evidence.provenance && evidence.provenance.capturedAt);
       if (!row || typeof row.version !== "string" || !/^[0-9]{12}$/.test(row.version) || !versions.has(row.version)) {
         problems.push("migration history contains malformed or unrecognized version");
       } else if (typeof row.name !== "string" || !row.name.trim()
-        || typeof row.executedAt !== "string" || !Number.isFinite(Date.parse(row.executedAt))
+        || !Number.isFinite(executedAt)
         || typeof row.executedBy !== "string" || !row.executedBy.trim()
         || typeof row.executionId !== "string" || !row.executionId.trim()) {
         problems.push("migration history row lacks exact name or valid execution metadata");
@@ -438,8 +448,9 @@ function classifyOne(item, manifest, evidence, source, mappedEffects) {
   }
   return { status: "Verified unapplied", schemaRepresented: false, historyRecorded: false, reasons: ["complete authenticated history and effect exports show no execution or represented effects"], matchedObjects: 0, historyRows: 0, exactExecutionEstablished: false };
 }
-export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approvals, trustRoots, trustedTrustRootsSha256, now = Date.now(), expectedInventoryBlobSha1 = INVENTORY_BLOB_SHA1 }) {
+export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approvals, trustRoots, now = Date.now(), expectedInventoryBlobSha1 = INVENTORY_BLOB_SHA1 }) {
   const problems = [];
+  const trustedTrustRootsSha256 = process.env.DEEDLIGHT_MIGRATION_TRUST_ROOTS_SHA256;
   if (!trustRoots || trustRoots.schemaVersion !== 1 || !Array.isArray(trustRoots.keys)) problems.push("external trust-root bundle is missing or malformed");
   else {
     const rootDigest = sha256(Buffer.from(canonicalJson(trustRoots)));
@@ -501,8 +512,8 @@ export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approval
     problems.push("evidence, mapping and collector attestations must use three distinct trusted signers, keys and approval IDs");
   }
   for (const approval of [bundle.evidenceApproval, bundle.collectorAttestation]) {
-    const issuedAt = Date.parse(approval?.issuedAt);
-    const capturedAt = Date.parse(provenance.capturedAt);
+    const issuedAt = strictTimestamp(approval?.issuedAt);
+    const capturedAt = strictTimestamp(provenance.capturedAt);
     if (Number.isFinite(issuedAt) && Number.isFinite(capturedAt) && issuedAt < capturedAt) {
       problems.push("evidence and collector approvals must be issued after the exact evidence capture");
     }
