@@ -7,8 +7,8 @@ import { gitBlobSha1, validateInventory } from "./verify-migration-inventory-agg
 const PROJECT_REF = "xaipiovflxomcbfwtwmu";
 const INVENTORY_BLOB_SHA1 = "95d514a0bd97ff448c9507252eb1f5e69a507442";
 const MAX_EVIDENCE_AGE_MS = 24 * 60 * 60 * 1000;
-const CATEGORIES = ["schema", "privileges", "ownership", "routines", "data", "dependencies", "preconditions", "postconditions"];
-const CATALOG_KINDS = ["tables", "columns", "constraints", "indexes", "triggers", "policies", "routines", "privileges", "ownership", "data", "dependencies", "preconditions", "postconditions"];
+const CATEGORIES = ["schema", "privileges", "ownership", "routines", "dataTransformations", "backfills", "dependencies", "preconditions", "postconditions"];
+const CATALOG_KINDS = ["tables", "columns", "constraints", "indexes", "triggers", "policies", "routines", "privileges", "ownership", "dataTransformations", "backfills", "dependencies", "preconditions", "postconditions"];
 const SCHEMA_KINDS = new Set(["tables", "columns", "constraints", "indexes", "triggers", "policies"]);
 const READ_ONLY_PRIVILEGES = new Set(["CONNECT", "USAGE", "SELECT"]);
 
@@ -26,7 +26,8 @@ function canonical(value) {
   return value;
 }
 export function canonicalJson(value) {
-  return JSON.stringify(canonical(value));
+  const encoded = JSON.stringify(canonical(value));
+  return encoded === undefined ? "null" : encoded;
 }
 export function evidencePayload(evidence) {
   return Buffer.from(canonicalJson(evidence));
