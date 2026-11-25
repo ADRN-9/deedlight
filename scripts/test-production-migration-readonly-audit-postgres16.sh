@@ -130,7 +130,7 @@ CROSS JOIN LATERAL unnest(string_to_array(replace(configured.search_path, ' ', '
 JOIN pg_catalog.pg_namespace path_ns ON path_ns.nspname = path_schema.schema_name
 JOIN pg_catalog.pg_roles path_owner ON path_owner.oid = path_ns.nspowner
 ORDER BY path_schema.schema_name;
-SQLL
+SQL
 
 reset_history() {
   psql -X -v ON_ERROR_STOP=1 <<'SQL'
