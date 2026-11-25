@@ -265,6 +265,8 @@ test("PostgreSQL 16 client-disconnect harness verifies backend termination and r
     "utf8",
   );
   assert.match(runner, /PGAPPNAME="\$\{termination_app_name\}"/);
+  assert.match(runner, /<<'SQL' &\nBEGIN;\nINSERT INTO public\.audit_fixture_termination_marker VALUES \(1\);\nLOCK TABLE supabase_migrations\.schema_migrations IN ACCESS EXCLUSIVE MODE;\nSELECT pg_sleep\(10\);\nSQL/);
+  assert.doesNotMatch(runner, /pg_sleep\(10\); COMMIT;/);
   assert.match(runner, /wait_event = 'PgSleep'/);
   assert.match(runner, /mode = 'AccessExclusiveLock'[\s\S]*?AND l\.granted/);
   assert.match(runner, /kill -KILL "\$\{client_pid\}"/);
