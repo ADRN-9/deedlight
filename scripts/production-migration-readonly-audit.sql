@@ -130,8 +130,8 @@ BEGIN
             AND parsed.setting_value ~ '^(pg_catalog|public|extensions|auth|storage)(, ?(pg_catalog|public|extensions|auth|storage))*(, ?pg_temp)?$'
             AND cardinality(string_to_array(replace(parsed.setting_value, ' ', ''), ','))
               = cardinality(ARRAY(
-                SELECT DISTINCT path_schema
-                FROM unnest(string_to_array(replace(parsed.setting_value, ' ', ''), ',')) path_schema
+                SELECT DISTINCT schema_name
+                FROM unnest(string_to_array(replace(parsed.setting_value, ' ', ''), ',')) AS path_schemas(schema_name)
               ))
             AND NOT EXISTS (
               SELECT 1
@@ -156,11 +156,26 @@ BEGIN
             AND NOT EXISTS (
               SELECT 1
               FROM unnest(string_to_array(replace(parsed.setting_value, ' ', ''), ',')) path(schema_name)
+              WHERE path.schema_name <> 'pg_temp'
+                AND NOT EXISTS (
+                  SELECT 1 FROM pg_catalog.pg_namespace path_ns
+                  WHERE path_ns.nspname = path.schema_name
+                )
+            )
+            AND NOT EXISTS (
+              SELECT 1
+              FROM unnest(string_to_array(replace(parsed.setting_value, ' ', ''), ',')) path(schema_name)
               JOIN pg_catalog.pg_namespace path_ns ON path_ns.nspname = path.schema_name
               JOIN pg_catalog.pg_roles path_owner ON path_owner.oid = path_ns.nspowner
               WHERE path.schema_name <> 'pg_catalog'
                 AND (
                   path_owner.rolcanlogin AND NOT path_owner.rolsuper
+                  OR EXISTS (
+                    SELECT 1
+                    FROM pg_catalog.pg_roles owner_member
+                    WHERE owner_member.rolcanlogin AND NOT owner_member.rolsuper
+                      AND pg_catalog.pg_has_role(owner_member.oid, path_owner.oid, 'MEMBER')
+                  )
                   OR EXISTS (
                     SELECT 1
                     FROM pg_catalog.aclexplode(
