@@ -294,6 +294,13 @@ AS 'SELECT 1';
 expect_failure excessive_routine_statement_timeout "Unexpected or unsafe routine configuration"
 DROP FUNCTION public.audit_fixture_excessive_statement_timeout();
 
+CREATE FUNCTION public.audit_fixture_unlimited_lock_timeout()
+RETURNS integer LANGUAGE sql
+SET lock_timeout = 0
+AS 'SELECT 1';
+expect_failure unlimited_routine_lock_timeout "Unexpected or unsafe routine configuration"
+DROP FUNCTION public.audit_fixture_unlimited_lock_timeout();
+
 CREATE FUNCTION public.audit_fixture_excessive_lock_timeout()
 RETURNS integer LANGUAGE sql
 SET lock_timeout = '31s'
