@@ -173,6 +173,8 @@ test("routine configuration is canonical, trusted, bounded and deterministically
   assert.match(sql, /<= 1073741824/);
   assert.match(sql, /\^\(\[1-9\]\[0-9\]\{0,9\}\)\(kb\|mb\|gb\)\?\$/);
   assert.match(sql, /regexp_replace\(cfg\.setting, '\^\[\^=\]\*=', ''\)/);
+  assert.match(sql, /pg_catalog\.btrim\(regexp_replace\(cfg\.setting, '\^\[\^=\]\*=', ''\), '\"'\)/);
+  assert.match(sql, /WHEN split_part\(cfg\.setting, '=', 1\) = 'search_path'/);
   assert.match(sql, /jsonb_agg\([\s\S]*?ORDER BY split_part\(cfg\.setting, '=', 1\)/);
   assert.doesNotMatch(sql, /substring\(cfg\.setting FROM position\('/);
   assert.doesNotMatch(sql, /p\.proconfig\s+AS\s+routine_settings/i);
