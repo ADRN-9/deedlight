@@ -71,7 +71,7 @@ CREATE FUNCTION public.audit_fixture_security_definer_identity()
 RETURNS text
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = 'pg_catalog, public'
 AS $fixture$
 DECLARE
   v_session_oid oid;
@@ -117,7 +117,7 @@ CREATE FUNCTION public.audit_fixture_privileged_definer_identity()
 RETURNS text
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = 'pg_catalog, public'
 AS $fixture$
 DECLARE
   v_session_oid oid;
