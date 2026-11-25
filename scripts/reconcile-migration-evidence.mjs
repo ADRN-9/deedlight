@@ -161,7 +161,7 @@ export function analyzeMigrationEvidence({ rootDir, manifest, evidence, trustedE
   return {
     schemaVersion: 1,
     project: "DeedLight",
-    productionEvidenceUsed: evidenceProblems.length === 0,
+    evidenceEnvelopeTrusted: evidenceProblems.length === 0,
     evidenceProblems,
     sourceInventory: { migrationCount: manifest.migrations.length, uniqueVersionCount: new Set(manifest.migrations.map((item) => item.version)).size },
     duplicateVersionPolicy: "A history row for 202607260007 never proves both distinct migration bodies executed.",
