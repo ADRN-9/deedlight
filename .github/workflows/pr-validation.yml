@@ -66,6 +66,10 @@ jobs:
       - name: Migration reconciliation analyzer adversarial security regressions
         run: node --test scripts/test-reconcile-migration-evidence.mjs
 
+      - name: Production migration audit SQL static safety regressions
+        run: node --test scripts/test-production-migration-readonly-audit.mjs
+
+
       - name: Sprint 12.1 security assertions
         run: node scripts/verify-sprint12-1-security.mjs
 
