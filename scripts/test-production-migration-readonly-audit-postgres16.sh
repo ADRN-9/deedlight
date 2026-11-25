@@ -46,6 +46,37 @@ trap cleanup EXIT
 
 psql -X -v ON_ERROR_STOP=1 --file scripts/test-production-migration-readonly-audit-postgres16-fixture.sql
 
+# On failure, retain schema trust diagnostics without exporting any routine setting values.
+psql -X -At -F '|' -v ON_ERROR_STOP=1 >"${tmp_dir}/schema-trust.log" <<'SQL'
+SELECT
+  n.nspname,
+  pg_catalog.pg_get_userbyid(n.nspowner) AS owner_name,
+  COALESCE((
+    SELECT string_agg(r.rolname, ',')
+    FROM pg_catalog.pg_roles r
+    WHERE r.rolcanlogin AND NOT r.rolsuper
+      AND pg_catalog.pg_get_userbyid(n.nspowner) <> 'pg_database_owner'
+      AND pg_catalog.pg_has_role(r.oid, n.nspowner, 'MEMBER')
+  ), '<none>') AS untrusted_owner_members,
+  COALESCE((
+    SELECT string_agg(r.rolname, ',')
+    FROM pg_catalog.pg_roles r
+    WHERE NOT r.rolsuper AND r.oid <> n.nspowner
+      AND pg_catalog.has_schema_privilege(r.oid, n.oid, 'CREATE')
+      AND NOT pg_catalog.pg_has_role(r.oid, n.nspowner, 'MEMBER')
+  ), '<none>') AS untrusted_create_roles,
+  EXISTS (
+    SELECT 1
+    FROM pg_catalog.aclexplode(
+      COALESCE(n.nspacl, pg_catalog.acldefault('n', n.nspowner))
+    ) acl
+    WHERE acl.grantee = 0 AND acl.privilege_type = 'CREATE'
+  ) AS public_create
+FROM pg_catalog.pg_namespace n
+WHERE n.nspname IN ('public', 'extensions', 'auth', 'storage')
+ORDER BY n.nspname;
+SQL
+
 reset_history() {
   psql -X -v ON_ERROR_STOP=1 <<'SQL'
 DROP TABLE IF EXISTS supabase_migrations.schema_migrations;
