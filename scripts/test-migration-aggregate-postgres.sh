@@ -538,7 +538,12 @@ FROM pg_catalog.pg_proc p
 JOIN pg_catalog.pg_roles owner_role ON owner_role.oid = p.proowner
 WHERE p.oid = 'public.is_admin()'::regprocedure;
 ")"
-test "$canonical_before" = "$canonical_after"
+if [ "$canonical_before" != "$canonical_after" ]; then
+  echo "Canonical no-op snapshot changed unexpectedly." >&2
+  echo "Before: $canonical_before" >&2
+  echo "After:  $canonical_after" >&2
+  exit 1
+fi
 
 # Prepare the exact historical definition, then inject a test-only failure from a
 # PostgreSQL ddl_command_end event trigger after CREATE OR REPLACE has run.
