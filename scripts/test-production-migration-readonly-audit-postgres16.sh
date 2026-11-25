@@ -183,20 +183,26 @@ expect_failure direct_role_switch "SET ROLE is prohibited" deedlight_catalog_aud
 REVOKE deedlight_audit_switch_target FROM deedlight_catalog_auditor;
 
 # Nested and predefined-role memberships are rejected for the authenticated principal.
-GRANT pg_read_all_data TO deedlight_audit_nested_leaf;
-GRANT SELECT ON public.audit_fixture_private TO deedlight_audit_nested_leaf;
 GRANT deedlight_audit_nested_leaf TO deedlight_audit_nested_parent;
 GRANT deedlight_audit_nested_parent TO deedlight_catalog_auditor;
+expect_failure nested_role_membership "Authenticated or effective collector role has role membership"
+
+GRANT pg_read_all_data TO deedlight_audit_nested_leaf;
+GRANT SELECT ON public.audit_fixture_private TO deedlight_audit_nested_leaf;
 nested_privilege_state="$(psql -X -At -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.pg_has_role('deedlight_catalog_auditor', 'pg_read_all_data', 'MEMBER') AND pg_catalog.has_table_privilege('deedlight_catalog_auditor', 'public.audit_fixture_private', 'SELECT')")"
 test "${nested_privilege_state}" = "t"
 echo "PASS: nested role chain actually inherits pg_read_all_data and application-table SELECT"
-expect_failure nested_role_membership "Authenticated or effective collector role has role membership"
 expect_failure nested_privileged_role_membership "Authenticated or effective collector role has role membership"
+
+REVOKE pg_read_all_data FROM deedlight_audit_nested_leaf;
+nested_application_privilege_state="$(psql -X -At -v ON_ERROR_STOP=1 -c "SELECT NOT pg_catalog.pg_has_role('deedlight_catalog_auditor', 'pg_read_all_data', 'MEMBER') AND pg_catalog.has_table_privilege('deedlight_catalog_auditor', 'public.audit_fixture_private', 'SELECT')")"
+test "${nested_application_privilege_state}" = "t"
+echo "PASS: nested role chain inherits application-table SELECT without predefined-role membership"
 expect_failure nested_inherited_application_privilege "Authenticated or effective collector role has role membership"
+
 REVOKE deedlight_audit_nested_parent FROM deedlight_catalog_auditor;
 REVOKE deedlight_audit_nested_leaf FROM deedlight_audit_nested_parent;
 REVOKE SELECT ON public.audit_fixture_private FROM deedlight_audit_nested_leaf;
-REVOKE pg_read_all_data FROM deedlight_audit_nested_leaf;
 
 GRANT pg_read_all_data TO deedlight_catalog_auditor;
 expect_failure pg_read_all_data_membership "Authenticated or effective collector role has role membership"
