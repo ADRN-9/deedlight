@@ -126,6 +126,7 @@ begin
     )) acl
     where acl.privilege_type <> 'EXECUTE'
       or acl.is_grantable
+      or acl.grantor <> v_owner_oid
       or acl.grantee not in (0, v_owner_oid, 'anon'::regrole::oid, 'authenticated'::regrole::oid)
   ) then
     raise exception 'Migration 038 compatibility rejected unexpected direct function EXECUTE ACL grantee or grant option.' using errcode = '55000';
@@ -145,6 +146,8 @@ begin
     select 1
     from pg_catalog.pg_roles r
     where r.oid not in (v_owner_oid, 'anon'::regrole::oid, 'authenticated'::regrole::oid)
+      and not r.rolsuper
+      and not r.rolsuper
       and pg_catalog.has_function_privilege(r.oid, v_function_oid, 'EXECUTE')
   ) then
     raise exception 'Migration 038 compatibility rejected unexpected inherited/effective function EXECUTE privilege.' using errcode = '55000';
@@ -172,14 +175,6 @@ end;
 $migration_038_admin_compatibility_preflight$;
 
 -- Canonical Migration 038 re-execution is an explicit verified no-op.
-do $migration_038_admin_compatibility_replace$
-begin
-  if current_setting('deedlight.migration038.canonical_noop')::boolean then
-    return;
-  end if;
-end;
-$migration_038_admin_compatibility_replace$;
-
 -- The function is replaced only for the exact reviewed Sprint 6 fingerprint.
 do $migration_038_admin_compatibility_apply$
 begin
