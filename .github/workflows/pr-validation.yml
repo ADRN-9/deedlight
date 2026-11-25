@@ -63,6 +63,9 @@ jobs:
       - name: Migration inventory and aggregate negative fixtures
         run: node --test scripts/test-migration-inventory-aggregate.mjs
 
+      - name: Migration reconciliation evidence analyzer fixtures
+        run: node --test scripts/test-reconcile-migration-evidence.mjs
+
       - name: Sprint 12.1 security assertions
         run: node scripts/verify-sprint12-1-security.mjs
 
