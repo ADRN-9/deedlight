@@ -55,7 +55,7 @@ Each approval artifact has this envelope:
       "signature": "base64-ed25519-signature"
     }
 
-The Ed25519 signature covers canonical UTF-8 JSON of all fields except signature, with recursively sorted object keys and array order preserved. Signature verification uses Node's Ed25519 crypto implementation. A single Ed25519 public key may not be reused across the evidence approver, mapping approver and collector trust identities; all three approval IDs, signer identities and key IDs must be distinct. Approval files and the evidence payload are untrusted until their signatures and claims are verified.
+The Ed25519 signature covers canonical UTF-8 JSON of all fields except signature, with recursively sorted object keys and array order preserved. The envelope must contain exactly the documented fields and a non-array claims object; missing claims and arbitrary approval-reference fields are rejected. Signature verification uses Node's Ed25519 crypto implementation. A single Ed25519 public key may not be reused across the evidence approver, mapping approver and collector trust identities; all three approval IDs, signer identities and key IDs must be distinct. Approval files and the evidence payload are untrusted until their signatures and claims are verified.
 
 Evidence approval claims must equal, not merely contain: projectRef, evidenceDigest (SHA-256 of canonical complete evidence JSON), mappingDigest (SHA-256 of canonical mapping JSON), queryBundleSha256, collectorIdentity and capturedAt.
 
@@ -85,7 +85,8 @@ Evidence schema version 2 contains:
 - provenance: environment production, exact project ref xaipiovflxomcbfwtwmu, capture timestamp, collector identity and query-bundle SHA-256.
 - history: complete true and all rows with version, exact migration name, source blob SHA-1 when available, execution timestamp, executor and execution ID.
 - catalog: complete true, complete attestation for every required object/effect kind and records with stable kind, identity and SHA-256 fingerprint.
-- mapping: schema version 1 and the exact 39 migration effect entries.
+- collectorAuthority: exact read-only privilege-query execution metadata and the databaseAuthority result bound by the trusted collector signature.
+- mapping: schema version 1 and the exact 39 migration effect entries, including source-linked review dispositions for all nine domains.
 
 Evidence must be no more than 24 hours old. Future timestamps, wrong project refs, incomplete history/catalog exports, malformed history names/versions, unrecognized versions, missing catalog dimensions, untrusted signers, invalid signatures, expired/revoked approvals, mismatched claims or trust-root digest mismatches fail closed to Unknown.
 
@@ -131,7 +132,7 @@ Routine ACL fingerprints must account for PUBLIC, anon, authenticated and servic
 The analyzer separates schema representation, history recording and exact source execution:
 
 - A history version is not enough. The migration name must match the source filename suffix.
-- Exact execution requires one history row, exact version/name, exact source blob SHA-1 and valid execution timestamp, executor and execution ID.
+- Exact execution requires one history row, exact version/name, exact source blob SHA-1 and valid execution timestamp, nonempty executor and execution ID, and a unique execution ID across the complete history export.
 - Matching catalog effects without exact execution metadata are classified as Schema represented but history ambiguous, never Applied and verified.
 - Duplicate version 202607260007 always remains ambiguous, even if one history row matches one of the two filenames. A row cannot prove execution of both distinct source bodies.
 
