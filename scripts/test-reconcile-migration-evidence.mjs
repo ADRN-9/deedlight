@@ -244,6 +244,22 @@ test("verifies signed approvals and collector authority; duplicate 007 remains e
   } finally { f.cleanup(); }
 });
 
+test("signed artifacts with missing claims or unsigned extra approval references fail closed", () => {
+  for (const mutate of [
+    (f) => { f.approvals.evidenceApproval = artifact("production-evidence-approval", "evidence-approver", undefined); },
+    (f) => { f.approvals.evidenceApproval.untrustedApprovalReference = "arbitrary-reference"; },
+  ]) {
+    const f = fixture();
+    try {
+      mutate(f);
+      const report = f.analyze();
+      assert.equal(report.counts.Unknown, 39);
+      assert.equal(report.acceptance, "NOT_ACCEPTED");
+      assert.ok(report.trustProblems.some((reason) => reason.includes("missing claims") || reason.includes("unsupported envelope")));
+    } finally { f.cleanup(); }
+  }
+});
+
 test("unsigned and forged evidence approvals fail closed", () => {
   for (const mutate of [
     (f) => { delete f.approvals.evidenceApproval.signature; },
