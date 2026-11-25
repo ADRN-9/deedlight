@@ -239,6 +239,9 @@ test("collector rejects effective application access and role escalation", () =>
   assert.match(runner, /login_owned_routine_schema/);
   assert.match(runner, /untrusted_routine_schema_creator/);
   assert.match(runner, /public_create_routine_search_path/);
+  assert.match(runner, /SET SESSION AUTHORIZATION deedlight_catalog_auditor/);
+  assert.match(runner, /session-authorization\\.log/);
+  assert.match(runner, /session_authorization_status=0/);
   assert.match(runner, /psql_as deedlight_catalog_auditor -X -qAt/);
   assert.match(runner, /schema-trust\.log/);
   assert.match(runner, /routine-search-path\.log/);
