@@ -243,7 +243,6 @@ function fixture() {
           evidence,
           approvals: f.approvals,
           trustRoots,
-          now: Date.parse("2026-11-25T01:00:00.000Z"),
           ...analysisOverrides,
         });
       } finally {
@@ -829,7 +828,6 @@ test("exported analyzer ignores caller-supplied trust-root digest", () => {
       approvals: f.approvals,
       trustRoots: f.trustRoots,
       trustedTrustRootsSha256: hash(Buffer.from(canonicalJson(f.trustRoots))),
-      now: Date.parse("2026-11-25T01:00:00.000Z"),
     });
     assert.equal(report.counts.Unknown, 39);
     assert.ok(report.trustProblems.some((reason) => reason.includes("independently provisioned trust-root digest")));
