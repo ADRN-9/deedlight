@@ -84,7 +84,7 @@ test("classifies all 39 migration sources and never treats one duplicate-007 his
     assert.ok(duplicate.every((item) => item.status === "Schema represented but history ambiguous"));
     assert.ok(duplicate.every((item) => item.reasons.some((reason) => reason.includes("one history row cannot attest both"))));
     assert.equal(report.counts["Applied and verified"], 37);
-    assert.equal(report.productionEvidenceUsed, true);
+    assert.equal(report.evidenceEnvelopeTrusted, true);
     assert.equal(report.mutationPerformed, false);
   } finally { f.cleanup(); }
 });
@@ -95,7 +95,7 @@ test("missing or incomplete evidence fails closed to Unknown for every migration
     f.evidence.catalog.complete = false;
     f.reseal();
     const report = f.analyze();
-    assert.equal(report.productionEvidenceUsed, false);
+    assert.equal(report.evidenceEnvelopeTrusted, false);
     assert.equal(report.counts.Unknown, 39);
     assert.ok(report.evidenceProblems.some((reason) => reason.includes("catalog export is incomplete")));
   } finally { f.cleanup(); }
