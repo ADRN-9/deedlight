@@ -41,23 +41,23 @@ test("routine configuration is canonical, trusted, bounded and deterministically
     "temp_file_limit",
   ]) assert.ok(sql.includes(setting), `missing reviewed routine setting: ${setting}`);
   assert.match(sql, /Unexpected or unsafe routine configuration/);
-  assert.match(sql, /pg_catalog\\|public\\|extensions\\|auth\\|storage/);
-  assert.match(sql, /array_position\\([\\s\\S]*?pg_temp/);
-  assert.match(sql, /cardinality\\(string_to_array\\([\\s\\S]*?cardinality\\(ARRAY\\(/);
-  assert.match(sql, /pg_catalog\\.acldefault\\('n'/);
-  assert.match(sql, /acl\\.grantee = 0 AND acl\\.privilege_type = 'CREATE'/);
-  assert.match(sql, /path_owner\\.rolcanlogin/);
-  assert.match(sql, /row_security' AND parsed\\.setting_value = 'on'/);
-  assert.match(sql, /default_transaction_read_only' AND parsed\\.setting_value = 'on'/);
-  assert.match(sql, /timeout_value\\.parts IS NOT NULL/);
+  assert.match(sql, /pg_catalog\|public\|extensions\|auth\|storage/);
+  assert.match(sql, /array_position\([\s\S]*?pg_temp/);
+  assert.match(sql, /cardinality\(string_to_array\([\s\S]*?cardinality\(ARRAY\(/);
+  assert.match(sql, /pg_catalog\.acldefault\('n'/);
+  assert.match(sql, /acl\.grantee = 0 AND acl\.privilege_type = 'CREATE'/);
+  assert.match(sql, /path_owner\.rolcanlogin/);
+  assert.match(sql, /row_security' AND parsed\.setting_value = 'on'/);
+  assert.match(sql, /default_transaction_read_only' AND parsed\.setting_value = 'on'/);
+  assert.match(sql, /timeout_value\.parts IS NOT NULL/);
   assert.match(sql, /statement_timeout' THEN 300000/);
   assert.match(sql, /lock_timeout' THEN 30000/);
   assert.match(sql, /idle_in_transaction_session_timeout' THEN 60000/);
-  assert.match(sql, /pg_catalog\\.pg_size_bytes\\(parsed\\.setting_value\\) <= 1073741824/);
-  assert.match(sql, /regexp_replace\\(cfg\\.setting, '\\^\\[\\^=\\]\\*=', ''\\)/);
-  assert.match(sql, /jsonb_agg\\([\\s\\S]*?ORDER BY split_part\\(cfg\\.setting, '=', 1\\)/);
-  assert.doesNotMatch(sql, /substring\\(cfg\\.setting FROM position\\('/);
-  assert.doesNotMatch(sql, /p\\.proconfig\\s+AS\\s+routine_settings/i);
+  assert.match(sql, /pg_catalog\.pg_size_bytes\(parsed\.setting_value\) <= 1073741824/);
+  assert.match(sql, /regexp_replace\(cfg\.setting, '\^\[\^=\]\*=', ''\)/);
+  assert.match(sql, /jsonb_agg\([\s\S]*?ORDER BY split_part\(cfg\.setting, '=', 1\)/);
+  assert.doesNotMatch(sql, /substring\(cfg\.setting FROM position\('/);
+  assert.doesNotMatch(sql, /p\.proconfig\s+AS\s+routine_settings/i);
   assert.doesNotMatch(sql, /rolconfig/);
 });
 
