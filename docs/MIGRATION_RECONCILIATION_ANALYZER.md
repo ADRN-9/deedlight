@@ -10,7 +10,7 @@ The analyzer does not accept a caller-supplied digest as authorization. Acceptan
 2. **Migration mapping approval** (mapping-approver): binds the exact canonical mapping digest, pinned migration-inventory Git blob SHA-1, 39 migration count and 38 unique version count.
 3. **Collector authority attestation** (collector): binds the exact project, query bundle, collector identity and capture timestamp, and attests the effective database role and privilege evidence.
 
-The three roles must resolve to active Ed25519 keys with valid key validity windows. Approval artifacts must have valid signatures, valid issue/expiry windows and non-revoked approval IDs. Key revocation is represented in the external trust-root bundle. Signer identity and role are checked against the root; a string in the evidence is not an identity proof.
+The three roles must resolve to active Ed25519 keys with valid key validity windows and three distinct signer identities and key IDs. Evidence and collector approvals must be issued after the exact capture timestamp. Approval artifacts must have valid signatures, valid issue/expiry windows and non-revoked approval IDs. Key revocation is represented in the external trust-root bundle. Signer identity and role are checked against the root; a string in the evidence is not an identity proof.
 
 ### Independently provisioned trust roots
 
@@ -89,7 +89,7 @@ Evidence must be no more than 24 hours old. Future timestamps, wrong project ref
 
 ## Migration-effect mapping contract
 
-Every one of the 39 migration source entries must bind its exact path and pinned Git blob SHA-1 and explicitly include all nine effect domains. An empty array is an explicit reviewer attestation that the migration has no effect in that domain; omitting a domain is invalid.
+Every one of the 39 migration source entries must bind its exact path and pinned Git blob SHA-1 and explicitly include all nine effect domains. Mapping top-level fields, migration-entry fields, effect-domain fields and individual effect fields are schema-allowlisted; unsupported extra fields or domains are rejected. An empty array is an explicit reviewer attestation that the migration has no effect in that domain; omitting a domain is invalid.
 
 | Domain | Required coverage |
 |---|---|
