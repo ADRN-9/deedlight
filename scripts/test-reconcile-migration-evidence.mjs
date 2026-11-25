@@ -538,3 +538,49 @@ test("CLI rejects trust roots stored inside the repository", () => {
     assert.match(result.stderr, /trust roots must be provisioned outside the repository/);
   } finally { f.cleanup(); }
 });
+
+test("mapping rejects unreviewed effect domains and extra effect fields", () => {
+  for (const mutate of [
+    (mapping) => { mapping.migrations[0].effects.unreviewedDomain = []; },
+    (mapping) => { mapping.migrations[0].effects.schema[0].unreviewedFlag = true; },
+  ]) {
+    const f = fixture();
+    try {
+      mutate(f.mapping);
+      f.reapprove();
+      const report = f.analyze();
+      assert.equal(report.counts.Unknown, 39);
+      assert.ok(report.trustProblems.some((reason) => reason.includes("effect domains") || reason.includes("malformed or empty effects")));
+    } finally { f.cleanup(); }
+  }
+});
+
+test("evidence, mapping and collector approvals require distinct trusted signers", () => {
+  const f = fixture();
+  try {
+    const approval = f.approvals.mappingApproval;
+    const unsigned = { ...approval, signerId: f.approvals.evidenceApproval.signerId };
+    delete unsigned.signature;
+    f.approvals.mappingApproval = {
+      ...unsigned,
+      signature: sign(null, Buffer.from(canonicalJson(unsigned)), keys["mapping-approver"].privateKey).toString("base64"),
+    };
+    f.trustRoots.keys.find((key) => key.role === "mapping-approver").signerId = unsigned.signerId;
+    const report = f.analyze();
+    assert.equal(report.counts.Unknown, 39);
+    assert.ok(report.trustProblems.some((reason) => reason.includes("three distinct trusted signers")));
+  } finally { f.cleanup(); }
+});
+
+test("evidence and collector approvals must be issued after capture", () => {
+  const f = fixture();
+  try {
+    const claims = f.approvals.evidenceApproval.claims;
+    f.approvals.evidenceApproval = artifact("production-evidence-approval", "evidence-approver", claims, {
+      issuedAt: "2026-11-25T00:00:00.000Z",
+    });
+    const report = f.analyze();
+    assert.equal(report.counts.Unknown, 39);
+    assert.ok(report.trustProblems.some((reason) => reason.includes("issued after the exact evidence capture")));
+  } finally { f.cleanup(); }
+});
