@@ -450,7 +450,7 @@ psql --no-psqlrc --set ON_ERROR_STOP=1 --set=original_owner="$original_is_admin_
 ALTER FUNCTION public.is_admin() OWNER TO :"original_owner";
 SET ROLE :"original_owner";
 REVOKE EXECUTE ON FUNCTION public.is_admin() FROM PUBLIC, anon, authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.is_admin() TO PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.is_admin() TO PUBLIC, anon, authenticated, service_role;
 RESET ROLE;
 REVOKE CREATE ON SCHEMA public FROM migration_038_fixture_owner;
 DROP ROLE migration_038_owner_set_only;
