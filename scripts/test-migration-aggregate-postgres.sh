@@ -686,5 +686,6 @@ psql --no-psqlrc --set ON_ERROR_STOP=1 --file supabase/bootstrap/migration_038_a
 
 echo "Disposable PostgreSQL 16: all 39 migrations, seed, compatibility bridge, and Migration 038 executed."
 echo "PASS: suspension invariant, exact fingerprints, owner preservation, ACL/default-ACL preservation, and admin authorization."
-echo "PASS: unexpected direct/inherited grants and unknown definitions are rejected fail-closed."
+echo "PASS: unexpected direct/inherited grants, owner SET ROLE paths, missing service_role privileges, and unknown definitions are rejected fail-closed."
+echo "PASS: owner SET ROLE and service_role changes injected after replacement are rejected and transactionally rolled back."
 echo "PASS: canonical re-execution is a no-op and injected post-replacement failure rolls back body, owner, ACL, and configuration."
