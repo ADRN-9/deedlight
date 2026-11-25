@@ -61,7 +61,7 @@ Evidence approval claims must equal, not merely contain: projectRef, evidenceDig
 
 Mapping approval claims must equal: projectRef, mappingDigest, inventoryBlobSha1, migrationCount: 39 and versionCount: 38.
 
-The evidence envelope also contains collectorAuthority: a completed, read-only query execution record bound to the exact Production project, query bundle, collector identity, capture timestamp and unique execution ID. The collector's Ed25519 attestation binds the full evidence digest, the canonical digest of this authority record, and the execution ID. The signed database-authority facts must exactly equal the evidence-bound query result; changing either side invalidates the binding. The evidence approver independently signs the complete evidence digest, including the collector authority record.
+The evidence envelope also contains collectorAuthority: a completed, read-only query execution record bound to the exact Production project, query bundle, collector identity, capture timestamp and unique execution ID. The collector's Ed25519 attestation binds the full evidence digest, the canonical digest of this authority record, and the execution ID. The authority record contains an exact execution receipt with start/completion timestamps, statement count, read-only transaction assertion, query-bundle digest, project, collector, capture time and a result digest over the complete migration-history export, catalog export and effective database-authority result. The result digest is checked against those exact evidence objects; a self-reported execution ID or isolated privilege result is insufficient. The signed database-authority facts must exactly equal the evidence-bound query result; changing either side invalidates the binding. The evidence approver independently signs the complete evidence digest, including the collector authority record.
 
 Collector attestation claims must equal the evidence project, query bundle, collector identity and capture timestamp, and include databaseAuthority:
 
@@ -69,14 +69,14 @@ Collector attestation claims must equal the evidence project, query bundle, coll
 - isSuperuser, canCreateRole, canCreateDatabase, bypassRls, isReplication and ownsObjects all explicitly false
 - aggregate effective privileges exactly CONNECT, USAGE and SELECT
 - complete database-level privilege export containing CONNECT only
-- complete per-schema privilege export containing USAGE only
-- complete per-object privilege export containing SELECT only
-- complete catalog privilege export containing SELECT only
+- schema privilege rows whose exact, duplicate-free schema identity set equals the schema objects in the complete catalog export, with USAGE only
+- table/sequence/routine privilege rows whose exact, duplicate-free kind-and-identity set equals the complete catalog export; tables and sequences have SELECT only, routines have no EXECUTE privilege
+- catalog read privilege export containing SELECT only
 - no inherited role memberships
 - no owned schemas
 - privilege proof query-bundle digest exactly matching the approved query bundle
 
-A readOnly: true field is not accepted as evidence of authority. Collector attestation must be signed by a trusted collector identity, and its signed database-authority facts must be independently established by the approved collector query bundle.
+A readOnly: true field and self-declared completeness booleans are not accepted as evidence of authority. Exact schema/object privilege identity sets are compared to the catalog inventory, duplicate/omitted/unexpected identities fail closed, and the collector signature binds the full query result digest. Collector attestation must be signed by a trusted collector identity, and its signed database-authority facts must be independently established by the approved collector query bundle. The execution receipt requires startedAt <= completedAt <= capturedAt <= now; every migration history row requires executedAt <= capturedAt <= now.
 
 ## Evidence envelope
 
@@ -84,11 +84,11 @@ Evidence schema version 2 contains:
 
 - provenance: environment production, exact project ref xaipiovflxomcbfwtwmu, capture timestamp, collector identity and query-bundle SHA-256.
 - history: complete true and all rows with version, exact migration name, source blob SHA-1 when available, execution timestamp, executor and execution ID.
-- catalog: complete true, complete attestation for every required object/effect kind and records with stable kind, identity and SHA-256 fingerprint.
+- catalog: stable kind, identity and SHA-256 fingerprint records plus an exact required-kind dimension list, all bound into the signed collector query-result digest. A boolean complete flag is not used as proof.
 - collectorAuthority: exact read-only privilege-query execution metadata and the databaseAuthority result bound by the trusted collector signature.
 - mapping: schema version 1 and the exact 39 migration effect entries, including source-linked review dispositions for all nine domains.
 
-Evidence must be no more than 24 hours old. Future timestamps, wrong project refs, incomplete history/catalog exports, malformed history names/versions, unrecognized versions, missing catalog dimensions, untrusted signers, invalid signatures, expired/revoked approvals, mismatched claims or trust-root digest mismatches fail closed to Unknown.
+Evidence must be no more than 24 hours old. Future timestamps, migration execution after capture, capture after the current time, query completion after capture, wrong project refs, incomplete history/catalog exports, malformed history names/versions, unrecognized versions, missing catalog dimensions, untrusted signers, invalid signatures, expired/revoked approvals, mismatched claims or trust-root digest mismatches fail closed to Unknown.
 
 ## Migration-effect mapping contract
 
