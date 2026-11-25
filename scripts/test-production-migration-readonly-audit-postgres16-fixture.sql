@@ -74,34 +74,34 @@ SECURITY DEFINER
 SET search_path = 'pg_catalog, public'
 AS $fixture$
 DECLARE
-  v_session_oid oid;
-  v_effective_oid oid;
+  v_session_role_oid oid;
+  v_effective_role_oid oid;
 BEGIN
   IF session_user <> 'deedlight_catalog_auditor'
     OR current_setting('deedlight.authenticated_principal', true) IS DISTINCT FROM session_user
     OR current_setting('role', true) IS DISTINCT FROM 'none' THEN
     RAISE EXCEPTION 'Fixture SECURITY DEFINER identity rejected.';
   END IF;
-  SELECT oid INTO v_session_oid FROM pg_catalog.pg_roles WHERE rolname = session_user;
-  SELECT oid INTO v_effective_oid FROM pg_catalog.pg_roles WHERE rolname = current_user;
+  SELECT oid INTO v_session_role_oid FROM pg_catalog.pg_roles WHERE rolname = session_user;
+  SELECT oid INTO v_effective_role_oid FROM pg_catalog.pg_roles WHERE rolname = current_user;
   IF NOT EXISTS (
     SELECT 1 FROM pg_catalog.pg_roles
-    WHERE oid = v_session_oid AND rolcanlogin
+    WHERE oid = v_session_role_oid AND rolcanlogin
       AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb
       AND NOT rolreplication AND NOT rolbypassrls
   ) OR NOT EXISTS (
     SELECT 1 FROM pg_catalog.pg_roles
-    WHERE oid = v_effective_oid
+    WHERE oid = v_effective_role_oid
       AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb
       AND NOT rolreplication AND NOT rolbypassrls
   ) OR EXISTS (
     SELECT 1 FROM pg_catalog.pg_roles r
-    WHERE r.oid <> v_session_oid
-      AND pg_catalog.pg_has_role(v_session_oid, r.oid, 'MEMBER')
+    WHERE r.oid <> v_session_role_oid
+      AND pg_catalog.pg_has_role(v_session_role_oid, r.oid, 'MEMBER')
   ) OR EXISTS (
     SELECT 1 FROM pg_catalog.pg_roles r
-    WHERE r.oid <> v_effective_oid
-      AND pg_catalog.pg_has_role(v_effective_oid, r.oid, 'MEMBER')
+    WHERE r.oid <> v_effective_role_oid
+      AND pg_catalog.pg_has_role(v_effective_role_oid, r.oid, 'MEMBER')
   ) THEN
     RAISE EXCEPTION 'Fixture SECURITY DEFINER role attributes or memberships rejected.';
   END IF;
@@ -120,34 +120,34 @@ SECURITY DEFINER
 SET search_path = 'pg_catalog, public'
 AS $fixture$
 DECLARE
-  v_session_oid oid;
-  v_effective_oid oid;
+  v_session_role_oid oid;
+  v_effective_role_oid oid;
 BEGIN
   IF session_user <> 'deedlight_catalog_auditor'
     OR current_setting('deedlight.authenticated_principal', true) IS DISTINCT FROM session_user
     OR current_setting('role', true) IS DISTINCT FROM 'none' THEN
     RAISE EXCEPTION 'Fixture SECURITY DEFINER identity rejected.';
   END IF;
-  SELECT oid INTO v_session_oid FROM pg_catalog.pg_roles WHERE rolname = session_user;
-  SELECT oid INTO v_effective_oid FROM pg_catalog.pg_roles WHERE rolname = current_user;
+  SELECT oid INTO v_session_role_oid FROM pg_catalog.pg_roles WHERE rolname = session_user;
+  SELECT oid INTO v_effective_role_oid FROM pg_catalog.pg_roles WHERE rolname = current_user;
   IF NOT EXISTS (
     SELECT 1 FROM pg_catalog.pg_roles
-    WHERE oid = v_session_oid AND rolcanlogin
+    WHERE oid = v_session_role_oid AND rolcanlogin
       AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb
       AND NOT rolreplication AND NOT rolbypassrls
   ) OR NOT EXISTS (
     SELECT 1 FROM pg_catalog.pg_roles
-    WHERE oid = v_effective_oid
+    WHERE oid = v_effective_role_oid
       AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb
       AND NOT rolreplication AND NOT rolbypassrls
   ) OR EXISTS (
     SELECT 1 FROM pg_catalog.pg_roles r
-    WHERE r.oid <> v_session_oid
-      AND pg_catalog.pg_has_role(v_session_oid, r.oid, 'MEMBER')
+    WHERE r.oid <> v_session_role_oid
+      AND pg_catalog.pg_has_role(v_session_role_oid, r.oid, 'MEMBER')
   ) OR EXISTS (
     SELECT 1 FROM pg_catalog.pg_roles r
-    WHERE r.oid <> v_effective_oid
-      AND pg_catalog.pg_has_role(v_effective_oid, r.oid, 'MEMBER')
+    WHERE r.oid <> v_effective_role_oid
+      AND pg_catalog.pg_has_role(v_effective_role_oid, r.oid, 'MEMBER')
   ) THEN
     RAISE EXCEPTION 'Fixture SECURITY DEFINER role attributes or memberships rejected.';
   END IF;
