@@ -45,7 +45,7 @@ function fixture() {
     },
     history: { complete: true, rows: versions.map((version) => ({ version })) },
     catalog: { complete: true, completeKinds: [...kinds], objects },
-    mapping: { reviewer: "fixture-reviewer", reviewedSha256: hash("reviewed-effect-mapping") },
+    mapping: { complete: true, reviewer: "fixture-reviewer", reviewedSha256: hash("reviewed-effect-mapping") },
     migrationEffects,
   };
   evidence.provenance.payloadSha256 = hash(evidencePayload(evidence));
