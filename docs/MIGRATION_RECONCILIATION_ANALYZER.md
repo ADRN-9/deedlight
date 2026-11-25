@@ -34,7 +34,7 @@ Required environment variable: DEEDLIGHT_MIGRATION_TRUST_ROOTS_SHA256.
 
 - Exit 0 with acceptance: ACCEPTED only when all trust checks pass and no ambiguous, partial/drifted or unknown classifications remain.
 - Exit 2 when acceptance mode encounters missing/invalid trust, incomplete evidence, unresolved duplicate 007 ambiguity, partial/drifted effects or unknown classifications.
-- --mode=report emits the report with acceptance: NOT_ACCEPTED when unresolved findings remain. Its exit 0 means only that a report was generated; it does not mean reconciliation succeeded.
+- --mode=report always emits executionMode: REPORT_ONLY, acceptance: REPORT_ONLY, the separate underlying analysisAcceptance, and reconciliationAccepted: false. Its exit 0 means only that a report was generated; it never represents successful reconciliation, even if the findings happen to be clear.
 - The report always declares mutationPerformed: false.
 
 The analyzer has no database client, network client, service-role credentials, migration repair path or SQL execution path.
@@ -55,11 +55,13 @@ Each approval artifact has this envelope:
       "signature": "base64-ed25519-signature"
     }
 
-The Ed25519 signature covers canonical UTF-8 JSON of all fields except signature, with recursively sorted object keys and array order preserved. Signature verification uses Node's Ed25519 crypto implementation. Approval files and the evidence payload are untrusted until their signatures and claims are verified.
+The Ed25519 signature covers canonical UTF-8 JSON of all fields except signature, with recursively sorted object keys and array order preserved. Signature verification uses Node's Ed25519 crypto implementation. A single Ed25519 public key may not be reused across the evidence approver, mapping approver and collector trust identities; all three approval IDs, signer identities and key IDs must be distinct. Approval files and the evidence payload are untrusted until their signatures and claims are verified.
 
 Evidence approval claims must equal, not merely contain: projectRef, evidenceDigest (SHA-256 of canonical complete evidence JSON), mappingDigest (SHA-256 of canonical mapping JSON), queryBundleSha256, collectorIdentity and capturedAt.
 
 Mapping approval claims must equal: projectRef, mappingDigest, inventoryBlobSha1, migrationCount: 39 and versionCount: 38.
+
+The evidence envelope also contains collectorAuthority: a completed, read-only query execution record bound to the exact Production project, query bundle, collector identity, capture timestamp and unique execution ID. The collector's Ed25519 attestation binds the full evidence digest, the canonical digest of this authority record, and the execution ID. The signed database-authority facts must exactly equal the evidence-bound query result; changing either side invalidates the binding. The evidence approver independently signs the complete evidence digest, including the collector authority record.
 
 Collector attestation claims must equal the evidence project, query bundle, collector identity and capture timestamp, and include databaseAuthority:
 
@@ -89,7 +91,7 @@ Evidence must be no more than 24 hours old. Future timestamps, wrong project ref
 
 ## Migration-effect mapping contract
 
-Every one of the 39 migration source entries must bind its exact path and pinned Git blob SHA-1 and explicitly include all nine effect domains. Mapping top-level fields, migration-entry fields, effect-domain fields and individual effect fields are schema-allowlisted; unsupported extra fields or domains are rejected. An empty array is an explicit reviewer attestation that the migration has no effect in that domain; omitting a domain is invalid.
+Every one of the 39 migration source entries must bind its exact path and pinned Git blob SHA-1 and explicitly include all nine effect domains. Each entry also contains a coverage record for every domain. Every coverage record must declare disposition: effects when effects are mapped or disposition: none when the domain is empty, include a substantive reviewer rationale, and cite one or more valid source line ranges within that exact migration file. An empty effects array without a source-linked no-effect review is invalid. Mapping top-level fields, migration-entry fields, effect-domain fields, coverage records and individual effect fields are schema-allowlisted; unsupported extra fields or domains are rejected.
 
 | Domain | Required coverage |
 |---|---|
@@ -105,7 +107,7 @@ Every one of the 39 migration source entries must bind its exact path and pinned
 
 Each effect entry contains a supported kind, stable identity, SHA-256 fingerprint and reviewer-readable description. The mapping digest is computed over the complete canonical mapping and must match both the signed mapping approval and the signed evidence approval. A self-reported complete flag or hash is never authorization.
 
-The mapping reviewer must inspect source SQL and document all effects. The analyzer does not infer complete SQL semantics using regex or claim that signatures prove the reviewer's judgment correct. The signed mapping approval is a governance attestation, not an automatic proof of semantic completeness.
+The mapping reviewer must inspect source SQL and document all effects and explicit no-effect domains. The analyzer verifies complete structural coverage, source ranges, canonical digest and the trusted signature. It does not infer complete SQL semantics using regex or claim that signatures alone prove the reviewer's judgment correct. The signed mapping approval is a governance attestation by an independently trusted mapping authority, not an automatic proof of semantic completeness.
 
 ## Catalog fingerprint contract
 
