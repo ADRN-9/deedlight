@@ -334,6 +334,18 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      postgres_redirect:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: deedlight_migration_order_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d deedlight_migration_order_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       PGPASSWORD: postgres
       DEEDLIGHT_DISPOSABLE_FIXTURE_AUTHORIZATION: deedlight-postgres16-ci-disposable-v1
@@ -358,6 +370,19 @@ jobs:
 
       - name: Run migration ordering positive and negative behavior
         run: bash scripts/test-delivery-migration-order.sh
+      - name: Verify PostgreSQL service endpoint identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          primary_service_id="${{ job.services.postgres.id }}"
+          redirect_service_id="${{ job.services.postgres_redirect.id }}"
+          primary_addr="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$primary_service_id")"
+          redirect_addr="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$redirect_service_id")"
+          [[ "$primary_addr" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]
+          [[ "$redirect_addr" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]
+          [[ "$primary_addr" != "$redirect_addr" ]]
+          echo "DEEDLIGHT_EXPECTED_SERVER_ADDR=$primary_addr" >> "$GITHUB_ENV"
+          echo "DEEDLIGHT_REDIRECT_SERVER_ADDR=$redirect_addr" >> "$GITHUB_ENV"
 
       - name: Install pinned Supabase CLI for duplicate migration regression
         uses: supabase/setup-cli@v1

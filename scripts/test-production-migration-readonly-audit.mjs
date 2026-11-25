@@ -286,21 +286,42 @@ test("PostgreSQL 16 migration-audit fixture fails closed before destructive setu
     "utf8",
   );
   for (const negativeCase of [
-    "missing_authorization", "unexpected_database", "unsupported_server_version", "unapproved_endpoint",
+    "missing_authorization", "unexpected_database", "unsupported_server_version", "unapproved_configured_endpoint", "redirected_server_address", "redirected_server_port",
   ]) assert.match(runner, new RegExp("expect_fixture_guard_rejection " + negativeCase));
   assert.match(runner, /server_version_num/);
   assert.match(runner, /PGHOST.*PGPORT.*PGUSER/);
+  assert.match(runner, /command env -i/);
+  assert.match(runner, /--host=/);
+  assert.match(runner, /--port=/);
+  assert.match(runner, /--username=/);
+  assert.match(runner, /PGHOSTADDR/);
+  assert.match(runner, /unset PGHOSTADDR PGSERVICE PGSERVICEFILE PGPASSFILE PGOPTIONS/);
+  assert.match(runner, /PGSERVICEFILE/);
+  assert.match(runner, /PGOPTIONS/);
+  assert.match(runner, /actual_server_addr/);
+  assert.match(runner, /inet_server_addr/);
+  assert.match(runner, /actual PGHOSTADDR redirected connection/);
+  assert.match(workflow, /postgres_redirect:/);
+  assert.match(workflow, /docker inspect --format/);
   assert.ok(runner.indexOf("validate_fixture_target \"$actual_authorization\"") < runner.indexOf("--file scripts/test-production-migration-readonly-audit-postgres16-fixture.sql"));
   assert.match(fixture, /\\getenv fixture_authorization DEEDLIGHT_DISPOSABLE_FIXTURE_AUTHORIZATION/);
-  assert.match(runner, /env -u DEEDLIGHT_DISPOSABLE_FIXTURE_AUTHORIZATION/);
+  assert.match(runner, /DEEDLIGHT_OMIT_FIXTURE_AUTHORIZATION=1 psql/);
   assert.match(runner, /schema_after_rejection/);
   assert.match(fixture, /deedlight-postgres16-ci-disposable-v1/);
   assert.match(fixture, /SELECT 1 \/ 0;/);
   assert.match(fixture, /current_database\(\).*deedlight_migration_order_test/s);
   assert.match(fixture, /server_version_num/);
   assert.match(fixture, /Fixture-owned role or object names already exist/);
+  assert.match(fixture, /DEEDLIGHT_EXPECTED_SERVER_ADDR/);
+  assert.match(fixture, /host\\(pg_catalog\\.inet_server_addr\\(\\)\\) IS DISTINCT FROM v_expected_server_addr/);
+  assert.match(fixture, /inet_server_port\(\) IS DISTINCT FROM 5432/);
   assert.doesNotMatch(fixture, /DROP SCHEMA|DROP OWNED BY|DROP ROLE/);
   assert.match(workflow, /DEEDLIGHT_DISPOSABLE_FIXTURE_AUTHORIZATION: deedlight-postgres16-ci-disposable-v1/);
+  assert.match(workflow, /postgres_redirect:/);
+  assert.match(workflow, /job\.services\.postgres\.id/);
+  assert.match(workflow, /job\.services\.postgres_redirect\.id/);
+  assert.match(workflow, /DEEDLIGHT_EXPECTED_SERVER_ADDR=/);
+  assert.match(workflow, /DEEDLIGHT_REDIRECT_SERVER_ADDR=/);
 });
 
 test("PostgreSQL 16 migration audit resists hostile search_path function shadowing", () => {

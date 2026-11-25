@@ -1,12 +1,48 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "${PGHOST:=127.0.0.1}"
-: "${PGPORT:=5432}"
-: "${PGUSER:=postgres}"
-: "${PGPASSWORD:=postgres}"
-: "${PGDATABASE:=deedlight_migration_order_test}"
-export PGHOST PGPORT PGUSER PGPASSWORD PGDATABASE
+# Ignore inherited libpq routing, service files and connection overrides.
+unset PGHOSTADDR PGSERVICE PGSERVICEFILE PGPASSFILE PGOPTIONS \
+  PGTARGETSESSIONATTRS PGLOADBALANCEHOSTS PGSYSCONFDIR \
+  PGSSLROOTCERT PGSSLCERT PGSSLKEY PGSSLCRL PGSSLCRLDIR PGSSLMODE \
+  PGGSSENCMODE PGCHANNELBINDING PGREQUIREAUTH PGCLIENTENCODING \
+  PGKRBSRVNAME PGREALM PGAPPNAME
+# Every connection is rebuilt from this fixed allowlist and explicit destination.
+PGHOST="127.0.0.1"
+PGPORT="5432"
+PGUSER="postgres"
+PGPASSWORD="postgres"
+PGDATABASE="deedlight_migration_order_test"
+: "${DEEDLIGHT_EXPECTED_SERVER_ADDR:?CI must provide the PostgreSQL service container IP}"
+: "${DEEDLIGHT_REDIRECT_SERVER_ADDR:?CI must provide the adversarial PostgreSQL service IP}"
+if [[ ! "${DEEDLIGHT_EXPECTED_SERVER_ADDR}" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ||
+      ! "${DEEDLIGHT_REDIRECT_SERVER_ADDR}" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
+  echo "FAIL: PostgreSQL service endpoint identity is missing or malformed" >&2
+  exit 1
+fi
+
+psql() {
+  local connect_user="${PGUSER:-postgres}"
+  local connect_password="${PGPASSWORD:-postgres}"
+  local connect_app="${PGAPPNAME:-deedlight_migration_audit_fixture}"
+  local -a clean_env
+  clean_env=(
+    "PATH=${PATH}" "HOME=${HOME:-/tmp}"
+    "PGHOST=${PGHOST}" "PGPORT=${PGPORT}" "PGUSER=${connect_user}"
+    "PGPASSWORD=${connect_password}" "PGDATABASE=${PGDATABASE}"
+    "PGCONNECT_TIMEOUT=5" "PGSSLMODE=disable" "PGAPPNAME=${connect_app}"
+    "DEEDLIGHT_EXPECTED_SERVER_ADDR=${DEEDLIGHT_EXPECTED_SERVER_ADDR}"
+    "DEEDLIGHT_FIXTURE_AUDITOR_PASSWORD=${DEEDLIGHT_FIXTURE_AUDITOR_PASSWORD:-}"
+    "DEEDLIGHT_FIXTURE_SPOOFED_PASSWORD=${DEEDLIGHT_FIXTURE_SPOOFED_PASSWORD:-}"
+    "DEEDLIGHT_FIXTURE_PRIVILEGED_PASSWORD=${DEEDLIGHT_FIXTURE_PRIVILEGED_PASSWORD:-}"
+  )
+  if [[ "${DEEDLIGHT_OMIT_FIXTURE_AUTHORIZATION:-0}" != "1" ]]; then
+    clean_env+=("DEEDLIGHT_DISPOSABLE_FIXTURE_AUTHORIZATION=${DEEDLIGHT_DISPOSABLE_FIXTURE_AUTHORIZATION:-}")
+  fi
+  command env -i "${clean_env[@]}" psql \
+    --host="${PGHOST}" --port="${PGPORT}" --username="${connect_user}" \
+    --dbname="${PGDATABASE}" "$@"
+}
 
 # Ephemeral fixture credentials are generated at runtime and never stored in the repository.
 : "${DEEDLIGHT_FIXTURE_AUDITOR_PASSWORD:=$(openssl rand -hex 32)}"
@@ -45,7 +81,8 @@ cleanup() {
 trap cleanup EXIT
 
 validate_fixture_target() {
-  local authorization="$1" database="$2" server_version_num="$3" host="$4" port="$5" username="$6"
+  local authorization="$1" database="$2" server_version_num="$3" host="$4" port="$5"
+  local username="$6" server_addr="$7" server_port="$8"
   local major
   [[ "$authorization" == "deedlight-postgres16-ci-disposable-v1" ]] || return 1
   [[ "$database" == "deedlight_migration_order_test" ]] || return 1
@@ -53,6 +90,7 @@ validate_fixture_target() {
   major=$((server_version_num / 10000))
   [[ "$major" -eq 16 ]] || return 1
   [[ "$host" == "127.0.0.1" && "$port" == "5432" && "$username" == "postgres" ]] || return 1
+  [[ "$server_addr" == "$DEEDLIGHT_EXPECTED_SERVER_ADDR" && "$server_port" == "5432" ]] || return 1
 }
 
 expect_fixture_guard_rejection() {
@@ -69,23 +107,29 @@ actual_host="${PGHOST}"
 actual_port="${PGPORT}"
 actual_user="${PGUSER}"
 actual_authorization="${DEEDLIGHT_DISPOSABLE_FIXTURE_AUTHORIZATION:-}"
-server_identity="$(psql --host "$PGHOST" --port "$PGPORT" --username "$PGUSER" --dbname "$PGDATABASE" -X -At -F '|' -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.current_database(), pg_catalog.current_setting('server_version_num')")"
-IFS='|' read -r actual_database actual_server_version <<<"$server_identity"
+server_identity="$(psql -X -At -F '|' -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.current_database(), pg_catalog.current_setting('server_version_num'), pg_catalog.host(pg_catalog.inet_server_addr()), pg_catalog.inet_server_port(), session_user")"
+IFS='|' read -r actual_database actual_server_version actual_server_addr actual_server_port actual_server_user <<<"$server_identity"
 
-expect_fixture_guard_rejection missing_authorization "" "$actual_database" "$actual_server_version" "$actual_host" "$actual_port" "$actual_user"
-expect_fixture_guard_rejection unexpected_database "$actual_authorization" "not_the_fixture_database" "$actual_server_version" "$actual_host" "$actual_port" "$actual_user"
-expect_fixture_guard_rejection unsupported_server_version "$actual_authorization" "$actual_database" "150000" "$actual_host" "$actual_port" "$actual_user"
-expect_fixture_guard_rejection unapproved_endpoint "$actual_authorization" "$actual_database" "$actual_server_version" "db.example.invalid" "$actual_port" "$actual_user"
+expect_fixture_guard_rejection missing_authorization "" "$actual_database" "$actual_server_version" "$actual_host" "$actual_port" "$actual_user" "$actual_server_addr" "$actual_server_port"
+expect_fixture_guard_rejection unexpected_database "$actual_authorization" "not_the_fixture_database" "$actual_server_version" "$actual_host" "$actual_port" "$actual_user" "$actual_server_addr" "$actual_server_port"
+expect_fixture_guard_rejection unsupported_server_version "$actual_authorization" "$actual_database" "150000" "$actual_host" "$actual_port" "$actual_user" "$actual_server_addr" "$actual_server_port"
+expect_fixture_guard_rejection unapproved_configured_endpoint "$actual_authorization" "$actual_database" "$actual_server_version" "db.example.invalid" "$actual_port" "$actual_user" "$actual_server_addr" "$actual_server_port"
+expect_fixture_guard_rejection redirected_server_address "$actual_authorization" "$actual_database" "$actual_server_version" "$actual_host" "$actual_port" "$actual_user" "$DEEDLIGHT_REDIRECT_SERVER_ADDR" "$actual_server_port"
+expect_fixture_guard_rejection redirected_server_port "$actual_authorization" "$actual_database" "$actual_server_version" "$actual_host" "$actual_port" "$actual_user" "$actual_server_addr" "5433"
 
-if ! validate_fixture_target "$actual_authorization" "$actual_database" "$actual_server_version" "$actual_host" "$actual_port" "$actual_user"; then
-  echo "FAIL: refusing destructive fixture setup for unapproved endpoint/database/server" >&2
-  printf 'database=%s server_version_num=%s host=%s port=%s username=%s\n' \
-    "$actual_database" "$actual_server_version" "$actual_host" "$actual_port" "$actual_user" >&2
+if [[ "$actual_server_user" != "postgres" ]]; then
+  echo "FAIL: unexpected PostgreSQL session identity" >&2
   exit 1
 fi
-echo "PASS: disposable fixture endpoint, database identity, authorization and PostgreSQL 16 version verified"
+if ! validate_fixture_target "$actual_authorization" "$actual_database" "$actual_server_version" "$actual_host" "$actual_port" "$actual_user" "$actual_server_addr" "$actual_server_port"; then
+  echo "FAIL: refusing destructive fixture setup for unapproved endpoint/database/server" >&2
+  printf 'database=%s server_version_num=%s configured_host=%s configured_port=%s configured_user=%s actual_server_addr=%s actual_server_port=%s expected_server_addr=%s actual_server_user=%s\\n' \
+    "$actual_database" "$actual_server_version" "$actual_host" "$actual_port" "$actual_user" "$actual_server_addr" "$actual_server_port" "$DEEDLIGHT_EXPECTED_SERVER_ADDR" "$actual_server_user" >&2
+  exit 1
+fi
+echo "PASS: actual PostgreSQL server address/port, database identity, authorization and PostgreSQL 16 version verified"
 
-if env -u DEEDLIGHT_DISPOSABLE_FIXTURE_AUTHORIZATION psql -X -v ON_ERROR_STOP=1 --file scripts/test-production-migration-readonly-audit-postgres16-fixture.sql >"${tmp_dir}/fixture-missing-authorization.log" 2>&1; then
+if DEEDLIGHT_OMIT_FIXTURE_AUTHORIZATION=1 psql -X -v ON_ERROR_STOP=1 --file scripts/test-production-migration-readonly-audit-postgres16-fixture.sql >"${tmp_dir}/fixture-missing-authorization.log" 2>&1; then
   echo "FAIL: fixture setup accepted missing disposable authorization" >&2
   exit 1
 fi
@@ -95,6 +139,47 @@ if [[ "${schema_after_rejection}" != "t" ]]; then
   exit 1
 fi
 echo "PASS: SQL fixture guard rejects missing authorization before any destructive setup"
+
+# Inherited libpq overrides must not redirect the trusted wrapper connection.
+service_file="${tmp_dir}/redirect-service.conf"
+cat >"$service_file" <<SERVICE
+[deedlight-redirect]
+host=127.0.0.1
+port=5433
+dbname=deedlight_migration_order_test
+user=postgres
+SERVICE
+redirect_probe="$(PGHOST="$DEEDLIGHT_REDIRECT_SERVER_ADDR" PGHOSTADDR=127.0.0.1 PGPORT=5433 PGDATABASE="$PGDATABASE" PGUSER=postgres PGPASSWORD=postgres PGSERVICE=deedlight-redirect PGSERVICEFILE="$service_file" PGOPTIONS='-c search_path=public' psql -X -At -F '|' -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.current_database(), pg_catalog.inet_server_addr()::text, pg_catalog.inet_server_port(), session_user")"
+IFS='|' read -r probe_database probe_addr probe_port probe_user <<<"$redirect_probe"
+if [[ "$probe_database" != "$PGDATABASE" || "$probe_addr" != "$DEEDLIGHT_EXPECTED_SERVER_ADDR" || "$probe_port" != "5432" || "$probe_user" != "postgres" ]]; then
+  echo "FAIL: inherited PGHOSTADDR/service overrides redirected the sanitized connection" >&2
+  printf 'database=%s server_addr=%s server_port=%s session_user=%s\\n' "$probe_database" "$probe_addr" "$probe_port" "$probe_user" >&2
+  exit 1
+fi
+echo "PASS: sanitized libpq wrapper neutralizes inherited PGHOSTADDR, PGSERVICE, PGSERVICEFILE, PGOPTIONS and connection overrides"
+
+# Bypass the wrapper deliberately: PGHOSTADDR really connects to the other
+# PostgreSQL service, but the SQL fixture endpoint guard must reject it pre-DDL.
+if command env -i "PATH=$PATH" "HOME=${HOME:-/tmp}" \
+  "PGHOST=$DEEDLIGHT_EXPECTED_SERVER_ADDR" "PGHOSTADDR=127.0.0.1" "PGPORT=5433" \
+  "PGUSER=postgres" "PGPASSWORD=postgres" "PGDATABASE=deedlight_migration_order_test" \
+  "PGCONNECT_TIMEOUT=5" "PGSSLMODE=disable" \
+  "DEEDLIGHT_DISPOSABLE_FIXTURE_AUTHORIZATION=$actual_authorization" \
+  "DEEDLIGHT_EXPECTED_SERVER_ADDR=$DEEDLIGHT_EXPECTED_SERVER_ADDR" \
+  "DEEDLIGHT_FIXTURE_AUDITOR_PASSWORD=$DEEDLIGHT_FIXTURE_AUDITOR_PASSWORD" \
+  "DEEDLIGHT_FIXTURE_SPOOFED_PASSWORD=$DEEDLIGHT_FIXTURE_SPOOFED_PASSWORD" \
+  "DEEDLIGHT_FIXTURE_PRIVILEGED_PASSWORD=$DEEDLIGHT_FIXTURE_PRIVILEGED_PASSWORD" \
+  psql -X -v ON_ERROR_STOP=1 --file scripts/test-production-migration-readonly-audit-postgres16-fixture.sql \
+  >"${tmp_dir}/actual-pghostaddr-redirect.log" 2>&1; then
+  echo "FAIL: actual PGHOSTADDR redirected connection reached destructive fixture execution" >&2
+  exit 1
+fi
+redirect_schema="$(command env -i "PATH=$PATH" "HOME=${HOME:-/tmp}" PGHOST=$DEEDLIGHT_EXPECTED_SERVER_ADDR PGHOSTADDR=127.0.0.1 PGPORT=5433 PGUSER=postgres PGPASSWORD=postgres PGDATABASE=deedlight_migration_order_test PGCONNECT_TIMEOUT=5 PGSSLMODE=disable psql -X -At -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.to_regnamespace('supabase_migrations') IS NULL")"
+if [[ "$redirect_schema" != "t" ]]; then
+  echo "FAIL: redirected PostgreSQL endpoint contains fixture-created migration schema" >&2
+  exit 1
+fi
+echo "PASS: real PGHOSTADDR redirection reached the adversarial server but fixture endpoint guard rejected it before DDL"
 
 psql -X -v ON_ERROR_STOP=1 --file scripts/test-production-migration-readonly-audit-postgres16-fixture.sql
 

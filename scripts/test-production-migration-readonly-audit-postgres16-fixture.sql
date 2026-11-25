@@ -1,6 +1,7 @@
 -- Disposable PostgreSQL 16 fixture only. Never run against Production.
 -- This script is destructive only inside the explicitly authorized, dedicated CI database.
 \getenv fixture_authorization DEEDLIGHT_DISPOSABLE_FIXTURE_AUTHORIZATION
+\getenv fixture_expected_server_addr DEEDLIGHT_EXPECTED_SERVER_ADDR
 \getenv fixture_auditor_password DEEDLIGHT_FIXTURE_AUDITOR_PASSWORD
 \getenv fixture_spoofed_password DEEDLIGHT_FIXTURE_SPOOFED_PASSWORD
 \getenv fixture_privileged_password DEEDLIGHT_FIXTURE_PRIVILEGED_PASSWORD
@@ -9,10 +10,17 @@
 \echo 'FAIL: disposable fixture authorization is missing'
 SELECT 1 / 0;
 \endif
+\if :{?fixture_expected_server_addr}
+\else
+\echo 'FAIL: expected PostgreSQL service endpoint is missing'
+SELECT 1 / 0;
+\endif
 SELECT pg_catalog.set_config('deedlight.fixture_authorization', :'fixture_authorization', false);
+SELECT pg_catalog.set_config('deedlight.fixture_expected_server_addr', :'fixture_expected_server_addr', false);
 DO $fixture_guard$
 DECLARE
   v_version integer := pg_catalog.current_setting('server_version_num')::integer;
+  v_expected_server_addr text := pg_catalog.current_setting('deedlight.fixture_expected_server_addr', true);
 BEGIN
   IF pg_catalog.current_setting('deedlight.fixture_authorization', true)
       IS DISTINCT FROM 'deedlight-postgres16-ci-disposable-v1' THEN
@@ -22,6 +30,12 @@ BEGIN
     OR session_user <> 'postgres'
     OR v_version / 10000 <> 16 THEN
     RAISE EXCEPTION 'Fixture target must be the authorized PostgreSQL 16 disposable database.';
+  END IF;
+  IF v_expected_server_addr IS NULL
+    OR pg_catalog.inet_server_addr() IS NULL
+    OR pg_catalog.host(pg_catalog.inet_server_addr()) IS DISTINCT FROM v_expected_server_addr
+    OR pg_catalog.inet_server_port() IS DISTINCT FROM 5432 THEN
+    RAISE EXCEPTION 'Connected PostgreSQL server endpoint does not match the approved disposable service.';
   END IF;
   IF pg_catalog.to_regnamespace('supabase_migrations') IS NOT NULL
     OR pg_catalog.to_regnamespace('deedlight_audit_missing_schema') IS NOT NULL
