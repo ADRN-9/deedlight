@@ -187,11 +187,17 @@ function validateMapping(mapping, manifest, source, problems) {
     problems.push("migration mapping must contain exactly one reviewed entry for every source migration");
     return new Map();
   }
+  if (Object.keys(mapping).sort().join(",") !== ["migrations", "schemaVersion"].sort().join(",")) {
+    problems.push("migration mapping contains unsupported top-level fields");
+  }
   const byPath = new Map();
   for (const entry of mapping.migrations) {
     if (!entry || typeof entry.path !== "string" || byPath.has(entry.path)) {
       problems.push("migration mapping contains a missing or duplicate source path");
       continue;
+    }
+    if (Object.keys(entry).sort().join(",") !== ["blobSha1", "effects", "path"].sort().join(",")) {
+      problems.push("migration mapping entry contains unsupported fields for " + entry.path);
     }
     byPath.set(entry.path, entry);
   }
@@ -202,8 +208,9 @@ function validateMapping(mapping, manifest, source, problems) {
       problems.push("mapping does not bind the exact pinned migration source: " + item.path);
       continue;
     }
-    if (!entry.effects || CATEGORIES.some((category) => !Array.isArray(entry.effects[category]))) {
-      problems.push("mapping omits one or more required effect domains for " + item.path);
+    if (!entry.effects || Object.keys(entry.effects).sort().join(",") !== [...CATEGORIES].sort().join(",")
+      || CATEGORIES.some((category) => !Array.isArray(entry.effects[category]))) {
+      problems.push("mapping omits, or adds unsupported, effect domains for " + item.path);
       continue;
     }
     const flattened = [];
@@ -211,7 +218,8 @@ function validateMapping(mapping, manifest, source, problems) {
     for (const category of CATEGORIES) {
       for (const effect of entry.effects[category]) {
         const allowed = category === "schema" ? SCHEMA_KINDS : category === "routines" ? new Set(["routines"]) : new Set([category]);
-        if (!effect || !allowed.has(effect.kind) || typeof effect.identity !== "string" || !effect.identity.trim()
+        if (!effect || Object.keys(effect).sort().join(",") !== ["description", "fingerprint", "identity", "kind"].sort().join(",")
+          || !allowed.has(effect.kind) || typeof effect.identity !== "string" || !effect.identity.trim()
           || !/^[a-f0-9]{64}$/.test(effect.fingerprint || "") || typeof effect.description !== "string" || !effect.description.trim()) {
           malformed = true;
           break;
@@ -351,6 +359,19 @@ export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approval
   const evidenceClaims = verifySignedArtifact(bundle.evidenceApproval, "production-evidence-approval", "evidence-approver", trustRoots, now, problems);
   const mappingClaims = verifySignedArtifact(bundle.mappingApproval, "migration-mapping-approval", "mapping-approver", trustRoots, now, problems);
   const collectorClaims = verifySignedArtifact(bundle.collectorAttestation, "read-only-collector-attestation", "collector", trustRoots, now, problems);
+  const signerIds = [bundle.evidenceApproval?.signerId, bundle.mappingApproval?.signerId, bundle.collectorAttestation?.signerId];
+  const keyIds = [bundle.evidenceApproval?.keyId, bundle.mappingApproval?.keyId, bundle.collectorAttestation?.keyId];
+  if (signerIds.some((value) => typeof value !== "string") || new Set(signerIds).size !== 3
+    || keyIds.some((value) => typeof value !== "string") || new Set(keyIds).size !== 3) {
+    problems.push("evidence, mapping and collector attestations must use three distinct trusted signers and keys");
+  }
+  for (const approval of [bundle.evidenceApproval, bundle.collectorAttestation]) {
+    const issuedAt = Date.parse(approval?.issuedAt);
+    const capturedAt = Date.parse(provenance.capturedAt);
+    if (Number.isFinite(issuedAt) && Number.isFinite(capturedAt) && issuedAt < capturedAt) {
+      problems.push("evidence and collector approvals must be issued after the exact evidence capture");
+    }
+  }
   const expectedEvidenceClaims = {
     projectRef: PROJECT_REF,
     evidenceDigest,
