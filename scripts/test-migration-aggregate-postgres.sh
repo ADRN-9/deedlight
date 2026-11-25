@@ -101,7 +101,7 @@ if psql --no-psqlrc --set ON_ERROR_STOP=1 --file supabase/bootstrap/migration_03
   echo "Compatibility bridge unexpectedly accepted an unknown is_admin() definition." >&2
   exit 1
 fi
-if ! grep -Fq "rejected unreviewed Sprint 6 is_admin() source" "$compat_log"; then
+if ! grep -Fq "rejected unreviewed is_admin() source" "$compat_log"; then
   cat "$compat_log"
   echo "Compatibility bridge failed for an unexpected reason in unknown-source test." >&2
   exit 1
