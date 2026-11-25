@@ -7,6 +7,7 @@ import { gitBlobSha1, validateInventory } from "./verify-migration-inventory-agg
 const PROJECT_REF = "xaipiovflxomcbfwtwmu";
 const INVENTORY_BLOB_SHA1 = "95d514a0bd97ff448c9507252eb1f5e69a507442";
 const MAX_EVIDENCE_AGE_MS = 24 * 60 * 60 * 1000;
+const PROVISIONED_TRUST_ROOTS_SHA256 = process.env.DEEDLIGHT_MIGRATION_TRUST_ROOTS_SHA256;
 const CATEGORIES = ["schema", "privileges", "ownership", "routines", "dataTransformations", "backfills", "dependencies", "preconditions", "postconditions"];
 const CATALOG_KINDS = ["schemas", "tables", "sequences", "columns", "constraints", "indexes", "triggers", "policies", "routines", "privileges", "ownership", "dataTransformations", "backfills", "dependencies", "preconditions", "postconditions"];
 const PRIVILEGE_OBJECT_KINDS = new Set(["tables", "sequences", "routines"]);
@@ -452,8 +453,8 @@ function classifyOne(item, manifest, evidence, source, mappedEffects) {
 export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approvals, trustRoots, expectedInventoryBlobSha1 = INVENTORY_BLOB_SHA1 }) {
   const problems = [];
   const now = Date.now();
-  // The trust digest is deployment configuration, never a caller-supplied API option.
-  const trustedTrustRootsSha256 = process.env.DEEDLIGHT_MIGRATION_TRUST_ROOTS_SHA256;
+  // Captured at process startup: callers cannot replace the trusted digest through API arguments or later env mutation.
+  const trustedTrustRootsSha256 = PROVISIONED_TRUST_ROOTS_SHA256;
   if (!trustRoots || trustRoots.schemaVersion !== 1 || !Array.isArray(trustRoots.keys)) problems.push("external trust-root bundle is missing or malformed");
   else {
     const rootDigest = sha256(Buffer.from(canonicalJson(trustRoots)));
