@@ -743,6 +743,103 @@ test("acceptance mode returns nonzero for unresolved duplicate-007 ambiguity; re
   } finally { f.cleanup(); }
 });
 
+test("strict timestamp parsing rejects non-string and noncanonical execution timestamps", () => {
+  for (const value of [0, 1, null, false, true, [], {}, "not-a-timestamp", "2026-02-30T00:00:00.000Z"]) {
+    const f = fixture();
+    try {
+      f.reapprove(undefined, (receipt) => { receipt.startedAt = value; });
+      const report = f.analyze();
+      assert.equal(report.counts.Unknown, 39);
+      assert.ok(report.trustProblems.some((reason) => reason.includes("collector execution startedAt")));
+    } finally { f.cleanup(); }
+  }
+});
+
+test("migration history execution timestamps reject coercible non-string values", () => {
+  for (const value of [0, 1, null, false, [], {}]) {
+    const f = fixture();
+    try {
+      f.evidence.history.rows[0].executedAt = value;
+      f.reapprove();
+      const report = f.analyze();
+      assert.equal(report.counts.Unknown, 39);
+      assert.ok(report.trustProblems.some((reason) => reason.includes("history row lacks exact name or valid execution metadata")));
+    } finally { f.cleanup(); }
+  }
+});
+
+test("approval and trust-root validity intervals require canonical timestamps and positive duration", () => {
+  const approvalCases = [
+    { issuedAt: 0 },
+    { expiresAt: null },
+    { issuedAt: "2026-02-30T00:00:00.000Z" },
+    { issuedAt: "2026-11-25T02:00:00.000Z", expiresAt: "2026-11-25T01:00:00.000Z" },
+  ];
+  for (const overrides of approvalCases) {
+    const f = fixture();
+    try {
+      const current = f.approvals.evidenceApproval;
+      f.approvals.evidenceApproval = artifact(current.kind, "evidence-approver", current.claims, overrides);
+      const report = f.analyze();
+      assert.equal(report.counts.Unknown, 39);
+      assert.ok(report.trustProblems.some((reason) => reason.includes("approval issuedAt")
+        || reason.includes("approval expiresAt") || reason.includes("invalid validity interval")));
+    } finally { f.cleanup(); }
+  }
+
+  const trustRootCases = [
+    (key) => { key.notBefore = 0; },
+    (key) => { key.notAfter = {}; },
+    (key) => { key.notBefore = "2026-11-25T02:00:00.000Z"; key.notAfter = "2026-11-25T01:00:00.000Z"; },
+  ];
+  for (const mutate of trustRootCases) {
+    const f = fixture();
+    try {
+      mutate(f.trustRoots.keys.find((key) => key.role === "evidence-approver"));
+      const report = f.analyze();
+      assert.equal(report.counts.Unknown, 39);
+      assert.ok(report.trustProblems.some((reason) => reason.includes("trust-root notBefore")
+        || reason.includes("trust-root notAfter") || reason.includes("outside its validity window")));
+    } finally { f.cleanup(); }
+  }
+});
+
+test("collector execution rejects reversed start and completion timestamps", () => {
+  const f = fixture();
+  try {
+    f.reapprove(undefined, (receipt) => {
+      receipt.startedAt = "2026-11-25T00:26:00.000Z";
+      receipt.completedAt = "2026-11-25T00:25:00.000Z";
+    });
+    const report = f.analyze();
+    assert.equal(report.counts.Unknown, 39);
+    assert.ok(report.trustProblems.some((reason) => reason.includes("execution receipt")));
+  } finally { f.cleanup(); }
+});
+
+test("exported analyzer ignores caller-supplied trust-root digest", () => {
+  const f = fixture();
+  const previousDigest = process.env.DEEDLIGHT_MIGRATION_TRUST_ROOTS_SHA256;
+  try {
+    delete process.env.DEEDLIGHT_MIGRATION_TRUST_ROOTS_SHA256;
+    const report = analyzeMigrationEvidence({
+      rootDir: f.rootDir,
+      manifest: sourceManifest,
+      evidence: f.evidence,
+      approvals: f.approvals,
+      trustRoots: f.trustRoots,
+      trustedTrustRootsSha256: hash(Buffer.from(canonicalJson(f.trustRoots))),
+      now: Date.parse("2026-11-25T01:00:00.000Z"),
+    });
+    assert.equal(report.counts.Unknown, 39);
+    assert.ok(report.trustProblems.some((reason) => reason.includes("independently provisioned trust-root digest")));
+  } finally {
+    if (previousDigest === undefined) delete process.env.DEEDLIGHT_MIGRATION_TRUST_ROOTS_SHA256;
+    else process.env.DEEDLIGHT_MIGRATION_TRUST_ROOTS_SHA256 = previousDigest;
+    f.cleanup();
+  }
+});
+
 test("trust roots must match an independently provisioned digest", () => {
   const f = fixture();
   try {
