@@ -460,7 +460,7 @@ SELECT
         'value', regexp_replace(cfg.setting, '^[^=]*=', '')
       )
       ORDER BY split_part(cfg.setting, '=', 1),
-        substring(cfg.setting FROM position('=' IN cfg.setting) + 1)
+        regexp_replace(cfg.setting, '^[^=]*=', '')
     )
     FROM unnest(COALESCE(p.proconfig, ARRAY[]::text[])) cfg(setting)
   ), '[]'::jsonb) AS routine_settings
@@ -975,10 +975,10 @@ SELECT
     SELECT jsonb_agg(
       jsonb_build_object(
         'name', split_part(cfg.setting, '=', 1),
-        'value', substring(cfg.setting FROM position('=' IN cfg.setting) + 1)
+        'value', regexp_replace(cfg.setting, '^[^=]*=', '')
       )
       ORDER BY split_part(cfg.setting, '=', 1),
-        substring(cfg.setting FROM position('=' IN cfg.setting) + 1)
+        regexp_replace(cfg.setting, '^[^=]*=', '')
     )
     FROM unnest(COALESCE(p.proconfig, ARRAY[]::text[])) cfg(setting)
   ), '[]'::jsonb) AS routine_settings
