@@ -584,3 +584,20 @@ test("evidence and collector approvals must be issued after capture", () => {
     assert.ok(report.trustProblems.some((reason) => reason.includes("issued after the exact evidence capture")));
   } finally { f.cleanup(); }
 });
+
+test("trust-root bundle rejects private signing material and unsupported key roles", () => {
+  for (const mutate of [
+    (f) => {
+      f.trustRoots.keys[0].publicKeyPem = keys["evidence-approver"].privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+    },
+    (f) => { f.trustRoots.keys[0].role = "production-admin"; },
+  ]) {
+    const f = fixture();
+    try {
+      mutate(f);
+      const report = f.analyze();
+      assert.equal(report.counts.Unknown, 39);
+      assert.ok(report.trustProblems.some((reason) => reason.includes("unsupported key, role or private signing material")));
+    } finally { f.cleanup(); }
+  }
+});
