@@ -164,7 +164,11 @@ function fixture() {
           .map((entry) => ({ schema: entry.identity, privileges: ["USAGE"] })),
         objectPrivilegesComplete: true,
         objectPrivileges: evidence.catalog.objects.filter((entry) => ["tables", "sequences", "routines"].includes(entry.kind))
-          .map((entry) => ({ identity: entry.identity, privileges: ["SELECT"] })),
+          .map((entry) => ({
+            kind: entry.kind,
+            identity: entry.identity,
+            privileges: entry.kind === "routines" ? [] : ["SELECT"],
+          })),
         catalogPrivilegesComplete: true,
         catalogPrivileges: ["SELECT"],
         roleMemberships: [],
@@ -531,7 +535,7 @@ test("collector schema and object privilege identity sets must exactly match cat
     (db) => { db.schemaPrivileges.push({ schema: "private_extra", privileges: ["USAGE"] }); },
     (db) => { db.schemaPrivileges.push({ ...db.schemaPrivileges[0] }); },
     (db) => { db.objectPrivileges = db.objectPrivileges.slice(1); },
-    (db) => { db.objectPrivileges.push({ identity: "public.unexpected", privileges: ["SELECT"] }); },
+    (db) => { db.objectPrivileges.push({ kind: "tables", identity: "public.unexpected", privileges: ["SELECT"] }); },
     (db) => { db.objectPrivileges.push({ ...db.objectPrivileges[0] }); },
   ];
   for (const mutate of mutations) {
