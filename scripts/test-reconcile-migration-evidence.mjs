@@ -391,13 +391,13 @@ test("history with missing effects and conflicting catalog fingerprints is Parti
     const report = f.analyze();
     assert.equal(report.classifications.find((entry) => entry.path === item.path).status, "Partial or drifted");
   } finally { f.cleanup(); }
-  const f = fixture();
+  const second = fixture();
   try {
-    f.evidence.catalog.objects[0].fingerprint = hash("conflict");
-    f.reapprove();
-    const report = f.analyze();
+    second.evidence.catalog.objects[0].fingerprint = hash("conflict");
+    second.reapprove();
+    const report = second.analyze();
     assert.equal(report.classifications[0].status, "Partial or drifted");
-  } finally { f.cleanup(); }
+  } finally { second.cleanup(); }
 });
 
 test("duplicate catalog identities fail closed as Unknown", () => {
