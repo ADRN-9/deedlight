@@ -216,6 +216,19 @@ if ! grep -Fq "unexpected inherited/effective function EXECUTE privilege" "$comp
   echo "Compatibility bridge failed for an unexpected reason in inherited-ACL test." >&2
   exit 1
 fi
+# SET-only membership is also an effective path to the historical grant.
+psql --no-psqlrc --set ON_ERROR_STOP=1 <<'SQL'
+GRANT authenticated TO migration_038_unexpected_inherited WITH INHERIT FALSE, SET TRUE;
+SQL
+if psql --no-psqlrc --set ON_ERROR_STOP=1 --file supabase/bootstrap/migration_038_admin_compatibility.sql >"$compat_log" 2>&1; then
+  echo "Compatibility bridge unexpectedly accepted SET ROLE inherited EXECUTE." >&2
+  exit 1
+fi
+if ! grep -Fq "unexpected inherited/effective function EXECUTE privilege" "$compat_log"; then
+  cat "$compat_log"
+  echo "Compatibility bridge failed for an unexpected reason in SET ROLE test." >&2
+  exit 1
+fi
 psql --no-psqlrc --set ON_ERROR_STOP=1 <<'SQL'
 REVOKE authenticated FROM migration_038_unexpected_inherited;
 DROP ROLE migration_038_unexpected_inherited;
