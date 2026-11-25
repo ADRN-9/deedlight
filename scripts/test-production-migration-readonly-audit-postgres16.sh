@@ -311,197 +311,231 @@ echo "PASS: SECURITY DEFINER rejects unsupported SET ROLE execution context"
 psql -X -v ON_ERROR_STOP=1 -c "REVOKE deedlight_audit_switch_target FROM deedlight_catalog_auditor"
 
 # Nested and predefined-role memberships are rejected for the authenticated principal.
-GRANT deedlight_audit_nested_leaf TO deedlight_audit_nested_parent;
-GRANT deedlight_audit_nested_parent TO deedlight_catalog_auditor;
+psql -X -v ON_ERROR_STOP=1 -c "GRANT deedlight_audit_nested_leaf TO deedlight_audit_nested_parent;"
+psql -X -v ON_ERROR_STOP=1 -c "GRANT deedlight_audit_nested_parent TO deedlight_catalog_auditor;"
 expect_failure nested_role_membership "Authenticated or effective collector role has role membership"
 
-GRANT pg_read_all_data TO deedlight_audit_nested_leaf;
-GRANT SELECT ON public.audit_fixture_private TO deedlight_audit_nested_leaf;
+psql -X -v ON_ERROR_STOP=1 -c "GRANT pg_read_all_data TO deedlight_audit_nested_leaf;"
+psql -X -v ON_ERROR_STOP=1 -c "GRANT SELECT ON public.audit_fixture_private TO deedlight_audit_nested_leaf;"
 nested_privilege_state="$(psql -X -At -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.pg_has_role('deedlight_catalog_auditor', 'pg_read_all_data', 'MEMBER') AND pg_catalog.has_table_privilege('deedlight_catalog_auditor', 'public.audit_fixture_private', 'SELECT')")"
 test "${nested_privilege_state}" = "t"
 echo "PASS: nested role chain actually inherits pg_read_all_data and application-table SELECT"
 expect_failure nested_privileged_role_membership "Authenticated or effective collector role has role membership"
 
-REVOKE pg_read_all_data FROM deedlight_audit_nested_leaf;
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE pg_read_all_data FROM deedlight_audit_nested_leaf;"
 nested_application_privilege_state="$(psql -X -At -v ON_ERROR_STOP=1 -c "SELECT NOT pg_catalog.pg_has_role('deedlight_catalog_auditor', 'pg_read_all_data', 'MEMBER') AND pg_catalog.has_table_privilege('deedlight_catalog_auditor', 'public.audit_fixture_private', 'SELECT')")"
 test "${nested_application_privilege_state}" = "t"
 echo "PASS: nested role chain inherits application-table SELECT without predefined-role membership"
 expect_failure nested_inherited_application_privilege "Authenticated or effective collector role has role membership"
 
-REVOKE deedlight_audit_nested_parent FROM deedlight_catalog_auditor;
-REVOKE deedlight_audit_nested_leaf FROM deedlight_audit_nested_parent;
-REVOKE SELECT ON public.audit_fixture_private FROM deedlight_audit_nested_leaf;
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE deedlight_audit_nested_parent FROM deedlight_catalog_auditor;"
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE deedlight_audit_nested_leaf FROM deedlight_audit_nested_parent;"
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE SELECT ON public.audit_fixture_private FROM deedlight_audit_nested_leaf;"
 
-GRANT pg_read_all_data TO deedlight_catalog_auditor;
+psql -X -v ON_ERROR_STOP=1 -c "GRANT pg_read_all_data TO deedlight_catalog_auditor;"
 expect_failure pg_read_all_data_membership "Authenticated or effective collector role has role membership"
-REVOKE pg_read_all_data FROM deedlight_catalog_auditor;
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE pg_read_all_data FROM deedlight_catalog_auditor;"
 
 # Authentication/authorization revocation is a hard failure, never a stronger-role fallback.
-ALTER ROLE deedlight_catalog_auditor NOLOGIN;
+psql -X -v ON_ERROR_STOP=1 -c "ALTER ROLE deedlight_catalog_auditor NOLOGIN;"
 if psql_as deedlight_catalog_auditor -X -At -v ON_ERROR_STOP=1 -c "SELECT 1" >"${tmp_dir}/revoked_login_authorization.log" 2>&1; then
   echo "FAIL: collector authenticated after LOGIN was revoked" >&2
   exit 1
 fi
 grep -Eiq "not permitted to log in|cannot log in" "${tmp_dir}/revoked_login_authorization.log"
 echo "PASS: revoked LOGIN prevents direct collector authentication"
-ALTER ROLE deedlight_catalog_auditor LOGIN;
-REVOKE SELECT ON pg_catalog.pg_class FROM deedlight_catalog_auditor;
+psql -X -v ON_ERROR_STOP=1 -c "ALTER ROLE deedlight_catalog_auditor LOGIN;"
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE SELECT ON pg_catalog.pg_class FROM deedlight_catalog_auditor;"
 expect_failure revoked_catalog_authorization "Required catalog SELECT access unavailable"
-GRANT SELECT ON pg_catalog.pg_class TO deedlight_catalog_auditor;
-REVOKE SELECT ON supabase_migrations.schema_migrations FROM deedlight_catalog_auditor;
+psql -X -v ON_ERROR_STOP=1 -c "GRANT SELECT ON pg_catalog.pg_class TO deedlight_catalog_auditor;"
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE SELECT ON supabase_migrations.schema_migrations FROM deedlight_catalog_auditor;"
 expect_failure revoked_history_authorization "Collector must have SELECT-only access to migration history"
-GRANT SELECT ON supabase_migrations.schema_migrations TO deedlight_catalog_auditor;
+psql -X -v ON_ERROR_STOP=1 -c "GRANT SELECT ON supabase_migrations.schema_migrations TO deedlight_catalog_auditor;"
 
 expect_failure invalid_project_metadata "Missing or unexpected DeedLight Production project reference." deedlight_catalog_auditor deedlight_catalog_auditor wrong-project
 expect_failure invalid_repository_metadata "Exact repository SHA is required" deedlight_catalog_auditor deedlight_catalog_auditor xaipiovflxomcbfwtwmu not-a-git-sha
 
 # Effective table, column and sequence privileges are prohibited.
-GRANT SELECT ON public.audit_fixture_private TO deedlight_catalog_auditor;
+psql -X -v ON_ERROR_STOP=1 -c "GRANT SELECT ON public.audit_fixture_private TO deedlight_catalog_auditor;"
 expect_failure application_table_select "prohibited SELECT access to application relation"
-REVOKE SELECT ON public.audit_fixture_private FROM deedlight_catalog_auditor;
-GRANT SELECT (private_value) ON public.audit_fixture_private TO deedlight_catalog_auditor;
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE SELECT ON public.audit_fixture_private FROM deedlight_catalog_auditor;"
+psql -X -v ON_ERROR_STOP=1 -c "GRANT SELECT (private_value) ON public.audit_fixture_private TO deedlight_catalog_auditor;"
 expect_failure application_column_select "prohibited column-level SELECT access"
-REVOKE SELECT (private_value) ON public.audit_fixture_private FROM deedlight_catalog_auditor;
-GRANT USAGE ON SEQUENCE public.audit_fixture_sequence TO deedlight_catalog_auditor;
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE SELECT (private_value) ON public.audit_fixture_private FROM deedlight_catalog_auditor;"
+psql -X -v ON_ERROR_STOP=1 -c "GRANT USAGE ON SEQUENCE public.audit_fixture_sequence TO deedlight_catalog_auditor;"
 expect_failure application_sequence_usage "prohibited USAGE access to application sequence"
-REVOKE USAGE ON SEQUENCE public.audit_fixture_sequence FROM deedlight_catalog_auditor;
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE USAGE ON SEQUENCE public.audit_fixture_sequence FROM deedlight_catalog_auditor;"
 
 # Canonical safe search_path ordering is accepted; reversed and duplicate paths fail closed.
+psql -X -v ON_ERROR_STOP=1 <<'SQL'
 CREATE FUNCTION public.audit_fixture_reversed_search_path()
 RETURNS integer LANGUAGE sql
 SET search_path = 'public, pg_catalog'
 AS 'SELECT 1';
+SQL
 expect_failure reversed_routine_search_path "Unexpected or unsafe routine configuration"
-DROP FUNCTION public.audit_fixture_reversed_search_path();
+psql -X -v ON_ERROR_STOP=1 -c "DROP FUNCTION public.audit_fixture_reversed_search_path();"
 
+psql -X -v ON_ERROR_STOP=1 <<'SQL'
 CREATE FUNCTION public.audit_fixture_duplicate_search_path()
 RETURNS integer LANGUAGE sql
 SET search_path = 'pg_catalog, public, public'
 AS 'SELECT 1';
+SQL
 expect_failure duplicate_routine_search_path "Unexpected or unsafe routine configuration"
-DROP FUNCTION public.audit_fixture_duplicate_search_path();
+psql -X -v ON_ERROR_STOP=1 -c "DROP FUNCTION public.audit_fixture_duplicate_search_path();"
 
-DROP SCHEMA IF EXISTS deedlight_audit_missing_schema CASCADE;
+psql -X -v ON_ERROR_STOP=1 -c "DROP SCHEMA IF EXISTS deedlight_audit_missing_schema CASCADE;"
+psql -X -v ON_ERROR_STOP=1 <<'SQL'
 CREATE FUNCTION public.audit_fixture_missing_search_path_schema()
 RETURNS integer LANGUAGE sql
 SET search_path = 'pg_catalog, deedlight_audit_missing_schema'
 AS 'SELECT 1';
+SQL
 expect_failure missing_search_path_schema "Unexpected or unsafe routine configuration"
-DROP FUNCTION public.audit_fixture_missing_search_path_schema();
+psql -X -v ON_ERROR_STOP=1 -c "DROP FUNCTION public.audit_fixture_missing_search_path_schema();"
 
 # row_security and default_transaction_read_only may not be disabled by routines.
+psql -X -v ON_ERROR_STOP=1 <<'SQL'
 CREATE FUNCTION public.audit_fixture_row_security_off()
 RETURNS integer LANGUAGE sql
 SET row_security = off
 AS 'SELECT 1';
+SQL
 expect_failure unsafe_routine_row_security "Unexpected or unsafe routine configuration"
-DROP FUNCTION public.audit_fixture_row_security_off();
+psql -X -v ON_ERROR_STOP=1 -c "DROP FUNCTION public.audit_fixture_row_security_off();"
 
+psql -X -v ON_ERROR_STOP=1 <<'SQL'
 CREATE FUNCTION public.audit_fixture_default_read_only_off()
 RETURNS integer LANGUAGE sql
 SET default_transaction_read_only = off
 AS 'SELECT 1';
+SQL
 expect_failure unsafe_routine_default_read_only "Unexpected or unsafe routine configuration"
-DROP FUNCTION public.audit_fixture_default_read_only_off();
+psql -X -v ON_ERROR_STOP=1 -c "DROP FUNCTION public.audit_fixture_default_read_only_off();"
 
 # Unlimited and excessively large timeouts are rejected.
+psql -X -v ON_ERROR_STOP=1 <<'SQL'
 CREATE FUNCTION public.audit_fixture_unlimited_statement_timeout()
 RETURNS integer LANGUAGE sql
 SET statement_timeout = 0
 AS 'SELECT 1';
+SQL
 expect_failure unlimited_routine_statement_timeout "Unexpected or unsafe routine configuration"
-DROP FUNCTION public.audit_fixture_unlimited_statement_timeout();
+psql -X -v ON_ERROR_STOP=1 -c "DROP FUNCTION public.audit_fixture_unlimited_statement_timeout();"
 
+psql -X -v ON_ERROR_STOP=1 <<'SQL'
 CREATE FUNCTION public.audit_fixture_excessive_statement_timeout()
 RETURNS integer LANGUAGE sql
 SET statement_timeout = '6min'
 AS 'SELECT 1';
+SQL
 expect_failure excessive_routine_statement_timeout "Unexpected or unsafe routine configuration"
-DROP FUNCTION public.audit_fixture_excessive_statement_timeout();
+psql -X -v ON_ERROR_STOP=1 -c "DROP FUNCTION public.audit_fixture_excessive_statement_timeout();"
 
+psql -X -v ON_ERROR_STOP=1 <<'SQL'
 CREATE FUNCTION public.audit_fixture_unlimited_lock_timeout()
 RETURNS integer LANGUAGE sql
 SET lock_timeout = 0
 AS 'SELECT 1';
+SQL
 expect_failure unlimited_routine_lock_timeout "Unexpected or unsafe routine configuration"
-DROP FUNCTION public.audit_fixture_unlimited_lock_timeout();
+psql -X -v ON_ERROR_STOP=1 -c "DROP FUNCTION public.audit_fixture_unlimited_lock_timeout();"
 
+psql -X -v ON_ERROR_STOP=1 <<'SQL'
 CREATE FUNCTION public.audit_fixture_excessive_lock_timeout()
 RETURNS integer LANGUAGE sql
 SET lock_timeout = '31s'
 AS 'SELECT 1';
+SQL
 expect_failure excessive_routine_lock_timeout "Unexpected or unsafe routine configuration"
-DROP FUNCTION public.audit_fixture_excessive_lock_timeout();
+psql -X -v ON_ERROR_STOP=1 -c "DROP FUNCTION public.audit_fixture_excessive_lock_timeout();"
 
+psql -X -v ON_ERROR_STOP=1 <<'SQL'
 CREATE FUNCTION public.audit_fixture_excessive_idle_timeout()
 RETURNS integer LANGUAGE sql
 SET idle_in_transaction_session_timeout = '61s'
 AS 'SELECT 1';
+SQL
 expect_failure excessive_routine_idle_timeout "Unexpected or unsafe routine configuration"
-DROP FUNCTION public.audit_fixture_excessive_idle_timeout();
+psql -X -v ON_ERROR_STOP=1 -c "DROP FUNCTION public.audit_fixture_excessive_idle_timeout();"
 
+psql -X -v ON_ERROR_STOP=1 <<'SQL'
 CREATE FUNCTION public.audit_fixture_unlimited_temp_file_limit()
 RETURNS integer LANGUAGE sql
 SET temp_file_limit = -1
 AS 'SELECT 1';
+SQL
 expect_failure unlimited_routine_temp_file_limit "Unexpected or unsafe routine configuration"
-DROP FUNCTION public.audit_fixture_unlimited_temp_file_limit();
+psql -X -v ON_ERROR_STOP=1 -c "DROP FUNCTION public.audit_fixture_unlimited_temp_file_limit();"
 
+psql -X -v ON_ERROR_STOP=1 <<'SQL'
 CREATE FUNCTION public.audit_fixture_excessive_temp_file_limit()
 RETURNS integer LANGUAGE sql
 SET temp_file_limit = '2GB'
 AS 'SELECT 1';
+SQL
 expect_failure excessive_routine_temp_file_limit "Unexpected or unsafe routine configuration"
-DROP FUNCTION public.audit_fixture_excessive_temp_file_limit();
+psql -X -v ON_ERROR_STOP=1 -c "DROP FUNCTION public.audit_fixture_excessive_temp_file_limit();"
 
 # A permitted schema is unsafe if PUBLIC or an untrusted login can CREATE in it.
-GRANT CREATE ON SCHEMA public TO PUBLIC;
+psql -X -v ON_ERROR_STOP=1 -c "GRANT CREATE ON SCHEMA public TO PUBLIC;"
+psql -X -v ON_ERROR_STOP=1 <<'SQL'
 CREATE FUNCTION public.audit_fixture_public_create_search_path()
 RETURNS integer LANGUAGE sql
 SET search_path = 'pg_catalog, public'
 AS 'SELECT 1';
+SQL
 expect_failure public_create_routine_search_path "Unexpected or unsafe routine configuration"
-DROP FUNCTION public.audit_fixture_public_create_search_path();
-REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+psql -X -v ON_ERROR_STOP=1 -c "DROP FUNCTION public.audit_fixture_public_create_search_path();"
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE CREATE ON SCHEMA public FROM PUBLIC;"
 
-CREATE SCHEMA auth AUTHORIZATION deedlight_audit_spoofed_login;
+psql -X -v ON_ERROR_STOP=1 -c "CREATE SCHEMA auth AUTHORIZATION deedlight_audit_spoofed_login;"
+psql -X -v ON_ERROR_STOP=1 <<'SQL'
 CREATE FUNCTION public.audit_fixture_login_owned_schema_search_path()
 RETURNS integer LANGUAGE sql
 SET search_path = 'pg_catalog, auth'
 AS 'SELECT 1';
+SQL
 expect_failure login_owned_routine_schema "Unexpected or unsafe routine configuration"
-DROP FUNCTION public.audit_fixture_login_owned_schema_search_path();
-DROP SCHEMA auth;
+psql -X -v ON_ERROR_STOP=1 -c "DROP FUNCTION public.audit_fixture_login_owned_schema_search_path();"
+psql -X -v ON_ERROR_STOP=1 -c "DROP SCHEMA auth;"
 
-CREATE SCHEMA auth AUTHORIZATION postgres;
-GRANT USAGE, CREATE ON SCHEMA auth TO deedlight_audit_spoofed_login;
+psql -X -v ON_ERROR_STOP=1 -c "CREATE SCHEMA auth AUTHORIZATION postgres;"
+psql -X -v ON_ERROR_STOP=1 -c "GRANT USAGE, CREATE ON SCHEMA auth TO deedlight_audit_spoofed_login;"
+psql -X -v ON_ERROR_STOP=1 <<'SQL'
 CREATE FUNCTION public.audit_fixture_untrusted_schema_creator_search_path()
 RETURNS integer LANGUAGE sql
 SET search_path = 'pg_catalog, auth'
 AS 'SELECT 1';
+SQL
 expect_failure untrusted_routine_schema_creator "Unexpected or unsafe routine configuration"
-DROP FUNCTION public.audit_fixture_untrusted_schema_creator_search_path();
-REVOKE CREATE ON SCHEMA auth FROM deedlight_audit_spoofed_login;
-DROP SCHEMA auth;
+psql -X -v ON_ERROR_STOP=1 -c "DROP FUNCTION public.audit_fixture_untrusted_schema_creator_search_path();"
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE CREATE ON SCHEMA auth FROM deedlight_audit_spoofed_login;"
+psql -X -v ON_ERROR_STOP=1 -c "DROP SCHEMA auth;"
 
 # Unexpected routine GUCs and unsafe values fail before any routine setting is emitted.
+psql -X -v ON_ERROR_STOP=1 <<'SQL'
 CREATE FUNCTION public.audit_fixture_custom_guc()
 RETURNS integer LANGUAGE sql
 SET deedlight.secret = 'fixture-secret-value'
 AS 'SELECT 1';
+SQL
 expect_failure routine_custom_guc "Unexpected or unsafe routine configuration"
 if grep -Fq "fixture-secret-value" "${tmp_dir}/routine_custom_guc.log"; then
   echo "FAIL: custom GUC value leaked into diagnostic output" >&2
   exit 1
 fi
-DROP FUNCTION public.audit_fixture_custom_guc();
+psql -X -v ON_ERROR_STOP=1 -c "DROP FUNCTION public.audit_fixture_custom_guc();"
 
+psql -X -v ON_ERROR_STOP=1 <<'SQL'
 CREATE FUNCTION public.audit_fixture_bad_search_path()
 RETURNS integer LANGUAGE sql
 SET search_path = 'public, pg_temp, auth'
 AS 'SELECT 1';
+SQL
 expect_failure unsafe_routine_search_path "Unexpected or unsafe routine configuration"
-DROP FUNCTION public.audit_fixture_bad_search_path();
+psql -X -v ON_ERROR_STOP=1 -c "DROP FUNCTION public.audit_fixture_bad_search_path();"
 
 # Exact migration-history schema: column names/types/nullability, constraints, indexes and row metadata.
 psql -X -v ON_ERROR_STOP=1 -c "ALTER TABLE supabase_migrations.schema_migrations ADD COLUMN unexpected text"
