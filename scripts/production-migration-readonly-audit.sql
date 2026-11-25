@@ -183,6 +183,7 @@ BEGIN
                     SELECT 1
                     FROM pg_catalog.pg_roles owner_member
                     WHERE owner_member.rolcanlogin AND NOT owner_member.rolsuper
+                      AND path_owner.rolname <> 'pg_database_owner'
                       AND pg_catalog.pg_has_role(owner_member.oid, path_owner.oid, 'MEMBER')
                   )
                   OR EXISTS (
