@@ -314,15 +314,31 @@ begin
     raise exception 'Migration 038 compatibility postflight detected missing service_role EXECUTE privilege.' using errcode = '55000';
   end if;
 
+  -- Reject any unrelated role that can SET ROLE to service_role, including
+  -- transitive SET-only membership paths. service_role itself remains an
+  -- explicitly approved application grantee.
+  if exists (
+    select 1
+    from pg_catalog.pg_roles r
+    where r.oid not in (v_owner_oid, 'anon'::regrole::oid, 'authenticated'::regrole::oid, 'service_role'::regrole::oid)
+      and not r.rolsuper
+      and pg_catalog.pg_has_role(r.oid, 'service_role'::regrole::oid, 'SET')
+  ) then
+    raise exception 'Migration 038 compatibility postflight detected unauthorized SET ROLE membership to service_role.' using errcode = '55000';
+  end if;
+
+  -- Match preflight's approved application-role allowlist. service_role must
+  -- not be treated as an unexpected effective privilege when PUBLIC is absent.
   if not v_public_execute and exists (
     select 1
     from pg_catalog.pg_roles r
-    where r.oid not in (v_owner_oid, 'anon'::regrole::oid, 'authenticated'::regrole::oid)
+    where r.oid not in (v_owner_oid, 'anon'::regrole::oid, 'authenticated'::regrole::oid, 'service_role'::regrole::oid)
       and not r.rolsuper
       and (
         pg_catalog.has_function_privilege(r.oid, v_function_oid, 'EXECUTE')
         or pg_catalog.pg_has_role(r.oid, 'anon'::regrole::oid, 'SET')
         or pg_catalog.pg_has_role(r.oid, 'authenticated'::regrole::oid, 'SET')
+        or pg_catalog.pg_has_role(r.oid, 'service_role'::regrole::oid, 'SET')
       )
   ) then
     raise exception 'Migration 038 compatibility postflight detected unexpected inherited/effective function EXECUTE privilege.' using errcode = '55000';
