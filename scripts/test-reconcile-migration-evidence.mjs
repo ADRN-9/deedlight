@@ -247,6 +247,8 @@ test("verifies signed approvals and collector authority; duplicate 007 remains e
 test("signed artifacts with missing claims or unsigned extra approval references fail closed", () => {
   for (const mutate of [
     (f) => { f.approvals.evidenceApproval = artifact("production-evidence-approval", "evidence-approver", undefined); },
+    (f) => { f.approvals.mappingApproval = artifact("migration-mapping-approval", "mapping-approver", undefined); },
+    (f) => { f.approvals.collectorAttestation = artifact("read-only-collector-attestation", "collector", undefined); },
     (f) => { f.approvals.evidenceApproval.untrustedApprovalReference = "arbitrary-reference"; },
   ]) {
     const f = fixture();
@@ -592,6 +594,18 @@ test("trust roots must match an independently provisioned digest", () => {
     const report = f.analyze({ trustedTrustRootsSha256: "0".repeat(64) });
     assert.equal(report.counts.Unknown, 39);
     assert.ok(report.trustProblems.some((reason) => reason.includes("independently provisioned trust-root digest")));
+  } finally { f.cleanup(); }
+});
+
+test("reused migration execution IDs cannot establish exact execution identity", () => {
+  const f = fixture();
+  try {
+    f.evidence.history.rows[1].executionId = f.evidence.history.rows[0].executionId;
+    f.reapprove();
+    const report = f.analyze();
+    assert.equal(report.counts.Unknown, 39);
+    assert.ok(report.trustProblems.some((reason) => reason.includes("reuses an execution ID")));
+    assert.equal(report.acceptance, "NOT_ACCEPTED");
   } finally { f.cleanup(); }
 });
 
