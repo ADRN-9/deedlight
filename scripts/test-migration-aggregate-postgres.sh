@@ -329,6 +329,71 @@ WHERE p.oid = 'public.is_admin()'::regprocedure;
 ")"
 test "$rollback_before" = "$rollback_after"
 
+# An ownership change injected after replacement must fail postflight and roll back.
+psql --no-psqlrc --set ON_ERROR_STOP=1 <<'SQL'
+CREATE ROLE migration_038_owner_drift NOLOGIN;
+GRANT CREATE ON SCHEMA public TO migration_038_owner_drift;
+CREATE FUNCTION public.__migration_038_test_change_owner()
+RETURNS event_trigger
+LANGUAGE plpgsql
+AS $event$
+DECLARE
+  command record;
+BEGIN
+  FOR command IN SELECT * FROM pg_catalog.pg_event_trigger_ddl_commands() LOOP
+    IF command.object_type = 'function'
+      AND command.object_identity = 'public.is_admin()' THEN
+      ALTER FUNCTION public.is_admin() OWNER TO migration_038_owner_drift;
+    END IF;
+  END LOOP;
+END;
+$event$;
+CREATE EVENT TRIGGER migration_038_test_change_owner
+ON ddl_command_end
+WHEN TAG IN ('CREATE FUNCTION')
+EXECUTE FUNCTION public.__migration_038_test_change_owner();
+SQL
+owner_drift_before="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "
+SELECT jsonb_build_object(
+  'source', p.prosrc,
+  'owner_oid', p.proowner,
+  'owner_name', owner_role.rolname,
+  'acl', p.proacl::text,
+  'config', p.proconfig
+)::text
+FROM pg_catalog.pg_proc p
+JOIN pg_catalog.pg_roles owner_role ON owner_role.oid = p.proowner
+WHERE p.oid = 'public.is_admin()'::regprocedure;
+")"
+if psql --no-psqlrc --set ON_ERROR_STOP=1 --file supabase/bootstrap/migration_038_admin_compatibility.sql >"$compat_log" 2>&1; then
+  echo "Compatibility bridge unexpectedly accepted an injected owner change." >&2
+  exit 1
+fi
+if ! grep -Fq "failed to preserve the exact is_admin() owner identity" "$compat_log"; then
+  cat "$compat_log"
+  echo "Compatibility bridge failed for an unexpected reason in owner-preservation test." >&2
+  exit 1
+fi
+psql --no-psqlrc --set ON_ERROR_STOP=1 <<'SQL'
+DROP EVENT TRIGGER migration_038_test_change_owner;
+DROP FUNCTION public.__migration_038_test_change_owner();
+REVOKE CREATE ON SCHEMA public FROM migration_038_owner_drift;
+DROP ROLE migration_038_owner_drift;
+SQL
+owner_drift_after="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align --command "
+SELECT jsonb_build_object(
+  'source', p.prosrc,
+  'owner_oid', p.proowner,
+  'owner_name', owner_role.rolname,
+  'acl', p.proacl::text,
+  'config', p.proconfig
+)::text
+FROM pg_catalog.pg_proc p
+JOIN pg_catalog.pg_roles owner_role ON owner_role.oid = p.proowner
+WHERE p.oid = 'public.is_admin()'::regprocedure;
+")"
+test "$owner_drift_before" = "$owner_drift_after"
+
 # The exact historical source remains recoverable after rollback.
 psql --no-psqlrc --set ON_ERROR_STOP=1 --file supabase/bootstrap/migration_038_admin_compatibility.sql
 psql --no-psqlrc --set ON_ERROR_STOP=1 --file supabase/bootstrap/migration_038_admin_compatibility.sql
