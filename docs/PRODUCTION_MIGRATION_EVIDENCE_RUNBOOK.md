@@ -6,15 +6,18 @@
 
 - DBA/security owner authorizes a read-only audit window and identifies the exact Production project/endpoint through an independently trusted channel.
 - Collector runs from a controlled, isolated host. Verify TLS certificate/hostname and expected Supabase project reference independently; the SQL-supplied project label is metadata, not endpoint authentication.
-- Use a dedicated, non-owner collector role with direct grants only. The approved contract is: no superuser, role/database creation, replication or BYPASSRLS attributes; no membership, direct or inherited, in any other role (including every predefined `pg_*` role, especially `pg_read_all_data` and `pg_write_all_data`, and `service_role`); no database CREATE, application-schema CREATE, application table/view/foreign-table privileges (including column ACLs), application sequence USAGE/SELECT/UPDATE, or ownership of application objects/schemas.
+- Authenticate directly as the dedicated login role `deedlight_catalog_auditor`; do not connect as `postgres`, a superuser, or another login and then use `SET SESSION AUTHORIZATION` to impersonate the collector. The audit requires `session_user = deedlight_catalog_auditor` and validates the authenticated principal independently from the effective `current_user`. The effective role may differ only in a legitimate `SECURITY DEFINER` execution context; `SET ROLE` is rejected. Both authenticated and effective roles must be non-privileged and have no direct or inherited memberships. This intentionally avoids a brittle `session_user = current_user` check.
+- The custom GUC `deedlight.authenticated_principal` must equal the actual `session_user`; it is an untrusted consistency label, not authentication. A spoofed or missing label fails closed. PostgreSQL cannot reveal whether a superuser previously used `SET SESSION AUTHORIZATION` to impersonate another role, so the collector must authenticate directly through the independently verified TLS endpoint as the dedicated non-superuser login. Never run this bundle through a superuser session.
+- The approved role has no superuser, role/database creation, replication or BYPASSRLS attributes; no membership, direct or inherited, in any other role (including every predefined `pg_*` role, especially `pg_read_all_data` and `pg_write_all_data`, and `service_role`); no database CREATE, application-schema CREATE, application table/view/foreign-table privileges (including column ACLs), application sequence USAGE/SELECT/UPDATE, or ownership of application objects/schemas.
 - Grant SELECT only on the explicitly enumerated PostgreSQL catalogs/views required by the audit and SELECT on `supabase_migrations.schema_migrations`. The collector must not own the history table or have table/column write privileges on it. The SQL enforces these effective privileges before collection; a failed check is a hard stop, not a prompt to use a stronger role.
 - Do not grant application table or sequence access to make catalog queries work. Catalog metadata is read through `pg_catalog`; the audit never needs to read application rows. The SQL transaction is a second control, not a substitute for the role contract.
 - Credentials must come from an approved secret manager or an external `PGSERVICEFILE`/`PGPASSFILE` with restrictive filesystem permissions. Never put credentials, connection URIs, tokens or passwords in repository files, command arguments, shell history, CI logs or evidence artifacts.
-- Record the exact repository SHA being audited (the package implementation commit is `6ca30f8ad1cb07184ded05770838c620ecf6d59c` before this remediation) and inventory blob SHA `95d514a0bd97ff448c9507252eb1f5e69a507442` in the collector receipt. A controlled runner must verify the checked-out commit and migration inventory before collection.
+- Record the exact repository SHA checked out at collection time and inventory blob SHA `95d514a0bd97ff448c9507252eb1f5e69a507442` in the collector receipt. Never copy a historical commit SHA from this runbook; a controlled runner must verify the checked-out commit and migration inventory before collection.
 - Provide non-secret connection metadata through PostgreSQL custom settings:
   - `deedlight.expected_project_ref=xaipiovflxomcbfwtwmu`
   - `deedlight.repository_sha=<exact 40-character commit SHA>`
-  These labels are not proof of endpoint identity. The collector must bind the actual TLS peer/host, provider project identity, repository SHA, SQL bundle digest, query output digest and UTC capture timestamp into a signed receipt.
+  - `deedlight.authenticated_principal=deedlight_catalog_auditor`
+  The authenticated-principal GUC is compared with `session_user` but is not itself an authentication factor. These labels are not proof of endpoint identity. The collector must bind the actual TLS peer/host, provider project identity, authenticated and effective role identities, repository SHA, SQL bundle digest, query output digest and UTC capture timestamp into a signed receipt.
 
 ## Execute only the read-only bundle
 
@@ -26,9 +29,13 @@ psql -X --no-psqlrc --set=ON_ERROR_STOP=1 \
   --file=scripts/production-migration-readonly-audit.sql
 ```
 
-The referenced service definition and password file must live outside the repository and be mounted by the secret manager. Configure the two non-secret custom GUC labels via the controlled connection profile/PGOPTIONS. Do not print connection settings. Do not run Supabase CLI link, db pull, db push, reset, migration, RPC or application queries as part of this audit.
+The referenced service definition and password file must live outside the repository and be mounted by the secret manager. Configure the three non-secret custom GUC labels via the controlled connection profile/PGOPTIONS. Do not print connection settings. Do not run Supabase CLI link, db pull, db push, reset, migration, RPC or application queries as part of this audit.
 
-The SQL starts a REPEATABLE READ READ ONLY transaction, sets bounded statement/lock timeouts, validates required project/SHA metadata, enforces the collector privilege contract, validates the supported migration-history schema (`version text`, `name text`, `statements text[]`), queries PostgreSQL catalogs plus explicit migration version/name/statement-count columns only, and ends with ROLLBACK. Whole-row JSON serialization is prohibited. Missing required history/catalog access or an unsupported history shape aborts collection. Missing catalog access must not be worked around by a more privileged browser/application role; escalate to the DBA for a separately approved direct read-only grant and rerun.
+The SQL starts a REPEATABLE READ READ ONLY transaction, sets bounded statement/lock timeouts, validates project/SHA/principal context, rejects `SET ROLE`, validates both authenticated and effective role attributes/memberships, and enforces the collector privilege contract. It validates the exact supported migration-history shape: precisely three active columns (`version text NOT NULL`, `name text NULL`, `statements text[] NULL`), no defaults/generated/identity columns, one validated non-deferrable primary key on `version`, and one valid/ready/live btree primary-key index with no additional constraints or indexes. The table must be permanent, ordinary and without RLS; version metadata must be 12 digits and optional migration names must match the reviewed identifier syntax. Other history shapes abort collection pending an explicit compatibility review. Whole-row JSON serialization is prohibited.
+
+Routine `proconfig` is not exported wholesale. Only the reviewed `search_path`, `row_security`, `default_transaction_read_only`, statement/lock/idle timeouts and `temp_file_limit` settings are accepted, with constrained values and deterministic sorted JSON serialization. Any custom GUC or unexpected value aborts collection before routine metadata is emitted.
+
+Missing required history/catalog access or an unsupported history shape aborts collection. Missing catalog access must not be worked around by a more privileged browser/application role; escalate to the DBA for a separately approved direct read-only grant and rerun.
 
 ## PostgreSQL 16 disposable execution validation
 
@@ -38,7 +45,11 @@ The CI fixture `scripts/test-production-migration-readonly-audit-postgres16.sh` 
 - missing migration-history SELECT and missing catalog SELECT rejection;
 - table-level, column-level and sequence privilege rejection;
 - invalid project and repository metadata;
-- an actual migration-history/index-inspection lock-timeout interruption, transaction abort and successful subsequent read-only retry.
+- malformed history schemas (extra columns, wrong PostgreSQL types/nullability, missing primary key, unexpected indexes and invalid migration metadata);
+- custom-GUC disclosure and unsafe `search_path` rejection, plus deterministic allowlisted routine-setting serialization;
+- direct/nested role switching, predefined privileged-role membership, privileged-login `SET ROLE` impersonation, spoofed/missing/malformed principal context, revoked LOGIN/catalog/history authorization, and legitimate SECURITY DEFINER execution;
+- an actual lock-timeout interruption and recovery; and
+- abrupt client termination while a transaction holds a table lock and uncommitted marker row, proving backend termination, rollback, lock release, no stale authentication context and successful subsequent collection.
 
 The fixture creates synthetic roles, a synthetic history row and synthetic application objects. Never point this harness at Production. It does not validate the provider-specific endpoint identity or establish Production state.
 
@@ -47,7 +58,7 @@ The fixture creates synthetic roles, a synthetic history row and synthetic appli
 Permitted export content:
 - database/server identity metadata and exact UTC capture time;
 - schema object names, types, owners, column definitions/defaults, sequences and their ownership dependencies;
-- function identity signatures, owners, SECURITY DEFINER flags, language, volatility and configuration (not function bodies);
+- function identity signatures, owners, SECURITY DEFINER flags, language, volatility and only the reviewed allowlisted configuration (not function bodies or arbitrary custom GUC values);
 - ACL edges, grants/revokes, role attributes/memberships and default privileges;
 - RLS flags and policy expressions;
 - constraints, index definitions plus validity/readiness/liveness/uniqueness flags, trigger definitions;
@@ -74,7 +85,9 @@ Do not retry through a more privileged identity without a new DBA/security appro
 
 ## Required signed receipt
 
-The collector receipt should bind: actual endpoint/provider identity and TLS verification result; project ref; database name/server version/address metadata; role identity and verified effective privileges; exact repository commit SHA; inventory blob SHA-1; read-only SQL bundle SHA-256; transaction start/capture UTC timestamps; query completion timestamp; statement/query count; full result digest; output schema version; success/failure state; and collector identity/key ID. Sign using the independently provisioned collector key. Private signing material remains in KMS/HSM or controlled signing service and never enters this repository.
+The collector receipt should bind: actual endpoint/provider identity and TLS verification result; project ref; database name/server version/address metadata; authenticated session principal, effective role, role-switch state and verified effective privileges; exact repository commit SHA; inventory blob SHA-1; read-only SQL bundle SHA-256; transaction start/capture UTC timestamps; query completion timestamp; statement/query count; full result digest; output schema version; success/failure state; and collector identity/key ID. Sign using the independently provisioned collector key. Private signing material remains in KMS/HSM or controlled signing service and never enters this repository.
+
+On CI failure, the disposable harness prints and retains sanitized synthetic PostgreSQL client/backend logs in the runner temporary directory; the workflow uploads those diagnostics as a failure-only artifact. These logs contain only fixture identities and synthetic values.
 
 ## No authorization to mutate
 

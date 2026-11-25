@@ -368,6 +368,14 @@ jobs:
 
       - name: Production migration audit PostgreSQL 16 behavior and interruption tests
         run: bash scripts/test-production-migration-readonly-audit-postgres16.sh
+      - name: Preserve PostgreSQL 16 migration-audit diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: migration-audit-postgres16-diagnostics
+          path: ${{ runner.temp }}/deedlight-migration-audit-*
+          if-no-files-found: ignore
+          retention-days: 7
 
   delivery_provider_webhook_database_behavior:
     runs-on: ubuntu-latest

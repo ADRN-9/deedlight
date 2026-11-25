@@ -5,8 +5,11 @@
 -- Required collector-provided, non-secret connection metadata:
 --   deedlight.expected_project_ref = xaipiovflxomcbfwtwmu
 --   deedlight.repository_sha = exact 40-character Git SHA being audited
--- These custom settings are provenance labels, not authentication or proof of endpoint identity.
--- The collector MUST independently verify the TLS endpoint/host and bind this output to its receipt.
+-- These custom settings are untrusted consistency labels, not authentication or proof of endpoint identity.
+-- deedlight.authenticated_principal must equal the authenticated session_user; SQL independently
+-- validates that login and the effective current_user. SECURITY DEFINER may change current_user;
+-- SET ROLE is rejected. A superuser can still impersonate with SET SESSION AUTHORIZATION, so the
+-- collector MUST connect directly as deedlight_catalog_auditor over independently verified TLS.
 
 BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;
 SET LOCAL statement_timeout = '60s';
@@ -18,9 +21,15 @@ DECLARE
   v_repository_sha text := current_setting('deedlight.repository_sha', true);
   v_history_oid oid := to_regclass('supabase_migrations.schema_migrations');
   v_catalog text;
-  v_role_oid oid;
+  v_session_role_oid oid;
+  v_effective_role_oid oid;
+  v_authenticated_principal text := current_setting('deedlight.authenticated_principal', true);
+  v_role_setting text := current_setting('role', true);
   v_relation record;
   v_privilege text;
+  v_history_column_count integer;
+  v_version_attnum smallint;
+  v_history_index_count integer;
 BEGIN
   IF current_setting('transaction_read_only') <> 'on' THEN
     RAISE EXCEPTION 'Audit must execute in a read-only transaction.';
@@ -31,75 +40,229 @@ BEGIN
   IF v_repository_sha IS NULL OR v_repository_sha !~ '^[0-9a-f]{40}$' THEN
     RAISE EXCEPTION 'Exact repository SHA is required as collector metadata.';
   END IF;
-  v_role_oid := to_regrole(current_user)::oid;
+  -- session_user is the authenticated login principal; current_user may legitimately
+  -- be a SECURITY DEFINER owner. Do not require those identities to be equal.
+  IF session_user <> 'deedlight_catalog_auditor'
+    OR v_authenticated_principal IS DISTINCT FROM session_user THEN
+    RAISE EXCEPTION 'Authenticated collector principal is missing, malformed, or not authorized.';
+  END IF;
+  IF v_role_setting IS DISTINCT FROM 'none' THEN
+    RAISE EXCEPTION 'SET ROLE is prohibited for the migration audit collector.';
+  END IF;
+
+  SELECT oid INTO v_session_role_oid
+  FROM pg_catalog.pg_roles
+  WHERE rolname = session_user;
+  SELECT oid INTO v_effective_role_oid
+  FROM pg_catalog.pg_roles
+  WHERE rolname = current_user;
+  IF v_session_role_oid IS NULL OR v_effective_role_oid IS NULL THEN
+    RAISE EXCEPTION 'Authenticated or effective database role identity is unavailable.';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_roles
+    WHERE oid = v_session_role_oid AND rolcanlogin
+      AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb
+      AND NOT rolreplication AND NOT rolbypassrls
+  ) OR NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_roles
+    WHERE oid = v_effective_role_oid
+      AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb
+      AND NOT rolreplication AND NOT rolbypassrls
+  ) THEN
+    RAISE EXCEPTION 'Authenticated or effective role violates the least-privilege identity contract.';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_roles r
+    WHERE r.oid <> v_session_role_oid
+      AND pg_catalog.pg_has_role(v_session_role_oid, r.oid, 'MEMBER')
+  ) OR EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_roles r
+    WHERE r.oid <> v_effective_role_oid
+      AND pg_catalog.pg_has_role(v_effective_role_oid, r.oid, 'MEMBER')
+  ) THEN
+    RAISE EXCEPTION 'Authenticated or effective collector role has role membership.';
+  END IF;
+
   FOREACH v_catalog IN ARRAY ARRAY[
-    'pg_catalog.pg_class', 'pg_catalog.pg_attribute', 'pg_catalog.pg_proc',
-    'pg_catalog.pg_roles', 'pg_catalog.pg_auth_members', 'pg_catalog.pg_namespace',
-    'pg_catalog.pg_language', 'pg_catalog.pg_policies', 'pg_catalog.pg_constraint',
-    'pg_catalog.pg_indexes', 'pg_catalog.pg_trigger', 'pg_catalog.pg_default_acl',
-    'pg_catalog.pg_extension', 'pg_catalog.pg_sequence', 'pg_catalog.pg_index',
-    'pg_catalog.pg_depend', 'pg_catalog.pg_type'
+    'pg_catalog.pg_class', 'pg_catalog.pg_attribute', 'pg_catalog.pg_attrdef',
+    'pg_catalog.pg_proc', 'pg_catalog.pg_roles', 'pg_catalog.pg_auth_members',
+    'pg_catalog.pg_namespace', 'pg_catalog.pg_language', 'pg_catalog.pg_policies',
+    'pg_catalog.pg_constraint', 'pg_catalog.pg_indexes', 'pg_catalog.pg_trigger',
+    'pg_catalog.pg_default_acl', 'pg_catalog.pg_extension', 'pg_catalog.pg_sequence',
+    'pg_catalog.pg_index', 'pg_catalog.pg_depend', 'pg_catalog.pg_type', 'pg_catalog.pg_am'
   ] LOOP
     IF to_regclass(v_catalog) IS NULL
-      OR NOT has_table_privilege(current_user, to_regclass(v_catalog), 'SELECT') THEN
-      RAISE EXCEPTION 'Required catalog SELECT access unavailable: %', v_catalog;
+      OR NOT has_table_privilege(v_session_role_oid, to_regclass(v_catalog), 'SELECT')
+      OR NOT has_table_privilege(v_effective_role_oid, to_regclass(v_catalog), 'SELECT') THEN
+      RAISE EXCEPTION 'Required catalog SELECT access unavailable to authenticated/effective principal: %', v_catalog;
     END IF;
   END LOOP;
+
+  -- Routine settings are a reviewed allowlist, not a raw pg_proc.proconfig export.
+  -- Reject custom GUCs and unsafe values before any settings are serialized.
   IF EXISTS (
-    SELECT 1 FROM pg_catalog.pg_roles
-    WHERE oid = v_role_oid
-      AND (rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls)
+    SELECT 1
+    FROM pg_catalog.pg_proc p
+    JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+    CROSS JOIN LATERAL unnest(COALESCE(p.proconfig, ARRAY[]::text[])) cfg(setting)
+    CROSS JOIN LATERAL (
+      SELECT
+        split_part(cfg.setting, '=', 1) AS setting_name,
+        CASE WHEN position('=' IN cfg.setting) > 0
+          THEN substring(cfg.setting FROM position('=' IN cfg.setting) + 1)
+          ELSE NULL END AS setting_value
+    ) parsed
+    WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+      AND n.nspname NOT LIKE 'pg_toast%'
+      AND (
+        parsed.setting_value IS NULL
+        OR NOT (
+          (parsed.setting_name = 'search_path'
+            AND parsed.setting_value ~ '^(pg_catalog|public|extensions)(, ?(pg_catalog|public|extensions))*$')
+          OR (parsed.setting_name IN ('row_security', 'default_transaction_read_only')
+            AND parsed.setting_value IN ('on', 'off'))
+          OR (parsed.setting_name IN (
+                'statement_timeout', 'lock_timeout', 'idle_in_transaction_session_timeout'
+              ) AND parsed.setting_value ~ '^(0|[1-9][0-9]*(ms|s|min|h|d)?)$')
+          OR (parsed.setting_name = 'temp_file_limit'
+            AND parsed.setting_value ~* '^(-1|0|[1-9][0-9]*(kb|mb|gb)?)$')
+        )
+      )
   ) THEN
-    RAISE EXCEPTION 'Collector role violates the catalog-audit role attribute contract.';
+    RAISE EXCEPTION 'Unexpected or unsafe routine configuration; allowlisted settings only.';
   END IF;
-  IF EXISTS (
-    SELECT 1 FROM pg_catalog.pg_roles r
-    WHERE r.oid <> v_role_oid AND pg_catalog.pg_has_role(v_role_oid, r.oid, 'MEMBER')
-  ) THEN
-    RAISE EXCEPTION 'Collector role has role membership; only direct grants are permitted.';
-  END IF;
+
+  v_history_oid := to_regclass('supabase_migrations.schema_migrations');
   IF v_history_oid IS NULL THEN
     RAISE EXCEPTION 'Required Supabase migration-history table is unavailable.';
   END IF;
-  IF (SELECT relowner FROM pg_catalog.pg_class WHERE oid = v_history_oid) = v_role_oid
-    OR NOT has_table_privilege(v_role_oid, v_history_oid, 'SELECT') THEN
+  IF NOT has_table_privilege(v_session_role_oid, v_history_oid, 'SELECT')
+    OR NOT has_table_privilege(v_effective_role_oid, v_history_oid, 'SELECT')
+    OR (SELECT relowner FROM pg_catalog.pg_class WHERE oid = v_history_oid)
+      IN (v_session_role_oid, v_effective_role_oid) THEN
     RAISE EXCEPTION 'Collector must have SELECT-only access to migration history without owning it.';
   END IF;
   FOREACH v_privilege IN ARRAY ARRAY['INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'] LOOP
-    IF has_table_privilege(v_role_oid, v_history_oid, v_privilege) THEN
+    IF has_table_privilege(v_session_role_oid, v_history_oid, v_privilege)
+      OR has_table_privilege(v_effective_role_oid, v_history_oid, v_privilege) THEN
       RAISE EXCEPTION 'Collector has prohibited % access to migration history.', v_privilege;
     END IF;
   END LOOP;
   IF EXISTS (
     SELECT 1 FROM pg_catalog.pg_attribute a
     WHERE a.attrelid = v_history_oid AND a.attnum > 0 AND NOT a.attisdropped
-      AND (has_column_privilege(v_role_oid, v_history_oid, a.attname, 'INSERT')
-        OR has_column_privilege(v_role_oid, v_history_oid, a.attname, 'UPDATE')
-        OR has_column_privilege(v_role_oid, v_history_oid, a.attname, 'REFERENCES'))
+      AND (
+        has_column_privilege(v_session_role_oid, v_history_oid, a.attname, 'INSERT')
+        OR has_column_privilege(v_session_role_oid, v_history_oid, a.attname, 'UPDATE')
+        OR has_column_privilege(v_session_role_oid, v_history_oid, a.attname, 'REFERENCES')
+        OR has_column_privilege(v_effective_role_oid, v_history_oid, a.attname, 'INSERT')
+        OR has_column_privilege(v_effective_role_oid, v_history_oid, a.attname, 'UPDATE')
+        OR has_column_privilege(v_effective_role_oid, v_history_oid, a.attname, 'REFERENCES')
+      )
   ) THEN
     RAISE EXCEPTION 'Collector has prohibited column-level write access to migration history.';
   END IF;
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_catalog.pg_attribute
-    WHERE attrelid = v_history_oid AND attname = 'version' AND attnum > 0 AND NOT attisdropped
-  ) OR NOT EXISTS (
-    SELECT 1 FROM pg_catalog.pg_attribute
-    WHERE attrelid = v_history_oid AND attname = 'name' AND attnum > 0 AND NOT attisdropped
-  ) OR NOT EXISTS (
-    SELECT 1 FROM pg_catalog.pg_attribute a JOIN pg_catalog.pg_type t ON t.oid = a.atttypid
-    WHERE a.attrelid = v_history_oid AND a.attname = 'statements'
-      AND a.attnum > 0 AND NOT a.attisdropped AND t.typcategory = 'A'
-  ) THEN
-    RAISE EXCEPTION 'Unsupported migration-history schema; expected version, name and array statements columns.';
+
+  SELECT count(*)::integer INTO v_history_column_count
+  FROM pg_catalog.pg_attribute
+  WHERE attrelid = v_history_oid AND attnum > 0 AND NOT attisdropped;
+  SELECT attnum INTO v_version_attnum
+  FROM pg_catalog.pg_attribute
+  WHERE attrelid = v_history_oid AND attname = 'version'
+    AND attnum > 0 AND NOT attisdropped;
+  IF v_history_column_count <> 3
+    OR v_version_attnum IS NULL
+    OR NOT EXISTS (
+      SELECT 1 FROM pg_catalog.pg_attribute a
+      WHERE a.attrelid = v_history_oid AND a.attname = 'version'
+        AND a.atttypid = 'pg_catalog.text'::regtype AND a.attnotnull
+        AND a.attgenerated = '' AND a.attidentity = ''
+    )
+    OR NOT EXISTS (
+      SELECT 1 FROM pg_catalog.pg_attribute a
+      WHERE a.attrelid = v_history_oid AND a.attname = 'name'
+        AND a.atttypid = 'pg_catalog.text'::regtype AND NOT a.attnotnull
+        AND a.attgenerated = '' AND a.attidentity = ''
+    )
+    OR NOT EXISTS (
+      SELECT 1 FROM pg_catalog.pg_attribute a
+      WHERE a.attrelid = v_history_oid AND a.attname = 'statements'
+        AND a.atttypid = 'pg_catalog.text[]'::regtype AND NOT a.attnotnull
+        AND a.attgenerated = '' AND a.attidentity = ''
+    )
+    OR EXISTS (
+      SELECT 1 FROM pg_catalog.pg_attrdef d
+      WHERE d.adrelid = v_history_oid
+    )
+  THEN
+    RAISE EXCEPTION 'Unsupported migration-history schema; expected exactly version text NOT NULL, name text NULL, statements text[] NULL.';
   END IF;
-  IF has_database_privilege(v_role_oid, current_database(), 'CREATE') THEN
+
+  IF EXISTS (
+    SELECT 1 FROM pg_catalog.pg_constraint c
+    WHERE c.conrelid = v_history_oid
+      AND NOT (
+        c.contype = 'p' AND c.conkey = ARRAY[v_version_attnum]::smallint[]
+        AND c.convalidated AND NOT c.condeferrable AND NOT c.condeferred
+      )
+  ) OR (
+    SELECT count(*) FROM pg_catalog.pg_constraint c
+    WHERE c.conrelid = v_history_oid
+  ) <> 1 THEN
+    RAISE EXCEPTION 'Unsupported migration-history constraints; require one validated non-deferrable primary key on version only.';
+  END IF;
+
+  SELECT count(*)::integer INTO v_history_index_count
+  FROM pg_catalog.pg_index
+  WHERE indrelid = v_history_oid;
+  IF v_history_index_count <> 1 OR NOT EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_index i
+    JOIN pg_catalog.pg_class index_relation ON index_relation.oid = i.indexrelid
+    JOIN pg_catalog.pg_am am ON am.oid = index_relation.relam
+    JOIN pg_catalog.pg_constraint c ON c.conindid = i.indexrelid
+      AND c.conrelid = i.indrelid AND c.contype = 'p'
+    WHERE i.indrelid = v_history_oid
+      AND index_relation.relkind = 'i'
+      AND i.indisprimary AND i.indisunique AND i.indimmediate
+      AND i.indisvalid AND i.indisready AND i.indislive
+      AND i.indnkeyatts = 1 AND i.indnatts = 1
+      AND i.indkey[0] = v_version_attnum
+      AND i.indpred IS NULL AND i.indexprs IS NULL
+      AND am.amname = 'btree'
+  ) THEN
+    RAISE EXCEPTION 'Unsupported migration-history indexes; require one valid, ready, live btree primary-key index on version.';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_class c
+    WHERE c.oid = v_history_oid AND c.relkind = 'r'
+      AND c.relpersistence = 'p' AND NOT c.relrowsecurity AND NOT c.relforcerowsecurity
+  ) THEN
+    RAISE EXCEPTION 'Migration-history table must be a permanent ordinary table without row-level security.';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations h
+    WHERE h.version !~ '^[0-9]{12}$'
+      OR (h.name IS NOT NULL AND h.name !~ '^[A-Za-z0-9_-]+$')
+  ) THEN
+    RAISE EXCEPTION 'Migration-history contains invalid version or migration-name metadata.';
+  END IF;
+
+  IF has_database_privilege(v_session_role_oid, current_database(), 'CREATE')
+    OR has_database_privilege(v_effective_role_oid, current_database(), 'CREATE') THEN
     RAISE EXCEPTION 'Collector role has database CREATE privilege.';
   END IF;
   IF EXISTS (
     SELECT 1 FROM pg_catalog.pg_namespace n
     WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
       AND n.nspname NOT LIKE 'pg_toast%'
-      AND (n.nspowner = v_role_oid OR has_schema_privilege(v_role_oid, n.oid, 'CREATE'))
+      AND (n.nspowner IN (v_session_role_oid, v_effective_role_oid)
+        OR has_schema_privilege(v_session_role_oid, n.oid, 'CREATE')
+        OR has_schema_privilege(v_effective_role_oid, n.oid, 'CREATE'))
   ) THEN
     RAISE EXCEPTION 'Collector role owns an application schema or has schema CREATE privilege.';
   END IF;
@@ -114,25 +277,28 @@ BEGIN
       AND n.nspname NOT LIKE 'pg_toast%' AND c.oid <> v_history_oid
       AND c.relkind IN ('r','p','v','m','f','S')
   LOOP
-    IF v_relation.relowner = v_role_oid THEN
+    IF v_relation.relowner IN (v_session_role_oid, v_effective_role_oid) THEN
       RAISE EXCEPTION 'Collector owns application object %.%.', v_relation.nspname, v_relation.relname;
     END IF;
     IF v_relation.relkind = 'S' THEN
       FOREACH v_privilege IN ARRAY ARRAY['USAGE','SELECT','UPDATE'] LOOP
-        IF has_sequence_privilege(v_role_oid, v_relation.oid, v_privilege) THEN
+        IF has_sequence_privilege(v_session_role_oid, v_relation.oid, v_privilege)
+          OR has_sequence_privilege(v_effective_role_oid, v_relation.oid, v_privilege) THEN
           RAISE EXCEPTION 'Collector has prohibited % access to application sequence %.%.',
             v_privilege, v_relation.nspname, v_relation.relname;
         END IF;
       END LOOP;
     ELSE
       FOREACH v_privilege IN ARRAY ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'] LOOP
-        IF has_table_privilege(v_role_oid, v_relation.oid, v_privilege) THEN
+        IF has_table_privilege(v_session_role_oid, v_relation.oid, v_privilege)
+          OR has_table_privilege(v_effective_role_oid, v_relation.oid, v_privilege) THEN
           RAISE EXCEPTION 'Collector has prohibited % access to application relation %.%.',
             v_privilege, v_relation.nspname, v_relation.relname;
         END IF;
       END LOOP;
       FOREACH v_privilege IN ARRAY ARRAY['SELECT','INSERT','UPDATE','REFERENCES'] LOOP
-        IF has_any_column_privilege(v_role_oid, v_relation.oid, v_privilege) THEN
+        IF has_any_column_privilege(v_session_role_oid, v_relation.oid, v_privilege)
+          OR has_any_column_privilege(v_effective_role_oid, v_relation.oid, v_privilege) THEN
           RAISE EXCEPTION 'Collector has prohibited column-level % access to application relation %.%.',
             v_privilege, v_relation.nspname, v_relation.relname;
         END IF;
@@ -195,7 +361,17 @@ SELECT
   p.prosecdef AS security_definer,
   p.proleakproof AS leakproof,
   p.provolatile AS volatility,
-  p.proconfig AS routine_settings
+  COALESCE((
+    SELECT jsonb_agg(
+      jsonb_build_object(
+        'name', split_part(cfg.setting, '=', 1),
+        'value', substring(cfg.setting FROM position('=' IN cfg.setting) + 1)
+      )
+      ORDER BY split_part(cfg.setting, '=', 1),
+        substring(cfg.setting FROM position('=' IN cfg.setting) + 1)
+    )
+    FROM unnest(COALESCE(p.proconfig, ARRAY[]::text[])) cfg(setting)
+  ), '[]'::jsonb) AS routine_settings
 FROM pg_catalog.pg_proc p
 JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
 JOIN pg_catalog.pg_language l ON l.oid = p.prolang
