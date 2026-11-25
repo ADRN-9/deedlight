@@ -161,3 +161,67 @@ Acceptance mode fails on all unresolved ambiguity, including both duplicate-007 
 ## Current boundaries
 
 No Production export, signed Production approval, trust-root installation, collector credential audit, schema classification, DBA authorization or migration-history mutation is included in this code change. Synthetic tests use ephemeral Ed25519 keys and disposable fixtures only. Their keys are not valid Production trust roots.
+
+
+## Cycle 407 source review and evidence boundaries
+
+The 39 migration SQL files were inspected at the pinned source revision. The following is a source-review index of the concrete SQL effect families observed; it is not a signed migration-effect mapping, a catalog fingerprint set, or an independent semantic approval. Exact object identities, before/after definitions, effective ACLs, ownership, data invariants and dependency edges still require a separately reviewed canonical mapping and Production catalog evidence.
+
+| Migration source | Observed SQL effects requiring mapping |
+|---|---|
+| 001 initial schema | pgcrypto extension; profiles, themes, daily_posts, offerings, reactions, reflections, reports, badges, user_badges, saved_lights and daily_deed_completions; indexes, foreign keys, updated-at and counter triggers; signup/reaction/reflection/report functions; counter data updates; offerings_public view |
+| 002 RLS policies | is_admin function; RLS enablement and policies across core tables; storage bucket insert and storage.objects policies |
+| 003 offering review | offering indexes; offerings_public view replacement; view SELECT grant |
+| 004 reactions | schema/table/function grants; is_admin and reaction counter function; counter updates and triggers; reactions RLS/policies; rising view and grant |
+| 005 moderation | report/offering indexes; grants; is_admin and report counter functions; report/offering RLS and policies; counter triggers and data updates |
+| 006 admin hotfix | preflight DO block; offerings column/constraint changes; grants and update policy; public view replacement |
+| 007 Sprint 6 daily deed | pgcrypto; daily_posts and daily_reflections tables/columns/FKs/indexes; updated-at triggers; RLS/policies/grants; helper functions; daily_posts seed insert |
+| 007 Sprint 7 PWA | daily_lights and daily_reflections tables/columns/FKs; existing-row updates/defaults/constraints; indexes; RLS/policies/grants |
+| 008 short video | daily_lights video columns/defaults/constraints/indexes; existing-row data update; grants |
+| 009 profiles privacy | profile column/username changes and data normalization; indexes; signup function; profile/offering policy changes; revoke/grant changes; profiles_public and offerings_public views |
+| 010 identity consistency | signup function; offerings_public and offerings_rising views; view grants/revokes |
+| 011 moderation-aware members | member_moderation_events table/index/RLS; admin member/context/suspension functions; profile suspension update and audit insert; offering/reflection policy changes; function ACLs |
+| 012 daily completion | daily_deed_completions and daily_reflections column/constraint/index changes; policies; completion-count view; grants |
+| 013 saved Lights | saved_lights column/constraint/index changes; RLS/policies and grants |
+| 014 reminder preferences | daily_reminder_preferences table; updated-at trigger; RLS/policies and grants |
+| 015 Weekly Goodness | reaction index; weekly_goodness_features table/trigger; weekly read/curation functions; feature delete/insert/update data changes; function ACLs |
+| 016 invitations/newsletter | invitation_links, invitation_acceptances and newsletter_preferences tables/indexes/triggers/RLS; default preference data; invitation and newsletter functions; auth signup triggers; grants |
+| 017 Offering ownership | offerings owner/removal fields and index; offering/reaction policies; update/remove/restore functions and ACLs; offering row updates |
+| 018 removal guard | preflight checks; offering constraints; guarded remove function replacement and ACL |
+| 019 delivery foundation | reminder preference function; delivery_ledger table/indexes/trigger/RLS; daily/weekly enqueue, claim, authorization, sent and failure functions; queue inserts/updates |
+| 020 delivery reliability | ledger preflight/columns/index; claim/authorize/retry/sent/failure function replacements and ledger state updates |
+| 021 transport | ledger transport-state change; begin_delivery_transport and curated weekly enqueue functions; ACLs |
+| 022 pgcrypto qualification | preflight and signup function replacement with qualified extension references |
+| 023 consent linearization | daily/weekly enqueue and begin transport function replacements; ledger updates; function ACLs/comments |
+| 024 lease capacity | begin transport signature replacement and lease/state updates; weekly enqueue/curation function replacements; ACLs |
+| 025 provider webhooks | provider events/suppressions tables, indexes and RLS; webhook event function; daily/weekly enqueue and transport function replacements; event/suppression/ledger inserts and updates |
+| 026 provider lifecycle | event constraints; provider lifecycle table/index/RLS; lifecycle and event function replacements; lifecycle/suppression inserts and updates; ACLs |
+| 027 provider integrity | event/lifecycle constraints; integrity anomaly table/index/RLS; event/lifecycle/suppression function replacements; anomaly/lifecycle/suppression writes; routine ACLs and comments |
+| 028 claim expiry | authorize/retry/sent/failure function replacements; claim-token, lease-expiry and ledger state updates; service-role-only ACLs |
+| 029 legacy replay guard | preflight; legacy lifecycle implementation rename/wrapper; routine ACLs and comments |
+| 030 idempotency receipt guard | preflight; idempotency-window function; retry and sent function replacements; failed/queued ledger state transitions; ACLs/comments |
+| 031 final recipient suppression | preflight; idempotency authorization replacement; recipient suppression checks and ledger failure/state updates; ACLs |
+| 032 Resend suppression sync | provider event/anomaly constraints; suppression-state table/index/RLS; suppression event function; event/anomaly/lifecycle/state/suppression writes and deletes; ACLs |
+| 033 cross-stream suppression order | preflight; lifecycle event function replacement; suppression ordering/deletion logic; ACLs/comments |
+| 034 suppression timestamp order | suppression-order index; suppression event function replacement; event/anomaly/lifecycle/state/suppression writes and deletes; ACLs/comments |
+| 035 private Offering base RLS | removal of broad/public Offering SELECT policies |
+| 036 private Daily Reflection | daily_reflections constraints/policy replacement; owner-only select/insert/update policies; privilege revokes/grants |
+| 037 provider conflict evidence | preflight; integrity cases/evidence/history tables, indexes, RLS and immutable audit triggers; conflict capture/resolution functions; lifecycle/suppression wrappers; audit/history inserts and case/lifecycle updates; routine ACLs |
+| 038 provider lock order/pagination | preflight; integrity cursor/history indexes; lifecycle/event/suppression function replacements; paginated admin conflict/detail/evidence/history functions; service-role ACLs |
+
+This source review identifies operation families and data-write sites, but does not prove the semantic result of dynamic SQL, DO blocks, conditional DDL, existing-row transformations, trigger side effects, ownership inheritance or effective role grants. Those require line-specific canonical effect records and independently reviewed fingerprints. The analyzer's synthetic fixtures deliberately do not claim to model these 39 actual migration effects.
+
+## Controlled Production trust-root provisioning
+
+Trust roots are authorization configuration, not evidence supplied by the candidate being evaluated. The CLI requires both an external trust-root file and a separately provisioned `DEEDLIGHT_MIGRATION_TRUST_ROOTS_SHA256` digest. The file must resolve outside the repository; missing configuration, a repository-contained path, malformed digest, digest mismatch, untrusted key, revoked key or expired approval fails closed.
+
+Provisioning procedure (operator/DBA/security approval required; not performed by this change):
+
+1. Generate three independent Ed25519 key pairs in an approved KMS/HSM or controlled offline signing environment for the evidence approver, mapping approver and collector. Never commit private keys or place them in the evidence bundle.
+2. Independently verify signer identities, role assignments, key custody, validity intervals, revocation contacts and separation of duties. Do not reuse a public key across roles.
+3. Export only the public keys and their status/validity metadata into the trust-root JSON. Keep the canonical trust-root SHA-256 in protected deployment/runner configuration managed outside repository-controlled files and CI artifacts.
+4. Place the public trust-root JSON in a read-only path outside the repository on the controlled acceptance runner. Set `DEEDLIGHT_MIGRATION_TRUST_ROOTS_SHA256` through protected configuration, not command-line arguments or evidence metadata.
+5. Have the DBA/security approvers independently sign a change record for the public-key bundle and digest. Test rotation/revocation with synthetic keys before using Production authorities.
+6. Restrict access to the runner, trust-root file, protected digest, signing service and resulting audit logs. Rotate/revoke compromised keys and approval IDs promptly; fail closed while the trust configuration is unavailable.
+
+No Production trust roots, signing credentials, protected configuration, approvals or collector identities were provisioned or changed during Cycle 407.
