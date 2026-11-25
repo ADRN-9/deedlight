@@ -233,25 +233,24 @@ function fixture() {
       return f.approvals;
     },
     analyze(overrides = {}) {
-      const { trustedTrustRootsSha256 = hash(Buffer.from(canonicalJson(trustRoots))), ...analysisOverrides } = overrides;
-      const previousDigest = process.env.DEEDLIGHT_MIGRATION_TRUST_ROOTS_SHA256;
-      process.env.DEEDLIGHT_MIGRATION_TRUST_ROOTS_SHA256 = trustedTrustRootsSha256;
-      try {
-        return analyzeMigrationEvidence({
-          rootDir,
-          manifest: sourceManifest,
-          evidence,
-          approvals: f.approvals,
-          trustRoots,
-          ...analysisOverrides,
-        });
-      } finally {
-        if (previousDigest === undefined) delete process.env.DEEDLIGHT_MIGRATION_TRUST_ROOTS_SHA256;
-        else process.env.DEEDLIGHT_MIGRATION_TRUST_ROOTS_SHA256 = previousDigest;
-      }
+      const inputs = f.writeCurrentInputs();
+      const script = path.join(repoRoot, "scripts/reconcile-migration-evidence.mjs");
+      const args = [
+        "--evidence=" + inputs.evidencePath,
+        "--approvals=" + inputs.approvalsPath,
+        "--trust-roots=" + inputs.rootsPath,
+        "--mode=accept",
+      ];
+      const trustedTrustRootsSha256 = overrides.trustedTrustRootsSha256 || inputs.rootsDigest;
+      const result = spawnSync(process.execPath, [script, ...args], {
+        cwd: rootDir,
+        encoding: "utf8",
+        env: { ...process.env, DEEDLIGHT_MIGRATION_TRUST_ROOTS_SHA256: trustedTrustRootsSha256 },
+      });
+      assert.ok(result.stdout, result.stderr || "analyzer CLI did not produce a report");
+      return JSON.parse(result.stdout);
     },
-    writeCliInputs() {
-      f.reapprove();
+    writeCurrentInputs() {
       const evidencePath = path.join(trustDir, "evidence.json");
       const approvalsPath = path.join(trustDir, "approvals.json");
       const rootsPath = path.join(trustDir, "trust-roots.json");
@@ -259,6 +258,10 @@ function fixture() {
       writeFileSync(approvalsPath, JSON.stringify(f.approvals));
       writeFileSync(rootsPath, JSON.stringify(trustRoots));
       return { evidencePath, approvalsPath, rootsPath, rootsDigest: hash(Buffer.from(canonicalJson(trustRoots))) };
+    },
+    writeCliInputs() {
+      f.reapprove();
+      return f.writeCurrentInputs();
     },
   };
   f.reapprove();
