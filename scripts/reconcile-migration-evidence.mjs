@@ -518,7 +518,7 @@ export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approval
   for (const approval of [bundle.evidenceApproval, bundle.collectorAttestation]) {
     const issuedAt = strictTimestamp(approval?.issuedAt);
     const capturedAt = strictTimestamp(provenance.capturedAt);
-    if (Number.isFinite(issuedAt) && Number.isFinite(capturedAt) && issuedAt < capturedAt) {
+    if (Number.isFinite(issuedAt) && Number.isFinite(capturedAt) && issuedAt <= capturedAt) {
       problems.push("evidence and collector approvals must be issued after the exact evidence capture");
     }
   }
