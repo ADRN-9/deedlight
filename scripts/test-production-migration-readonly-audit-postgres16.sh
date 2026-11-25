@@ -127,6 +127,7 @@ expect_history_failure() {
 
 run_audit >"${tmp_dir}/approved.log" 2>&1
 grep -Fq "audit_fixture_sequence" "${tmp_dir}/approved.log"
+grep -Fq "deedlight_catalog_auditor" "${tmp_dir}/approved.log"
 grep -Fq "AUDIT_TRANSACTION_ROLLED_BACK" "${tmp_dir}/approved.log"
 grep -Fq '"name": "search_path"' "${tmp_dir}/approved.log"
 grep -Fq '"value": "pg_catalog"' "${tmp_dir}/approved.log"
