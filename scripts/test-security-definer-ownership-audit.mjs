@@ -201,7 +201,7 @@ for (const signature of signatures) {
   const args = argumentText.slice(0, -1);
   assert.ok(routineAcl.some((r) => r.schema_name === 'public'
     && r.routine_name === routineName
-    && r.identity_arguments.replace(/,\\s*/g, ',') === args
+    && r.identity_arguments.replace(/,\s*/g, ',') === args
     && r.privilege === 'EXECUTE'),
   'Query 13 must enumerate EXECUTE ACL entries for every audited signature: ' + signature);
 }
