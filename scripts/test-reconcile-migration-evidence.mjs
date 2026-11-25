@@ -233,16 +233,23 @@ function fixture() {
       return f.approvals;
     },
     analyze(overrides = {}) {
-      return analyzeMigrationEvidence({
-        rootDir,
-        manifest: sourceManifest,
-        evidence,
-        approvals: f.approvals,
-        trustRoots,
-        trustedTrustRootsSha256: hash(Buffer.from(canonicalJson(trustRoots))),
-        now: Date.parse("2026-11-25T01:00:00.000Z"),
-        ...overrides,
-      });
+      const { trustedTrustRootsSha256 = hash(Buffer.from(canonicalJson(trustRoots))), ...analysisOverrides } = overrides;
+      const previousDigest = process.env.DEEDLIGHT_MIGRATION_TRUST_ROOTS_SHA256;
+      process.env.DEEDLIGHT_MIGRATION_TRUST_ROOTS_SHA256 = trustedTrustRootsSha256;
+      try {
+        return analyzeMigrationEvidence({
+          rootDir,
+          manifest: sourceManifest,
+          evidence,
+          approvals: f.approvals,
+          trustRoots,
+          now: Date.parse("2026-11-25T01:00:00.000Z"),
+          ...analysisOverrides,
+        });
+      } finally {
+        if (previousDigest === undefined) delete process.env.DEEDLIGHT_MIGRATION_TRUST_ROOTS_SHA256;
+        else process.env.DEEDLIGHT_MIGRATION_TRUST_ROOTS_SHA256 = previousDigest;
+      }
     },
     writeCliInputs() {
       f.reapprove();
@@ -425,6 +432,8 @@ test("mapping must account for schema, privileges, ownership, routines, data, de
       kind: "ownership", identity: "fixture.owner", fingerprint: hash("owner"),
       description: "Owner role and grants",
     });
+    f.mapping.migrations[0].coverage.ownership.disposition = "effects";
+    f.mapping.migrations[0].coverage.ownership.rationale = "Synthetic fixture explicitly maps ownership effects to the pinned migration source range.";
     f.reapprove();
     const report = f.analyze();
     assert.equal(report.trustVerified, true);
