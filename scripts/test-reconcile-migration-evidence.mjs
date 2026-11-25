@@ -260,7 +260,7 @@ test("approval claims are bound to exact project, evidence, mapping, query, coll
     f.approvals.evidenceApproval = artifact("production-evidence-approval", "evidence-approver", { ...claims, collectorIdentity: "forged-collector" });
     const report = f.analyze();
     assert.equal(report.counts.Unknown, 39);
-    assert.ok(report.trustProblems.some((reason) => reason.includes("signature verification failed")));
+    assert.ok(report.trustProblems.some((reason) => reason.includes("signed evidence approval does not bind the exact evidence")));
   } finally { f.cleanup(); }
 });
 
