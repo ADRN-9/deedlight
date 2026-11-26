@@ -35,7 +35,8 @@ BEGIN
     OR pg_catalog.inet_server_addr() IS NULL
     OR pg_catalog.host(pg_catalog.inet_server_addr()) IS DISTINCT FROM v_expected_server_addr
     OR pg_catalog.inet_server_port() IS DISTINCT FROM 5432 THEN
-    RAISE EXCEPTION 'Connected PostgreSQL server endpoint does not match the approved disposable service.';
+    RAISE EXCEPTION 'Connected PostgreSQL server endpoint mismatch: expected %, actual %, port %.',
+      v_expected_server_addr, pg_catalog.host(pg_catalog.inet_server_addr()), pg_catalog.inet_server_port();
   END IF;
   IF pg_catalog.to_regnamespace('supabase_migrations') IS NOT NULL
     OR pg_catalog.to_regnamespace('deedlight_audit_missing_schema') IS NOT NULL
