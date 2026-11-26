@@ -450,7 +450,7 @@ test("collector routine and database privilege matrix is executable and regressi
   assert.match(runner, /effective_definer_inherit/);
   assert.match(runner, /ALTER ROLE deedlight_audit_definer_owner NOINHERIT/);
   assert.match(runner, /effective SECURITY DEFINER owner with INHERIT is rejected/);
-  assert.ok(runner.includes("'public.audit_fixture_overload(text)', 'EXECUTE') | grep -Fxq f"));
+  assert.match(runner, /has_function_privilege\('deedlight_catalog_auditor'[\s\S]*?grep -Fxq f/);
   assert.ok(runner.includes('expect_failure inherited_routine_execute "Authenticated or effective collector role has role membership."'));
   assert.match(fixture, /WHERE oid = v_session_role_oid AND rolcanlogin[\s\S]*?AND NOT rolinherit/);
   assert.match(fixture, /WHERE oid = v_effective_role_oid[\s\S]*?AND NOT rolinherit/);
