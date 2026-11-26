@@ -392,6 +392,62 @@ test("active trust roots require explicit null revokedAt; malformed and revoked 
     assert.equal(report.trustProblems.length, 0);
   } finally { active.cleanup(); }
 });
+test("every active trust root requires explicit null revokedAt, including unused roots", () => {
+  const mutations = [
+    ["absent", (key) => { delete key.revokedAt; }],
+    ["empty string", (key) => { key.revokedAt = ""; }],
+    ["false", (key) => { key.revokedAt = false; }],
+    ["zero", (key) => { key.revokedAt = 0; }],
+    ["object", (key) => { key.revokedAt = {}; }],
+    ["array", (key) => { key.revokedAt = []; }],
+    ["malformed timestamp", (key) => { key.revokedAt = "not-a-timestamp"; }],
+    ["revocation timestamp on active key", (key) => { key.revokedAt = fixtureTime(-60000); }],
+  ];
+  for (const [label, mutate] of mutations) {
+    const f = fixture();
+    try {
+      const unusedPair = generateKeyPairSync("ed25519");
+      const unusedRoot = {
+        keyId: "unused-active-key",
+        signerId: "unused-active-authority",
+        role: "mapping-approver",
+        algorithm: "Ed25519",
+        status: "active",
+        publicKeyPem: unusedPair.publicKey.export({ type: "spki", format: "pem" }).toString(),
+        notBefore: "2026-01-01T00:00:00.000Z",
+        notAfter: "2027-01-01T00:00:00.000Z",
+        revokedAt: null,
+      };
+      mutate(unusedRoot);
+      f.trustRoots.keys.push(unusedRoot);
+      const report = f.analyze();
+      assert.equal(report.trustVerified, false, label);
+      assert.equal(report.counts.Unknown, 39, label);
+      assert.equal(report.acceptance, "NOT_ACCEPTED", label);
+      assert.ok(report.trustProblems.some((reason) => reason.includes("every active trust-root key must explicitly provide revokedAt: null")), label);
+    } finally { f.cleanup(); }
+  }
+
+  const valid = fixture();
+  try {
+    const unusedPair = generateKeyPairSync("ed25519");
+    valid.trustRoots.keys.push({
+      keyId: "unused-active-key",
+      signerId: "unused-active-authority",
+      role: "mapping-approver",
+      algorithm: "Ed25519",
+      status: "active",
+      publicKeyPem: unusedPair.publicKey.export({ type: "spki", format: "pem" }).toString(),
+      notBefore: "2026-01-01T00:00:00.000Z",
+      notAfter: "2027-01-01T00:00:00.000Z",
+      revokedAt: null,
+    });
+    const report = valid.analyze();
+    assert.equal(report.trustVerified, true);
+    assert.equal(report.trustProblems.length, 0);
+  } finally { valid.cleanup(); }
+});
+
 test("expired approval, revoked signer key and revoked approval ID fail closed", () => {
   const changes = [
     (f) => {
