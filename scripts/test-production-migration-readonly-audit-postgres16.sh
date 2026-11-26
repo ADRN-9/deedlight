@@ -626,6 +626,7 @@ grep -Fq 'deedlight_catalog_auditor|deedlight_catalog_auditor' "${tmp_dir}/sessi
 grep -Fq 'audit_fixture_sequence' "${tmp_dir}/session-authorization.log"
 grep -Fq 'AUDIT_TRANSACTION_ROLLED_BACK' "${tmp_dir}/session-authorization.log"
 echo "LIMITATION: superuser SET SESSION AUTHORIZATION can spoof SQL-visible collector identity; independent connection authentication is mandatory"
+psql -X -v ON_ERROR_STOP=1 -c "DROP OWNED BY deedlight_audit_privileged_login";
 psql -X -v ON_ERROR_STOP=1 -c "DROP ROLE deedlight_audit_privileged_login";
 
 # Direct SET ROLE is rejected even when the target role itself has no elevated attributes.
