@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 
@@ -33,6 +33,7 @@ export function canonicalJson(value) {
 }
 export function parseCsv(input) {
   const text = Buffer.isBuffer(input) ? input.toString("utf8") : String(input);
+  if (Buffer.isBuffer(input) && !Buffer.from(text, "utf8").equals(input)) throw new CollectorError("INVALID_CSV_UTF8");
   if (text.includes("\u0000")) throw new CollectorError("INVALID_CSV_NUL");
   const normalized = text.replace(/\r\n/g, "\n");
   const rows = []; let row = []; let cell = ""; let quoted = false; let quoteClosed = false;
@@ -86,7 +87,7 @@ export function validateSqlOutput(csv) {
 function assertOutsideRepository(filePath, repoPath, code) {
   const resolved = realpathSync(filePath);
   const relative = path.relative(repoPath, resolved);
-  if (!relative.startsWith("..") && !path.isAbsolute(relative)) throw new CollectorError(code);
+  if (relative === "" || (relative !== ".." && !relative.startsWith(".." + path.sep)) || path.isAbsolute(relative)) throw new CollectorError(code);
   return resolved;
 }
 function requirePrivateRegularFile(filePath, code) {
@@ -227,19 +228,23 @@ export function collect({ profilePath, outputDir }) {
   if (sha256(readFileSync(sqlPath)) !== SQL_SHA256) throw new CollectorError("SQL_BUNDLE_SHA256_MISMATCH");
   const { profile, profileDigest } = loadProfile(profilePath, repoPath);
   const absoluteOutput = path.resolve(outputDir);
+  const outputParent = realpathSync(path.dirname(absoluteOutput));
+  assertOutsideRepository(outputParent, repoPath, "EVIDENCE_OUTPUT_MUST_BE_EXTERNAL");
   if (existsSync(absoluteOutput)) throw new CollectorError("OUTPUT_DIRECTORY_ALREADY_EXISTS");
-  mkdirSync(absoluteOutput, { recursive: true, mode: 0o700 });
+  mkdirSync(absoluteOutput, { mode: 0o700 });
   const outputRealPath = realpathSync(absoluteOutput);
   assertOutsideRepository(outputRealPath, repoPath, "EVIDENCE_OUTPUT_MUST_BE_EXTERNAL");
   const startedAt = new Date().toISOString();
   const csv = runPsql({ repoPath, profile, sqlPath, commitSha });
+  let evidencePath;
+  let receiptPath;
   try {
     const validation = validateSqlOutput(csv);
     const completedAt = new Date().toISOString();
     const receipt = buildReceipt({ profile, profileDigest, commitSha, startedAt, completedAt, csv, validation });
     const receiptBytes = Buffer.from(canonicalJson(receipt) + "\n", "utf8");
-    const evidencePath = path.join(outputRealPath, "evidence.csv");
-    const receiptPath = path.join(outputRealPath, "receipt.json");
+    evidencePath = path.join(outputRealPath, "evidence.csv");
+    receiptPath = path.join(outputRealPath, "receipt.json");
     writeFileSync(evidencePath, csv, { flag: "wx", mode: 0o600 });
     writeFileSync(receiptPath, receiptBytes, { flag: "wx", mode: 0o600 });
     return {
@@ -247,6 +252,9 @@ export function collect({ profilePath, outputDir }) {
       evidenceSha256: receipt.evidence.sha256, databaseAclV1RowCount: validation.databaseAclRows,
     };
   } catch (error) {
+    for (const filePath of [receiptPath, evidencePath]) {
+      if (filePath && existsSync(filePath)) unlinkSync(filePath);
+    }
     csv.fill(0);
     throw error;
   } finally { csv.fill(0); }
