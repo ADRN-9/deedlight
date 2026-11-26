@@ -37,6 +37,6 @@ test("fixture and integration runner cover incomplete, inconsistent and unauthor
   assert.match(fixture, /legacy_anomaly_backfill/);
   assert.match(runner, /incomplete Migration 037 backfill is detected/);
   assert.match(runner, /inconsistent evidence-to-source association fails closed/);
-  assert.match(runner, /unauthorized role cannot read underlying records/);
+  assert.match(runner, /unauthorized database role cannot read underlying records/);
   assert.match(runner, /deedlight_backfill_unauthorized/);
 });
