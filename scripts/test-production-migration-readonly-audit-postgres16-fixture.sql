@@ -124,6 +124,7 @@ CREATE SEQUENCE public.audit_fixture_sequence OWNED BY public.audit_fixture_priv
 CREATE TABLE public.audit_fixture_termination_marker (id integer PRIMARY KEY);
 
 REVOKE SELECT ON pg_catalog.pg_roles FROM PUBLIC;
+REVOKE SELECT ON pg_catalog.pg_database FROM PUBLIC;
 GRANT USAGE ON SCHEMA supabase_migrations TO deedlight_catalog_auditor;
 GRANT SELECT ON supabase_migrations.schema_migrations TO deedlight_catalog_auditor;
 GRANT USAGE ON SCHEMA public TO deedlight_audit_definer_owner;
@@ -135,7 +136,7 @@ GRANT SELECT ON pg_catalog.pg_class, pg_catalog.pg_attribute, pg_catalog.pg_attr
   pg_catalog.pg_language, pg_catalog.pg_policies, pg_catalog.pg_constraint,
   pg_catalog.pg_indexes, pg_catalog.pg_trigger, pg_catalog.pg_default_acl,
   pg_catalog.pg_extension, pg_catalog.pg_sequence, pg_catalog.pg_index,
-  pg_catalog.pg_depend, pg_catalog.pg_type, pg_catalog.pg_am, pg_catalog.pg_roles
+  pg_catalog.pg_depend, pg_catalog.pg_type, pg_catalog.pg_am, pg_catalog.pg_roles, pg_catalog.pg_database
 TO deedlight_catalog_auditor, deedlight_audit_definer_owner;
 
 CREATE FUNCTION public.audit_fixture_security_definer_identity()
