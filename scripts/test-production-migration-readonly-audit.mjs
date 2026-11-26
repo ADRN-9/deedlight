@@ -399,7 +399,7 @@ test("collector routine and database privilege matrix is executable and regressi
     "security_definer_private_exfiltration", "public_routine_execute", "direct_routine_execute",
     "global_default_routine_execute", "schema_default_routine_execute", "overloaded_function_oid_execute",
     "procedure_execute", "aggregate_execute", "window_function_execute", "inherited_routine_execute",
-    "database_connect_required", "database_create", "database_temp", "database_grant_option",
+    "database_create", "database_temp", "database_grant_option",
     "database_ownership", "application_schema_usage", "application_schema_ownership",
   ]) assert.match(runner, new RegExp("expect_failure " + scenario));
   assert.match(runner, /CREATE AGGREGATE public\.audit_fixture_aggregate/);
@@ -407,7 +407,7 @@ test("collector routine and database privilege matrix is executable and regressi
   assert.match(runner, /GRANT EXECUTE ON ROUTINE public\.audit_fixture_overload\(integer\)/);
   assert.match(runner, /pg_catalog\.has_function_privilege\('deedlight_catalog_auditor'/);
   assert.match(runner, /ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO PUBLIC/);
-  assert.match(runner, /ALTER DATABASE deedlight_migration_order_test OWNER TO deedlight_catalog_auditor/);
+  assert.match(runner, /connect_privilege_state/);\n  assert.match(runner, /ALTER DATABASE deedlight_migration_order_test OWNER TO deedlight_catalog_auditor/);
   assert.match(runner, /ALTER SCHEMA public OWNER TO deedlight_catalog_auditor/);
   const workflow = readFileSync(path.join(process.cwd(), ".github/workflows/pr-validation.yml"), "utf8");
   assert.match(workflow, /node --test scripts\/test-production-migration-readonly-audit\.mjs/);
