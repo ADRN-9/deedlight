@@ -76,12 +76,12 @@ BEGIN
 END;
 $fixture_guard$;
 
-CREATE ROLE deedlight_catalog_auditor LOGIN PASSWORD :'fixture_auditor_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
-CREATE ROLE deedlight_audit_spoofed_login LOGIN PASSWORD :'fixture_spoofed_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
-CREATE ROLE deedlight_audit_switch_target NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
-CREATE ROLE deedlight_audit_nested_parent NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
-CREATE ROLE deedlight_audit_nested_leaf NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
-CREATE ROLE deedlight_audit_definer_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE ROLE deedlight_catalog_auditor LOGIN PASSWORD :'fixture_auditor_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
+CREATE ROLE deedlight_audit_spoofed_login LOGIN PASSWORD :'fixture_spoofed_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
+CREATE ROLE deedlight_audit_switch_target NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
+CREATE ROLE deedlight_audit_nested_parent NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
+CREATE ROLE deedlight_audit_nested_leaf NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
+CREATE ROLE deedlight_audit_definer_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
 
 -- The preceding migration-order job shares this disposable database service.
 -- Normalize only its synthetic application schemas before the positive collector case.
@@ -161,11 +161,13 @@ BEGIN
     WHERE oid = v_session_role_oid AND rolcanlogin
       AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb
       AND NOT rolreplication AND NOT rolbypassrls
+      AND NOT rolinherit
   ) OR NOT EXISTS (
     SELECT 1 FROM pg_catalog.pg_roles
     WHERE oid = v_effective_role_oid
       AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb
       AND NOT rolreplication AND NOT rolbypassrls
+      AND NOT rolinherit
   ) OR EXISTS (
     SELECT 1 FROM pg_catalog.pg_roles r
     WHERE r.oid <> v_session_role_oid
@@ -175,7 +177,7 @@ BEGIN
     WHERE r.oid <> v_effective_role_oid
       AND pg_catalog.pg_has_role(v_effective_role_oid, r.oid, 'MEMBER')
   ) THEN
-    RAISE EXCEPTION 'Fixture SECURITY DEFINER role attributes or memberships rejected.';
+    RAISE EXCEPTION 'Fixture SECURITY DEFINER role attributes, NOINHERIT state or memberships rejected.';
   END IF;
   RETURN current_user || ':' || session_user;
 END;
