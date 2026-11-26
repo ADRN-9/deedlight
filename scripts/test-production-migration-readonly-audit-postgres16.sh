@@ -498,6 +498,9 @@ psql -X -v ON_ERROR_STOP=1 -c "REVOKE CONNECT ON DATABASE deedlight_migration_or
 psql -X -v ON_ERROR_STOP=1 -c "ALTER DATABASE deedlight_migration_order_test OWNER TO deedlight_catalog_auditor;"
 expect_failure database_ownership "owns the current database"
 psql -X -v ON_ERROR_STOP=1 -c "ALTER DATABASE deedlight_migration_order_test OWNER TO postgres;"
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE CONNECT ON DATABASE deedlight_migration_order_test FROM PUBLIC;"
+expect_failure database_connect_required "requires database CONNECT privilege"
+psql -X -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE deedlight_migration_order_test TO PUBLIC;"
 psql -X -v ON_ERROR_STOP=1 -c "GRANT USAGE ON SCHEMA public TO deedlight_catalog_auditor;"
 expect_failure application_schema_usage "prohibited USAGE on an application schema"
 psql -X -v ON_ERROR_STOP=1 -c "REVOKE USAGE ON SCHEMA public FROM deedlight_catalog_auditor;"
@@ -507,6 +510,8 @@ expect_failure application_schema_ownership "owns an application schema"
 psql -X -v ON_ERROR_STOP=1 -c "ALTER SCHEMA public OWNER TO \"$public_schema_owner\";"
 
 # A SECURITY DEFINER owner changes current_user but preserves the authenticated login.
+psql -X -v ON_ERROR_STOP=1 -c "GRANT USAGE ON SCHEMA public TO deedlight_catalog_auditor;"
+psql -X -v ON_ERROR_STOP=1 -c "GRANT EXECUTE ON FUNCTION public.audit_fixture_security_definer_identity() TO deedlight_catalog_auditor;"
 definer_result="$(
   psql_as deedlight_catalog_auditor -X -qAt -v ON_ERROR_STOP=1 <<'SQL'
 SET deedlight.authenticated_principal = 'deedlight_catalog_auditor';
@@ -514,6 +519,8 @@ SELECT public.audit_fixture_security_definer_identity();
 SQL
 )"
 test "${definer_result}" = "deedlight_audit_definer_owner:deedlight_catalog_auditor"
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE EXECUTE ON FUNCTION public.audit_fixture_security_definer_identity() FROM deedlight_catalog_auditor;"
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE USAGE ON SCHEMA public FROM deedlight_catalog_auditor;"
 echo "PASS: SECURITY DEFINER preserves and validates the authenticated principal"
 
 # Add the privileged SECURITY DEFINER fixture only after the trusted baseline passes.
