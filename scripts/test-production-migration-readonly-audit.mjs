@@ -225,6 +225,7 @@ test("audit pins a trusted search_path before authorization preflight and schema
 
 test("audit fails closed for missing catalogs and unsupported migration history", () => {
   assert.match(sql, /Required catalog SELECT access unavailable/);
+  assert.match(preflight, /\x27pg_catalog\.pg_database\x27/);
   assert.match(sql, /Required Supabase migration-history table is unavailable/);
   assert.match(sql, /WHERE path_ns\.nspname = path\.schema_name/);
   assert.match(sql, /Unsupported migration-history schema/);
@@ -383,6 +384,23 @@ test("collector routine and database privilege matrix is executable and regressi
   assert.match(preflight, /has_database_privilege\(v_session_role_oid, pg_catalog\.current_database\(\), 'CREATE'\)/);
   assert.match(preflight, /has_database_privilege\(v_session_role_oid, pg_catalog\.current_database\(\), 'TEMP'\)/);
   assert.match(preflight, /acl\.is_grantable/);
+  const databaseGrantGuard = preflight.slice(
+    preflight.indexOf("FROM pg_catalog.pg_database d"),
+    preflight.indexOf("PUBLIC or collector role has prohibited database grant-option privileges"),
+  );
+  assert.match(databaseGrantGuard, /acl\.grantee = 0/);
+  assert.match(databaseGrantGuard, /acl\.grantee IN \(v_session_role_oid, v_effective_role_oid\)/);
+
+  const databaseProjection = sql.slice(sql.indexOf("-- 14. Complete database ACL evidence"), sql.indexOf("-- The collector captures the result digest"));
+  for (const token of [
+    "'database_acl_v1'", "FROM pg_catalog.pg_database d", "d.oid AS database_oid",
+    "d.datdba AS owner_oid", "owner_role.rolname AS owner_name", "(d.datacl IS NULL)",
+    "pg_catalog.acldefault('d', d.datdba)", "'PUBLIC'", "'grantee_oid'",
+    "'grantor_oid'", "'privilege_type'", "'is_grantable'",
+    "ORDER BY acl.grantee, acl.grantor, acl.privilege_type, acl.is_grantable",
+    "ORDER BY d.oid, d.datname",
+  ]) assert.ok(databaseProjection.includes(token), "missing deterministic database ACL evidence: " + token);
+  assert.match(databaseProjection, /mandatory input to the canonical result digest/);
   assert.match(preflight, /has_schema_privilege\(v_session_role_oid, n\.oid, 'USAGE'\)/);
   assert.match(preflight, /n\.nspname <> 'supabase_migrations'/);
   assert.match(preflight, /n\.nspname = 'supabase_migrations'[\s\S]*?has_schema_privilege\(v_effective_role_oid, n\.oid, 'USAGE'\)/);
@@ -402,7 +420,7 @@ test("collector routine and database privilege matrix is executable and regressi
     "global_default_routine_execute", "schema_default_routine_execute", "implicit_global_default_routine_execute", "overloaded_function_oid_execute",
     "procedure_execute", "aggregate_execute", "window_function_execute", "inherited_routine_execute",
     "database_create", "database_temp", "database_grant_option",
-    "database_ownership", "application_schema_usage", "application_schema_ownership",
+    "database_ownership", "application_schema_usage", "application_schema_ownership", "missing_database_catalog_authorization",
   ]) assert.match(runner, new RegExp("expect_failure " + scenario));
   assert.match(runner, /CREATE AGGREGATE public\.audit_fixture_aggregate/);
   assert.match(runner, /LANGUAGE sql WINDOW/);
@@ -418,6 +436,11 @@ test("collector routine and database privilege matrix is executable and regressi
   assert.ok(runner.includes("GRANT EXECUTE ON FUNCTION public.audit_fixture_security_definer_identity() TO deedlight_audit_switch_target"));
   assert.match(runner, /connect_privilege_state/);
   assert.match(runner, /ALTER DATABASE deedlight_migration_order_test OWNER TO deedlight_catalog_auditor/);
+  assert.match(runner, /GRANT CONNECT ON DATABASE deedlight_migration_order_test TO PUBLIC WITH GRANT OPTION/);
+  assert.match(runner, /grant options can only be granted to roles/);
+  assert.match(runner, /missing_database_catalog_authorization/);
+  assert.match(fixture, /REVOKE SELECT ON pg_catalog\.pg_database FROM PUBLIC/);
+  assert.match(fixture, /pg_catalog\.pg_database,?\s*TO deedlight_catalog_auditor/);
   assert.match(runner, /ALTER SCHEMA public OWNER TO deedlight_catalog_auditor/);
   const workflow = readFileSync(path.join(process.cwd(), ".github/workflows/pr-validation.yml"), "utf8");
   assert.match(workflow, /node --test scripts\/test-production-migration-readonly-audit\.mjs/);
