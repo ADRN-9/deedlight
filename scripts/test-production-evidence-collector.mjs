@@ -262,3 +262,13 @@ test("CA pin detects path replacement and in-place tampering", () => {
   assert.throws(() => assertPinnedCaUnchanged(guard), (error) => error.code === "TLS_CA_CHANGED_DURING_COLLECTION");
   closeSync(guard.fd); rmSync(dir,{recursive:true,force:true});
 });
+
+test("CA pin rejects unsafe directory and certificate permissions", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "deedlight-ca-perms-"));
+  const ca = path.join(dir, "root.crt"); writeFileSync(ca, "trusted-ca"); chmodSync(ca, 0o600);
+  chmodSync(dir, 0o755);
+  assert.throws(() => openPinnedCa(ca, sha256("trusted-ca")), (error) => error.code === "TLS_CA_DIRECTORY_INVALID");
+  chmodSync(dir, 0o700); chmodSync(ca, 0o644);
+  assert.throws(() => openPinnedCa(ca, sha256("trusted-ca")), (error) => error.code === "TLS_CA_INVALID");
+  rmSync(dir, { recursive: true, force: true });
+});

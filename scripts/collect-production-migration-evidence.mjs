@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, realpathSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 
@@ -74,7 +75,7 @@ export function validateSqlOutput(csv) {
   if (markerHeaderIndex < 0 || markerHeaderIndex !== rows.length - 2) throw new CollectorError("TRANSACTION_CLOSE_MARKER_MISSING");
   if (rows.at(-1).length !== 1 || rows.at(-1)[0] !== "t") throw new CollectorError("TRANSACTION_ROLLBACK_NOT_VERIFIED");
   const expectedHeader=["evidence_projection","database_count","database_oid","database_name","allows_connections","is_template","owner_oid","owner_name","datacl_was_null","acl_expansion_source","expanded_acl_edges"];
-  const projectionHeaderIndex=rows.findIndex(row=>row.includes("evidence_projection"));
+  const projectionHeaderIndex=rows.findIndex(row=>expectedHeader.slice(1).some(column=>row.includes(column)));
   if(projectionHeaderIndex<0||projectionHeaderIndex>=markerHeaderIndex)throw new CollectorError("DATABASE_ACL_PROJECTION_MISSING");
   const header=rows[projectionHeaderIndex];
   if(header.length!==11||new Set(header).size!==11||header.some((v,i)=>v!==expectedHeader[i]))throw new CollectorError("DATABASE_ACL_PROJECTION_SCHEMA_INVALID");
@@ -132,7 +133,17 @@ function gitValue(repoPath, args, code) {
   if (result.error || result.status !== 0) throw new CollectorError(code);
   return result.stdout.trim();
 }
-function digestFd(fd){const size=fstatSync(fd).size,bytes=Buffer.alloc(size);let offset=0;while(offset<size){const n=readSync(fd,bytes,offset,size-offset,offset);if(n<=0)throw new CollectorError("TLS_CA_CHANGED_DURING_COLLECTION");offset+=n;}return sha256(bytes);}
+function readFdBytes(fd) {
+  const size = fstatSync(fd).size, bytes = Buffer.alloc(size);
+  let offset = 0;
+  while (offset < size) {
+    const count = readSync(fd, bytes, offset, size - offset, offset);
+    if (count <= 0) throw new CollectorError("TLS_CA_CHANGED_DURING_COLLECTION");
+    offset += count;
+  }
+  return bytes;
+}
+function digestFd(fd) { return sha256(readFdBytes(fd)); }
 export function openPinnedCa(caPath,expectedDigest){
  if(!/^[a-f0-9]{64}$/.test(expectedDigest??""))throw new CollectorError("TLS_CA_PIN_INVALID");
  const absolutePath=path.resolve(caPath),parentPath=path.dirname(absolutePath),parent=lstatSync(parentPath);
@@ -178,6 +189,19 @@ function loadProfile(profilePath, repoPath) {
   assertOutsideRepository(profile.passwordFilePath, repoPath, "PASSWORD_FILE_MUST_BE_EXTERNAL");
   profile.tlsCaGuard = openPinnedCa(profile.tlsRootCertPath, process.env.DEEDLIGHT_COLLECTOR_TLS_CA_SHA256 ?? "");
   profile.tlsRootCertificateSha256 = profile.tlsCaGuard.digest;
+  const privateCaDirectory = mkdtempSync(path.join(tmpdir(), "deedlight-ca-"));
+  try {
+    chmodSync(privateCaDirectory, 0o700);
+    const privateCaPath = path.join(privateCaDirectory, "root.crt");
+    writeFileSync(privateCaPath, readFdBytes(profile.tlsCaGuard.fd), { flag: "wx", mode: 0o600 });
+    chmodSync(privateCaPath, 0o600);
+    profile.tlsCaGuard.privateDirectory = privateCaDirectory;
+    profile.tlsRootCertPath = privateCaPath;
+  } catch (error) {
+    rmSync(privateCaDirectory, { recursive: true, force: true });
+    closeSync(profile.tlsCaGuard.fd);
+    throw error;
+  }
   return { profile, profileDigest: sha256(bytes) };
 }
 function runPsql({ repoPath, profile, sqlPath, commitSha }) {
@@ -319,6 +343,7 @@ export function collect({ profilePath, outputDir }) {
   } finally {
     if (Buffer.isBuffer(csv)) csv.fill(0);
     closeSync(profile.tlsCaGuard.fd);
+    rmSync(profile.tlsCaGuard.privateDirectory, { recursive: true, force: true });
   }
 }
 function main() {
