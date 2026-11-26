@@ -96,6 +96,14 @@ BEGIN
     END IF;
   END LOOP;
 
+  SELECT d.datdba INTO v_database_owner
+  FROM pg_catalog.pg_database d
+  WHERE d.datname = pg_catalog.current_database();
+  IF v_database_owner IS NULL
+    OR v_database_owner IN (v_session_role_oid, v_effective_role_oid) THEN
+    RAISE EXCEPTION 'Collector role owns the current database.';
+  END IF;
+
   -- Application routines are not executable by the collector or PUBLIC.
   -- pg_proc OIDs cover functions, procedures, aggregates and window functions;
   -- ACL expansion uses PostgreSQL's built-in default ACL when proacl is NULL.
@@ -468,13 +476,6 @@ BEGIN
     RAISE EXCEPTION 'Migration-history contains invalid version or migration-name metadata.';
   END IF;
 
-  SELECT d.datdba INTO v_database_owner
-  FROM pg_catalog.pg_database d
-  WHERE d.datname = pg_catalog.current_database();
-  IF v_database_owner IS NULL
-    OR v_database_owner IN (v_session_role_oid, v_effective_role_oid) THEN
-    RAISE EXCEPTION 'Collector role owns the current database.';
-  END IF;
   IF NOT pg_catalog.has_database_privilege(v_session_role_oid, pg_catalog.current_database(), 'CONNECT')
     OR NOT pg_catalog.has_database_privilege(v_effective_role_oid, pg_catalog.current_database(), 'CONNECT') THEN
     RAISE EXCEPTION 'Collector requires database CONNECT privilege.';
