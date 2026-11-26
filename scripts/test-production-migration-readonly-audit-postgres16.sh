@@ -395,6 +395,15 @@ expect_history_failure() {
 
 run_audit >"${tmp_dir}/approved.log" 2>&1
 grep -Fq "audit_fixture_sequence" "${tmp_dir}/approved.log"
+grep -Fq "database_acl_v1" "${tmp_dir}/approved.log"
+grep -Fq "template0" "${tmp_dir}/approved.log"
+grep -Fq "template1" "${tmp_dir}/approved.log"
+grep -Fq "datacl_was_null" "${tmp_dir}/approved.log"
+grep -Fq "built_in_default" "${tmp_dir}/approved.log"
+grep -Fq "\"grantee_name\": \"PUBLIC\"" "${tmp_dir}/approved.log"
+grep -Fq "\"grantor_oid\"" "${tmp_dir}/approved.log"
+grep -Fq "\"is_grantable\"" "${tmp_dir}/approved.log"
+echo "PASS: complete ordered database ACL projection includes defaults, PUBLIC and grantor evidence"
 psql -X -v ON_ERROR_STOP=1 -c "GRANT USAGE ON SCHEMA deedlight_audit_shadow TO deedlight_catalog_auditor;"
 if run_audit deedlight_catalog_auditor deedlight_catalog_auditor xaipiovflxomcbfwtwmu 0123456789abcdef0123456789abcdef01234567 __NONE__ hostile >"${tmp_dir}/hostile-search-path.log" 2>&1; then
   echo "FAIL: collector accepted USAGE on the adversarial application schema" >&2
@@ -504,6 +513,12 @@ psql -X -v ON_ERROR_STOP=1 -c "REVOKE TEMP ON DATABASE deedlight_migration_order
 psql -X -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE deedlight_migration_order_test TO deedlight_catalog_auditor WITH GRANT OPTION;"
 expect_failure database_grant_option "prohibited database grant-option privileges"
 psql -X -v ON_ERROR_STOP=1 -c "REVOKE CONNECT ON DATABASE deedlight_migration_order_test FROM deedlight_catalog_auditor;"
+if psql -X -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE deedlight_migration_order_test TO PUBLIC WITH GRANT OPTION" >"${tmp_dir}/public_database_grant_option_unsupported.log" 2>&1; then
+  echo "FAIL: PostgreSQL accepted an impossible PUBLIC database grant-option grant" >&2
+  exit 1
+fi
+grep -Fq "grant options can only be granted to roles" "${tmp_dir}/public_database_grant_option_unsupported.log"
+echo "PASS: PostgreSQL 16 rejects PUBLIC database grant-option grants as an impossible ACL state"
 psql -X -v ON_ERROR_STOP=1 -c "ALTER DATABASE deedlight_migration_order_test OWNER TO deedlight_catalog_auditor;"
 expect_failure database_ownership "owns the current database"
 psql -X -v ON_ERROR_STOP=1 -c "ALTER DATABASE deedlight_migration_order_test OWNER TO postgres;"
@@ -690,6 +705,9 @@ psql -X -v ON_ERROR_STOP=1 -c "REVOKE SELECT ON pg_catalog.pg_class FROM PUBLIC"
 psql -X -v ON_ERROR_STOP=1 -c "REVOKE SELECT ON pg_catalog.pg_class FROM deedlight_catalog_auditor"
 expect_failure revoked_catalog_authorization "Required catalog SELECT access unavailable"
 psql -X -v ON_ERROR_STOP=1 -c "GRANT SELECT ON pg_catalog.pg_class TO deedlight_catalog_auditor;"
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE SELECT ON pg_catalog.pg_database FROM deedlight_catalog_auditor"
+expect_failure missing_database_catalog_authorization "Required catalog SELECT access unavailable"
+psql -X -v ON_ERROR_STOP=1 -c "GRANT SELECT ON pg_catalog.pg_database TO deedlight_catalog_auditor;"
 psql -X -v ON_ERROR_STOP=1 -c "REVOKE SELECT ON supabase_migrations.schema_migrations FROM deedlight_catalog_auditor;"
 expect_failure revoked_history_authorization "Collector must have SELECT-only access to migration history"
 psql -X -v ON_ERROR_STOP=1 -c "GRANT SELECT ON supabase_migrations.schema_migrations TO deedlight_catalog_auditor;"
