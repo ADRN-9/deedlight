@@ -81,9 +81,15 @@ for attempt in {1..60}; do
 done
 [[ "$ssl_enabled" == true ]] || { echo "FAIL: disposable PostgreSQL did not enable TLS after restart" >&2; exit 1; }
 
-# Override any public DNS answer unconditionally so this test can never reach Production.
+# Remove any earlier mapping for this exact host, then pin it to loopback.
+escaped_endpoint_host="${endpoint_host//./\\.}"
+sudo sed -i "/[[:space:]]${escaped_endpoint_host}\\([[:space:]]\\|$\\)/d" /etc/hosts
 echo "127.0.0.1 $endpoint_host" | sudo tee -a /etc/hosts >/dev/null
-getent hosts "$endpoint_host" | grep -Fq "127.0.0.1"
+resolved_endpoint="$(getent hosts "$endpoint_host" || true)"
+grep -Fq "127.0.0.1" <<<"$resolved_endpoint" || {
+  echo "FAIL: disposable endpoint did not resolve to loopback: $resolved_endpoint" >&2
+  exit 1
+}
 
 cat >"$work/collector-endpoint.json" <<EOF
 {
