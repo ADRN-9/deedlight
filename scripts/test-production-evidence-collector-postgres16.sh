@@ -165,7 +165,6 @@ docker cp "$tls/wrong-host.key" "$tls_container_id:/var/lib/postgresql/data/deed
 docker exec "$tls_container_id" chmod 600 /var/lib/postgresql/data/deedlight-tls/server.key
 docker exec "$tls_container_id" chown postgres:postgres \
   /var/lib/postgresql/data/deedlight-tls/server.crt /var/lib/postgresql/data/deedlight-tls/server.key
-PGPASSWORD=postgres psql -X -h 127.0.0.1 -p 5432 -U postgres -d "$fixture_db" \
 docker restart "$tls_container_id" >/dev/null
 server_ready=false
 for attempt in {1..60}; do
@@ -176,6 +175,15 @@ for attempt in {1..60}; do
   sleep 1
 done
 [[ "$server_ready" == true ]] || { echo "FAIL: disposable PostgreSQL did not reload the wrong-host certificate" >&2; exit 1; }
+
+# Verify the replacement certificate is the one PostgreSQL is actually serving.
+served_san="$(openssl s_client -starttls postgres -connect 127.0.0.1:5432 \
+  -servername "$endpoint_host" -CAfile "$tls/ca.crt" -showcerts </dev/null 2>/dev/null \
+  | openssl x509 -noout -ext subjectAltName)"
+grep -Fq "DNS:wrong-host.invalid" <<<"$served_san" || {
+  echo "FAIL: PostgreSQL is not serving the expected wrong-host certificate" >&2
+  exit 1
+}
 if DEEDLIGHT_COLLECTOR_ENDPOINT_PROFILE_SHA256="$profile_digest" \
   node scripts/collect-production-migration-evidence.mjs \
     --profile "$work/collector-endpoint.json" --output "$work/evidence-wrong-host" \
