@@ -215,6 +215,70 @@ function validateCollectorAuthority(claims, provenance, evidenceDigest, authorit
     || db.databasePrivileges.length !== 1 || db.databasePrivileges[0] !== "CONNECT") {
     problems.push("collector database-level privilege export is incomplete or not read-only");
   }
+  // The complete database_acl_v1 projection is part of the signed result, not optional metadata.
+  const databaseAclRows = db.databaseAclV1;
+  if (!Array.isArray(databaseAclRows) || databaseAclRows.length === 0) {
+    problems.push("collector complete database_acl_v1 projection is missing");
+  } else {
+    const rowKeys = ["acl_expansion_source", "allows_connections", "database_name", "database_oid",
+      "datacl_was_null", "expanded_acl_edges", "is_template", "owner_name", "owner_oid"];
+    const edgeKeys = ["grantee_name", "grantee_oid", "grantor_name", "grantor_oid", "is_grantable", "privilege_type"];
+    const seenDatabases = new Set();
+    let previousDatabaseOid = -1;
+    for (const row of databaseAclRows) {
+      if (!row || Object.keys(row).sort().join(",") !== [...rowKeys].sort().join(",")
+        || !Number.isSafeInteger(row.database_oid) || row.database_oid <= 0
+        || row.database_oid <= previousDatabaseOid
+        || typeof row.database_name !== "string" || !row.database_name.trim()
+        || !Number.isSafeInteger(row.owner_oid) || row.owner_oid <= 0
+        || typeof row.owner_name !== "string" || !row.owner_name.trim()
+        || typeof row.allows_connections !== "boolean" || typeof row.is_template !== "boolean"
+        || typeof row.datacl_was_null !== "boolean"
+        || row.acl_expansion_source !== (row.datacl_was_null ? "built_in_default" : "explicit")
+        || !Array.isArray(row.expanded_acl_edges)) {
+        problems.push("collector database_acl_v1 projection contains an incomplete, malformed or unordered database row");
+        break;
+      }
+      previousDatabaseOid = row.database_oid;
+      if (seenDatabases.has(row.database_oid)) {
+        problems.push("collector database_acl_v1 projection repeats a database identity");
+        break;
+      }
+      seenDatabases.add(row.database_oid);
+      let previousEdge = null;
+      const seenEdges = new Set();
+      for (const edge of row.expanded_acl_edges) {
+        if (!edge || Object.keys(edge).sort().join(",") !== [...edgeKeys].sort().join(",")
+          || !Number.isSafeInteger(edge.grantee_oid) || edge.grantee_oid < 0
+          || !Number.isSafeInteger(edge.grantor_oid) || edge.grantor_oid <= 0
+          || typeof edge.grantee_name !== "string" || !edge.grantee_name.trim()
+          || (edge.grantee_oid === 0 ? edge.grantee_name !== "PUBLIC" : edge.grantee_name === "PUBLIC")
+          || typeof edge.grantor_name !== "string" || !edge.grantor_name.trim()
+          || !["CONNECT", "CREATE", "TEMPORARY"].includes(edge.privilege_type)
+          || typeof edge.is_grantable !== "boolean") {
+          problems.push("collector database_acl_v1 projection contains a malformed ACL edge");
+          break;
+        }
+        const edgeIdentity = canonicalJson(edge);
+        if (seenEdges.has(edgeIdentity)) {
+          problems.push("collector database_acl_v1 projection repeats an ACL edge");
+          break;
+        }
+        seenEdges.add(edgeIdentity);
+        if (previousEdge && (previousEdge.grantee_oid > edge.grantee_oid
+          || (previousEdge.grantee_oid === edge.grantee_oid && previousEdge.grantor_oid > edge.grantor_oid)
+          || (previousEdge.grantee_oid === edge.grantee_oid && previousEdge.grantor_oid === edge.grantor_oid
+            && previousEdge.privilege_type > edge.privilege_type)
+          || (previousEdge.grantee_oid === edge.grantee_oid && previousEdge.grantor_oid === edge.grantor_oid
+            && previousEdge.privilege_type === edge.privilege_type
+            && Number(previousEdge.is_grantable) > Number(edge.is_grantable)))) {
+          problems.push("collector database_acl_v1 ACL edges are not in canonical order");
+          break;
+        }
+        previousEdge = edge;
+      }
+    }
+  }
   const inventoryObjects = evidence && evidence.catalog && Array.isArray(evidence.catalog.objects) ? evidence.catalog.objects : [];
   const expectedSchemas = inventoryObjects.filter((entry) => entry && entry.kind === "schemas").map((entry) => entry.identity).sort();
   const expectedObjects = inventoryObjects.filter((entry) => entry && PRIVILEGE_OBJECT_KINDS.has(entry.kind))
