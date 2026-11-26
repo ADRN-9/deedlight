@@ -18,8 +18,8 @@ primary_id="$DEEDLIGHT_POSTGRES_CONTAINER_ID"
 redirect_id="$DEEDLIGHT_POSTGRES_REDIRECT_CONTAINER_ID"
 primary_inspect_addr="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$primary_id")"
 redirect_inspect_addr="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$redirect_id")"
-primary_addr="$(env -i PATH="$PATH" HOME="$HOME" PGHOST=127.0.0.1 PGPORT=5432 PGUSER=postgres PGPASSWORD=postgres PGDATABASE=deedlight_migration_order_test psql -X -At -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.host(pg_catalog.inet_server_addr())")"
-redirect_addr="$(env -i PATH="$PATH" HOME="$HOME" PGHOST=127.0.0.1 PGPORT=5433 PGUSER=postgres PGPASSWORD=postgres PGDATABASE=deedlight_migration_order_test psql -X -At -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.host(pg_catalog.inet_server_addr())")"
+primary_addr="$(env -i PATH="$PATH" HOME="$HOME" PGHOST=127.0.0.1 PGPORT=5432 PGUSER=postgres PGPASSWORD=postgres PGDATABASE=deedlight_migration_order_test PGSSLMODE=disable PGCONNECT_TIMEOUT=5 psql -X -At -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.host(pg_catalog.inet_server_addr())")"
+redirect_addr="$(env -i PATH="$PATH" HOME="$HOME" PGHOST=127.0.0.1 PGPORT=5433 PGUSER=postgres PGPASSWORD=postgres PGDATABASE=deedlight_migration_order_test PGSSLMODE=disable PGCONNECT_TIMEOUT=5 psql -X -At -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.host(pg_catalog.inet_server_addr())")"
 [[ "$primary_addr" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]
 [[ "$redirect_addr" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]
 [[ "$primary_addr" != "$redirect_addr" ]]
@@ -38,6 +38,12 @@ export DEEDLIGHT_DISPOSABLE_FIXTURE_AUTHORIZATION="$fixture_auth"
 export DEEDLIGHT_FIXTURE_AUDITOR_PASSWORD="$(openssl rand -hex 32)"
 export DEEDLIGHT_FIXTURE_SPOOFED_PASSWORD="$(openssl rand -hex 32)"
 export DEEDLIGHT_FIXTURE_PRIVILEGED_PASSWORD="$(openssl rand -hex 32)"
+
+# Supply the synthetic auth schema that the existing audit fixture normally inherits
+# from the preceding migration-order CI job.
+env -i PATH="$PATH" HOME="$HOME" PGHOST=127.0.0.1 PGPORT=5432 PGUSER=postgres PGPASSWORD=postgres \
+  PGDATABASE="$fixture_db" PGSSLMODE=disable psql -X -v ON_ERROR_STOP=1 \
+  -c "CREATE SCHEMA auth AUTHORIZATION postgres"
 
 # Reuse the established adversarial PostgreSQL 16 role/catalog fixture.
 bash scripts/test-production-migration-readonly-audit-postgres16.sh
