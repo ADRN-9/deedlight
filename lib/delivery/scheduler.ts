@@ -24,6 +24,10 @@ export function deliveryScheduleKind(cron: string): "daily" | "weekly" | null {
   return null;
 }
 
+export function weeklyDeliveryScheduleEnabled(env: Record<string, string | undefined>): boolean {
+  return env.WEEKLY_DELIVERY_ENABLED === "true";
+}
+
 export type DeliverySchedulerSummary = {
   enabled: boolean;
   cron: string;
@@ -91,6 +95,12 @@ export async function runScheduledDelivery(
   const scheduleKind = deliveryScheduleKind(input.cron);
   if (!scheduleKind) {
     summary.ignored = true;
+    return summary;
+  }
+
+  if (scheduleKind === "weekly" && !weeklyDeliveryScheduleEnabled(env)) {
+    summary.ignored = true;
+    console.info("Weekly Goodness scheduler held", { reason: "weekly_delivery_not_approved" });
     return summary;
   }
 
