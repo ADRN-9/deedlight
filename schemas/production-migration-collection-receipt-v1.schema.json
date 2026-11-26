@@ -37,7 +37,11 @@
         "database",
         "tlsMode",
         "tlsRootCertificateSha256",
-        "independentlyPinnedProfileSha256"
+        "independentlyPinnedProfileSha256",
+        "tlsVerified",
+        "tlsHostnameVerified",
+        "tlsChainVerified",
+        "projectIdentityMethod"
       ],
       "properties": {
         "hostname": {
@@ -60,6 +64,18 @@
         },
         "independentlyPinnedProfileSha256": {
           "$ref": "#/$defs/sha256"
+        },
+        "tlsVerified": {
+          "const": true
+        },
+        "tlsHostnameVerified": {
+          "const": true
+        },
+        "tlsChainVerified": {
+          "const": true
+        },
+        "projectIdentityMethod": {
+          "const": "independently-pinned-profile-and-project-specific-TLS-hostname"
         }
       }
     },
