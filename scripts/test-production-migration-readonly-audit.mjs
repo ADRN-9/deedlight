@@ -375,6 +375,8 @@ test("collector routine and database privilege matrix is executable and regressi
   assert.match(preflight, /pg_catalog\.acldefault\('f', p\.proowner\)/);
   assert.match(preflight, /acl\.grantee = 0/);
   assert.match(preflight, /d\.defaclobjtype = 'f'/);
+  assert.match(preflight, /pg_catalog\.acldefault\('f', owner_role\.oid\)/);
+  assert.match(preflight, /has_schema_privilege\(owner_role\.oid, n\.oid, 'CREATE'\)/);
   assert.match(preflight, /default routine privileges expose prohibited EXECUTE/);
   assert.match(preflight, /datdba/);
   assert.match(preflight, /has_database_privilege\(v_session_role_oid, pg_catalog\.current_database\(\), 'CONNECT'\)/);
@@ -397,7 +399,7 @@ test("collector routine and database privilege matrix is executable and regressi
   ]) assert.ok(fixture.includes(token), "missing safe fixture baseline: " + token);
   for (const scenario of [
     "security_definer_private_exfiltration", "public_routine_execute", "direct_routine_execute",
-    "global_default_routine_execute", "schema_default_routine_execute", "overloaded_function_oid_execute",
+    "global_default_routine_execute", "schema_default_routine_execute", "implicit_global_default_routine_execute", "overloaded_function_oid_execute",
     "procedure_execute", "aggregate_execute", "window_function_execute", "inherited_routine_execute",
     "database_create", "database_temp", "database_grant_option",
     "database_ownership", "application_schema_usage", "application_schema_ownership",
@@ -406,6 +408,7 @@ test("collector routine and database privilege matrix is executable and regressi
   assert.match(runner, /LANGUAGE sql WINDOW/);
   assert.match(runner, /GRANT EXECUTE ON ROUTINE public\.audit_fixture_overload\(integer\)/);
   assert.match(runner, /pg_catalog\.has_function_privilege\('deedlight_catalog_auditor'/);
+  assert.match(runner, /GRANT deedlight_audit_nested_leaf TO deedlight_audit_nested_parent/);
   assert.match(runner, /ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO PUBLIC/);
   assert.match(runner, /connect_privilege_state/);
   assert.match(runner, /ALTER DATABASE deedlight_migration_order_test OWNER TO deedlight_catalog_auditor/);
