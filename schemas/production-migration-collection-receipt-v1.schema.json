@@ -1,0 +1,249 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://deedlight.com/schemas/production-migration-collection-receipt-v1.json",
+  "title": "DeedLight Production Migration Collection Receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "status",
+    "projectRef",
+    "endpoint",
+    "source",
+    "execution",
+    "evidence",
+    "signing"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "kind": {
+      "const": "deedlight-production-migration-collection"
+    },
+    "status": {
+      "const": "UNSIGNED_NOT_ACCEPTED"
+    },
+    "projectRef": {
+      "const": "xaipiovflxomcbfwtwmu"
+    },
+    "endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hostname",
+        "port",
+        "database",
+        "tlsMode",
+        "tlsRootCertificateSha256",
+        "independentlyPinnedProfileSha256",
+        "tlsVerified",
+        "tlsHostnameVerified",
+        "tlsChainVerified",
+        "projectIdentityMethod"
+      ],
+      "properties": {
+        "hostname": {
+          "const": "db.xaipiovflxomcbfwtwmu.supabase.co"
+        },
+        "port": {
+          "const": 5432
+        },
+        "database": {
+          "enum": [
+            "postgres",
+            "deedlight_migration_order_test"
+          ]
+        },
+        "tlsMode": {
+          "const": "verify-full"
+        },
+        "tlsRootCertificateSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "independentlyPinnedProfileSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "tlsVerified": {
+          "const": true
+        },
+        "tlsHostnameVerified": {
+          "const": true
+        },
+        "tlsChainVerified": {
+          "const": true
+        },
+        "projectIdentityMethod": {
+          "const": "independently-pinned-profile-and-project-specific-TLS-hostname"
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repositoryCommitSha",
+        "migrationInventoryGitBlobSha1",
+        "sqlBundlePath",
+        "sqlBundleGitBlobSha1",
+        "sqlBundleSha256"
+      ],
+      "properties": {
+        "repositoryCommitSha": {
+          "$ref": "#/$defs/sha1"
+        },
+        "migrationInventoryGitBlobSha1": {
+          "const": "95d514a0bd97ff448c9507252eb1f5e69a507442"
+        },
+        "sqlBundlePath": {
+          "const": "scripts/production-migration-readonly-audit.sql"
+        },
+        "sqlBundleGitBlobSha1": {
+          "const": "e55ed9207e8540d03de51c79e56c75d0bed130d1"
+        },
+        "sqlBundleSha256": {
+          "const": "02f6db1822213453deb9fbe2588b893fbcd3ff312c4bb6b523238c7968db9d13"
+        }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "collectorId",
+        "authenticatedPrincipal",
+        "expectedEffectivePrincipal",
+        "transactionIsolation",
+        "readOnly",
+        "transactionRollbackVerified",
+        "startedAt",
+        "completedAt",
+        "outputFormat",
+        "canonicalization",
+        "resultRecordCount",
+        "databaseAclV1RowCount",
+        "migrationHistoryRowCount",
+        "canonicalResultSha256",
+        "evidenceFileSha256"
+      ],
+      "properties": {
+        "collectorId": {
+          "const": "deedlight-readonly-collector-v1"
+        },
+        "authenticatedPrincipal": {
+          "const": "deedlight_catalog_auditor"
+        },
+        "expectedEffectivePrincipal": {
+          "const": "deedlight_catalog_auditor"
+        },
+        "transactionIsolation": {
+          "const": "repeatable read"
+        },
+        "readOnly": {
+          "const": true
+        },
+        "transactionRollbackVerified": {
+          "const": true
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "DeedLight receipt timestamp profile: four-digit Gregorian year 0001–9999; valid month/day syntax; 24-hour time with seconds 00–59; optional one-or-more fractional digits; and Z or a numeric offset with hours 00–23 and minutes 00–59. Leap seconds (:60) and the unknown-local-offset form -00:00 are not supported. This pattern enforces the lexical profile only; mandatory semantic verification must additionally validate Gregorian dates, timezone semantics, and start/completion ordering. The generic date-time format annotation alone does not enforce this contract.",
+          "pattern": "^(?:000[1-9]|00[1-9][0-9]|0[1-9][0-9]{2}|[1-9][0-9]{3})-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\\.[0-9]+)?(?:Z|\\+(?:[01][0-9]|2[0-3]):[0-5][0-9]|-(?:(?:0[1-9]|1[0-9]|2[0-3]):[0-5][0-9]|00:(?:0[1-9]|[1-5][0-9])))(?![\\s\\S])"
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "DeedLight receipt timestamp profile: four-digit Gregorian year 0001–9999; valid month/day syntax; 24-hour time with seconds 00–59; optional one-or-more fractional digits; and Z or a numeric offset with hours 00–23 and minutes 00–59. Leap seconds (:60) and the unknown-local-offset form -00:00 are not supported. This pattern enforces the lexical profile only; mandatory semantic verification must additionally validate Gregorian dates, timezone semantics, and start/completion ordering. The generic date-time format annotation alone does not enforce this contract.",
+          "pattern": "^(?:000[1-9]|00[1-9][0-9]|0[1-9][0-9]{2}|[1-9][0-9]{3})-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\\.[0-9]+)?(?:Z|\\+(?:[01][0-9]|2[0-3]):[0-5][0-9]|-(?:(?:0[1-9]|1[0-9]|2[0-3]):[0-5][0-9]|00:(?:0[1-9]|[1-5][0-9])))(?![\\s\\S])"
+        },
+        "outputFormat": {
+          "const": "PostgreSQL psql CSV"
+        },
+        "canonicalization": {
+          "type": "string",
+          "minLength": 20
+        },
+        "resultRecordCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "databaseAclV1RowCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "canonicalResultSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "evidenceFileSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "migrationHistoryRowCount": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file",
+        "mediaType",
+        "byteLength",
+        "sha256"
+      ],
+      "properties": {
+        "file": {
+          "const": "evidence.csv"
+        },
+        "mediaType": {
+          "const": "text/csv"
+        },
+        "byteLength": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "signing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "keyId",
+        "signature",
+        "acceptance"
+      ],
+      "properties": {
+        "state": {
+          "const": "NOT_SIGNED"
+        },
+        "keyId": {
+          "type": "null"
+        },
+        "signature": {
+          "type": "null"
+        },
+        "acceptance": {
+          "const": "PROHIBITED_PENDING_INDEPENDENT_SIGNING_AND_VERIFICATION"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "sha1": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    }
+  },
+  "$comment": "Receipt timestamps use the DeedLight-specific restricted RFC3339 profile described on execution.startedAt and execution.completedAt. Schema validation is a lexical first gate only. Receipt acceptance and any future signing operation MUST use verifyReceiptAndEvidence (or an independently implemented equivalent semantic verifier) and MUST NOT rely on schema-only validation."
+}
