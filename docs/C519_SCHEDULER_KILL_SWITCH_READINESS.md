@@ -151,3 +151,9 @@ Immediately disable outbound delivery and stop future Cron triggers for any cons
 - No actual Production scheduler cycles, kill-switch exercise, re-enablement, or Weekly scheduling are evidenced.
 
 **Status: implementation and test assertions committed; exact-head C519 CI pending. Production remains NO-GO.**
+
+## Follow-up: C518 package fixture failure and correction
+
+During C519 inspection, the intermediate run [45910822310](https://github.com/ADRN-9/deedlight/actions/runs/45910822310) executed the C518 offline package tests and failed at `TRANSACTION_CLOSE_MARKER_MISSING`. The fixture had emitted a two-column row `collector_transaction_closed,t`, while the collector's CSV contract requires a one-column marker header followed by a separate one-column `t` rollback result. Corrected `scripts/test-evidence-package-integrity.mjs` to emit those two rows exactly. This is a fixture-only correction; production collector behavior was not changed. The subsequent exact-head run must confirm it.
+
+C519 exact-head validation is pending at [run 45910980847](https://github.com/ADRN-9/deedlight/actions/runs/45910980847), HEAD `d8ccd5dfaa3eaaae147e9ebaa1ae651733bdc834`, at the time this report was last updated. No job results were yet available. The prior run 45910933290 is on an earlier documentation commit and does not validate the corrected fixture or final C519 source head.
