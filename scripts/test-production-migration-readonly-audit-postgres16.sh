@@ -450,6 +450,12 @@ psql -X -v ON_ERROR_STOP=1 -c "ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCH
 expect_failure schema_default_routine_execute "default routine privileges expose prohibited EXECUTE"
 psql -X -v ON_ERROR_STOP=1 -c "ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;"
 
+# An absent pg_default_acl row still means PostgreSQL's built-in PUBLIC EXECUTE default.
+psql -X -At -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_default_acl WHERE defaclrole = 'deedlight_audit_switch_target'::regrole AND defaclnamespace = 0 AND defaclobjtype = 'f'" | grep -Fxq 0
+psql -X -v ON_ERROR_STOP=1 -c "GRANT CREATE ON SCHEMA public TO deedlight_audit_switch_target;"
+expect_failure implicit_global_default_routine_execute "Implicit or configured global routine defaults expose prohibited PUBLIC or collector EXECUTE"
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE CREATE ON SCHEMA public FROM deedlight_audit_switch_target;"
+
 # Routine OIDs distinguish overloads and cover procedures, aggregates and window functions.
 psql -X -v ON_ERROR_STOP=1 <<'SQL'
 CREATE FUNCTION public.audit_fixture_overload(integer) RETURNS integer LANGUAGE sql IMMUTABLE AS 'SELECT $1';
@@ -832,6 +838,7 @@ expect_failure login_owned_routine_schema "Unexpected or unsafe routine configur
 psql -X -v ON_ERROR_STOP=1 -c "DROP FUNCTION public.audit_fixture_login_owned_schema_search_path();"
 psql -X -v ON_ERROR_STOP=1 -c "ALTER SCHEMA auth OWNER TO postgres;"
 
+psql -X -v ON_ERROR_STOP=1 -c "ALTER DEFAULT PRIVILEGES FOR ROLE deedlight_audit_spoofed_login REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;"
 psql -X -v ON_ERROR_STOP=1 -c "GRANT CREATE ON SCHEMA auth TO deedlight_audit_spoofed_login;"
 psql -X -v ON_ERROR_STOP=1 -c "GRANT USAGE, CREATE ON SCHEMA auth TO deedlight_audit_spoofed_login;"
 psql -X -v ON_ERROR_STOP=1 <<'SQL'
