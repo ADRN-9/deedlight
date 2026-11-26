@@ -13,7 +13,8 @@ function fixture() {
     ["evidence_projection", "database_count", "database_oid", "database_name", "allows_connections", "is_template", "owner_oid", "owner_name", "datacl_was_null", "acl_expansion_source", "expanded_acl_edges"],
     ["database_acl_v1", "2", "1", "db_one", "t", "f", "10", "postgres", "t", "built_in_default", "[]"],
     ["database_acl_v1", "2", "2", "db_two", "t", "t", "10", "postgres", "t", "built_in_default", "[]"],
-    ["collector_transaction_closed", "t"],
+    ["collector_transaction_closed"],
+    ["t"],
   );
   const evidenceBytes = Buffer.from(rows.map((row) => row.join(",")).join("\r\n") + "\r\n");
   const validation = validateSqlOutput(evidenceBytes);
