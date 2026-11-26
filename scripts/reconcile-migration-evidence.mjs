@@ -228,6 +228,7 @@ function validateCollectorAuthority(claims, provenance, evidenceDigest, authorit
     for (const row of databaseAclRows) {
       if (!row || Object.keys(row).sort().join(",") !== [...rowKeys].sort().join(",")
         || !Number.isSafeInteger(row.database_oid) || row.database_oid <= 0
+        || !Number.isSafeInteger(row.database_count) || row.database_count !== databaseAclRows.length
         || row.database_oid <= previousDatabaseOid
         || typeof row.database_name !== "string" || !row.database_name.trim()
         || !Number.isSafeInteger(row.owner_oid) || row.owner_oid <= 0
