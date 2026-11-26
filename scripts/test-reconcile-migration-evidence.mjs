@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { analyzeMigrationEvidence, canonicalJson, evidencePayload, mappingDigest } from "./reconcile-migration-evidence.mjs";
+import { analyzeMigrationEvidence, canonicalJson, evidencePayload, mappingDigest, strictTimestamp } from "./reconcile-migration-evidence.mjs";
 
 const repoRoot = process.cwd();
 const sourceManifest = JSON.parse(readFileSync(path.join(repoRoot, "supabase/migration-inventory.json"), "utf8"));
@@ -103,10 +103,7 @@ function fixture() {
     historyRows.push({
       version,
       name: path.basename(item.path).replace(/^\d{12}_/, "").replace(/\.sql$/, ""),
-      sourceBlobSha1: item.blobSha1,
-      executedAt: FIXTURE_HISTORY_EXECUTED_AT,
-      executedBy: "supabase_migration_runner",
-      executionId: "fixture-execution-" + version,
+      recordedStatementCount: 12,
     });
   }
   const evidence = {
@@ -305,7 +302,8 @@ test("verifies signed approvals and collector authority; duplicate 007 remains e
     assert.equal(duplicate.length, 2);
     assert.ok(duplicate.every((item) => item.status === "Schema represented but history ambiguous"));
     assert.ok(duplicate.every((item) => item.exactExecutionEstablished === false));
-    assert.equal(report.counts["Applied and verified"], 37);
+    assert.equal(report.counts["Applied and verified"], 0);
+    assert.equal(report.counts["Schema represented but history ambiguous"], 39);
     assert.equal(report.acceptance, "NOT_ACCEPTED");
     assert.equal(report.mutationPerformed, false);
   } finally { f.cleanup(); }
@@ -666,15 +664,18 @@ test("collector execution receipt binds project, collector, query digest, captur
   }
 });
 
-test("migration execution timestamps cannot be later than capture or current time", () => {
+test("candidate external migration execution timestamps remain untrusted", () => {
   for (const executedAt of [fixtureTime(-29 * 60 * 1000), fixtureTime(60 * 1000)]) {
     const f = fixture();
     try {
-      f.evidence.history.rows[0].executedAt = executedAt;
+      f.evidence.externalExecutionProvenance = [{
+        version: "202607260004", executedAt, executedBy: "claimed-runner",
+        executionId: "claimed-execution", sourceBlobSha1: sourceManifest.migrations[0].blobSha1,
+      }];
       f.reapprove();
       const report = f.analyze();
       assert.equal(report.counts.Unknown, 39);
-      assert.ok(report.trustProblems.some((reason) => reason.includes("executedAt <= evidence capturedAt <= current time")));
+      assert.ok(report.trustProblems.some((reason) => reason.includes("no authenticated authoritative source is configured")));
     } finally { f.cleanup(); }
   }
 });
@@ -710,7 +711,7 @@ test("collector attestation must bind the exact project and query bundle", () =>
   } finally { f.cleanup(); }
 });
 
-test("history names and exact source execution metadata are required for Applied and verified", () => {
+test("migration-history facts never establish execution provenance; fabricated fields fail closed", () => {
   const f = fixture();
   try {
     const row = f.evidence.history.rows.find((entry) => entry.version === "202607260004");
@@ -724,16 +725,29 @@ test("history names and exact source execution metadata are required for Applied
     assert.equal(result.historyRecorded, true);
     assert.equal(report.acceptance, "NOT_ACCEPTED");
   } finally { f.cleanup(); }
-  const second = fixture();
+  for (const field of ["executedAt", "executedBy", "executionId", "sourceBlobSha1"]) {
+    const forged = fixture();
+    try {
+      forged.evidence.history.rows[0][field] = field === "executedAt" ? FIXTURE_HISTORY_EXECUTED_AT : "fabricated";
+      forged.reapprove();
+      const report = forged.analyze();
+      assert.equal(report.counts.Unknown, 39);
+      assert.ok(report.trustProblems.some((reason) => reason.includes("only recognized version, name and recorded statement-count database facts")));
+    } finally { forged.cleanup(); }
+  }
+  const fabricated = fixture();
   try {
-    const row = second.evidence.history.rows.find((entry) => entry.version === "202607260004");
-    delete row.sourceBlobSha1;
-    second.reapprove();
-    const report = second.analyze();
-    const result = report.classifications.find((entry) => entry.version === "202607260004");
-    assert.equal(result.status, "Schema represented but history ambiguous");
-    assert.equal(result.exactExecutionEstablished, false);
-  } finally { second.cleanup(); }
+    fabricated.evidence.externalExecutionProvenance = [{
+      version: "202607260004", migrationName: "sprint4_reactions",
+      sourceBlobSha1: sourceManifest.migrations[0].blobSha1,
+      executedAt: FIXTURE_HISTORY_EXECUTED_AT, executedBy: "claimed-runner",
+      executionId: "fabricated-execution", authority: "claimed-platform-log",
+    }];
+    fabricated.reapprove();
+    const report = fabricated.analyze();
+    assert.equal(report.counts.Unknown, 39);
+    assert.ok(report.trustProblems.some((reason) => reason.includes("no authenticated authoritative source is configured")));
+  } finally { fabricated.cleanup(); }
 });
 
 test("tampered evidence after signed approval fails closed", () => {
@@ -756,7 +770,7 @@ test("altered source fingerprint is Unknown", () => {
   } finally { f.cleanup(); }
 });
 
-test("complete absence with no history is Verified unapplied", () => {
+test("absence of history and current effects remains Unknown without external execution provenance", () => {
   const f = fixture();
   try {
     const item = sourceManifest.migrations.find((entry) => entry.version === "202607260004");
@@ -766,7 +780,9 @@ test("complete absence with no history is Verified unapplied", () => {
     f.evidence.history.rows = f.evidence.history.rows.filter((row) => row.version !== item.version);
     f.reapprove();
     const report = f.analyze();
-    assert.equal(report.classifications.find((entry) => entry.path === item.path).status, "Verified unapplied");
+    const result = report.classifications.find((entry) => entry.path === item.path);
+    assert.equal(result.status, "Unknown");
+    assert.ok(result.reasons.some((reason) => reason.includes("cannot prove no manual, partial or historical execution")));
   } finally { f.cleanup(); }
 });
 
@@ -850,8 +866,14 @@ test("all timestamp-bearing evidence fields reject non-string and noncanonical v
       (report) => report.trustProblems.some((reason) => reason.includes("collector execution startedAt"))],
     ["collector completion", (f, value) => f.reapprove(undefined, (receipt) => { receipt.completedAt = value; }),
       (report) => report.trustProblems.some((reason) => reason.includes("collector execution completedAt"))],
-    ["history execution", (f, value) => { f.evidence.history.rows[0].executedAt = value; f.reapprove(); },
-      (report) => report.trustProblems.some((reason) => reason.includes("history row lacks exact name or valid execution metadata"))],
+    ["external migration execution", (f, value) => {
+      f.evidence.externalExecutionProvenance = [{
+        version: "202607260004", migrationName: "sprint4_reactions",
+        sourceBlobSha1: sourceManifest.migrations[0].blobSha1,
+        executedAt: value, executedBy: "untrusted-runner", executionId: "untrusted-id",
+      }];
+      f.reapprove();
+    }, (report) => report.trustProblems.some((reason) => reason.includes("external migration execution timestamp"))],
     ["approval issuedAt", (f, value) => {
       const current = f.approvals.evidenceApproval;
       f.approvals.evidenceApproval = artifact(current.kind, "evidence-approver", current.claims, { issuedAt: value });
@@ -911,15 +933,19 @@ test("strict timestamp parsing rejects non-string and noncanonical execution tim
   }
 });
 
-test("migration history execution timestamps reject coercible non-string values", () => {
+test("fabricated migration execution timestamp candidates reject coercible non-string values", () => {
   for (const value of [0, 1, null, false, [], {}]) {
     const f = fixture();
     try {
-      f.evidence.history.rows[0].executedAt = value;
+      f.evidence.externalExecutionProvenance = [{
+        version: "202607260004", migrationName: "sprint4_reactions",
+        sourceBlobSha1: sourceManifest.migrations[0].blobSha1,
+        executedAt: value, executedBy: "untrusted-runner", executionId: "untrusted-id",
+      }];
       f.reapprove();
       const report = f.analyze();
       assert.equal(report.counts.Unknown, 39);
-      assert.ok(report.trustProblems.some((reason) => reason.includes("history row lacks exact name or valid execution metadata")));
+      assert.ok(report.trustProblems.some((reason) => reason.includes("external migration execution timestamp")));
     } finally { f.cleanup(); }
   }
 });
@@ -1004,14 +1030,19 @@ test("trust roots must match an independently provisioned digest", () => {
   } finally { f.cleanup(); }
 });
 
-test("reused migration execution IDs cannot establish exact execution identity", () => {
+test("fabricated external execution identifiers never become authenticated provenance", () => {
   const f = fixture();
   try {
-    f.evidence.history.rows[1].executionId = f.evidence.history.rows[0].executionId;
+    f.evidence.externalExecutionProvenance = [
+      { version: "202607260004", migrationName: "sprint4_reactions", sourceBlobSha1: "a".repeat(40),
+        executedAt: FIXTURE_HISTORY_EXECUTED_AT, executedBy: "runner", executionId: "same-id" },
+      { version: "202607260005", migrationName: "sprint5_moderation", sourceBlobSha1: "b".repeat(40),
+        executedAt: FIXTURE_HISTORY_EXECUTED_AT, executedBy: "runner", executionId: "same-id" },
+    ];
     f.reapprove();
     const report = f.analyze();
     assert.equal(report.counts.Unknown, 39);
-    assert.ok(report.trustProblems.some((reason) => reason.includes("reuses an execution ID")));
+    assert.ok(report.trustProblems.some((reason) => reason.includes("no authenticated authoritative source is configured")));
     assert.equal(report.acceptance, "NOT_ACCEPTED");
   } finally { f.cleanup(); }
 });
@@ -1149,6 +1180,59 @@ test("trust-root bundle rejects private signing material and unsupported key rol
       const report = f.analyze();
       assert.equal(report.counts.Unknown, 39);
       assert.ok(report.trustProblems.some((reason) => reason.includes("unsupported key, role or private signing material")));
+    } finally { f.cleanup(); }
+  }
+});
+
+
+test("strict timestamps reject year zero and preserve supported leap-year boundaries", () => {
+  for (const value of ["0000-01-01T00:00:00.000Z", "0000-02-29T00:00:00.000Z"]) {
+    assert.ok(Number.isNaN(strictTimestamp(value)), "accepted year zero: " + value);
+  }
+  for (const value of [
+    "0001-01-01T00:00:00.000Z",
+    "0004-02-29T23:59:59.999Z",
+    "2000-02-29T12:34:56.789Z",
+    "9996-02-29T00:00:00.000Z",
+    "9999-12-31T23:59:59.999Z",
+  ]) {
+    assert.ok(Number.isFinite(strictTimestamp(value)), "rejected valid supported timestamp: " + value);
+  }
+  for (const value of ["0001-02-29T00:00:00.000Z", "1900-02-29T00:00:00.000Z", "9999-02-29T00:00:00.000Z"]) {
+    assert.ok(Number.isNaN(strictTimestamp(value)), "accepted invalid leap day: " + value);
+  }
+});
+
+test("every timestamp-bearing evidence path rejects canonical year zero", () => {
+  const cases = [
+    (f) => { f.trustRoots.keys[0].notBefore = "0000-01-01T00:00:00.000Z"; },
+    (f) => { f.trustRoots.keys[0].notAfter = "0000-01-01T00:00:00.000Z"; },
+    (f) => {
+      const current = f.approvals.evidenceApproval;
+      f.approvals.evidenceApproval = artifact(current.kind, "evidence-approver", current.claims, { issuedAt: "0000-01-01T00:00:00.000Z" });
+    },
+    (f) => {
+      const current = f.approvals.evidenceApproval;
+      f.approvals.evidenceApproval = artifact(current.kind, "evidence-approver", current.claims, { expiresAt: "0000-01-01T00:00:00.000Z" });
+    },
+    (f) => { f.evidence.provenance.capturedAt = "0000-01-01T00:00:00.000Z"; f.reapprove(); },
+    (f) => f.reapprove(undefined, (receipt) => { receipt.startedAt = "0000-01-01T00:00:00.000Z"; }),
+    (f) => f.reapprove(undefined, (receipt) => { receipt.completedAt = "0000-01-01T00:00:00.000Z"; }),
+    (f) => {
+      f.evidence.externalExecutionProvenance = [{
+        version: "202607260004", migrationName: "sprint4_reactions", sourceBlobSha1: "a".repeat(40),
+        executedAt: "0000-01-01T00:00:00.000Z", executedBy: "untrusted", executionId: "untrusted",
+      }];
+      f.reapprove();
+    },
+  ];
+  for (const mutate of cases) {
+    const f = fixture();
+    try {
+      mutate(f);
+      const report = f.analyze();
+      assert.equal(report.counts.Unknown, 39);
+      assert.ok(report.trustProblems.some((reason) => /timestamp|notBefore|notAfter|issuedAt|expiresAt/i.test(reason)));
     } finally { f.cleanup(); }
   }
 });

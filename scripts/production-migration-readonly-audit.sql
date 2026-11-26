@@ -908,7 +908,13 @@ WHERE a.attrelid = pg_catalog.to_regclass('supabase_migrations.schema_migrations
   AND NOT a.attisdropped
 ORDER BY a.attnum;
 
--- 13. Migration-history identifiers only. Never export statements or application data.
+-- 13. Migration-history database facts only; this is not execution provenance.
+-- Supabase schema_migrations exposes version, name and recorded statement count here.
+-- It does not establish the executed SQL source hash, actor, wall-clock execution time,
+-- external execution ID, or retained deployment/SQL Editor audit record. Never infer those
+-- fields from the migration version, name, statement count or current catalog state.
+-- Exact source execution requires a separately authenticated authoritative external record;
+-- without one, reconciliation must preserve UNKNOWN/UNVERIFIED classifications.
 SELECT
   h.version::text AS version,
   h.name::text AS migration_name,

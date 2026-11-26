@@ -38,8 +38,9 @@ export function mappingDigest(mapping) {
   return sha256(Buffer.from(canonicalJson(mapping)));
 }
 // Require canonical UTC RFC 3339 timestamps with millisecond precision; reject coercion and calendar normalization.
-function strictTimestamp(value) {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) return NaN;
+export function strictTimestamp(value) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)
+    || value.slice(0, 4) === "0000") return NaN;
   const time = Date.parse(value);
   if (!Number.isFinite(time)) return NaN;
   try {
@@ -50,7 +51,7 @@ function strictTimestamp(value) {
 }
 function parseTime(value, label, reasons) {
   const time = strictTimestamp(value);
-  if (!Number.isFinite(time)) reasons.push(label + " must be a canonical UTC timestamp (YYYY-MM-DDTHH:mm:ss.sssZ)");
+  if (!Number.isFinite(time)) reasons.push(label + " must be a canonical UTC timestamp in years 0001–9999 (YYYY-MM-DDTHH:mm:ss.sssZ)");
   return time;
 }
 function readRegularFile(rootDir, relativePath) {
@@ -431,28 +432,27 @@ function validateEvidence(evidence, now, manifest, problems) {
   }
   if (evidence && evidence.history && Array.isArray(evidence.history.rows)) {
     const versions = new Set(manifest.migrations.map((item) => item.version));
-    const executionIds = new Set();
     for (const row of evidence.history.rows) {
-      const executedAt = strictTimestamp(row && row.executedAt);
-      const capturedAt = strictTimestamp(evidence.provenance && evidence.provenance.capturedAt);
-      if (!row || typeof row.version !== "string" || !/^[0-9]{12}$/.test(row.version) || !versions.has(row.version)) {
-        problems.push("migration history contains malformed or unrecognized version");
+      if (!row || Object.keys(row).sort().join(",") !== "name,recordedStatementCount,version"
+        || typeof row.version !== "string" || !/^[0-9]{12}$/.test(row.version) || !versions.has(row.version)) {
+        problems.push("migration history row must contain only recognized version, name and recorded statement-count database facts");
       } else if (typeof row.name !== "string" || !row.name.trim()
-        || !Number.isFinite(executedAt)
-        || typeof row.executedBy !== "string" || !row.executedBy.trim()
-        || typeof row.executionId !== "string" || !row.executionId.trim()) {
-        problems.push("migration history row lacks exact name or valid execution metadata");
-      } else if (executionIds.has(row.executionId)) {
-        problems.push("migration history reuses an execution ID and cannot establish exact execution identity");
-      } else {
-        executionIds.add(row.executionId);
+        || !Number.isSafeInteger(row.recordedStatementCount) || row.recordedStatementCount < 0) {
+        problems.push("migration history row has an invalid migration name or recorded statement count");
       }
-      if (row?.sourceBlobSha1 !== undefined && !/^[a-f0-9]{40}$/.test(row.sourceBlobSha1)) {
-        problems.push("migration history source blob identity is malformed");
+    }
+  }
+  // Candidate external records are untrusted input. No authenticated Production execution-provenance
+  // authority is currently configured or present in the supplied evidence; never promote these records.
+  if (evidence && evidence.externalExecutionProvenance !== undefined) {
+    if (!Array.isArray(evidence.externalExecutionProvenance)) {
+      problems.push("external migration execution provenance must be an array of candidate records");
+    } else {
+      for (const record of evidence.externalExecutionProvenance) {
+        parseTime(record && record.executedAt, "external migration execution timestamp", problems);
       }
-      if (Number.isFinite(executedAt) && Number.isFinite(capturedAt)
-        && (executedAt > capturedAt || capturedAt > now)) {
-        problems.push("migration execution timestamp must satisfy executedAt <= evidence capturedAt <= current time");
+      if (evidence.externalExecutionProvenance.length > 0) {
+        problems.push("external migration execution provenance is unverified: no authenticated authoritative source is configured");
       }
     }
   }
@@ -477,25 +477,20 @@ function classifyOne(item, manifest, evidence, source, mappedEffects) {
   const rows = evidence.history.rows.filter((row) => row.version === item.version);
   const duplicateVersion = manifest.migrations.filter((entry) => entry.version === item.version).length > 1;
   const expectedName = path.basename(item.path).replace(/^\d{12}_/, "").replace(/\.sql$/, "");
-  const exactRows = rows.filter((row) => row.name === expectedName && row.sourceBlobSha1 === item.blobSha1
-    && Number.isFinite(strictTimestamp(row.executedAt)) && typeof row.executedBy === "string" && typeof row.executionId === "string");
   const wrongName = rows.some((row) => row.name !== expectedName);
   if (matches.length === expected.length) {
-    if (duplicateVersion || rows.length !== 1 || exactRows.length !== 1) {
-      return {
-        status: "Schema represented but history ambiguous",
-        schemaRepresented: true,
-        historyRecorded: rows.length > 0,
-        reasons: [duplicateVersion ? "duplicate migration version cannot establish exact source execution"
-          : wrongName ? "history version is associated with a different migration name"
-            : rows.length === 0 ? "schema effects exist without a history record"
-              : "history does not bind the exact source blob and execution metadata"],
-        matchedObjects: matches.length,
-        historyRows: rows.length,
-        exactExecutionEstablished: false,
-      };
-    }
-    return { status: "Applied and verified", schemaRepresented: true, historyRecorded: true, reasons: [], matchedObjects: matches.length, historyRows: rows.length, exactExecutionEstablished: true };
+    return {
+      status: "Schema represented but history ambiguous",
+      schemaRepresented: true,
+      historyRecorded: rows.length > 0,
+      reasons: [duplicateVersion ? "duplicate migration version cannot establish exact source execution"
+        : wrongName ? "history version is associated with a different migration name"
+          : rows.length === 0 ? "schema effects exist without a migration-history row"
+            : "schema_migrations records version, name and statement count only; no authenticated external provenance binds the executed source blob, actor, timestamp or execution identity"],
+      matchedObjects: matches.length,
+      historyRows: rows.length,
+      exactExecutionEstablished: false,
+    };
   }
   if (matches.length > 0 || mismatches.length > 0 || rows.length > 0) {
     return {
@@ -513,7 +508,9 @@ function classifyOne(item, manifest, evidence, source, mappedEffects) {
       exactExecutionEstablished: false,
     };
   }
-  return { status: "Verified unapplied", schemaRepresented: false, historyRecorded: false, reasons: ["complete authenticated history and effect exports show no execution or represented effects"], matchedObjects: 0, historyRows: 0, exactExecutionEstablished: false };
+  return { status: "Unknown", schemaRepresented: false, historyRecorded: false,
+    reasons: ["absence of a migration-history row and current catalog effects cannot prove no manual, partial or historical execution without authenticated external execution provenance"],
+    matchedObjects: 0, historyRows: 0, exactExecutionEstablished: false };
 }
 export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approvals, trustRoots, expectedInventoryBlobSha1 = INVENTORY_BLOB_SHA1 }) {
   const problems = [];
