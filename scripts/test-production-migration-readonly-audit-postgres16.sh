@@ -413,6 +413,99 @@ grep -Fq '"name": "search_path"' "${tmp_dir}/approved.log"
 grep -Fq '"value": "pg_catalog"' "${tmp_dir}/approved.log"
 echo "PASS: approved authenticated collector, allowlisted routine metadata and rollback"
 
+# A SECURITY DEFINER routine can expose synthetic private data; its EXECUTE grant must fail the audit.
+psql -X -v ON_ERROR_STOP=1 <<'SQL'
+CREATE FUNCTION public.audit_fixture_private_exfiltration()
+RETURNS text LANGUAGE sql SECURITY DEFINER
+SET search_path = 'pg_catalog, public'
+AS 'SELECT private_value FROM public.audit_fixture_private WHERE id = 1';
+ALTER FUNCTION public.audit_fixture_private_exfiltration() OWNER TO deedlight_audit_definer_owner;
+GRANT EXECUTE ON FUNCTION public.audit_fixture_private_exfiltration() TO deedlight_catalog_auditor;
+GRANT USAGE ON SCHEMA public TO deedlight_catalog_auditor;
+SQL
+exfiltrated_value="$(psql_as deedlight_catalog_auditor -X -qAt -v ON_ERROR_STOP=1 -c "SELECT public.audit_fixture_private_exfiltration()")"
+test "${exfiltrated_value}" = "synthetic-private-fixture-value"
+echo "PASS: synthetic SECURITY DEFINER exfiltration path reproduced without real private data"
+expect_failure security_definer_private_exfiltration "prohibited EXECUTE privilege on application routine"
+psql -X -v ON_ERROR_STOP=1 <<'SQL'
+REVOKE EXECUTE ON FUNCTION public.audit_fixture_private_exfiltration() FROM deedlight_catalog_auditor;
+REVOKE USAGE ON SCHEMA public FROM deedlight_catalog_auditor;
+DROP FUNCTION public.audit_fixture_private_exfiltration();
+SQL
+
+# PostgreSQL grants PUBLIC EXECUTE to new routines by default; test explicit and default exposure.
+psql -X -v ON_ERROR_STOP=1 -c "GRANT EXECUTE ON FUNCTION public.audit_fixture_security_definer_identity() TO PUBLIC;"
+expect_failure public_routine_execute "prohibited EXECUTE privilege on application routine"
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE EXECUTE ON FUNCTION public.audit_fixture_security_definer_identity() FROM PUBLIC;"
+psql -X -v ON_ERROR_STOP=1 -c "GRANT EXECUTE ON FUNCTION public.audit_fixture_security_definer_identity() TO deedlight_catalog_auditor;"
+expect_failure direct_routine_execute "prohibited EXECUTE privilege on application routine"
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE EXECUTE ON FUNCTION public.audit_fixture_security_definer_identity() FROM deedlight_catalog_auditor;"
+
+# Both global and schema-specific default ACLs must not restore PUBLIC EXECUTE.
+psql -X -v ON_ERROR_STOP=1 -c "ALTER DEFAULT PRIVILEGES FOR ROLE postgres GRANT EXECUTE ON FUNCTIONS TO PUBLIC;"
+expect_failure global_default_routine_execute "default routine privileges expose prohibited EXECUTE"
+psql -X -v ON_ERROR_STOP=1 -c "ALTER DEFAULT PRIVILEGES FOR ROLE postgres REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;"
+psql -X -v ON_ERROR_STOP=1 -c "ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO PUBLIC;"
+expect_failure schema_default_routine_execute "default routine privileges expose prohibited EXECUTE"
+psql -X -v ON_ERROR_STOP=1 -c "ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;"
+
+# Routine OIDs distinguish overloads and cover procedures, aggregates and window functions.
+psql -X -v ON_ERROR_STOP=1 <<'SQL'
+CREATE FUNCTION public.audit_fixture_overload(integer) RETURNS integer LANGUAGE sql IMMUTABLE AS 'SELECT $1';
+CREATE FUNCTION public.audit_fixture_overload(text) RETURNS text LANGUAGE sql IMMUTABLE AS 'SELECT $1';
+CREATE PROCEDURE public.audit_fixture_procedure(integer) LANGUAGE sql AS 'SELECT $1';
+CREATE PROCEDURE public.audit_fixture_procedure(text) LANGUAGE sql AS 'SELECT $1';
+CREATE AGGREGATE public.audit_fixture_aggregate(integer) (SFUNC = pg_catalog.int4pl, STYPE = integer);
+CREATE FUNCTION public.audit_fixture_window(integer) RETURNS integer LANGUAGE sql WINDOW AS 'SELECT $1';
+SQL
+psql -X -v ON_ERROR_STOP=1 -c "GRANT EXECUTE ON ROUTINE public.audit_fixture_overload(integer) TO deedlight_catalog_auditor;"
+expect_failure overloaded_function_oid_execute "prohibited EXECUTE privilege on application routine"
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE EXECUTE ON ROUTINE public.audit_fixture_overload(integer) FROM deedlight_catalog_auditor;"
+psql -X -v ON_ERROR_STOP=1 -c "GRANT EXECUTE ON ROUTINE public.audit_fixture_procedure(integer) TO deedlight_catalog_auditor;"
+expect_failure procedure_execute "prohibited EXECUTE privilege on application routine"
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE EXECUTE ON ROUTINE public.audit_fixture_procedure(integer) FROM deedlight_catalog_auditor;"
+psql -X -v ON_ERROR_STOP=1 -c "GRANT EXECUTE ON ROUTINE public.audit_fixture_aggregate(integer) TO deedlight_catalog_auditor;"
+expect_failure aggregate_execute "prohibited EXECUTE privilege on application routine"
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE EXECUTE ON ROUTINE public.audit_fixture_aggregate(integer) FROM deedlight_catalog_auditor;"
+psql -X -v ON_ERROR_STOP=1 -c "GRANT EXECUTE ON ROUTINE public.audit_fixture_window(integer) TO deedlight_catalog_auditor;"
+expect_failure window_function_execute "prohibited EXECUTE privilege on application routine"
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE EXECUTE ON ROUTINE public.audit_fixture_window(integer) FROM deedlight_catalog_auditor;"
+psql -X -v ON_ERROR_STOP=1 -c "GRANT EXECUTE ON ROUTINE public.audit_fixture_overload(text) TO deedlight_audit_nested_leaf;"
+psql -X -v ON_ERROR_STOP=1 -c "GRANT deedlight_audit_nested_parent TO deedlight_catalog_auditor;"
+psql -X -At -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.has_function_privilege('deedlight_catalog_auditor', 'public.audit_fixture_overload(text)', 'EXECUTE')" | grep -Fxq t
+expect_failure inherited_routine_execute "prohibited EXECUTE privilege on application routine"
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE deedlight_audit_nested_parent FROM deedlight_catalog_auditor;"
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE EXECUTE ON ROUTINE public.audit_fixture_overload(text) FROM deedlight_audit_nested_leaf;"
+psql -X -v ON_ERROR_STOP=1 <<'SQL'
+DROP FUNCTION public.audit_fixture_overload(integer);
+DROP FUNCTION public.audit_fixture_overload(text);
+DROP PROCEDURE public.audit_fixture_procedure(integer);
+DROP PROCEDURE public.audit_fixture_procedure(text);
+DROP AGGREGATE public.audit_fixture_aggregate(integer);
+DROP FUNCTION public.audit_fixture_window(integer);
+SQL
+
+# Database-level CONNECT/CREATE/TEMP/ownership/grant-option and schema USAGE contract.
+psql -X -v ON_ERROR_STOP=1 -c "GRANT CREATE ON DATABASE deedlight_migration_order_test TO deedlight_catalog_auditor;"
+expect_failure database_create "prohibited database CREATE privilege"
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE CREATE ON DATABASE deedlight_migration_order_test FROM deedlight_catalog_auditor;"
+psql -X -v ON_ERROR_STOP=1 -c "GRANT TEMP ON DATABASE deedlight_migration_order_test TO deedlight_catalog_auditor;"
+expect_failure database_temp "prohibited database TEMP privilege"
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE TEMP ON DATABASE deedlight_migration_order_test FROM deedlight_catalog_auditor;"
+psql -X -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE deedlight_migration_order_test TO deedlight_catalog_auditor WITH GRANT OPTION;"
+expect_failure database_grant_option "prohibited database grant-option privileges"
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE CONNECT ON DATABASE deedlight_migration_order_test FROM deedlight_catalog_auditor;"
+psql -X -v ON_ERROR_STOP=1 -c "ALTER DATABASE deedlight_migration_order_test OWNER TO deedlight_catalog_auditor;"
+expect_failure database_ownership "owns the current database"
+psql -X -v ON_ERROR_STOP=1 -c "ALTER DATABASE deedlight_migration_order_test OWNER TO postgres;"
+psql -X -v ON_ERROR_STOP=1 -c "GRANT USAGE ON SCHEMA public TO deedlight_catalog_auditor;"
+expect_failure application_schema_usage "prohibited USAGE on an application schema"
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE USAGE ON SCHEMA public FROM deedlight_catalog_auditor;"
+public_schema_owner="$(psql -X -At -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.pg_get_userbyid(nspowner) FROM pg_catalog.pg_namespace WHERE nspname = 'public'")"
+psql -X -v ON_ERROR_STOP=1 -c "ALTER SCHEMA public OWNER TO deedlight_catalog_auditor;"
+expect_failure application_schema_ownership "owns an application schema"
+psql -X -v ON_ERROR_STOP=1 -c "ALTER SCHEMA public OWNER TO \"$public_schema_owner\";"
+
 # A SECURITY DEFINER owner changes current_user but preserves the authenticated login.
 definer_result="$(
   psql_as deedlight_catalog_auditor -X -qAt -v ON_ERROR_STOP=1 <<'SQL'
