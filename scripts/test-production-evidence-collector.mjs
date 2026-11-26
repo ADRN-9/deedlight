@@ -13,11 +13,12 @@ import {
 
 function serializeCsvField(value) {
   const text = String(value);
-  return /[",\\r\\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+  return /[",\\x0d\\x0a]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
 }
 
 function serializeCsv(rows) {
-  return rows.map((row) => row.map(serializeCsvField).join(",")).join("\\r\\n") + "\\r\\n";
+  const newline = String.fromCharCode(13, 10);
+  return rows.map((row) => row.map(serializeCsvField).join(",")).join(newline) + newline;
 }
 
 function replaceAclEdges(csv, edges) {
