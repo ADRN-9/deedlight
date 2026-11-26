@@ -13,7 +13,9 @@ import {
 
 function serializeCsvField(value) {
   const text = String(value);
-  return /[",\\x0d\\x0a]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+  const needsQuotes = text.includes(",") || text.includes('"') ||
+    text.includes(String.fromCharCode(13)) || text.includes(String.fromCharCode(10));
+  return needsQuotes ? '"' + text.replace(/"/g, '""') + '"' : text;
 }
 
 function serializeCsv(rows) {
