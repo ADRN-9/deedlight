@@ -6,6 +6,12 @@ on:
   pull_request:
     branches:
       - integration/deedlight-c79-925c97ee-isolated-v1
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Full 40-character commit SHA to validate
+        required: true
+        type: string
 permissions:
   contents: read
 concurrency:
@@ -23,7 +29,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.sha }}
           persist-credentials: false
+      - name: Verify and record exact candidate checkout
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+          test "$ACTUAL_SHA" = "$EXPECTED_SHA"
+          printf 'EXPECTED_CANDIDATE_SHA=%s\\nCHECKED_OUT_SHA=%s\\n' "$EXPECTED_SHA" "$ACTUAL_SHA"
       - uses: actions/setup-node@v7
         with:
           node-version: 24
@@ -40,6 +57,8 @@ jobs:
         run: npm ci
       - name: Resend webhook signature, replay and destination identity regressions
         run: node --test scripts/test-c73-provider-webhook.mjs
+      - name: Exported POST privileged-boundary instrumentation
+        run: node --test scripts/test-c516-webhook-route-instrumentation.mjs
       - name: Isolated exported-route network and privacy regressions
         run: node --test scripts/test-c73-webhook-isolation.mjs
       - name: Existing C73 webhook security assertions
