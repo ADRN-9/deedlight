@@ -444,7 +444,7 @@ psql -X -v ON_ERROR_STOP=1 -c "REVOKE EXECUTE ON FUNCTION public.audit_fixture_s
 
 # Both global and schema-specific default ACLs must not restore PUBLIC EXECUTE.
 psql -X -v ON_ERROR_STOP=1 -c "ALTER DEFAULT PRIVILEGES FOR ROLE postgres GRANT EXECUTE ON FUNCTIONS TO PUBLIC;"
-expect_failure global_default_routine_execute "default routine privileges expose prohibited EXECUTE"
+expect_failure global_default_routine_execute "Implicit or configured global routine defaults expose prohibited PUBLIC or collector EXECUTE"
 psql -X -v ON_ERROR_STOP=1 -c "ALTER DEFAULT PRIVILEGES FOR ROLE postgres REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;"
 psql -X -v ON_ERROR_STOP=1 -c "ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO PUBLIC;"
 expect_failure schema_default_routine_execute "default routine privileges expose prohibited EXECUTE"
