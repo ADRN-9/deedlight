@@ -130,7 +130,7 @@ The PR #24 CI job `migration_037_backfill_database_behavior` passed against a di
 - `scripts/production-migration-readonly-audit.sql` is a SELECT-only catalog/history audit with a narrow direct-login collector role contract. Its history projection is only three database facts: version, name, statement count.
 - `scripts/test-production-migration-readonly-audit-postgres16-fixture.sql` creates a synthetic `supabase_migrations.schema_migrations` table and inserts a synthetic `202611240038` row. This is not a copied Production history record.
 - `scripts/test-duplicate-migration-007.sh` tests the Supabase CLI collision and both ordering outcomes against disposable databases.
-- `scripts/test-migration-037-backfill-postgres16-fixture.sql` and its runner use synthetic provider events/anomalies and a disposable database.
+- `scripts/test-migration-037-backfill-audit-postgres16-fixture.sql` and its runner use synthetic provider events/anomalies and a disposable database.
 - `docs/PRODUCTION_MIGRATION_RECONCILIATION_LEDGER.md` states all 39 entries are NOT COLLECTED / UNCLASSIFIED and records the 007/018/037 cautions. Its source-baseline SHA is historical (`def0de7e33d57a05e2ee6e38e43796c24562b425`), although its inventory blob pin matches the assessed inventory.
 - `docs/PRODUCTION_READ_ONLY_MIGRATION_AUDIT.md` contains an older Cycle 363 snapshot that refers to a 37-file inventory. Treat that count and its linked historical inventory statement as stale; the current assessed PR #24 inventory is 39 files.
 - `docs/PRODUCTION_MIGRATION_RECONCILIATION.md` contains historical Cycle 390 source context. It is not a current Production evidence report.
