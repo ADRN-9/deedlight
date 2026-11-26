@@ -187,7 +187,6 @@ psql -X -v ON_ERROR_STOP=1 --file scripts/test-production-migration-readonly-aud
 # Hostile functions deliberately shadow security-sensitive built-ins on the session search_path.
 psql -X -v ON_ERROR_STOP=1 <<'SQL'
 CREATE SCHEMA deedlight_audit_shadow;
-GRANT USAGE ON SCHEMA deedlight_audit_shadow TO deedlight_catalog_auditor;
 CREATE FUNCTION deedlight_audit_shadow.current_setting(text, boolean)
 RETURNS text LANGUAGE plpgsql
 AS $shadow$ BEGIN RAISE EXCEPTION 'HOSTILE current_setting SHADOW INVOKED'; END $shadow$;
@@ -396,6 +395,7 @@ expect_history_failure() {
 
 run_audit >"${tmp_dir}/approved.log" 2>&1
 grep -Fq "audit_fixture_sequence" "${tmp_dir}/approved.log"
+psql -X -v ON_ERROR_STOP=1 -c "GRANT USAGE ON SCHEMA deedlight_audit_shadow TO deedlight_catalog_auditor;"
 if run_audit deedlight_catalog_auditor deedlight_catalog_auditor xaipiovflxomcbfwtwmu 0123456789abcdef0123456789abcdef01234567 __NONE__ hostile >"${tmp_dir}/hostile-search-path.log" 2>&1; then
   echo "FAIL: collector accepted USAGE on the adversarial application schema" >&2
   exit 1
