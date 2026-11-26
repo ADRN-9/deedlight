@@ -82,6 +82,28 @@ CREATE ROLE deedlight_audit_nested_parent NOLOGIN NOSUPERUSER NOCREATEDB NOCREAT
 CREATE ROLE deedlight_audit_nested_leaf NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE ROLE deedlight_audit_definer_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 
+-- The preceding migration-order job shares this disposable database service.
+-- Normalize only its synthetic application schemas before the positive collector case.
+DO $fixture_acl_baseline$
+DECLARE
+  v_schema record;
+BEGIN
+  FOR v_schema IN
+    SELECT n.nspname
+    FROM pg_catalog.pg_namespace n
+    WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+      AND n.nspname NOT LIKE 'pg_toast%'
+  LOOP
+    EXECUTE pg_catalog.format('REVOKE USAGE ON SCHEMA %I FROM PUBLIC', v_schema.nspname);
+    EXECUTE pg_catalog.format('REVOKE USAGE ON SCHEMA %I FROM deedlight_catalog_auditor', v_schema.nspname);
+    EXECUTE pg_catalog.format('REVOKE EXECUTE ON ALL ROUTINES IN SCHEMA %I FROM PUBLIC', v_schema.nspname);
+    EXECUTE pg_catalog.format('REVOKE EXECUTE ON ALL ROUTINES IN SCHEMA %I FROM deedlight_catalog_auditor', v_schema.nspname);
+  END LOOP;
+END;
+$fixture_acl_baseline$;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+REVOKE TEMP ON DATABASE deedlight_migration_order_test FROM PUBLIC;
+
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 REVOKE USAGE ON SCHEMA public FROM PUBLIC;
 REVOKE TEMP ON DATABASE deedlight_migration_order_test FROM PUBLIC;
