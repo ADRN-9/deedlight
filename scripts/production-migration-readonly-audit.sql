@@ -922,6 +922,7 @@ ORDER BY h.version, h.name;
 -- JSONB object keys are canonical and ACL edges are explicitly ordered for stable digests.
 SELECT
   'database_acl_v1' AS evidence_projection,
+  pg_catalog.count(*) OVER () AS database_count,
   d.oid AS database_oid,
   d.datname AS database_name,
   d.datallowconn AS allows_connections,
