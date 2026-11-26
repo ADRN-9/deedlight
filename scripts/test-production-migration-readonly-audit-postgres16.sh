@@ -537,6 +537,7 @@ echo "PASS: SECURITY DEFINER preserves and validates the authenticated principal
 # Add the privileged SECURITY DEFINER fixture only after the trusted baseline passes.
 psql -X -v ON_ERROR_STOP=1 -v fixture_privileged_password="$DEEDLIGHT_FIXTURE_PRIVILEGED_PASSWORD" <<'SQL'
 CREATE ROLE deedlight_audit_privileged_login LOGIN PASSWORD :'fixture_privileged_password' SUPERUSER;
+ALTER DEFAULT PRIVILEGES FOR ROLE deedlight_audit_privileged_login REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 CREATE FUNCTION public.audit_fixture_privileged_definer_identity()
 RETURNS text
 LANGUAGE plpgsql
