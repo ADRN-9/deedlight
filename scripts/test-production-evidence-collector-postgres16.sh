@@ -68,9 +68,9 @@ docker exec "$tls_container_id" chown postgres:postgres \
 PGPASSWORD=postgres psql -X -h 127.0.0.1 -p 5432 -U postgres -d "$fixture_db" \
   -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET ssl = 'on'" \
   -c "ALTER SYSTEM SET ssl_cert_file = '/var/lib/postgresql/data/deedlight-tls/server.crt'" \
-  -c "ALTER SYSTEM SET ssl_key_file = '/var/lib/postgresql/data/deedlight-tls/server.key'" \
-  -c "SELECT pg_catalog.pg_reload_conf()"
-for attempt in {1..30}; do
+  -c "ALTER SYSTEM SET ssl_key_file = '/var/lib/postgresql/data/deedlight-tls/server.key'"
+docker restart "$tls_container_id" >/dev/null
+for attempt in {1..60}; do
   if PGPASSWORD=postgres psql -X -h 127.0.0.1 -p 5432 -U postgres -d "$fixture_db" -At -c "SHOW ssl" | grep -Fxq on; then break; fi
   sleep 1
 done
@@ -163,8 +163,8 @@ docker exec "$tls_container_id" chmod 600 /var/lib/postgresql/data/deedlight-tls
 docker exec "$tls_container_id" chown postgres:postgres \
   /var/lib/postgresql/data/deedlight-tls/server.crt /var/lib/postgresql/data/deedlight-tls/server.key
 PGPASSWORD=postgres psql -X -h 127.0.0.1 -p 5432 -U postgres -d "$fixture_db" \
-  -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.pg_reload_conf()"
-sleep 2
+docker restart "$tls_container_id" >/dev/null
+sleep 3
 if DEEDLIGHT_COLLECTOR_ENDPOINT_PROFILE_SHA256="$profile_digest" \
   node scripts/collect-production-migration-evidence.mjs \
     --profile "$work/collector-endpoint.json" --output "$work/evidence-wrong-host" \
