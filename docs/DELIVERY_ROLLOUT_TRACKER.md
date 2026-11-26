@@ -1,5 +1,21 @@
 # Deedlight outbound delivery rollout tracker
 
+## C519 — Scheduler and emergency kill-switch readiness
+
+**Implementation branch:** `feat/production-evidence-collector-e1-e2`; inspection baseline `97c3ac4aab41dc8a2b598f5bee7b63186f746a37`; C519 implementation/report commit `cf0954f0c03085a6c428018e314b6a276f386f35`.  
+**C518 exact-head CI refresh:** run [45910456594](https://github.com/ADRN-9/deedlight/actions/runs/45910456594) completed **CANCELLED** at exact HEAD `97c3ac4aab41dc8a2b598f5bee7b63186f746a37`; jobs endpoint returned no jobs. Not a PASS; C518 package test execution is unproven.  
+**C519 change:** `lib/delivery/scheduler.ts` now requires exact `WEEKLY_DELIVERY_ENABLED=true` independently of `DELIVERY_ENABLED=true` before Weekly runtime construction/enqueue/claim/provider IO. `scripts/test-delivery-transport.mjs` adds missing/false/malformed/true flag checks, a simulated Weekly-trigger hold with zero work, and a disabled-to-enabled configuration check. `scripts/verify-gentle-delivery-transport.mjs` asserts the Weekly gate precedes runtime creation. Existing Wrangler `triggers.crons=[]` assertion remains.
+**Full C519 evidence and runbook:** [docs/C519_SCHEDULER_KILL_SWITCH_READINESS.md](C519_SCHEDULER_KILL_SWITCH_READINESS.md).
+
+Existing code/tests cover consent reauthorization, stale/expired claims, bounded retries, stable idempotency, provider failure/ambiguous outcomes and global kill-switch no-work behavior using unit fixtures and disposable PostgreSQL. These are non-Production evidence only. C519 does not establish actual scheduler cycles, Production kill-switch exercise, safe Production re-enablement, provider delivery or deployed Cron state.
+
+**Required rollout order:** prerequisites and approvals → Daily-only activation → multiple reconciled healthy Daily cycles → Production kill-switch proof → independently approved safe re-enablement → Weekly flag and Cron only after Daily acceptance. Weekly remains unconfigured in Wrangler and now has a separate exact-true runtime gate.
+
+**No Production Cron activation, provider send, environment change, queue mutation, credential operation, or Weekly activation occurred. Production remains NO-GO.** PR #25 independent security approval and Supabase migration reconciliation remain outstanding.
+
+---
+
+
 ## C421 — PR #22 synchronization and source inventory refresh
 
 **Repository:** ADRN-9/deedlight  
