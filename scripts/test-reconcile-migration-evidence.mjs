@@ -424,7 +424,10 @@ test("every active trust root requires explicit null revokedAt, including unused
       assert.equal(report.trustVerified, false, label);
       assert.equal(report.counts.Unknown, 39, label);
       assert.equal(report.acceptance, "NOT_ACCEPTED", label);
-      assert.ok(report.trustProblems.some((reason) => reason.includes("every active trust-root key must explicitly provide revokedAt: null")), label);
+      const expectedProblem = label === "absent"
+        ? "trust-root bundle contains an unsupported key, role or private signing material"
+        : "every active trust-root key must explicitly provide revokedAt: null";
+      assert.ok(report.trustProblems.some((reason) => reason.includes(expectedProblem)), label);
     } finally { f.cleanup(); }
   }
 
