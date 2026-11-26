@@ -771,6 +771,10 @@ test("migration-history SQL output normalization enforces exact row shape and nu
   ]) assert.throws(() => normalizeMigrationHistoryRows(malformed));
   assert.ok(validateMigrationHistoryRows([{ version: "202607260004", migration_name: "sprint4_reactions", recorded_statement_count: 12 }], sourceManifest).length > 0);
   assert.ok(validateMigrationHistoryRows([{ version: "202607260004", name: "sprint4_reactions" }], sourceManifest).length > 0);
+  assert.ok(validateMigrationHistoryRows([
+    { version: "202607260004", name: "sprint4_reactions", recordedStatementCount: 12 },
+    { version: "202607260004", name: "sprint4_reactions", recordedStatementCount: 12 },
+  ], sourceManifest).some((problem) => problem.includes("duplicate version")));
 });
 test("migration-history facts never establish execution provenance; fabricated fields fail closed", () => {
   const f = fixture();

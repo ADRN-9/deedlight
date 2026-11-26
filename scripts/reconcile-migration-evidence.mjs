@@ -104,11 +104,19 @@ export function validateMigrationHistoryRows(rows, manifest) {
   const problems = [];
   if (!Array.isArray(rows)) return ["migration history export is incomplete"];
   const versions = new Set(manifest.migrations.map((item) => item.version));
+  const seenVersions = new Set();
   for (const row of rows) {
     if (!row || Object.keys(row).sort().join(",") !== "name,recordedStatementCount,version"
       || typeof row.version !== "string" || !/^[0-9]{12}$/.test(row.version) || !versions.has(row.version)) {
       problems.push("migration history row must contain only recognized version, name and recorded statement-count database facts");
-    } else if (typeof row.name !== "string" || !row.name.trim()
+      continue;
+    }
+    if (seenVersions.has(row.version)) {
+      problems.push("migration history contains duplicate version rows despite the required version primary key");
+    } else {
+      seenVersions.add(row.version);
+    }
+    if (typeof row.name !== "string" || !row.name.trim()
       || (row.recordedStatementCount !== null && (!Number.isSafeInteger(row.recordedStatementCount) || row.recordedStatementCount < 0))) {
       problems.push("migration history row has an invalid migration name or recorded statement count");
     }
