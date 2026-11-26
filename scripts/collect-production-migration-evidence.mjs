@@ -325,20 +325,40 @@ export function buildReceipt({ profile, profileDigest, commitSha, startedAt, com
 }
 const exactKeys=(v,keys)=>v&&typeof v==="object"&&!Array.isArray(v)&&Object.keys(v).length===keys.length&&keys.every(k=>Object.hasOwn(v,k));
 const hex=(v,n)=>typeof v==="string"&&new RegExp("^[a-f0-9]{"+n+"}$").test(v);
-export function isStrictRfc3339(value) {
-  if (typeof value !== "string") return false;
+function parseStrictTimestamp(value) {
+  if (typeof value !== "string") return null;
   const match = /^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.([0-9]+))?(Z|([+-])([0-9]{2}):([0-9]{2}))$/.exec(value);
-  if (!match) return false;
+  if (!match) return null;
   const year = Number(match[1]), month = Number(match[2]), day = Number(match[3]);
   const hour = Number(match[4]), minute = Number(match[5]), second = Number(match[6]);
   const offsetHour = match[10] === undefined ? 0 : Number(match[10]);
   const offsetMinute = match[11] === undefined ? 0 : Number(match[11]);
   if (year < 1 || month < 1 || month > 12 || hour > 23 || minute > 59 || second > 59 ||
-      offsetHour > 23 || offsetMinute > 59) return false;
+      offsetHour > 23 || offsetMinute > 59 || (match[8] === "-" && offsetHour === 0 && offsetMinute === 0)) return null;
   const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
   const monthDays = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-  if (day < 1 || day > monthDays[month - 1]) return false;
-  return Number.isFinite(Date.parse(value));
+  if (day < 1 || day > monthDays[month - 1]) return null;
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
+  date.setUTCHours(hour, minute, second, 0);
+  const offsetSign = match[9] === "-" ? -1 : 1;
+  const offsetSeconds = offsetSign * (offsetHour * 3600 + offsetMinute * 60);
+  const epochSeconds = BigInt(date.getTime() / 1000 - offsetSeconds);
+  return { epochSeconds, fraction: (match[7] ?? "").replace(/0+$/, "") };
+}
+
+export function isStrictRfc3339(value) {
+  // Supported receipt profile deliberately excludes RFC3339 leap seconds and unknown offsets (-00:00).
+  return parseStrictTimestamp(value) !== null;
+}
+
+export function compareStrictTimestamps(left, right) {
+  const a = parseStrictTimestamp(left), b = parseStrictTimestamp(right);
+  if (!a || !b) throw new CollectorError("RECEIPT_TIMESTAMP_INVALID");
+  if (a.epochSeconds !== b.epochSeconds) return a.epochSeconds < b.epochSeconds ? -1 : 1;
+  const width = Math.max(a.fraction.length, b.fraction.length);
+  const af = a.fraction.padEnd(width, "0"), bf = b.fraction.padEnd(width, "0");
+  return af === bf ? 0 : af < bf ? -1 : 1;
 }
 const dateTime = isStrictRfc3339;
 export function validateReceiptSchema(r){
@@ -352,7 +372,7 @@ export function validateReceiptSchema(r){
  !hex(s.repositoryCommitSha,40)||s.migrationInventoryGitBlobSha1!==INVENTORY_GIT_BLOB_SHA1||s.sqlBundlePath!==SQL_PATH||s.sqlBundleGitBlobSha1!==SQL_GIT_BLOB_SHA1||s.sqlBundleSha256!==SQL_SHA256)invalid();
  const x=r.execution;if(!exactKeys(x,["collectorId","authenticatedPrincipal","expectedEffectivePrincipal","transactionIsolation","readOnly","transactionRollbackVerified","startedAt","completedAt","outputFormat","canonicalization","resultRecordCount","databaseAclV1RowCount","canonicalResultSha256","evidenceFileSha256"])||
  x.collectorId!==COLLECTOR_ID||x.authenticatedPrincipal!=="deedlight_catalog_auditor"||x.expectedEffectivePrincipal!=="deedlight_catalog_auditor"||
- x.transactionIsolation!=="repeatable read"||x.readOnly!==true||x.transactionRollbackVerified!==true||!dateTime(x.startedAt)||!dateTime(x.completedAt)||Date.parse(x.completedAt)<Date.parse(x.startedAt)||
+ x.transactionIsolation!=="repeatable read"||x.readOnly!==true||x.transactionRollbackVerified!==true||!dateTime(x.startedAt)||!dateTime(x.completedAt)||compareStrictTimestamps(x.completedAt,x.startedAt)<0||
  x.outputFormat!=="PostgreSQL psql CSV"||typeof x.canonicalization!=="string"||x.canonicalization.length<20||!Number.isSafeInteger(x.resultRecordCount)||x.resultRecordCount<1||
  !Number.isSafeInteger(x.databaseAclV1RowCount)||x.databaseAclV1RowCount<1||!hex(x.canonicalResultSha256,64)||!hex(x.evidenceFileSha256,64))invalid();
  const v=r.evidence;if(!exactKeys(v,["file","mediaType","byteLength","sha256"])||v.file!=="evidence.csv"||v.mediaType!=="text/csv"||!Number.isSafeInteger(v.byteLength)||v.byteLength<1||!hex(v.sha256,64))invalid();

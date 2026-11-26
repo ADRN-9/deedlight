@@ -344,6 +344,47 @@ test("strict RFC3339 validates calendar, leap years, clock and timezone ranges",
   for (const value of invalid) assert.equal(isStrictRfc3339(value), false, value);
 });
 
+test("receipt timestamp profile rejects leap seconds and unknown local offsets", () => {
+  const supported = [
+    "2016-12-31T23:59:59Z",
+    "2024-02-29T12:30:45.12345678901234567890Z",
+    "2026-11-26T06:45:00-08:00",
+  ];
+  const unsupported = [
+    "2016-12-31T23:59:60Z",
+    "2016-12-31T18:59:60-05:00",
+    "2017-12-31T23:59:60Z",
+    "2016-12-30T23:59:60Z",
+    "2024-01-01T00:00:00-00:00",
+    "2024-01-01T00:00:00+",
+    "2024-01-01T00:00:00+01:000",
+  ];
+  for (const value of supported) assert.equal(isStrictRfc3339(value), true, value);
+  for (const value of unsupported) assert.equal(isStrictRfc3339(value), false, value);
+});
+
+test("strict timestamp ordering preserves fractional precision and timezone equivalence", () => {
+  assert.equal(compareStrictTimestamps("2024-01-01T00:00:00.1234567891Z", "2024-01-01T00:00:00.1234567890Z"), 1);
+  assert.equal(compareStrictTimestamps("2024-01-01T00:00:00.1234567889Z", "2024-01-01T00:00:00.1234567890Z"), -1);
+  assert.equal(compareStrictTimestamps("2024-01-01T00:00:00.123456789Z", "2023-12-31T19:00:00.123456789-05:00"), 0);
+  assert.equal(compareStrictTimestamps("2024-01-01T00:00:00.000000001Z", "2023-12-31T19:00:00.000000002-05:00"), -1);
+  assert.equal(compareStrictTimestamps("2024-01-01T00:00:00.1234000Z", "2024-01-01T00:00:00.1234Z"), 0);
+});
+
+test("receipt rejects sub-millisecond completion inversions", () => {
+  const csv = Buffer.from(validCsv()), receipt = completeReceipt(csv);
+  receipt.execution.startedAt = "2026-01-01T00:00:00.0000009Z";
+  receipt.execution.completedAt = "2026-01-01T00:00:00.0000008Z";
+  assert.throws(() => validateReceiptSchema(receipt), (error) => error.code === "RECEIPT_SCHEMA_INVALID");
+});
+
+test("receipt accepts equal instants expressed with different timezone offsets", () => {
+  const csv = Buffer.from(validCsv()), receipt = completeReceipt(csv);
+  receipt.execution.startedAt = "2026-01-01T05:00:00.123456789Z";
+  receipt.execution.completedAt = "2026-01-01T00:00:00.123456789-05:00";
+  assert.equal(validateReceiptSchema(receipt).status, "UNSIGNED_E2");
+});
+
 test("receipt rejects impossible RFC3339 dates despite Date.parse normalization", () => {
   const csv = Buffer.from(validCsv()), receipt = completeReceipt(csv);
   receipt.execution.startedAt = "2026-02-31T12:00:00Z";
