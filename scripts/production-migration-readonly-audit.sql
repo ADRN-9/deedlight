@@ -87,7 +87,7 @@ BEGIN
     'pg_catalog.pg_namespace', 'pg_catalog.pg_language', 'pg_catalog.pg_policies',
     'pg_catalog.pg_constraint', 'pg_catalog.pg_indexes', 'pg_catalog.pg_trigger',
     'pg_catalog.pg_default_acl', 'pg_catalog.pg_extension', 'pg_catalog.pg_sequence',
-    'pg_catalog.pg_index', 'pg_catalog.pg_depend', 'pg_catalog.pg_type', 'pg_catalog.pg_am'
+    'pg_catalog.pg_index', 'pg_catalog.pg_depend', 'pg_catalog.pg_type', 'pg_catalog.pg_am', 'pg_catalog.pg_database'
   ] LOOP
     IF pg_catalog.to_regclass(v_catalog) IS NULL
       OR NOT pg_catalog.has_table_privilege(v_session_role_oid, pg_catalog.to_regclass(v_catalog), 'SELECT')
@@ -506,10 +506,13 @@ BEGIN
       COALESCE(d.datacl, pg_catalog.acldefault('d', d.datdba))
     ) acl
     WHERE d.datname = pg_catalog.current_database()
-      AND acl.grantee IN (v_session_role_oid, v_effective_role_oid)
+      AND (
+        acl.grantee = 0
+        OR acl.grantee IN (v_session_role_oid, v_effective_role_oid)
+      )
       AND acl.is_grantable
   ) THEN
-    RAISE EXCEPTION 'Collector role has prohibited database grant-option privileges.';
+    RAISE EXCEPTION 'PUBLIC or collector role has prohibited database grant-option privileges.';
   END IF;
   SELECT n.nspname INTO v_unsafe_schema
   FROM pg_catalog.pg_namespace n
@@ -910,6 +913,47 @@ SELECT
   pg_catalog.cardinality(h.statements) AS recorded_statement_count
 FROM supabase_migrations.schema_migrations AS h
 ORDER BY h.version, h.name;
+
+-- 14. Complete database ACL evidence. Emit every database, including templates,
+-- preserving the original NULL/non-NULL datacl state while expanding built-in defaults.
+-- JSONB object keys are canonical and ACL edges are explicitly ordered for stable digests.
+SELECT
+  'database_acl_v1' AS evidence_projection,
+  d.oid AS database_oid,
+  d.datname AS database_name,
+  d.datallowconn AS allows_connections,
+  d.datistemplate AS is_template,
+  d.datdba AS owner_oid,
+  owner_role.rolname AS owner_name,
+  (d.datacl IS NULL) AS datacl_was_null,
+  CASE WHEN d.datacl IS NULL THEN 'built_in_default' ELSE 'explicit' END AS acl_expansion_source,
+  COALESCE(
+    pg_catalog.jsonb_agg(
+      pg_catalog.jsonb_build_object(
+        'grantee_oid', acl.grantee,
+        'grantee_name', CASE
+          WHEN acl.grantee = 0 THEN 'PUBLIC'
+          ELSE grantee_role.rolname
+        END,
+        'grantor_oid', acl.grantor,
+        'grantor_name', grantor_role.rolname,
+        'privilege_type', acl.privilege_type,
+        'is_grantable', acl.is_grantable
+      )
+      ORDER BY acl.grantee, acl.grantor, acl.privilege_type, acl.is_grantable
+    ) FILTER (WHERE acl.grantee IS NOT NULL),
+    '[]'::jsonb
+  ) AS expanded_acl_edges
+FROM pg_catalog.pg_database d
+JOIN pg_catalog.pg_roles owner_role ON owner_role.oid = d.datdba
+LEFT JOIN LATERAL pg_catalog.aclexplode(
+  COALESCE(d.datacl, pg_catalog.acldefault('d', d.datdba))
+) acl ON true
+LEFT JOIN pg_catalog.pg_roles grantee_role ON grantee_role.oid = acl.grantee
+LEFT JOIN pg_catalog.pg_roles grantor_role ON grantor_role.oid = acl.grantor
+GROUP BY d.oid, d.datname, d.datallowconn, d.datistemplate,
+  d.datdba, owner_role.rolname, d.datacl
+ORDER BY d.oid, d.datname;
 
 -- The collector captures the result digest and commits its own signed receipt outside this database.
 -- Roll back the read-only snapshot explicitly; no database state is changed.
