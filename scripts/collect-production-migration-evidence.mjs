@@ -14,6 +14,8 @@ export const INVENTORY_GIT_BLOB_SHA1 = "95d514a0bd97ff448c9507252eb1f5e69a507442
 const MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 const EXECUTION_TIMEOUT_MS = 90_000;
 const COLLECTOR_ID = "deedlight-readonly-collector-v1";
+const PSQL_BINARY = "/usr/bin/psql";
+const GIT_BINARY = "/usr/bin/git";
 
 export class CollectorError extends Error {
   constructor(code) { super(code); this.name = "CollectorError"; this.code = code; }
@@ -96,7 +98,7 @@ function requirePrivateRegularFile(filePath, code) {
   return realpathSync(filePath);
 }
 function gitValue(repoPath, args, code) {
-  const result = spawnSync("git", args, {
+  const result = spawnSync(GIT_BINARY, args, {
     cwd: repoPath, encoding: "utf8",
     env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: process.env.HOME ?? "/tmp", LC_ALL: "C" },
     timeout: 5_000, maxBuffer: 1024 * 1024, windowsHide: true,
@@ -152,7 +154,7 @@ function runPsql({ repoPath, profile, sqlPath, commitSha }) {
     PGPASSFILE: profile.passwordFilePath, PGSSLROOTCERT: profile.tlsRootCertPath, PGSSLMODE: "verify-full",
     PGCONNECT_TIMEOUT: "8", PGAPPNAME: "deedlight-production-evidence-collector",
   };
-  const result = spawnSync("psql", options, {
+  const result = spawnSync(PSQL_BINARY, options, {
     cwd: repoPath, env: cleanEnv, encoding: null,
     timeout: EXECUTION_TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES, windowsHide: true,
   });
@@ -172,6 +174,8 @@ export function buildReceipt({ profile, profileDigest, commitSha, startedAt, com
     projectRef: PROJECT_REF,
     endpoint: {
       hostname: profile.host, port: profile.port, database: profile.database, tlsMode: "verify-full",
+      tlsVerified: true, tlsHostnameVerified: true, tlsChainVerified: true,
+      projectIdentityMethod: "independently-pinned-profile-and-project-specific-TLS-hostname",
       tlsRootCertificateSha256: sha256(readFileSync(profile.tlsRootCertPath)),
       independentlyPinnedProfileSha256: profileDigest,
     },
