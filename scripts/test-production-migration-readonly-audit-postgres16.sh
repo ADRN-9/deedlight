@@ -556,7 +556,7 @@ psql -X -v ON_ERROR_STOP=1 -c "REVOKE EXECUTE ON FUNCTION public.audit_fixture_s
 psql -X -v ON_ERROR_STOP=1 -c "REVOKE USAGE ON SCHEMA public FROM deedlight_catalog_auditor;"
 echo "PASS: SECURITY DEFINER preserves and validates the authenticated principal"
 psql -X -v ON_ERROR_STOP=1 -c "ALTER ROLE deedlight_audit_definer_owner INHERIT;"
-if psql_as deedlight_catalog_auditor -X -v ON_ERROR_STOP=1 -c "SET deedlight.authenticated_principal = 'deedlight_catalog_auditor'; SELECT public.audit_fixture_security_definer_identity();" >"${tmp_dir}/effective_definer_inherit.log" 2>&1; then
+if command env -i "PATH=$PATH" "HOME=${HOME:-/tmp}" "PGHOST=${DEEDLIGHT_LIBPQ_HOST}" "PGPORT=${DEEDLIGHT_LIBPQ_PORT}" "PGUSER=deedlight_catalog_auditor" "PGPASSWORD=${DEEDLIGHT_FIXTURE_AUDITOR_PASSWORD}" "PGDATABASE=${DEEDLIGHT_LIBPQ_DATABASE}" "PGCONNECT_TIMEOUT=5" "PGSSLMODE=disable" "DEEDLIGHT_DISPOSABLE_FIXTURE_AUTHORIZATION=${DEEDLIGHT_DISPOSABLE_FIXTURE_AUTHORIZATION}" "DEEDLIGHT_EXPECTED_SERVER_ADDR=${DEEDLIGHT_EXPECTED_SERVER_ADDR}" psql -X -v ON_ERROR_STOP=1 -c "SET deedlight.authenticated_principal = 'deedlight_catalog_auditor'; SELECT public.audit_fixture_security_definer_identity();" >"${tmp_dir}/effective_definer_inherit.log" 2>&1; then
   echo "FAIL: SECURITY DEFINER owner with INHERIT unexpectedly passed" >&2
   exit 1
 fi
