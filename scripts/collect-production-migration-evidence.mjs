@@ -73,13 +73,35 @@ export function validateSqlOutput(csv) {
   const projectionColumn = header.indexOf("evidence_projection");
   const countColumn = header.indexOf("database_count");
   const oidColumn = header.indexOf("database_oid");
+  const ownerOidColumn = header.indexOf("owner_oid");
+  const dataclNullColumn = header.indexOf("datacl_was_null");
+  const aclSourceColumn = header.indexOf("acl_expansion_source");
+  const edgesColumn = header.indexOf("expanded_acl_edges");
+  if ([projectionColumn, countColumn, oidColumn, ownerOidColumn, dataclNullColumn, aclSourceColumn, edgesColumn].some((index) => index < 0)) {
+    throw new CollectorError("DATABASE_ACL_PROJECTION_SCHEMA_INVALID");
+  }
   const databaseRows = rows.slice(projectionHeaderIndex + 1, markerHeaderIndex)
     .filter((row) => row[projectionColumn] === "database_acl_v1");
   if (!databaseRows.length) throw new CollectorError("DATABASE_ACL_PROJECTION_EMPTY");
   const expectedCount = Number(databaseRows[0][countColumn]);
   if (!Number.isSafeInteger(expectedCount) || expectedCount < 1 || databaseRows.length !== expectedCount ||
       databaseRows.some((row) => Number(row[countColumn]) !== expectedCount || row.length !== header.length ||
-        !/^\d+$/.test(row[oidColumn] ?? ""))) throw new CollectorError("DATABASE_ACL_PROJECTION_INCOMPLETE");
+        !/^\d+$/.test(row[oidColumn] ?? "") || !/^\d+$/.test(row[ownerOidColumn] ?? "") ||
+        !["t", "f"].includes(row[dataclNullColumn]) ||
+        !["built_in_default", "explicit"].includes(row[aclSourceColumn]))) {
+    throw new CollectorError("DATABASE_ACL_PROJECTION_INCOMPLETE");
+  }
+  for (const row of databaseRows) {
+    let edges;
+    try { edges = JSON.parse(row[edgesColumn]); }
+    catch { throw new CollectorError("DATABASE_ACL_EDGES_INVALID_JSON"); }
+    if (!Array.isArray(edges) || edges.some((edge) => !edge || !Number.isSafeInteger(edge.grantee_oid) ||
+      !Number.isSafeInteger(edge.grantor_oid) || typeof edge.grantee_name !== "string" ||
+      typeof edge.grantor_name !== "string" || typeof edge.privilege_type !== "string" ||
+      typeof edge.is_grantable !== "boolean")) {
+      throw new CollectorError("DATABASE_ACL_EDGES_INVALID");
+    }
+  }
   const resultRows = rows.slice(0, markerHeaderIndex);
   if (resultRows.length < 15) throw new CollectorError("SQL_RESULT_SET_INCOMPLETE");
   return { rows, resultRows, databaseAclRows: databaseRows.length, transactionClosed: true };
