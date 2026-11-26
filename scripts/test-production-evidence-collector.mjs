@@ -43,10 +43,7 @@ function validCsv() {
     ["collector_transaction_closed"],
     ["t"],
   );
-  return rows.map((row) => row.map((cell) => {
-    const value = String(cell);
-    return /[",\r\n]/.test(value) ? '"' + value.replace(/"/g, '""') + '"' : value;
-  }).join(",")).join("\r\n") + "\r\n";
+  return serializeCsv(rows);
 }
 
 test("pinned approved SQL bundle matches its SHA-256", () => {
