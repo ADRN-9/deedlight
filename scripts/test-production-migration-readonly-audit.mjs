@@ -411,6 +411,7 @@ test("collector routine and database privilege matrix is executable and regressi
   assert.match(runner, /GRANT deedlight_audit_nested_leaf TO deedlight_audit_nested_parent/);
   assert.match(runner, /ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO PUBLIC/);
   assert.match(runner, /ALTER DEFAULT PRIVILEGES FOR ROLE deedlight_audit_privileged_login REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC/);
+  assert.ok(runner.indexOf("ALTER DEFAULT PRIVILEGES FOR ROLE deedlight_audit_spoofed_login") < runner.indexOf("ALTER SCHEMA auth OWNER TO deedlight_audit_spoofed_login"));
   assert.match(runner, /DROP OWNED BY deedlight_audit_privileged_login/);
   assert.match(runner, /GRANT USAGE ON SCHEMA public TO deedlight_audit_switch_target/);
   assert.match(runner, /public_create_routine_search_path "owns an application schema or has schema CREATE privilege"/);
