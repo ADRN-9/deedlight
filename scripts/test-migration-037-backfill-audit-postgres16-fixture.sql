@@ -23,6 +23,7 @@ END;
 $guard$;
 CREATE ROLE deedlight_backfill_unauthorized LOGIN PASSWORD :'fixture_unauthorized_password'
   NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
+GRANT USAGE ON SCHEMA public TO deedlight_backfill_unauthorized;
 CREATE TABLE public.delivery_provider_events (
   event_id text PRIMARY KEY,
   event_type text NOT NULL,
