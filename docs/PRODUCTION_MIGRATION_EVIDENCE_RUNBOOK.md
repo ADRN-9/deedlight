@@ -19,6 +19,29 @@
   - `deedlight.authenticated_principal=deedlight_catalog_auditor`
   The authenticated-principal GUC is compared with `session_user` but is not itself an authentication factor. These labels are not proof of endpoint identity. The collector must bind the actual TLS peer/host, provider project identity, authenticated and effective role identities, repository SHA, SQL bundle digest, query output digest and UTC capture timestamp into a signed receipt.
 
+## Approved collector privilege matrix (C460)
+
+The collector contract is intentionally narrower than a generic read-only role. The following matrix is normative; missing, inherited, defaulted or implicit privileges are evaluated as effective PostgreSQL privileges and cause collection to stop when they violate the policy.
+
+| Area | Approved policy | Enforcement |
+|---|---|---|
+| Application routine EXECUTE | Deny PUBLIC, direct and inherited execution for every application function, procedure, aggregate, window function and overload | Enumerate pg_proc by OID; expand proacl using acldefault('f', proowner) when NULL; check has_function_privilege for authenticated and effective roles |
+| Future PUBLIC routine EXECUTE defaults | Deny globally and per schema | Inspect pg_default_acl routine entries (defaclobjtype = 'f') and reject PUBLIC EXECUTE or collector-targeted grants/grant options |
+| SECURITY DEFINER execution | No routine exceptions without explicit approval | Effective-role and OID-based EXECUTE checks apply equally; any reachable application routine is rejected |
+| Database CONNECT | Allow and require for both authenticated and effective roles | has_database_privilege(..., 'CONNECT') |
+| Database CREATE | Deny | Effective privilege check |
+| Database TEMP | Deny, including PUBLIC/default ACL exposure | Effective privilege check; a NULL datacl is expanded with acldefault('d', datdba) |
+| Database ownership | Deny | Reject pg_database.datdba matching either collector role |
+| Database grant options | Deny grantable database ACL edges to either collector role | Expand explicit/default database ACL and inspect is_grantable |
+| Application schema USAGE | Deny | Effective schema privilege check for every non-system schema except supabase_migrations |
+| supabase_migrations schema USAGE | Allow and require | Effective privilege check for both roles; migration-history SELECT remains separately required |
+| Application schema ownership | Deny | Reject ownership by authenticated or effective collector role |
+| PostgreSQL system catalogs | Preserve only the enumerated required catalog access | Existing catalog SELECT preflight remains authoritative |
+
+PostgreSQL's built-in defaults are security-relevant. A NULL routine ACL is not an empty ACL: acldefault('f', owner) includes the default PUBLIC EXECUTE grant. A NULL database ACL is not empty either: acldefault('d', owner) supplies built-in database privileges, including PUBLIC CONNECT and TEMP. The audit evaluates effective privilege functions as well as ACL entries, so absent catalog ACL rows are never interpreted as proof that a privilege is absent. In the disposable PostgreSQL 16 baseline, PUBLIC TEMP and PUBLIC application-schema USAGE are explicitly revoked and global PUBLIC routine EXECUTE defaults are revoked before the approved positive case.
+
+Application routine exceptions are not implied by ownership, SECURITY DEFINER status, overload identity or an ACL omission. A new exception requires explicit DBA/security approval and a separately reviewed change to this policy and its adversarial fixtures.
+
 ## Execute only the read-only bundle
 
 Use a supported psql client in a controlled environment with `ON_ERROR_STOP`, no user startup file, TLS verification required and a dedicated read-only database role. Example shape (not a credential-bearing command):
@@ -41,7 +64,7 @@ Missing required history/catalog access or an unsupported history shape aborts c
 
 The CI fixture `scripts/test-production-migration-readonly-audit-postgres16.sh` runs only against a disposable PostgreSQL 16 service with no Production connection or credentials. It exercises:
 - approved catalog-only role success and explicit transaction rollback;
-- predefined `pg_read_all_data` membership rejection;
+- predefined `pg_read_all_data` membership rejection;\n- SECURITY DEFINER private-data exfiltration using a synthetic fixture value; PUBLIC/direct/inherited EXECUTE rejection by routine OID, including overloaded functions, procedures, aggregates and window functions; global and schema-specific future EXECUTE default rejection;\n- database CONNECT requirement, CREATE/TEMP/ownership/grant-option rejection, application-schema USAGE/ownership rejection, and cleanup/recovery after each rejected collection;
 - missing migration-history SELECT and missing catalog SELECT rejection;
 - table-level, column-level and sequence privilege rejection;
 - invalid project and repository metadata;
@@ -89,6 +112,6 @@ The collector receipt should bind: actual endpoint/provider identity and TLS ver
 
 On CI failure, the disposable harness prints and retains sanitized synthetic PostgreSQL client/backend logs in the runner temporary directory; the workflow uploads those diagnostics as a failure-only artifact. These logs contain only fixture identities and synthetic values.
 
-## No authorization to mutate
+## Historical migration classifications\n\nMigration 007, Migration 018 and Migration 037 remain **NOT ESTABLISHED** for Production. This collector policy and its disposable fixtures do not prove historical execution, prerequisites, backfill completeness or live Production state. Do not mark any of these migrations applied or Production-matched based on this work.\n\n## No authorization to mutate
 
 This package does not authorize migration-history reconciliation, schema changes, role grants, backup deletion, deployment, scheduler activation or any Production mutation. Before a future change, require a verified backup/PITR restore point, isolated restore rehearsal, independently approved migration-effect mapping, resolved Migration 007 ambiguity and explicit DBA/security change approval.
