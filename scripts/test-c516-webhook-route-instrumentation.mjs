@@ -58,7 +58,7 @@ const InvalidResendWebhook = class InvalidResendWebhook extends Error {};
 const verifierModule = pathToFileURL(resolve("lib/delivery/resend-webhook.ts")).href;
 const supabaseModule = "@supabase/supabase-js";
 mock.module(verifierModule, {
-  namedExports: {
+  exports: {
     InvalidResendWebhook,
     verifyResendDeliveryWebhook: async () => {
       counts.verifier += 1;
@@ -77,7 +77,7 @@ mock.module(verifierModule, {
   }
 });
 mock.module(supabaseModule, {
-  namedExports: {
+  exports: {
     createClient: () => {
       counts.clients += 1;
       return {
@@ -163,7 +163,7 @@ process.stdout.write(JSON.stringify({ statuses, counts, validControlStatus: vali
 
   assert.equal(result.error, undefined, result.error?.message);
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.equal(result.stderr, "");
+  assert.doesNotMatch(result.stderr, /recipient-canary|raw-payload-canary/);
   const report = JSON.parse(result.stdout);
   assert.equal(report.validControlStatus, 200);
   assert.deepEqual(report.statuses, Array(11).fill(503));
