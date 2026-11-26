@@ -557,7 +557,10 @@ psql -X -v ON_ERROR_STOP=1 -c "REVOKE USAGE ON SCHEMA public FROM deedlight_cata
 echo "PASS: SECURITY DEFINER preserves and validates the authenticated principal"
 psql -X -v ON_ERROR_STOP=1 -c "ALTER ROLE deedlight_audit_definer_owner INHERIT;"
 set +e
-psql_as deedlight_catalog_auditor -X -v ON_ERROR_STOP=1 -c "SET deedlight.authenticated_principal = 'deedlight_catalog_auditor'; SELECT public.audit_fixture_security_definer_identity();" >"${tmp_dir}/effective_definer_inherit.log" 2>&1
+{
+  printf "SET deedlight.authenticated_principal = 'deedlight_catalog_auditor';\\n"
+  printf "SELECT public.audit_fixture_security_definer_identity();\\n"
+} | psql_as deedlight_catalog_auditor -X -v ON_ERROR_STOP=1 >"${tmp_dir}/effective_definer_inherit.log" 2>&1
 effective_definer_status=$?
 set -e
 if [[ "${effective_definer_status}" -eq 0 ]]; then
