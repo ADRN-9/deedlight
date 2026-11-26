@@ -917,8 +917,8 @@ ORDER BY a.attnum;
 -- without one, reconciliation must preserve UNKNOWN/UNVERIFIED classifications.
 SELECT
   h.version::text AS version,
-  h.name::text AS migration_name,
-  pg_catalog.cardinality(h.statements) AS recorded_statement_count
+  h.name::text AS name,
+  pg_catalog.cardinality(h.statements) AS "recordedStatementCount"
 FROM supabase_migrations.schema_migrations AS h
 ORDER BY h.version, h.name;
 

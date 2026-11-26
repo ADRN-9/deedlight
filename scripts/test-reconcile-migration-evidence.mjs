@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { analyzeMigrationEvidence, canonicalJson, evidencePayload, mappingDigest, strictTimestamp } from "./reconcile-migration-evidence.mjs";
+import { analyzeMigrationEvidence, canonicalJson, evidencePayload, mappingDigest, normalizeMigrationHistoryRows, strictTimestamp, validateMigrationHistoryRows } from "./reconcile-migration-evidence.mjs";
 
 const repoRoot = process.cwd();
 const sourceManifest = JSON.parse(readFileSync(path.join(repoRoot, "supabase/migration-inventory.json"), "utf8"));
@@ -349,6 +349,34 @@ test("forged approval signature fails cryptographic verification", () => {
   } finally { f.cleanup(); }
 });
 
+test("active trust roots require explicit null revokedAt; malformed and revoked values fail closed", () => {
+  const mutations = [
+    ["empty string", (key) => { key.revokedAt = ""; }, /revokedAt.*canonical UTC timestamp/],
+    ["false", (key) => { key.revokedAt = false; }, /revokedAt.*canonical UTC timestamp/],
+    ["zero", (key) => { key.revokedAt = 0; }, /revokedAt.*canonical UTC timestamp/],
+    ["object", (key) => { key.revokedAt = {}; }, /revokedAt.*canonical UTC timestamp/],
+    ["array", (key) => { key.revokedAt = []; }, /revokedAt.*canonical UTC timestamp/],
+    ["year zero", (key) => { key.revokedAt = "0000-01-01T00:00:00.000Z"; }, /revokedAt.*canonical UTC timestamp/],
+    ["valid timestamp", (key) => { key.revokedAt = fixtureTime(-60000); }, /signing key is revoked/],
+    ["absent", (key) => { delete key.revokedAt; }, /revokedAt must be explicitly null/],
+  ];
+  for (const [label, mutate, expected] of mutations) {
+    const f = fixture();
+    try {
+      mutate(f.trustRoots.keys.find((key) => key.role === "evidence-approver"));
+      const report = f.analyze();
+      assert.equal(report.counts.Unknown, 39, label);
+      assert.equal(report.acceptance, "NOT_ACCEPTED", label);
+      assert.ok(report.trustProblems.some((reason) => expected.test(reason)), label + ": " + report.trustProblems.join("; "));
+    } finally { f.cleanup(); }
+  }
+  const active = fixture();
+  try {
+    const report = active.analyze();
+    assert.equal(report.trustVerified, true);
+    assert.equal(report.trustProblems.length, 0);
+  } finally { active.cleanup(); }
+});
 test("expired approval, revoked signer key and revoked approval ID fail closed", () => {
   const changes = [
     (f) => {
@@ -724,6 +752,26 @@ test("nullable recorded statement count remains a database fact, not provenance"
   } finally { f.cleanup(); }
 });
 
+test("migration-history SQL output normalization enforces exact row shape and nullable statement count", () => {
+  const rows = normalizeMigrationHistoryRows([
+    ["202607260004", "sprint4_reactions", "12"],
+    ["202607260005", "sprint5_moderation", "\\N"],
+  ]);
+  assert.deepEqual(rows, [
+    { version: "202607260004", name: "sprint4_reactions", recordedStatementCount: 12 },
+    { version: "202607260005", name: "sprint5_moderation", recordedStatementCount: null },
+  ]);
+  assert.deepEqual(validateMigrationHistoryRows(rows, sourceManifest), []);
+  for (const malformed of [
+    [["202607260004", "sprint4_reactions"]],
+    [["202607260004", "sprint4_reactions", "bad"]],
+    [["202607260004", "", "12"]],
+    [["202607260004", "sprint4_reactions", "-1"]],
+    [["202607260004", "sprint4_reactions", "9007199254740992"]],
+  ]) assert.throws(() => normalizeMigrationHistoryRows(malformed));
+  assert.ok(validateMigrationHistoryRows([{ version: "202607260004", migration_name: "sprint4_reactions", recorded_statement_count: 12 }], sourceManifest).length > 0);
+  assert.ok(validateMigrationHistoryRows([{ version: "202607260004", name: "sprint4_reactions" }], sourceManifest).length > 0);
+});
 test("migration-history facts never establish execution provenance; fabricated fields fail closed", () => {
   const f = fixture();
   try {

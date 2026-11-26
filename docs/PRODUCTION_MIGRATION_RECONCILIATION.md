@@ -211,6 +211,14 @@ All 39 migrations remain **UNKNOWN** for Production application. This repository
 
 > This C421 section is the authoritative source inventory for the synchronization tree above. Historical C404/C240/C245/C247/C410 sections retained below describe earlier evidence snapshots. Do not use their older HEAD/tree references as current branch state.
 
+## C491 — SQL migration-history contract and trust-root revocation semantics
+
+Section 13 now emits analyzer-native aliases: `version`, `name`, and quoted `recordedStatementCount`. The PostgreSQL 16 integration test extracts and executes that exact SELECT from `production-migration-readonly-audit.sql`, captures its actual tabular result, normalizes the three values, and validates the resulting `history.rows` against the same validator used by the reconciliation analyzer. The adapter rejects missing columns, extra columns, malformed counts and unsafe numeric values; SQL NULL statement counts remain explicit JSON nulls. It adds no execution ID, actor, timestamp, source hash or other provenance.
+
+An active Ed25519 trust-root entry must explicitly contain `revokedAt: null`. An absent property is invalid. Any non-null value must be a canonical UTC timestamp in years 0001–9999 and is treated as revoked; malformed strings, empty strings, booleans, numbers, objects, arrays and year-zero timestamps are rejected. This is intentionally strict: null means active; a valid timestamp means revoked; every other representation means untrusted. A revoked key remains unusable regardless of timestamp age.
+
+These checks are enforced in analyzer code, adversarial unit tests and the PostgreSQL 16 actual-query integration path. They do not change Production migration state or establish Production execution provenance.
+
 ## C489 — migration-history facts versus independent execution provenance
 
 The read-only audit section 13 exports exactly three database facts per supabase_migrations.schema_migrations row: version, name, and recorded_statement_count. These values describe the history table. They do not prove which SQL bytes executed, who executed them, the execution timestamp, a unique execution identifier, or whether a matching source file was run manually outside Supabase CLI.

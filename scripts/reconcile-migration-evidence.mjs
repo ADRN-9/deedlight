@@ -83,6 +83,38 @@ function validateSourceInventory(rootDir, manifest) {
   }
   return source;
 }
+export function normalizeMigrationHistoryRows(tuples) {
+  assert(Array.isArray(tuples), "migration-history SQL output must be an array of rows");
+  return tuples.map((tuple, index) => {
+    assert(Array.isArray(tuple) && tuple.length === 3,
+      "migration-history SQL row " + index + " must contain exactly version, name and recorded statement count");
+    const [version, name, rawCount] = tuple;
+    assert(typeof version === "string" && typeof name === "string" && name.trim(),
+      "migration-history SQL row " + index + " is missing version or name");
+    let recordedStatementCount = rawCount;
+    if (rawCount === "\\N" || rawCount === null) recordedStatementCount = null;
+    else if (typeof rawCount === "string" && /^(0|[1-9][0-9]*)$/.test(rawCount)) recordedStatementCount = Number(rawCount);
+    assert(recordedStatementCount === null || (Number.isSafeInteger(recordedStatementCount) && recordedStatementCount >= 0),
+      "migration-history SQL row " + index + " has an invalid recorded statement count");
+    return { version, name, recordedStatementCount };
+  });
+}
+
+export function validateMigrationHistoryRows(rows, manifest) {
+  const problems = [];
+  if (!Array.isArray(rows)) return ["migration history export is incomplete"];
+  const versions = new Set(manifest.migrations.map((item) => item.version));
+  for (const row of rows) {
+    if (!row || Object.keys(row).sort().join(",") !== "name,recordedStatementCount,version"
+      || typeof row.version !== "string" || !/^[0-9]{12}$/.test(row.version) || !versions.has(row.version)) {
+      problems.push("migration history row must contain only recognized version, name and recorded statement-count database facts");
+    } else if (typeof row.name !== "string" || !row.name.trim()
+      || (row.recordedStatementCount !== null && (!Number.isSafeInteger(row.recordedStatementCount) || row.recordedStatementCount < 0))) {
+      problems.push("migration history row has an invalid migration name or recorded statement count");
+    }
+  }
+  return problems;
+}
 function verifySignedArtifact(artifact, requiredKind, requiredRole, trustRoots, now, problems) {
   if (!artifact || artifact.schemaVersion !== 1 || artifact.kind !== requiredKind) {
     problems.push(requiredKind + " signed artifact is missing or has an unsupported schema/kind");
@@ -102,8 +134,18 @@ function verifySignedArtifact(artifact, requiredKind, requiredRole, trustRoots, 
   }
   const keyStart = parseTime(key.notBefore, requiredKind + " trust-root notBefore", problems);
   const keyEnd = parseTime(key.notAfter, requiredKind + " trust-root notAfter", problems);
-  if (!Number.isFinite(keyStart) || !Number.isFinite(keyEnd) || keyEnd <= keyStart || now < keyStart || now > keyEnd || key.revokedAt) {
-    problems.push(requiredKind + " signing key is outside its validity window or revoked");
+  if (!Object.prototype.hasOwnProperty.call(key, "revokedAt")) {
+    problems.push(requiredKind + " trust-root revokedAt must be explicitly null for an active key");
+    return null;
+  }
+  if (key.revokedAt !== null) {
+    const revokedAt = parseTime(key.revokedAt, requiredKind + " trust-root revokedAt", problems);
+    if (Number.isFinite(revokedAt)) problems.push(requiredKind + " signing key is revoked");
+    else problems.push(requiredKind + " trust-root revokedAt must be null or a canonical UTC timestamp in years 0001–9999");
+    return null;
+  }
+  if (!Number.isFinite(keyStart) || !Number.isFinite(keyEnd) || keyEnd <= keyStart || now < keyStart || now > keyEnd) {
+    problems.push(requiredKind + " signing key is outside its validity window");
     return null;
   }
   if (!artifact.approvalId || (Array.isArray(trustRoots.revokedApprovalIds) && trustRoots.revokedApprovalIds.includes(artifact.approvalId))) {
@@ -431,17 +473,7 @@ function validateEvidence(evidence, now, manifest, problems) {
     }
   }
   if (evidence && evidence.history && Array.isArray(evidence.history.rows)) {
-    const versions = new Set(manifest.migrations.map((item) => item.version));
-    for (const row of evidence.history.rows) {
-      if (!row || Object.keys(row).sort().join(",") !== "name,recordedStatementCount,version"
-        || typeof row.version !== "string" || !/^[0-9]{12}$/.test(row.version) || !versions.has(row.version)) {
-        problems.push("migration history row must contain only recognized version, name and recorded statement-count database facts");
-      } else if (typeof row.name !== "string" || !row.name.trim()
-        || (row.recordedStatementCount !== null
-          && (!Number.isSafeInteger(row.recordedStatementCount) || row.recordedStatementCount < 0))) {
-        problems.push("migration history row has an invalid migration name or recorded statement count");
-      }
-    }
+    problems.push(...validateMigrationHistoryRows(evidence.history.rows, manifest));
   }
   // Candidate external records are untrusted input. No authenticated Production execution-provenance
   // authority is currently configured or present in the supplied evidence; never promote these records.
