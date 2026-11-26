@@ -407,7 +407,8 @@ test("collector routine and database privilege matrix is executable and regressi
   assert.match(runner, /GRANT EXECUTE ON ROUTINE public\.audit_fixture_overload\(integer\)/);
   assert.match(runner, /pg_catalog\.has_function_privilege\('deedlight_catalog_auditor'/);
   assert.match(runner, /ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO PUBLIC/);
-  assert.match(runner, /connect_privilege_state/);\n  assert.match(runner, /ALTER DATABASE deedlight_migration_order_test OWNER TO deedlight_catalog_auditor/);
+  assert.match(runner, /connect_privilege_state/);
+  assert.match(runner, /ALTER DATABASE deedlight_migration_order_test OWNER TO deedlight_catalog_auditor/);
   assert.match(runner, /ALTER SCHEMA public OWNER TO deedlight_catalog_auditor/);
   const workflow = readFileSync(path.join(process.cwd(), ".github/workflows/pr-validation.yml"), "utf8");
   assert.match(workflow, /node --test scripts\/test-production-migration-readonly-audit\.mjs/);
