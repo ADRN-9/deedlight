@@ -373,6 +373,9 @@ test("collector routine and database privilege matrix is executable and regressi
   assert.match(preflight, /pg_catalog\.pg_proc p[\s\S]*?p\.oid/);
   assert.match(preflight, /pg_catalog\.has_function_privilege\(v_session_role_oid, p\.oid, 'EXECUTE'\)/);
   assert.match(preflight, /pg_catalog\.has_function_privilege\(v_effective_role_oid, p\.oid, 'EXECUTE'\)/);
+  assert.equal((preflight.match(/AND NOT rolinherit/g) ?? []).length, 2);
+  assert.match(preflight, /WHERE oid = v_session_role_oid AND rolcanlogin[\s\S]*?AND NOT rolinherit/);
+  assert.match(preflight, /WHERE oid = v_effective_role_oid[\s\S]*?AND NOT rolinherit/);
   assert.match(preflight, /pg_catalog\.acldefault\('f', p\.proowner\)/);
   assert.match(preflight, /acl\.grantee = 0/);
   assert.match(preflight, /d\.defaclobjtype = 'f'/);
@@ -413,6 +416,8 @@ test("collector routine and database privilege matrix is executable and regressi
     "REVOKE TEMP ON DATABASE deedlight_migration_order_test FROM PUBLIC",
     "REVOKE USAGE ON SCHEMA public FROM PUBLIC",
     "REVOKE SELECT ON pg_catalog.pg_database FROM PUBLIC",
+    "CREATE ROLE deedlight_catalog_auditor LOGIN PASSWORD :'fixture_auditor_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT",
+    "CREATE ROLE deedlight_audit_definer_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT",
     "synthetic-private-fixture-value",
     "audit_fixture_security_definer_identity",
   ]) assert.ok(fixture.includes(token), "missing safe fixture baseline: " + token);
@@ -438,6 +443,15 @@ test("collector routine and database privilege matrix is executable and regressi
   assert.match(runner, /connect_privilege_state/);
   assert.match(runner, /ALTER DATABASE deedlight_migration_order_test OWNER TO deedlight_catalog_auditor/);
   assert.match(runner, /GRANT CONNECT ON DATABASE deedlight_migration_order_test TO PUBLIC WITH GRANT OPTION/);
+  assert.match(runner, /ALTER ROLE deedlight_catalog_auditor INHERIT/);
+  assert.match(runner, /authenticated_collector_inherit/);
+  assert.match(runner, /ALTER ROLE deedlight_catalog_auditor NOINHERIT/);
+  assert.match(runner, /ALTER ROLE deedlight_audit_definer_owner INHERIT/);
+  assert.match(runner, /effective_definer_inherit/);
+  assert.match(runner, /ALTER ROLE deedlight_audit_definer_owner NOINHERIT/);
+  assert.match(runner, /effective SECURITY DEFINER owner with INHERIT is rejected/);
+  assert.match(fixture, /WHERE oid = v_session_role_oid AND rolcanlogin[\s\S]*?AND NOT rolinherit/);
+  assert.match(fixture, /WHERE oid = v_effective_role_oid[\s\S]*?AND NOT rolinherit/);
   assert.match(runner, /grant options can only be granted to roles/);
   assert.match(runner, /database_acl_v1/);
   assert.match(runner, /template0/);
