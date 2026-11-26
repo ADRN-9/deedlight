@@ -41,12 +41,15 @@ export function parseCsv(input) {
         if (normalized[i + 1] === '"') { cell += '"'; i += 1; }
         else { quoted = false; quoteClosed = true; }
       } else cell += ch;
-    } else if (ch === '"' && cell.length === 0) quoted = true;
-    else if (ch === ",") { row.push(cell); cell = ""; }
+    } else if (quoteClosed && ch !== "," && ch !== "\n") {
+      throw new CollectorError("INVALID_CSV_AFTER_QUOTE");
+    } else if (ch === '"' && cell.length === 0 && !quoteClosed) quoted = true;
+    else if (ch === '"') throw new CollectorError("INVALID_CSV_QUOTE");
+    else if (ch === ",") { row.push(cell); cell = ""; quoteClosed = false; }
     else if (ch === "\n") {
       row.push(cell);
       if (!(row.length === 1 && row[0] === "")) rows.push(row);
-      row = []; cell = "";
+      row = []; cell = ""; quoteClosed = false;
     } else cell += ch;
   }
   if (quoted) throw new CollectorError("TRUNCATED_CSV_QUOTE");
