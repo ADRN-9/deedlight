@@ -220,7 +220,7 @@ function validateCollectorAuthority(claims, provenance, evidenceDigest, authorit
   if (!Array.isArray(databaseAclRows) || databaseAclRows.length === 0) {
     problems.push("collector complete database_acl_v1 projection is missing");
   } else {
-    const rowKeys = ["acl_expansion_source", "allows_connections", "database_name", "database_oid",
+    const rowKeys = ["acl_expansion_source", "allows_connections", "database_count", "database_name", "database_oid",
       "datacl_was_null", "expanded_acl_edges", "is_template", "owner_name", "owner_oid"];
     const edgeKeys = ["grantee_name", "grantee_oid", "grantor_name", "grantor_oid", "is_grantable", "privilege_type"];
     const seenDatabases = new Set();
