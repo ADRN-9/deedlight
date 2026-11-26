@@ -35,6 +35,7 @@ DECLARE
   v_unsafe_setting text;
   v_unsafe_routine_oid oid;
   v_database_owner oid;
+  v_unsafe_schema text;
 BEGIN
   IF pg_catalog.current_setting('transaction_read_only') <> 'on' THEN
     RAISE EXCEPTION 'Audit must execute in a read-only transaction.';
@@ -468,17 +469,19 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'Collector role owns an application schema or has schema CREATE privilege.';
   END IF;
-  IF EXISTS (
-    SELECT 1 FROM pg_catalog.pg_namespace n
-    WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
-      AND n.nspname NOT LIKE 'pg_toast%'
-      AND n.nspname <> 'supabase_migrations'
-      AND (
-        pg_catalog.has_schema_privilege(v_session_role_oid, n.oid, 'USAGE')
-        OR pg_catalog.has_schema_privilege(v_effective_role_oid, n.oid, 'USAGE')
-      )
-  ) THEN
-    RAISE EXCEPTION 'Collector role has prohibited USAGE on an application schema.';
+  SELECT n.nspname INTO v_unsafe_schema
+  FROM pg_catalog.pg_namespace n
+  WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+    AND n.nspname NOT LIKE 'pg_toast%'
+    AND n.nspname <> 'supabase_migrations'
+    AND (
+      pg_catalog.has_schema_privilege(v_session_role_oid, n.oid, 'USAGE')
+      OR pg_catalog.has_schema_privilege(v_effective_role_oid, n.oid, 'USAGE')
+    )
+  ORDER BY n.oid
+  LIMIT 1;
+  IF v_unsafe_schema IS NOT NULL THEN
+    RAISE EXCEPTION 'Collector role has prohibited USAGE on application schema %.', v_unsafe_schema;
   END IF;
   IF NOT EXISTS (
     SELECT 1 FROM pg_catalog.pg_namespace n
