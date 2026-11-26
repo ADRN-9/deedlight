@@ -1,7 +1,7 @@
 import {
   DEEDLIGHT_SUPABASE_ORIGIN,
   DEEDLIGHT_SUPABASE_PROJECT_REF,
-} from "./project-identity";
+} from "./project-identity.ts";
 
 export function isTrustedSupabaseDestination(value: unknown): value is string {
   if (typeof value !== "string" || value.length > 256 || value.trim() !== value) {
