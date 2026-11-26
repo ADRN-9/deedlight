@@ -916,6 +916,7 @@ ORDER BY h.version, h.name;
 
 -- 14. Complete database ACL evidence. Emit every database, including templates,
 -- preserving the original NULL/non-NULL datacl state while expanding built-in defaults.
+-- This projection is a mandatory input to the canonical result digest; omitting it invalidates the evidence receipt.
 -- JSONB object keys are canonical and ACL edges are explicitly ordered for stable digests.
 SELECT
   'database_acl_v1' AS evidence_projection,
