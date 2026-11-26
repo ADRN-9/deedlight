@@ -44,11 +44,10 @@ $migration_037_audit_guard$;
 
 WITH source_rows AS (
   SELECT
+    e.recipient_email,
     a.anomaly_type,
     a.event_id,
     a.related_event_id,
-    a.detected_at AS observed_at,
-    e.recipient_email,
     e.event_type,
     e.provider_email_id,
     e.provider_suppression_id,
@@ -61,18 +60,19 @@ WITH source_rows AS (
     e.suppression_created_at,
     e.payload_fingerprint,
     stored.event_id AS stored_event_id,
-    stored.recipient_email AS stored_recipient_email
+    stored.recipient_email AS stored_recipient_email,
+    a.detected_at AS observed_at
   FROM public.delivery_provider_integrity_anomalies a
   LEFT JOIN public.delivery_provider_events e ON e.event_id = a.event_id
   LEFT JOIN public.delivery_provider_events stored
-    ON stored.event_id = pg_catalog.coalesce(a.related_event_id, a.event_id)
+    ON stored.event_id = COALESCE(a.related_event_id, a.event_id)
 ),
 eligible AS (
   SELECT * FROM source_rows
   WHERE recipient_email IS NOT NULL AND stored_event_id IS NOT NULL
 ),
 case_keys AS (
-  SELECT DISTINCT recipient_email, anomaly_type FROM eligible
+  SELECT DISTINCT recipient_email, anomaly_type FROM source_rows WHERE recipient_email IS NOT NULL
 ),
 missing_cases AS (
   SELECT k.recipient_email, k.anomaly_type

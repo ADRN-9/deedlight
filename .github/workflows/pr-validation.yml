@@ -656,5 +656,13 @@ jobs:
           [[ "$service_addr" =~ ^[0-9]{1,3}(\\.[0-9]{1,3}){3}$ ]]
           echo "DEEDLIGHT_EXPECTED_SERVER_ADDR=$service_addr" >> "$GITHUB_ENV"
 
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Migration 037 aggregate audit static regressions
+        run: node --test scripts/test-migration-037-backfill-audit.mjs
+
       - name: Verify Migration 037 aggregate audit on disposable PostgreSQL 16
         run: bash scripts/test-migration-037-backfill-audit-postgres16.sh
