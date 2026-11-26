@@ -136,6 +136,13 @@ test("webhook destination guard executes before privileged Supabase client const
 
 
 test("actual webhook handler rejects invalid destinations with 503 and no privileged operations", async () => {
+  const originalFetch = globalThis.fetch;
+  let outboundNetworkRequests = 0;
+  globalThis.fetch = async () => {
+    outboundNetworkRequests += 1;
+    throw new Error("Unexpected outbound network request in invalid-destination test");
+  };
+  try {
   const invalidDestinations = [
     "https://anotherproject.supabase.co",
     "https://xaipiovflxomcbfwtwmu.supabase.co:8443",
@@ -179,6 +186,10 @@ test("actual webhook handler rejects invalid destinations with 503 and no privil
     assert.equal(clientConstructions, 0, destination);
     assert.equal(databaseRequests, 0, destination);
     assert.equal(signatureVerifications, 0, destination);
+  }
+  assert.equal(outboundNetworkRequests, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });
 
@@ -269,6 +280,12 @@ test("actual webhook handler constructs the client only after a trusted destinat
 test("exported Next.js POST route returns 503 for an unrelated Supabase destination", async () => {
   const keys = ["RESEND_WEBHOOK_SECRET", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_URL"];
   const previous = new Map(keys.map((key) => [key, process.env[key]]));
+  const originalFetch = globalThis.fetch;
+  let outboundNetworkRequests = 0;
+  globalThis.fetch = async () => {
+    outboundNetworkRequests += 1;
+    throw new Error("Unexpected outbound network request in exported-route test");
+  };
   try {
     process.env.RESEND_WEBHOOK_SECRET = "synthetic-webhook-secret";
     process.env.SUPABASE_SERVICE_ROLE_KEY = "synthetic-service-role-key";
@@ -291,7 +308,9 @@ test("exported Next.js POST route returns 503 for an unrelated Supabase destinat
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
+    globalThis.fetch = originalFetch;
   }
+  assert.equal(outboundNetworkRequests, 0);
 });
 
 test("kind-isolated claim RPC includes kind and fails on a cross-kind response", async () => {
