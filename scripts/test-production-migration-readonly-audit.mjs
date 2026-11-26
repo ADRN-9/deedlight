@@ -225,7 +225,7 @@ test("audit pins a trusted search_path before authorization preflight and schema
 
 test("audit fails closed for missing catalogs and unsupported migration history", () => {
   assert.match(sql, /Required catalog SELECT access unavailable/);
-  assert.match(preflight, /\x27pg_catalog\.pg_database\x27/);
+  assert.match(sql, /'pg_catalog\.pg_database'/);
   assert.match(sql, /Required Supabase migration-history table is unavailable/);
   assert.match(sql, /WHERE path_ns\.nspname = path\.schema_name/);
   assert.match(sql, /Unsupported migration-history schema/);
@@ -412,6 +412,7 @@ test("collector routine and database privilege matrix is executable and regressi
     "ALTER DEFAULT PRIVILEGES FOR ROLE postgres REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC",
     "REVOKE TEMP ON DATABASE deedlight_migration_order_test FROM PUBLIC",
     "REVOKE USAGE ON SCHEMA public FROM PUBLIC",
+    "REVOKE SELECT ON pg_catalog.pg_database FROM PUBLIC",
     "synthetic-private-fixture-value",
     "audit_fixture_security_definer_identity",
   ]) assert.ok(fixture.includes(token), "missing safe fixture baseline: " + token);
@@ -438,6 +439,11 @@ test("collector routine and database privilege matrix is executable and regressi
   assert.match(runner, /ALTER DATABASE deedlight_migration_order_test OWNER TO deedlight_catalog_auditor/);
   assert.match(runner, /GRANT CONNECT ON DATABASE deedlight_migration_order_test TO PUBLIC WITH GRANT OPTION/);
   assert.match(runner, /grant options can only be granted to roles/);
+  assert.match(runner, /database_acl_v1/);
+  assert.match(runner, /template0/);
+  assert.match(runner, /template1/);
+  assert.match(runner, /missing_database_catalog_authorization/);
+  assert.match(fixture, /pg_catalog\.pg_database,?\s*TO deedlight_catalog_auditor/);
   assert.match(runner, /missing_database_catalog_authorization/);
   assert.match(fixture, /REVOKE SELECT ON pg_catalog\.pg_database FROM PUBLIC/);
   assert.match(fixture, /pg_catalog\.pg_database,?\s*TO deedlight_catalog_auditor/);
