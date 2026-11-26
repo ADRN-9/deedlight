@@ -33,13 +33,13 @@ export function parseCsv(input) {
   const text = Buffer.isBuffer(input) ? input.toString("utf8") : String(input);
   if (text.includes("\u0000")) throw new CollectorError("INVALID_CSV_NUL");
   const normalized = text.replace(/\r\n/g, "\n");
-  const rows = []; let row = []; let cell = ""; let quoted = false;
+  const rows = []; let row = []; let cell = ""; let quoted = false; let quoteClosed = false;
   for (let i = 0; i < normalized.length; i += 1) {
     const ch = normalized[i];
     if (quoted) {
       if (ch === '"') {
         if (normalized[i + 1] === '"') { cell += '"'; i += 1; }
-        else quoted = false;
+        else { quoted = false; quoteClosed = true; }
       } else cell += ch;
     } else if (ch === '"' && cell.length === 0) quoted = true;
     else if (ch === ",") { row.push(cell); cell = ""; }
@@ -87,7 +87,9 @@ function assertOutsideRepository(filePath, repoPath, code) {
 function requirePrivateRegularFile(filePath, code) {
   const linkStat = lstatSync(filePath);
   if (linkStat.isSymbolicLink() || !linkStat.isFile()) throw new CollectorError(code);
-  if ((statSync(filePath).mode & 0o077) !== 0) throw new CollectorError(code);
+  const fileStat = statSync(filePath);
+  if ((fileStat.mode & 0o077) !== 0 ||
+      (typeof process.getuid === "function" && fileStat.uid !== process.getuid())) throw new CollectorError(code);
   return realpathSync(filePath);
 }
 function gitValue(repoPath, args, code) {
