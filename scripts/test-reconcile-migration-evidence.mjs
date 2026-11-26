@@ -349,6 +349,20 @@ test("forged approval signature fails cryptographic verification", () => {
   } finally { f.cleanup(); }
 });
 
+test("approval signature from an unauthorized Ed25519 key fails cryptographic verification", () => {
+  const f = fixture();
+  try {
+    const approval = f.approvals.evidenceApproval;
+    const unsigned = { ...approval };
+    delete unsigned.signature;
+    approval.signature = sign(null, Buffer.from(canonicalJson(unsigned)), keys["mapping-approver"].privateKey).toString("base64");
+    const report = f.analyze();
+    assert.equal(report.counts.Unknown, 39);
+    assert.equal(report.acceptance, "NOT_ACCEPTED");
+    assert.ok(report.trustProblems.some((reason) => reason.includes("signature verification failed")));
+  } finally { f.cleanup(); }
+});
+
 test("active trust roots require explicit null revokedAt; malformed and revoked values fail closed", () => {
   const mutations = [
     ["empty string", (key) => { key.revokedAt = ""; }, /revokedAt.*canonical UTC timestamp/],
@@ -357,6 +371,7 @@ test("active trust roots require explicit null revokedAt; malformed and revoked 
     ["object", (key) => { key.revokedAt = {}; }, /revokedAt.*canonical UTC timestamp/],
     ["array", (key) => { key.revokedAt = []; }, /revokedAt.*canonical UTC timestamp/],
     ["year zero", (key) => { key.revokedAt = "0000-01-01T00:00:00.000Z"; }, /revokedAt.*canonical UTC timestamp/],
+    ["malformed timestamp", (key) => { key.revokedAt = "not-a-timestamp"; }, /revokedAt.*canonical UTC timestamp/],
     ["valid timestamp", (key) => { key.revokedAt = fixtureTime(-60000); }, /signing key is revoked/],
     ["absent", (key) => { delete key.revokedAt; }, /revokedAt must be explicitly null/],
   ];
