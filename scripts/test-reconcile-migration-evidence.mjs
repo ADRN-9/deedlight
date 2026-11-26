@@ -166,6 +166,24 @@ function fixture() {
         effectivePrivileges: ["CONNECT", "USAGE", "SELECT"],
         databasePrivilegesComplete: true,
         databasePrivileges: ["CONNECT"],
+        databaseAclV1: [{
+          database_oid: 100,
+          database_name: "deedlight_fixture",
+          allows_connections: true,
+          is_template: false,
+          owner_oid: 10,
+          owner_name: "postgres",
+          datacl_was_null: false,
+          acl_expansion_source: "explicit",
+          expanded_acl_edges: [{
+            grantee_oid: 10,
+            grantee_name: "postgres",
+            grantor_oid: 10,
+            grantor_name: "postgres",
+            privilege_type: "CONNECT",
+            is_grantable: true,
+          }],
+        }],
         schemaPrivilegesComplete: true,
         schemaPrivileges: evidence.catalog.objects.filter((entry) => entry.kind === "schemas")
           .map((entry) => ({ schema: entry.identity, privileges: ["USAGE"] })),
@@ -567,6 +585,37 @@ test("collector schema and object privilege identity sets must exactly match cat
       assert.ok(report.trustProblems.some((reason) => reason.includes("privilege identities do not exactly match")));
     } finally { f.cleanup(); }
   }
+});
+
+test("complete database_acl_v1 projection is mandatory and included in the signed result digest", () => {
+  const missing = fixture();
+  try {
+    delete missing.evidence.collectorAuthority;
+    missing.reapprove((databaseAuthority) => { delete databaseAuthority.databaseAclV1; });
+    const report = missing.analyze();
+    assert.equal(report.counts.Unknown, 39);
+    assert.ok(report.trustProblems.some((reason) => reason.includes("complete database_acl_v1 projection is missing")));
+  } finally { missing.cleanup(); }
+
+  const malformed = fixture();
+  try {
+    malformed.reapprove((databaseAuthority) => {
+      databaseAuthority.databaseAclV1[0].expanded_acl_edges[0].grantee_name = "PUBLIC";
+    });
+    const report = malformed.analyze();
+    assert.equal(report.counts.Unknown, 39);
+    assert.ok(report.trustProblems.some((reason) => reason.includes("malformed ACL edge")));
+  } finally { malformed.cleanup(); }
+
+  const tampered = fixture();
+  try {
+    tampered.reapprove();
+    tampered.evidence.collectorAuthority.databaseAuthority.databaseAclV1[0].database_name = "tampered";
+    const report = tampered.analyze();
+    assert.equal(report.counts.Unknown, 39);
+    assert.ok(report.trustProblems.some((reason) => reason.includes("execution receipt")
+      || reason.includes("signed collector authority differs")));
+  } finally { tampered.cleanup(); }
 });
 
 test("collector execution receipt binds project, collector, query digest, capture and result", () => {
