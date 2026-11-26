@@ -10,6 +10,8 @@ import tls from "node:tls";
 import http from "node:http";
 import https from "node:https";
 import dgram from "node:dgram";
+import http2 from "node:http2";
+import dns from "node:dns";
 
 globalThis.__networkAttempts = 0;
 const denyNetwork = () => {
@@ -25,6 +27,29 @@ for (const name of ["request", "get"]) {
   https[name] = denyNetwork;
 }
 dgram.createSocket = denyNetwork;
+http2.connect = denyNetwork;
+for (const name of [
+  "lookup", "lookupService", "resolve", "resolve4", "resolve6", "resolveAny",
+  "resolveCname", "resolveMx", "resolveNaptr", "resolveNs", "resolvePtr",
+  "resolveSoa", "resolveSrv", "resolveTxt", "reverse"
+]) {
+  if (typeof dns[name] === "function") dns[name] = denyNetwork;
+}
+for (const name of [
+  "lookup", "lookupService", "resolve", "resolve4", "resolve6", "resolveAny",
+  "resolveCname", "resolveMx", "resolveNaptr", "resolveNs", "resolvePtr",
+  "resolveSoa", "resolveSrv", "resolveTxt", "reverse"
+]) {
+  if (typeof dns.promises[name] === "function") {
+    dns.promises[name] = async (...args) => denyNetwork(...args);
+  }
+}
+if (typeof globalThis.WebSocket === "function") {
+  const OriginalWebSocket = globalThis.WebSocket;
+  globalThis.WebSocket = class extends OriginalWebSocket {
+    constructor(...args) { denyNetwork(...args); }
+  };
+}
 syncBuiltinESMExports();
 `;
   const child = `
