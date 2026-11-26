@@ -11,7 +11,7 @@ import { SupabaseDeliveryRuntime } from "../lib/delivery/supabase-runtime.ts";
 import { DEEDLIGHT_SUPABASE_ORIGIN, DEEDLIGHT_SUPABASE_PROJECT_REF } from "../lib/supabase/project-identity.ts";
 import { isTrustedSupabaseDestination } from "../lib/supabase/trusted-destination.ts";
 import { readFileSync } from "node:fs";
-import { createResendWebhookHandler } from "../app/api/webhooks/resend/route.ts";
+import { createResendWebhookHandler, POST as resendWebhookPOST } from "../app/api/webhooks/resend/route.ts";
 
 const now = new Date();
 const signingKey = randomBytes(32);
@@ -263,6 +263,35 @@ test("actual webhook handler constructs the client only after a trusted destinat
   assert.equal(signatureVerifications, 1);
   assert.equal(clientConstructions, 1);
   assert.equal(databaseRequests, 1);
+});
+
+
+test("exported Next.js POST route returns 503 for an unrelated Supabase destination", async () => {
+  const keys = ["RESEND_WEBHOOK_SECRET", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_URL"];
+  const previous = new Map(keys.map((key) => [key, process.env[key]]));
+  try {
+    process.env.RESEND_WEBHOOK_SECRET = "synthetic-webhook-secret";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "synthetic-service-role-key";
+    for (const destination of [
+      "https://anotherproject.supabase.co",
+      "https://xaipiovflxomcbfwtwmu.supabase.co:8443",
+      "https://user:password@xaipiovflxomcbfwtwmu.supabase.co",
+      "not a URL",
+    ]) {
+      process.env.SUPABASE_URL = destination;
+      const response = await resendWebhookPOST(new Request("https://deedlight.test/api/webhooks/resend", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: "email.delivered" }),
+      }));
+      assert.equal(response.status, 503, destination);
+    }
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
 });
 
 test("kind-isolated claim RPC includes kind and fails on a cross-kind response", async () => {
