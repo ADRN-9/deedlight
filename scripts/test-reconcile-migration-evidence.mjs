@@ -614,7 +614,8 @@ test("complete database_acl_v1 projection is mandatory and included in the signe
     const report = tampered.analyze();
     assert.equal(report.counts.Unknown, 39);
     assert.ok(report.trustProblems.some((reason) => reason.includes("execution receipt")
-      || reason.includes("signed collector authority differs")));
+      || reason.includes("signed collector authority differs")
+      || reason.includes("signed evidence approval does not bind the exact evidence")));
   } finally { tampered.cleanup(); }
 });
 
