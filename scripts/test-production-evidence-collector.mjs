@@ -57,14 +57,14 @@ test("false transaction marker fails closed", () => {
 
 test("missing database_acl_v1 projection fails closed", () => {
   const csv = validCsv().replace(
-    '"evidence_projection","database_count","database_oid","expanded_acl_edges"\r\n"database_acl_v1","2","1","[]"\r\n"database_acl_v1","2","2","[]"\r\n',
+    'evidence_projection,database_count,database_oid,expanded_acl_edges\r\ndatabase_acl_v1,2,1,[]\r\ndatabase_acl_v1,2,2,[]\r\n',
     "",
   );
   assert.throws(() => validateSqlOutput(csv), (error) => error instanceof CollectorError && error.code === "DATABASE_ACL_PROJECTION_MISSING");
 });
 
 test("truncated database ACL rows fail closed", () => {
-  const csv = validCsv().replace('"database_acl_v1","2","2","[]"\r\n', "");
+  const csv = validCsv().replace('database_acl_v1,2,2,[]\r\n', "");
   assert.throws(() => validateSqlOutput(csv), (error) => error instanceof CollectorError && error.code === "DATABASE_ACL_PROJECTION_INCOMPLETE");
 });
 
