@@ -31,21 +31,42 @@ export function canonicalJson(value) {
   if (typeof value !== "object") throw new CollectorError("INVALID_CANONICAL_VALUE");
   return "{" + Object.keys(value).sort().map((key) => JSON.stringify(key) + ":" + canonicalJson(value[key])).join(",") + "}";
 }
-export function parseCsv(input){
- const text=Buffer.isBuffer(input)?input.toString("utf8"):String(input);
- if(Buffer.isBuffer(input)&&!Buffer.from(text,"utf8").equals(input))throw new CollectorError("INVALID_CSV_UTF8");
- if(text.includes("\u0000"))throw new CollectorError("INVALID_CSV_NUL");
- const rows=[];let row=[];let cell="";let quoted=false;let quoteClosed=false;
- for(let i=0;i<text.length;i++){const ch=text[i];
-  if(quoted){if(ch==='"'){if(text[i+1]==='"'){cell+='"';i++;}else{quoted=false;quoteClosed=true;}}else cell+=ch;continue;}
-  if(ch==="\\r"){if(text[i+1]!=="\\n")throw new CollectorError("INVALID_CSV_BARE_CR");row.push(cell);if(!(row.length===1&&row[0]===""))rows.push(row);row=[];cell="";quoteClosed=false;i++;continue;}
-  if(quoteClosed&&ch!==","&&ch!=="\\n")throw new CollectorError("INVALID_CSV_AFTER_QUOTE");
-  if(ch==='"'&&cell.length===0&&!quoteClosed){quoted=true;continue;}if(ch==='"')throw new CollectorError("INVALID_CSV_QUOTE");
-  if(ch===","){row.push(cell);cell="";quoteClosed=false;continue;}
-  if(ch==="\\n"){row.push(cell);if(!(row.length===1&&row[0]===""))rows.push(row);row=[];cell="";quoteClosed=false;continue;}cell+=ch;
- }
- if(quoted)throw new CollectorError("TRUNCATED_CSV_QUOTE");
- if(cell.length||row.length||quoteClosed){row.push(cell);rows.push(row);}if(!rows.length)throw new CollectorError("EMPTY_SQL_OUTPUT");return rows;
+export function parseCsv(input) {
+  const text = Buffer.isBuffer(input) ? input.toString("utf8") : String(input);
+  if (Buffer.isBuffer(input) && !Buffer.from(text, "utf8").equals(input)) throw new CollectorError("INVALID_CSV_UTF8");
+  if (text.includes("\u0000")) throw new CollectorError("INVALID_CSV_NUL");
+  const CR = String.fromCharCode(13), LF = String.fromCharCode(10);
+  const rows = []; let row = []; let cell = ""; let quoted = false; let quoteClosed = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (quoted) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { cell += '"'; i += 1; }
+        else { quoted = false; quoteClosed = true; }
+      } else cell += ch;
+      continue;
+    }
+    if (ch === CR) {
+      if (text[i + 1] !== LF) throw new CollectorError("INVALID_CSV_BARE_CR");
+      row.push(cell);
+      if (!(row.length === 1 && row[0] === "")) rows.push(row);
+      row = []; cell = ""; quoteClosed = false; i += 1; continue;
+    }
+    if (quoteClosed && ch !== "," && ch !== LF) throw new CollectorError("INVALID_CSV_AFTER_QUOTE");
+    if (ch === '"' && cell.length === 0 && !quoteClosed) { quoted = true; continue; }
+    if (ch === '"') throw new CollectorError("INVALID_CSV_QUOTE");
+    if (ch === ",") { row.push(cell); cell = ""; quoteClosed = false; continue; }
+    if (ch === LF) {
+      row.push(cell);
+      if (!(row.length === 1 && row[0] === "")) rows.push(row);
+      row = []; cell = ""; quoteClosed = false; continue;
+    }
+    cell += ch;
+  }
+  if (quoted) throw new CollectorError("TRUNCATED_CSV_QUOTE");
+  if (cell.length || row.length || quoteClosed) { row.push(cell); rows.push(row); }
+  if (!rows.length) throw new CollectorError("EMPTY_SQL_OUTPUT");
+  return rows;
 }
 export function validateSqlOutput(csv) {
   const rows = parseCsv(csv);

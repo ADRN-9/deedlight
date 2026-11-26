@@ -128,7 +128,7 @@ test("duplicate database ACL edges fail closed", () => {
 test("duplicate or unordered database rows fail closed", () => {
   const csv = validCsv().replace(
     "database_acl_v1,2,2,db_two,t,t,10,postgres,f,explicit,[]",
-    "database_acl_v1,2,1,10,f,explicit,[]",
+    "database_acl_v1,2,1,db_one,t,f,10,postgres,f,explicit,[]",
   );
   assert.throws(() => validateSqlOutput(csv), (error) => error.code === "DATABASE_ACL_PROJECTION_DUPLICATED_OR_UNORDERED");
 });
@@ -177,7 +177,7 @@ test("receipt cannot claim signed or accepted state in E2", () => {
   const rows = validateSqlOutput(csv);
   const receipt = completeReceipt(csv, rows);
   receipt.status = "ACCEPTED"; receipt.signing.state = "SIGNED";
-  assert.throws(() => verifyReceiptAndEvidence(receipt, csv), (error) => error.code === "RECEIPT_SCHEMA_OR_STATUS_INVALID");
+  assert.throws(() => verifyReceiptAndEvidence(receipt, csv), (error) => error.code === "RECEIPT_SCHEMA_INVALID");
 });
 
 test("receipt result binding rejects a forged canonical digest", () => {
@@ -188,42 +188,77 @@ test("receipt result binding rejects a forged canonical digest", () => {
   assert.throws(() => verifyReceiptAndEvidence(receipt, csv), (error) => error.code === "RECEIPT_RESULT_BINDING_MISMATCH");
 });
 
-test("CSV preserves quoted CRLF and empty edge fields",()=>{
- assert.deepEqual(parseCsv(",middle,\\r\\n"),[["","middle",""]]);
- assert.deepEqual(parseCsv("a,,c,\\r\\n"),[["a","","c",""]]);
- assert.deepEqual(parseCsv("\\"\\",x,\\r\\n"),[["","x",""]]);
- assert.deepEqual(parseCsv("\\"line 1\\r\\nline 2\\",z\\r\\n"),[["line 1\\r\\nline 2","z"]]);
+test("CSV preserves embedded CRLF and empty leading, middle and trailing fields", () => {
+  const cr = String.fromCharCode(13), lf = String.fromCharCode(10), crlf = cr + lf;
+  assert.deepEqual(parseCsv(",middle," + crlf), [["", "middle", ""]]);
+  assert.deepEqual(parseCsv("a,,c," + crlf), [["a", "", "c", ""]]);
+  assert.deepEqual(parseCsv('""' + ",x," + crlf), [["", "x", ""]]);
+  assert.deepEqual(parseCsv('"line 1' + crlf + 'line 2",z' + crlf), [["line 1" + crlf + "line 2", "z"]]);
 });
-test("CSV rejects bare CR and malformed quotes",()=>{for(const value of ["a\\rb","\\"a\\"x","a\\"b","\\"unterminated"])assert.throws(()=>parseCsv(value),CollectorError);});
-test("ACL header rejects each missing column, duplicates and unexpected columns",()=>{
- const base=parseCsv(validCsv()),i=base.findIndex(row=>row[0]==="evidence_projection");
- for(let n=0;n<11;n++){const rows=base.map(row=>[...row]);rows[i].splice(n,1);assert.throws(()=>validateSqlOutput(serializeCsv(rows)),e=>e.code==="DATABASE_ACL_PROJECTION_SCHEMA_INVALID");}
- const dup=base.map(row=>[...row]);dup[i][3]=dup[i][2];assert.throws(()=>validateSqlOutput(serializeCsv(dup)),e=>e.code==="DATABASE_ACL_PROJECTION_SCHEMA_INVALID");
- const extra=base.map(row=>[...row]);extra[i].push("unexpected");extra[i+1].push("x");extra[i+2].push("x");assert.throws(()=>validateSqlOutput(serializeCsv(extra)),e=>e.code==="DATABASE_ACL_PROJECTION_SCHEMA_INVALID");
+test("CSV rejects bare CR, malformed quotes and invalid post-quote characters", () => {
+  const cr = String.fromCharCode(13);
+  for (const value of ["a" + cr + "b", '"a"x', 'a"b', '"unterminated']) {
+    assert.throws(() => parseCsv(value), CollectorError);
+  }
 });
-test("database and owner OIDs are positive canonical uint32",()=>{for(const [column,value] of [[2,"0"],[2,"4294967296"],[2,"01"],[6,"0"],[6,"4294967296"]]){const rows=parseCsv(validCsv());rows[27][column]=value;assert.throws(()=>validateSqlOutput(serializeCsv(rows)),CollectorError);}});
-test("ACL grantor OID and PUBLIC identity are strict",()=>{
- const edge={grantee_oid:0,grantee_name:"PUBLIC",grantor_oid:10,grantor_name:"postgres",privilege_type:"CONNECT",is_grantable:false};
- for(const bad of [{...edge,grantor_oid:0},{...edge,grantor_oid:4294967296},{...edge,grantee_oid:1},{...edge,grantee_oid:"1",grantee_name:"PUBLIC"},{...edge,grantee_oid:"0",grantee_name:"role"}])assert.throws(()=>validateSqlOutput(replaceAclEdges(validCsv(),[bad])),CollectorError);
+test("ACL header rejects each missing column, duplicate and unexpected columns", () => {
+  const base = parseCsv(validCsv()), index = base.findIndex((row) => row[0] === "evidence_projection");
+  for (let n = 0; n < 11; n += 1) {
+    const rows = base.map((row) => [...row]); rows[index].splice(n, 1);
+    assert.throws(() => validateSqlOutput(serializeCsv(rows)), (error) => error.code === "DATABASE_ACL_PROJECTION_SCHEMA_INVALID");
+  }
+  const duplicate = base.map((row) => [...row]); duplicate[index][3] = duplicate[index][2];
+  assert.throws(() => validateSqlOutput(serializeCsv(duplicate)), (error) => error.code === "DATABASE_ACL_PROJECTION_SCHEMA_INVALID");
+  const extra = base.map((row) => [...row]); extra[index].push("unexpected"); extra[index + 1].push("x"); extra[index + 2].push("x");
+  assert.throws(() => validateSqlOutput(serializeCsv(extra)), (error) => error.code === "DATABASE_ACL_PROJECTION_SCHEMA_INVALID");
 });
-test("logical ACL duplicate ignores grantability",()=>{
- const edge={grantee_oid:10,grantee_name:"role_a",grantor_oid:11,grantor_name:"postgres",privilege_type:"CONNECT",is_grantable:false};
- assert.throws(()=>validateSqlOutput(replaceAclEdges(validCsv(),[edge,{...edge,is_grantable:true}])),e=>e.code==="DATABASE_ACL_EDGES_DUPLICATED");
+test("database and owner OIDs are positive canonical uint32", () => {
+  for (const [column, value] of [[2,"0"],[2,"4294967296"],[2,"01"],[6,"0"],[6,"4294967296"]]) {
+    const rows = parseCsv(validCsv()); rows[27][column] = value;
+    assert.throws(() => validateSqlOutput(serializeCsv(rows)), CollectorError);
+  }
 });
-test("receipt schema rejects missing top-level and nested required fields",()=>{
- const csv=Buffer.from(validCsv()),receipt=completeReceipt(csv);
- for(const key of Object.keys(receipt)){const copy=structuredClone(receipt);delete copy[key];assert.throws(()=>verifyReceiptAndEvidence(copy,csv),e=>e.code==="RECEIPT_SCHEMA_INVALID");}
- for(const key of Object.keys(receipt.execution)){const copy=structuredClone(receipt);delete copy.execution[key];assert.throws(()=>validateReceiptSchema(copy),e=>e.code==="RECEIPT_SCHEMA_INVALID");}
+test("ACL grantor OID and PUBLIC identity are strict", () => {
+  const edge = {grantee_oid:0,grantee_name:"PUBLIC",grantor_oid:10,grantor_name:"postgres",privilege_type:"CONNECT",is_grantable:false};
+  for (const bad of [{...edge,grantor_oid:0},{...edge,grantor_oid:4294967296},{...edge,grantee_oid:1},
+    {...edge,grantee_oid:"1",grantee_name:"PUBLIC"},{...edge,grantee_oid:"0",grantee_name:"role"}]) {
+    assert.throws(() => validateSqlOutput(replaceAclEdges(validCsv(), [bad])), CollectorError);
+  }
 });
-test("receipt schema rejects unexpected fields, malformed timestamps and byte-length tampering",()=>{
- const csv=Buffer.from(validCsv()),receipt=completeReceipt(csv),extra=structuredClone(receipt);extra.endpoint.extra=true;assert.throws(()=>validateReceiptSchema(extra),e=>e.code==="RECEIPT_SCHEMA_INVALID");
- const date=structuredClone(receipt);date.execution.startedAt="bad";assert.throws(()=>validateReceiptSchema(date),e=>e.code==="RECEIPT_SCHEMA_INVALID");
- const length=structuredClone(receipt);length.evidence.byteLength++;assert.throws(()=>verifyReceiptAndEvidence(length,csv),e=>e.code==="EVIDENCE_DIGEST_MISMATCH");
+test("logical ACL duplicate ignores grantability", () => {
+  const edge = {grantee_oid:10,grantee_name:"role_a",grantor_oid:11,grantor_name:"postgres",privilege_type:"CONNECT",is_grantable:false};
+  assert.throws(() => validateSqlOutput(replaceAclEdges(validCsv(), [edge, {...edge,is_grantable:true}])),
+    (error) => error.code === "DATABASE_ACL_EDGES_DUPLICATED");
 });
-test("CA pin detects path replacement and in-place tampering",()=>{
- const dir=mkdtempSync(path.join(tmpdir(),"deedlight-ca-"));chmodSync(dir,0o700);const ca=path.join(dir,"root.crt");writeFileSync(ca,"trusted-ca");chmodSync(ca,0o600);
- let guard=openPinnedCa(ca,sha256("trusted-ca"));renameSync(ca,path.join(dir,"original.crt"));writeFileSync(ca,"replacement-ca");chmodSync(ca,0o600);
- assert.throws(()=>assertPinnedCaUnchanged(guard),e=>e.code==="TLS_CA_CHANGED_DURING_COLLECTION");closeSync(guard.fd);
- rmSync(ca);renameSync(path.join(dir,"original.crt"),ca);guard=openPinnedCa(ca,sha256("trusted-ca"));writeFileSync(ca,"tampered-ca");
- assert.throws(()=>assertPinnedCaUnchanged(guard),e=>e.code==="TLS_CA_CHANGED_DURING_COLLECTION");closeSync(guard.fd);rmSync(dir,{recursive:true,force:true});
+test("receipt schema rejects missing required fields in every object", () => {
+  const csv = Buffer.from(validCsv()), receipt = completeReceipt(csv);
+  const objects = ["endpoint","source","execution","evidence","signing"];
+  for (const object of objects) for (const key of Object.keys(receipt[object])) {
+    const copy = structuredClone(receipt); delete copy[object][key];
+    assert.throws(() => validateReceiptSchema(copy), (error) => error.code === "RECEIPT_SCHEMA_INVALID");
+  }
+  for (const key of Object.keys(receipt)) {
+    const copy = structuredClone(receipt); delete copy[key];
+    assert.throws(() => verifyReceiptAndEvidence(copy,csv), (error) => error.code === "RECEIPT_SCHEMA_INVALID");
+  }
+});
+test("receipt schema rejects unexpected fields, malformed timestamps and byte-length tampering", () => {
+  const csv = Buffer.from(validCsv()), receipt = completeReceipt(csv), extra = structuredClone(receipt);
+  extra.endpoint.extra = true;
+  assert.throws(() => validateReceiptSchema(extra), (error) => error.code === "RECEIPT_SCHEMA_INVALID");
+  const date = structuredClone(receipt); date.execution.startedAt = "bad";
+  assert.throws(() => validateReceiptSchema(date), (error) => error.code === "RECEIPT_SCHEMA_INVALID");
+  const length = structuredClone(receipt); length.evidence.byteLength += 1;
+  assert.throws(() => verifyReceiptAndEvidence(length,csv), (error) => error.code === "EVIDENCE_DIGEST_MISMATCH");
+});
+test("CA pin detects path replacement and in-place tampering", () => {
+  const dir = mkdtempSync(path.join(tmpdir(),"deedlight-ca-")); chmodSync(dir,0o700);
+  const ca = path.join(dir,"root.crt"); writeFileSync(ca,"trusted-ca"); chmodSync(ca,0o600);
+  let guard = openPinnedCa(ca,sha256("trusted-ca"));
+  renameSync(ca,path.join(dir,"original.crt")); writeFileSync(ca,"replacement-ca"); chmodSync(ca,0o600);
+  assert.throws(() => assertPinnedCaUnchanged(guard), (error) => error.code === "TLS_CA_CHANGED_DURING_COLLECTION");
+  closeSync(guard.fd); rmSync(ca); renameSync(path.join(dir,"original.crt"),ca);
+  guard = openPinnedCa(ca,sha256("trusted-ca")); writeFileSync(ca,"tampered-ca");
+  assert.throws(() => assertPinnedCaUnchanged(guard), (error) => error.code === "TLS_CA_CHANGED_DURING_COLLECTION");
+  closeSync(guard.fd); rmSync(dir,{recursive:true,force:true});
 });
