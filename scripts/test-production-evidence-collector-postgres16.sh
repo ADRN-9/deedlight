@@ -61,8 +61,8 @@ openssl x509 -req -in "$tls/server.csr" -CA "$tls/ca.crt" -CAkey "$tls/ca.key" \
 docker exec "$tls_container_id" mkdir -p /var/lib/postgresql/data/deedlight-tls
 docker cp "$tls/server.crt" "$tls_container_id:/var/lib/postgresql/data/deedlight-tls/server.crt"
 docker cp "$tls/server.key" "$tls_container_id:/var/lib/postgresql/data/deedlight-tls/server.key"
-docker exec -u postgres "$tls_container_id" chmod 600 /var/lib/postgresql/data/deedlight-tls/server.key
-docker exec -u postgres "$tls_container_id" chown postgres:postgres \
+docker exec "$tls_container_id" chmod 600 /var/lib/postgresql/data/deedlight-tls/server.key
+docker exec "$tls_container_id" chown postgres:postgres \
   /var/lib/postgresql/data/deedlight-tls/server.crt /var/lib/postgresql/data/deedlight-tls/server.key
 
 PGPASSWORD=postgres psql -X -h 127.0.0.1 -p 5432 -U postgres -d "$fixture_db" \
@@ -159,8 +159,8 @@ openssl x509 -req -in "$tls/wrong-host.csr" -CA "$tls/ca.crt" -CAkey "$tls/ca.ke
   -CAcreateserial -out "$tls/wrong-host.crt" -days 2 -sha256 -extfile "$tls/wrong-host.ext" >/dev/null 2>&1
 docker cp "$tls/wrong-host.crt" "$tls_container_id:/var/lib/postgresql/data/deedlight-tls/server.crt"
 docker cp "$tls/wrong-host.key" "$tls_container_id:/var/lib/postgresql/data/deedlight-tls/server.key"
-docker exec -u postgres "$tls_container_id" chmod 600 /var/lib/postgresql/data/deedlight-tls/server.key
-docker exec -u postgres "$tls_container_id" chown postgres:postgres \
+docker exec "$tls_container_id" chmod 600 /var/lib/postgresql/data/deedlight-tls/server.key
+docker exec "$tls_container_id" chown postgres:postgres \
   /var/lib/postgresql/data/deedlight-tls/server.crt /var/lib/postgresql/data/deedlight-tls/server.key
 PGPASSWORD=postgres psql -X -h 127.0.0.1 -p 5432 -U postgres -d "$fixture_db" \
   -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.pg_reload_conf()"
