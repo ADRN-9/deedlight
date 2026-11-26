@@ -92,7 +92,7 @@ export function normalizeMigrationHistoryRows(tuples) {
     assert(typeof version === "string" && typeof name === "string" && name.trim(),
       "migration-history SQL row " + index + " is missing version or name");
     let recordedStatementCount = rawCount;
-    if (rawCount === "NULL" || rawCount === null) recordedStatementCount = null;
+    if (rawCount === "NULL" || rawCount === "\\N" || rawCount === null) recordedStatementCount = null;
     else if (typeof rawCount === "string" && /^(0|[1-9][0-9]*)$/.test(rawCount)) recordedStatementCount = Number(rawCount);
     assert(recordedStatementCount === null || (Number.isSafeInteger(recordedStatementCount) && recordedStatementCount >= 0),
       "migration-history SQL row " + index + " has an invalid recorded statement count");
