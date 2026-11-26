@@ -46,7 +46,7 @@ The collector is not a signing authority, migration runner, SQL proxy, web endpo
 
 - The endpoint profile file and DEEDLIGHT_COLLECTOR_ENDPOINT_PROFILE_SHA256 arrive through independently controlled operator configuration. A profile and its digest supplied by the same untrusted source are not independent.
 - The CA file is external to the repository. TLS uses libpq hostname verification (verify-full); a SQL GUC is never accepted as endpoint proof.
-- The profile is fixed to project xaipiovflxomcbfwtwmu, host db.xaipiovflxomcbfwtwmu.supabase.co, database postgres, port 5432 and login deedlight_catalog_auditor.
+- The production profile is fixed to project xaipiovflxomcbfwtwmu, host db.xaipiovflxomcbfwtwmu.supabase.co, database postgres, port 5432 and login deedlight_catalog_auditor. The disposable CI database name is accepted only when GitHub CI and the explicit fixture authorization are both present; it is not a Production mode.
 - The passfile must be a regular, non-symlink file with no group/other permission bits (normally mode 0600). The collector never reads or prints its contents.
 - A successful collection is not an accepted migration classification. E2 emits an explicitly unsigned receipt; E3 signing, E4 immutable storage and independent verification remain mandatory.
 
@@ -54,7 +54,7 @@ The collector is not a signing authority, migration runner, SQL proxy, web endpo
 
 Schema: schemas/production-migration-collection-receipt-v1.schema.json.
 
-The receipt binds project and endpoint identity, TLS mode and CA digest, independently pinned endpoint-profile digest, exact repository commit, migration inventory blob, exact SQL bundle SHA-256, authenticated login, read-only/repeatable-read transaction and rollback verification, timestamps, result record count, full database_acl_v1 row count, canonical result digest, and raw evidence file digest.
+The receipt binds project and endpoint identity, explicit successful TLS chain and hostname verification, TLS mode and CA digest, independently pinned endpoint-profile digest, exact repository commit, migration inventory blob, exact SQL bundle SHA-256, authenticated login, read-only/repeatable-read transaction and rollback verification, timestamps, result record count, full database_acl_v1 row count, canonical result digest, and raw evidence file digest.
 
 Receipt state is always UNSIGNED_NOT_ACCEPTED. signing.keyId and signing.signature are null. The collector does not claim a trusted signature, durable retention, or acceptance.
 
