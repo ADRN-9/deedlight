@@ -96,7 +96,7 @@ export function validateSqlOutput(csv) {
     try { edges = JSON.parse(row[edgesColumn]); }
     catch { throw new CollectorError("DATABASE_ACL_EDGES_INVALID_JSON"); }
     const validOid = (value) => Number.isSafeInteger(value) && value >= 0 ||
-      typeof value === "string" && /^\\d+$/.test(value) && Number.isSafeInteger(Number(value));
+      typeof value === "string" && /^\d+$/.test(value) && Number.isSafeInteger(Number(value));
     if (!Array.isArray(edges) || edges.some((edge) => !edge || !validOid(edge.grantee_oid) ||
       !validOid(edge.grantor_oid) || typeof edge.grantee_name !== "string" ||
       typeof edge.grantor_name !== "string" || typeof edge.privilege_type !== "string" ||
