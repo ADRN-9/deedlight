@@ -114,7 +114,7 @@ test("audit SQL is structurally complete and lexically well formed", () => {
   assert.equal((sql.match(/^ROLLBACK;$/gm) ?? []).length, 1);
   assert.match(sql, /ROLLBACK;\s*$/);
   const sections = [...sql.matchAll(/^-- (\d{2})\./gm)].map((match) => Number(match[1]));
-  assert.deepEqual(sections, Array.from({ length: 13 }, (_, index) => index + 1));
+  assert.deepEqual(sections, Array.from({ length: 14 }, (_, index) => index + 1));
 });
 
 test("SQL malformed-input detector rejects broken delimiters and quotes", () => {
