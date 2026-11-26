@@ -84,24 +84,55 @@ export function validateSqlOutput(csv) {
     .filter((row) => row[projectionColumn] === "database_acl_v1");
   if (!databaseRows.length) throw new CollectorError("DATABASE_ACL_PROJECTION_EMPTY");
   const expectedCount = Number(databaseRows[0][countColumn]);
+  const databaseOids = new Set();
+  let previousDatabaseOid = -1;
   if (!Number.isSafeInteger(expectedCount) || expectedCount < 1 || databaseRows.length !== expectedCount ||
       databaseRows.some((row) => Number(row[countColumn]) !== expectedCount || row.length !== header.length ||
-        !/^\d+$/.test(row[oidColumn] ?? "") || !/^\d+$/.test(row[ownerOidColumn] ?? "") ||
+        !/^(0|[1-9]\d*)$/.test(row[oidColumn] ?? "") || !/^(0|[1-9]\d*)$/.test(row[ownerOidColumn] ?? "") ||
         !["t", "f"].includes(row[dataclNullColumn]) ||
-        !["built_in_default", "explicit"].includes(row[aclSourceColumn]))) {
+        !["built_in_default", "explicit"].includes(row[aclSourceColumn]) ||
+        (row[dataclNullColumn] === "t") !== (row[aclSourceColumn] === "built_in_default"))) {
     throw new CollectorError("DATABASE_ACL_PROJECTION_INCOMPLETE");
   }
   for (const row of databaseRows) {
+    const databaseOid = Number(row[oidColumn]);
+    if (databaseOids.has(databaseOid) || databaseOid <= previousDatabaseOid) {
+      throw new CollectorError("DATABASE_ACL_PROJECTION_DUPLICATED_OR_UNORDERED");
+    }
+    databaseOids.add(databaseOid);
+    previousDatabaseOid = databaseOid;
     let edges;
     try { edges = JSON.parse(row[edgesColumn]); }
     catch { throw new CollectorError("DATABASE_ACL_EDGES_INVALID_JSON"); }
     const validOid = (value) => Number.isSafeInteger(value) && value >= 0 ||
-      typeof value === "string" && /^\d+$/.test(value) && Number.isSafeInteger(Number(value));
-    if (!Array.isArray(edges) || edges.some((edge) => !edge || !validOid(edge.grantee_oid) ||
-      !validOid(edge.grantor_oid) || typeof edge.grantee_name !== "string" ||
-      typeof edge.grantor_name !== "string" || typeof edge.privilege_type !== "string" ||
-      typeof edge.is_grantable !== "boolean")) {
-      throw new CollectorError("DATABASE_ACL_EDGES_INVALID");
+      typeof value === "string" && /^(0|[1-9]\d*)$/.test(value) && Number.isSafeInteger(Number(value));
+    const oidValue = (value) => Number(value);
+    const seenEdges = new Set();
+    let previousEdge = null;
+    if (!Array.isArray(edges)) throw new CollectorError("DATABASE_ACL_EDGES_INVALID");
+    for (const edge of edges) {
+      const expectedKeys = ["grantee_oid", "grantee_name", "grantor_oid", "grantor_name", "privilege_type", "is_grantable"];
+      if (!edge || typeof edge !== "object" || Array.isArray(edge) ||
+        Object.keys(edge).sort().join("|") !== expectedKeys.slice().sort().join("|") ||
+        !validOid(edge.grantee_oid) || !validOid(edge.grantor_oid) ||
+        typeof edge.grantee_name !== "string" || edge.grantee_name.length === 0 ||
+        typeof edge.grantor_name !== "string" || edge.grantor_name.length === 0 ||
+        typeof edge.privilege_type !== "string" || edge.privilege_type.length === 0 ||
+        typeof edge.is_grantable !== "boolean") {
+        throw new CollectorError("DATABASE_ACL_EDGES_INVALID");
+      }
+      const key = [oidValue(edge.grantee_oid), oidValue(edge.grantor_oid), edge.privilege_type, edge.is_grantable ? 1 : 0];
+      const serializedKey = JSON.stringify(key);
+      if (seenEdges.has(serializedKey)) throw new CollectorError("DATABASE_ACL_EDGES_DUPLICATED");
+      seenEdges.add(serializedKey);
+      if (previousEdge) {
+        const [pg, pr, pp, pf] = previousEdge;
+        const [cg, cr, cp, cf] = key;
+        const ordered = pg < cg || pg === cg && (pr < cr || pr === cr &&
+          (pp < cp || pp === cp && pf <= cf));
+        if (!ordered) throw new CollectorError("DATABASE_ACL_EDGES_UNORDERED");
+      }
+      previousEdge = key;
     }
   }
   const resultRows = rows.slice(0, markerHeaderIndex);
