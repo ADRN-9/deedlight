@@ -558,8 +558,14 @@ export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approval
   const now = Date.now();
   // Captured at process startup: callers cannot replace the trusted digest through API arguments or later env mutation.
   const trustedTrustRootsSha256 = PROVISIONED_TRUST_ROOTS_SHA256;
-  if (!trustRoots || trustRoots.schemaVersion !== 1 || !Array.isArray(trustRoots.keys)) problems.push("external trust-root bundle is missing or malformed");
-  else {
+  const trustRootBundleKeys = ["keys", "revokedApprovalIds", "schemaVersion"];
+  const requiredTrustRootBundleKeys = ["keys", "schemaVersion"];
+  if (!trustRoots || typeof trustRoots !== "object" || Array.isArray(trustRoots)
+    || trustRoots.schemaVersion !== 1 || !Array.isArray(trustRoots.keys)
+    || requiredTrustRootBundleKeys.some((key) => !Object.prototype.hasOwnProperty.call(trustRoots, key))
+    || Object.keys(trustRoots).some((key) => !trustRootBundleKeys.includes(key))) {
+    problems.push("external trust-root bundle is missing, malformed or contains unsupported fields");
+  } else {
     const rootDigest = sha256(Buffer.from(canonicalJson(trustRoots)));
     if (!/^[a-f0-9]{64}$/.test(trustedTrustRootsSha256 || "") || trustedTrustRootsSha256 !== rootDigest) {
       problems.push("external trust roots do not match the independently provisioned trust-root digest");
@@ -568,8 +574,13 @@ export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approval
     if (new Set(keyIds).size !== keyIds.length) problems.push("trust-root bundle contains duplicate key IDs");
     const publicKeyFingerprints = new Set();
     const allowedRoles = new Set(["evidence-approver", "mapping-approver", "collector"]);
+    const allowedTrustRootKeyFields = ["algorithm", "keyId", "notAfter", "notBefore", "publicKeyPem", "revokedAt", "role", "signerId", "status"];
     for (const key of trustRoots.keys) {
-      if (!key || typeof key.keyId !== "string" || !key.keyId || typeof key.signerId !== "string" || !key.signerId
+      if (!key || typeof key !== "object" || Array.isArray(key)
+        || Object.keys(key).length !== allowedTrustRootKeyFields.length
+        || Object.keys(key).some((field) => !allowedTrustRootKeyFields.includes(field))
+        || allowedTrustRootKeyFields.some((field) => !Object.prototype.hasOwnProperty.call(key, field))
+        || typeof key.keyId !== "string" || !key.keyId || typeof key.signerId !== "string" || !key.signerId
         || key.algorithm !== "Ed25519" || !allowedRoles.has(key.role)
         || typeof key.publicKeyPem !== "string" || key.publicKeyPem.length > 4096 || key.publicKeyPem.includes("PRIVATE KEY")) {
         problems.push("trust-root bundle contains an unsupported key, role or private signing material");
