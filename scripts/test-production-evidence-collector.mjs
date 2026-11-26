@@ -381,6 +381,21 @@ test("receipt JSON Schema enforces DeedLight timestamp lexical profile", () => {
   }
 });
 
+test("receipt JSON Schema timestamp patterns require absolute end of input", () => {
+  const receiptSchema = JSON.parse(readFileSync(new URL("../schemas/production-migration-collection-receipt-v1.schema.json", import.meta.url), "utf8"));
+  const suffixes = ["\n","\r","\r\n"," "," "];
+  const valid = ["2024-02-29T12:30:45.12345678901234567890Z", "2026-11-26T06:45:00-08:00"];
+  for (const field of ["startedAt", "completedAt"]) {
+    const pattern = new RegExp(receiptSchema.properties.execution.properties[field].pattern);
+    for (const timestamp of valid) assert.equal(pattern.test(timestamp), true, field + ": valid timestamp " + timestamp);
+    for (const timestamp of valid) {
+      for (const suffix of suffixes) {
+        assert.equal(pattern.test(timestamp + suffix), false, field + ": trailing code point " + JSON.stringify(suffix));
+      }
+    }
+  }
+});
+
 test("strict timestamp ordering preserves fractional precision and timezone equivalence", () => {
   assert.equal(compareStrictTimestamps("2024-01-01T00:00:00.1234567891Z", "2024-01-01T00:00:00.1234567890Z"), 1);
   assert.equal(compareStrictTimestamps("2024-01-01T00:00:00.1234567889Z", "2024-01-01T00:00:00.1234567890Z"), -1);
