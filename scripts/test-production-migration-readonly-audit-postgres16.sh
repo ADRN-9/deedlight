@@ -828,7 +828,7 @@ RETURNS integer LANGUAGE sql
 SET search_path = 'pg_catalog, public'
 AS 'SELECT 1';
 SQL
-expect_failure public_create_routine_search_path "Unexpected or unsafe routine configuration"
+expect_failure public_create_routine_search_path "owns an application schema or has schema CREATE privilege"
 psql -X -v ON_ERROR_STOP=1 -c "DROP FUNCTION public.audit_fixture_public_create_search_path();"
 psql -X -v ON_ERROR_STOP=1 -c "REVOKE CREATE ON SCHEMA public FROM PUBLIC;"
 
