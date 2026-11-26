@@ -1321,6 +1321,30 @@ test("trust-root bundle rejects private signing material and unsupported key rol
 });
 
 
+test("trust-root bundle rejects unknown and private signing fields at bundle and key levels", () => {
+  const mutations = [
+    ["key private signing material", (f) => {
+      f.trustRoots.keys[0].privateKeyPem = keys["evidence-approver"].privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+    }],
+    ["key unsupported field", (f) => { f.trustRoots.keys[0].unexpectedField = "unrecognized"; }],
+    ["bundle private signing material", (f) => {
+      f.trustRoots.privateKeyPem = keys["evidence-approver"].privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+    }],
+    ["bundle unsupported field", (f) => { f.trustRoots.unexpectedField = "unrecognized"; }],
+  ];
+  for (const [label, mutate] of mutations) {
+    const f = fixture();
+    try {
+      mutate(f);
+      const report = f.analyze();
+      assert.equal(report.trustVerified, false, label);
+      assert.equal(report.counts.Unknown, 39, label);
+      assert.equal(report.acceptance, "NOT_ACCEPTED", label);
+      assert.ok(report.trustProblems.some((reason) => reason.includes("unsupported fields") || reason.includes("unsupported key, role or private signing material")), label);
+    } finally { f.cleanup(); }
+  }
+});
+
 test("strict timestamps reject year zero and preserve supported leap-year boundaries", () => {
   for (const value of ["0000-01-01T00:00:00.000Z", "0000-02-29T00:00:00.000Z"]) {
     assert.ok(Number.isNaN(strictTimestamp(value)), "accepted year zero: " + value);
