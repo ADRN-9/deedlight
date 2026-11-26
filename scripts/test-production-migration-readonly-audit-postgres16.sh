@@ -140,6 +140,8 @@ if [[ "${schema_after_rejection}" != "t" ]]; then
   exit 1
 fi
 echo "PASS: SQL fixture guard rejects missing authorization before any destructive setup"
+# Keep the one-shot omission scoped to its negative fixture invocation.
+unset DEEDLIGHT_OMIT_FIXTURE_AUTHORIZATION
 
 # Inherited libpq overrides must not redirect the trusted wrapper connection.
 service_file="${tmp_dir}/redirect-service.conf"
