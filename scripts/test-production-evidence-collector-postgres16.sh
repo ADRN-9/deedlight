@@ -70,11 +70,15 @@ PGPASSWORD=postgres psql -X -h 127.0.0.1 -p 5432 -U postgres -d "$fixture_db" \
   -c "ALTER SYSTEM SET ssl_cert_file = '/var/lib/postgresql/data/deedlight-tls/server.crt'" \
   -c "ALTER SYSTEM SET ssl_key_file = '/var/lib/postgresql/data/deedlight-tls/server.key'"
 docker restart "$tls_container_id" >/dev/null
+ssl_enabled=false
 for attempt in {1..60}; do
-  if PGPASSWORD=postgres psql -X -h 127.0.0.1 -p 5432 -U postgres -d "$fixture_db" -At -c "SHOW ssl" | grep -Fxq on; then break; fi
+  if PGPASSWORD=postgres PGCONNECT_TIMEOUT=2 psql -X -h 127.0.0.1 -p 5432 -U postgres -d "$fixture_db" -At -c "SHOW ssl" 2>/dev/null | grep -Fxq on; then
+    ssl_enabled=true
+    break
+  fi
   sleep 1
 done
-PGPASSWORD=postgres psql -X -h 127.0.0.1 -p 5432 -U postgres -d "$fixture_db" -At -c "SHOW ssl" | grep -Fxq on
+[[ "$ssl_enabled" == true ]] || { echo "FAIL: disposable PostgreSQL did not enable TLS after restart" >&2; exit 1; }
 
 if ! getent hosts "$endpoint_host" >/dev/null; then
   echo "127.0.0.1 $endpoint_host" | sudo tee -a /etc/hosts >/dev/null
@@ -164,7 +168,15 @@ docker exec "$tls_container_id" chown postgres:postgres \
   /var/lib/postgresql/data/deedlight-tls/server.crt /var/lib/postgresql/data/deedlight-tls/server.key
 PGPASSWORD=postgres psql -X -h 127.0.0.1 -p 5432 -U postgres -d "$fixture_db" \
 docker restart "$tls_container_id" >/dev/null
-sleep 3
+server_ready=false
+for attempt in {1..60}; do
+  if PGPASSWORD=postgres PGCONNECT_TIMEOUT=2 psql -X -h 127.0.0.1 -p 5432 -U postgres -d "$fixture_db" -At -c "SELECT 1" 2>/dev/null | grep -Fxq 1; then
+    server_ready=true
+    break
+  fi
+  sleep 1
+done
+[[ "$server_ready" == true ]] || { echo "FAIL: disposable PostgreSQL did not reload the wrong-host certificate" >&2; exit 1; }
 if DEEDLIGHT_COLLECTOR_ENDPOINT_PROFILE_SHA256="$profile_digest" \
   node scripts/collect-production-migration-evidence.mjs \
     --profile "$work/collector-endpoint.json" --output "$work/evidence-wrong-host" \
