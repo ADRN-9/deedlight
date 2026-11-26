@@ -75,7 +75,7 @@ export function validateSqlOutput(csv) {
   if (markerHeaderIndex < 0 || markerHeaderIndex !== rows.length - 2) throw new CollectorError("TRANSACTION_CLOSE_MARKER_MISSING");
   if (rows.at(-1).length !== 1 || rows.at(-1)[0] !== "t") throw new CollectorError("TRANSACTION_ROLLBACK_NOT_VERIFIED");
   const expectedHeader=["evidence_projection","database_count","database_oid","database_name","allows_connections","is_template","owner_oid","owner_name","datacl_was_null","acl_expansion_source","expanded_acl_edges"];
-  const projectionHeaderIndex=rows.findIndex(row=>expectedHeader.slice(1).some(column=>row.includes(column)));
+  const projectionHeaderIndex=rows.findIndex(row=>expectedHeader.filter(column=>row.includes(column)).length>=expectedHeader.length-1);
   if(projectionHeaderIndex<0||projectionHeaderIndex>=markerHeaderIndex)throw new CollectorError("DATABASE_ACL_PROJECTION_MISSING");
   const header=rows[projectionHeaderIndex];
   if(header.length!==11||new Set(header).size!==11||header.some((v,i)=>v!==expectedHeader[i]))throw new CollectorError("DATABASE_ACL_PROJECTION_SCHEMA_INVALID");
