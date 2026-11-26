@@ -608,6 +608,18 @@ test("complete database_acl_v1 projection is mandatory and included in the signe
     assert.ok(report.trustProblems.some((reason) => reason.includes("malformed ACL edge")));
   } finally { malformed.cleanup(); }
 
+  const duplicated = fixture();
+  try {
+    duplicated.reapprove((databaseAuthority) => {
+      databaseAuthority.databaseAclV1[0].expanded_acl_edges.push({
+        ...databaseAuthority.databaseAclV1[0].expanded_acl_edges[0],
+      });
+    });
+    const report = duplicated.analyze();
+    assert.equal(report.counts.Unknown, 39);
+    assert.ok(report.trustProblems.some((reason) => reason.includes("repeats an ACL edge")));
+  } finally { duplicated.cleanup(); }
+
   const tampered = fixture();
   try {
     tampered.reapprove();
