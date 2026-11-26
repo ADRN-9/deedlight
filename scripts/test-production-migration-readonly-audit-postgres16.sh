@@ -494,8 +494,8 @@ psql -X -v ON_ERROR_STOP=1 -c "REVOKE EXECUTE ON ROUTINE public.audit_fixture_wi
 psql -X -v ON_ERROR_STOP=1 -c "GRANT EXECUTE ON ROUTINE public.audit_fixture_overload(text) TO deedlight_audit_nested_leaf;"
 psql -X -v ON_ERROR_STOP=1 -c "GRANT deedlight_audit_nested_leaf TO deedlight_audit_nested_parent;"
 psql -X -v ON_ERROR_STOP=1 -c "GRANT deedlight_audit_nested_parent TO deedlight_catalog_auditor;"
-psql -X -At -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.has_function_privilege('deedlight_catalog_auditor', 'public.audit_fixture_overload(text)', 'EXECUTE')" | grep -Fxq t
-expect_failure inherited_routine_execute "prohibited EXECUTE privilege on application routine"
+psql -X -At -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.has_function_privilege('deedlight_catalog_auditor', 'public.audit_fixture_overload(text)', 'EXECUTE')" | grep -Fxq f
+expect_failure inherited_routine_execute "Authenticated or effective collector role has role membership."
 psql -X -v ON_ERROR_STOP=1 -c "REVOKE deedlight_audit_nested_parent FROM deedlight_catalog_auditor;"
 psql -X -v ON_ERROR_STOP=1 -c "REVOKE deedlight_audit_nested_leaf FROM deedlight_audit_nested_parent;"
 psql -X -v ON_ERROR_STOP=1 -c "REVOKE EXECUTE ON ROUTINE public.audit_fixture_overload(text) FROM deedlight_audit_nested_leaf;"
