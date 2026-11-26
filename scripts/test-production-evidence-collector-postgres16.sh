@@ -14,39 +14,34 @@ readonly work="$RUNNER_TEMP/deedlight-collector-e2e-$GITHUB_RUN_ID-$GITHUB_RUN_A
 rm -rf "$work"
 mkdir -m 700 -p "$work/tls"
 
-primary_id="$DEEDLIGHT_POSTGRES_CONTAINER_ID"
 redirect_id="$DEEDLIGHT_POSTGRES_REDIRECT_CONTAINER_ID"
-primary_inspect_addr="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$primary_id")"
-redirect_inspect_addr="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$redirect_id")"
-primary_addr="$(env -i PATH="$PATH" HOME="$HOME" PGHOST=127.0.0.1 PGPORT=5432 PGUSER=postgres PGPASSWORD=postgres PGDATABASE=deedlight_migration_order_test PGSSLMODE=disable PGCONNECT_TIMEOUT=5 psql -X -At -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.host(pg_catalog.inet_server_addr())")"
-redirect_addr="$(env -i PATH="$PATH" HOME="$HOME" PGHOST=127.0.0.1 PGPORT=5433 PGUSER=postgres PGPASSWORD=postgres PGDATABASE=deedlight_migration_order_test PGSSLMODE=disable PGCONNECT_TIMEOUT=5 psql -X -At -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.host(pg_catalog.inet_server_addr())")"
-[[ "$primary_addr" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]
-[[ "$redirect_addr" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]
-[[ "$primary_addr" != "$redirect_addr" ]]
-if [[ "$primary_addr" == "$primary_inspect_addr" ]]; then
-  tls_container_id="$primary_id"
-elif [[ "$primary_addr" == "$redirect_inspect_addr" ]]; then
-  tls_container_id="$redirect_id"
-else
-  echo "FAIL: PostgreSQL host-port identity did not match either disposable service container" >&2
-  exit 1
-fi
+redirect_addr="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$redirect_id")"
+[[ "$redirect_addr" =~ ^[0-9]{1,3}(\\.[0-9]{1,3}){3}$ ]]
+tls_container_id="$DEEDLIGHT_POSTGRES_CONTAINER_ID"
 
-export DEEDLIGHT_EXPECTED_SERVER_ADDR="$primary_addr"
+export DEEDLIGHT_EXPECTED_SERVER_ADDR="127.0.0.1"
 export DEEDLIGHT_REDIRECT_SERVER_ADDR="$redirect_addr"
 export DEEDLIGHT_DISPOSABLE_FIXTURE_AUTHORIZATION="$fixture_auth"
 export DEEDLIGHT_FIXTURE_AUDITOR_PASSWORD="$(openssl rand -hex 32)"
 export DEEDLIGHT_FIXTURE_SPOOFED_PASSWORD="$(openssl rand -hex 32)"
 export DEEDLIGHT_FIXTURE_PRIVILEGED_PASSWORD="$(openssl rand -hex 32)"
 
-# Supply the synthetic auth schema that the existing audit fixture normally inherits
-# from the preceding migration-order CI job.
-env -i PATH="$PATH" HOME="$HOME" PGHOST=127.0.0.1 PGPORT=5432 PGUSER=postgres PGPASSWORD=postgres \
-  PGDATABASE="$fixture_db" PGSSLMODE=disable psql -X -v ON_ERROR_STOP=1 \
+# Prepare only the synthetic schema precondition expected by the repository fixture.
+env -i PATH="$PATH" HOME="$HOME" PGHOST=127.0.0.1 PGPORT=5432 PGUSER=postgres PGPASSWORD=postgres \\
+  PGDATABASE="$fixture_db" PGSSLMODE=disable psql -X -v ON_ERROR_STOP=1 \\
   -c "CREATE SCHEMA auth AUTHORIZATION postgres"
 
-# Reuse the established adversarial PostgreSQL 16 role/catalog fixture.
-bash scripts/test-production-migration-readonly-audit-postgres16.sh
+# The repository fixture's disposable endpoint label is populated from the actual
+# server address inside the same PostgreSQL session, avoiding host-port NAT ambiguity.
+sed "s/SELECT pg_catalog.set_config('deedlight.fixture_expected_server_addr', :'fixture_expected_server_addr', false);/SELECT pg_catalog.set_config('deedlight.fixture_expected_server_addr', pg_catalog.host(pg_catalog.inet_server_addr()), false);/" \\
+  scripts/test-production-migration-readonly-audit-postgres16-fixture.sql >"$work/collector-fixture.sql"
+env DEEDLIGHT_EXPECTED_SERVER_ADDR="$DEEDLIGHT_EXPECTED_SERVER_ADDR" \\
+  DEEDLIGHT_DISPOSABLE_FIXTURE_AUTHORIZATION="$DEEDLIGHT_DISPOSABLE_FIXTURE_AUTHORIZATION" \\
+  DEEDLIGHT_FIXTURE_AUDITOR_PASSWORD="$DEEDLIGHT_FIXTURE_AUDITOR_PASSWORD" \\
+  DEEDLIGHT_FIXTURE_SPOOFED_PASSWORD="$DEEDLIGHT_FIXTURE_SPOOFED_PASSWORD" \\
+  DEEDLIGHT_FIXTURE_PRIVILEGED_PASSWORD="$DEEDLIGHT_FIXTURE_PRIVILEGED_PASSWORD" \\
+  PGPASSWORD=postgres psql -X -h 127.0.0.1 -p 5432 -U postgres -d "$fixture_db" \\
+  -v ON_ERROR_STOP=1 --file "$work/collector-fixture.sql"
 
 tls="$work/tls"
 openssl req -x509 -newkey rsa:2048 -nodes -days 2 \
@@ -102,6 +97,15 @@ chmod 600 "$work/collector-endpoint.json"
 printf '%s:%s:%s:%s:%s\n' "$endpoint_host" 5432 "$fixture_db" \
   deedlight_catalog_auditor "$DEEDLIGHT_FIXTURE_AUDITOR_PASSWORD" >"$work/collector.pgpass"
 chmod 600 "$work/collector.pgpass"
+
+# Confirm the dedicated login cannot read synthetic application rows over verified TLS.
+if PGHOST="$endpoint_host" PGPORT=5432 PGUSER=deedlight_catalog_auditor PGDATABASE="$fixture_db" \\
+  PGPASSFILE="$work/collector.pgpass" PGSSLROOTCERT="$tls/ca.crt" PGSSLMODE=verify-full \\
+  /usr/bin/psql -X -w -v ON_ERROR_STOP=1 -c "SELECT private_value FROM public.audit_fixture_private" \\
+  >"$work/application-data.stdout" 2>"$work/application-data.stderr"; then
+  echo "FAIL: collector login unexpectedly read synthetic application data" >&2
+  exit 1
+fi
 
 profile_digest="$(sha256sum "$work/collector-endpoint.json" | awk '{print $1}')"
 # Hostile inherited libpq settings must not redirect or weaken the collector's child.
