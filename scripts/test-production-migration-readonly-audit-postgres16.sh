@@ -837,6 +837,7 @@ if [[ "${auth_schema_owner}" != "postgres" ]]; then
   echo "FAIL: expected disposable auth schema to be owned by postgres before fixture mutation" >&2
   exit 1
 fi
+psql -X -v ON_ERROR_STOP=1 -c "ALTER DEFAULT PRIVILEGES FOR ROLE deedlight_audit_spoofed_login REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;"
 psql -X -v ON_ERROR_STOP=1 -c "ALTER SCHEMA auth OWNER TO deedlight_audit_spoofed_login;"
 psql -X -v ON_ERROR_STOP=1 <<'SQL'
 CREATE FUNCTION public.audit_fixture_login_owned_schema_search_path()
@@ -848,7 +849,6 @@ expect_failure login_owned_routine_schema "Unexpected or unsafe routine configur
 psql -X -v ON_ERROR_STOP=1 -c "DROP FUNCTION public.audit_fixture_login_owned_schema_search_path();"
 psql -X -v ON_ERROR_STOP=1 -c "ALTER SCHEMA auth OWNER TO postgres;"
 
-psql -X -v ON_ERROR_STOP=1 -c "ALTER DEFAULT PRIVILEGES FOR ROLE deedlight_audit_spoofed_login REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;"
 psql -X -v ON_ERROR_STOP=1 -c "GRANT CREATE ON SCHEMA auth TO deedlight_audit_spoofed_login;"
 psql -X -v ON_ERROR_STOP=1 -c "GRANT USAGE, CREATE ON SCHEMA auth TO deedlight_audit_spoofed_login;"
 psql -X -v ON_ERROR_STOP=1 <<'SQL'
