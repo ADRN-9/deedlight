@@ -588,6 +588,10 @@ export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approval
         problems.push("trust-root bundle contains an invalid public key");
       }
       if (!["active", "revoked"].includes(key.status)) problems.push("trust-root key status is unsupported");
+      if (key.status === "active"
+        && (!Object.prototype.hasOwnProperty.call(key, "revokedAt") || key.revokedAt !== null)) {
+        problems.push("every active trust-root key must explicitly provide revokedAt: null");
+      }
     }
     if (trustRoots.revokedApprovalIds !== undefined && !Array.isArray(trustRoots.revokedApprovalIds)) {
       problems.push("trust-root revoked approval registry is malformed");
