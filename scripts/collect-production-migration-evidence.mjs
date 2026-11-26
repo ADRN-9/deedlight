@@ -271,7 +271,7 @@ export function buildReceipt({ profile, profileDigest, commitSha, startedAt, com
 }
 const exactKeys=(v,keys)=>v&&typeof v==="object"&&!Array.isArray(v)&&Object.keys(v).length===keys.length&&keys.every(k=>Object.hasOwn(v,k));
 const hex=(v,n)=>typeof v==="string"&&new RegExp("^[a-f0-9]{"+n+"}$").test(v);
-const dateTime=v=>typeof v==="string"&&/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$/.test(v)&&Number.isFinite(Date.parse(v));
+const dateTime=v=>typeof v==="string"&&/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:[.][0-9]+)?(?:Z|[+-][0-9]{2}:[0-9]{2})$/.test(v)&&Number.isFinite(Date.parse(v));
 export function validateReceiptSchema(r){
  const invalid=()=>{throw new CollectorError("RECEIPT_SCHEMA_INVALID");};
  if(!exactKeys(r,["schemaVersion","kind","status","projectRef","endpoint","source","execution","evidence","signing"])||r.schemaVersion!==1||r.kind!=="deedlight-production-migration-collection"||r.status!=="UNSIGNED_NOT_ACCEPTED"||r.projectRef!==PROJECT_REF)invalid();
