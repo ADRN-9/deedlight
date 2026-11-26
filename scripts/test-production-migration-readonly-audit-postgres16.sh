@@ -556,11 +556,7 @@ psql -X -v ON_ERROR_STOP=1 -c "REVOKE EXECUTE ON FUNCTION public.audit_fixture_s
 psql -X -v ON_ERROR_STOP=1 -c "REVOKE USAGE ON SCHEMA public FROM deedlight_catalog_auditor;"
 echo "PASS: SECURITY DEFINER preserves and validates the authenticated principal"
 psql -X -v ON_ERROR_STOP=1 -c "ALTER ROLE deedlight_audit_definer_owner INHERIT;"
-if psql_as deedlight_catalog_auditor -X -v ON_ERROR_STOP=1 >"${tmp_dir}/effective_definer_inherit.log" 2>&1 <<'SQL'
-SET deedlight.authenticated_principal = 'deedlight_catalog_auditor';
-SELECT public.audit_fixture_security_definer_identity();
-SQL
-then
+if psql_as deedlight_catalog_auditor -X -v ON_ERROR_STOP=1 -c "SET deedlight.authenticated_principal = 'deedlight_catalog_auditor'; SELECT public.audit_fixture_security_definer_identity();" >"${tmp_dir}/effective_definer_inherit.log" 2>&1; then
   echo "FAIL: SECURITY DEFINER owner with INHERIT unexpectedly passed" >&2
   exit 1
 fi
