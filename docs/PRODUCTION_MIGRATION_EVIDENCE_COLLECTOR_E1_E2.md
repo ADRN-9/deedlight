@@ -128,3 +128,8 @@ The collector's F-01–F-06 remediation is recorded in the Production migration 
 The exact ACL projection, uint32 OID/PUBLIC identity constraints, grantability-independent logical duplicate identity, strict CSV parser behavior and complete unsigned receipt schema are enforced in code and covered by adversarial tests. E2 receipts remain `UNSIGNED_NOT_ACCEPTED`; no signing, acceptance, Production collection, credential provisioning or migration is authorized by this remediation.
 
 Release status must be taken from the final exact-head CI workflow, including the collector unit/adversarial test job, PostgreSQL 16 integration job, migration analyzer, and security assertions. Earlier failed/cancelled workflow runs are diagnostic history, not evidence of a passing final head.
+
+
+## Follow-up hardening — CA lifecycle and strict timestamps
+
+The collector now installs its cleanup scope immediately after successful profile loading. All output validation and subsequent collection steps are protected; descriptor closure and temporary snapshot removal occur on every exit. CA snapshot bytes are independently hashed before and after writing against the separate CA pin. The receipt timestamp validator enforces RFC3339 syntax and actual Gregorian calendar/clock/timezone ranges, including leap years, rather than relying on Date.parse normalization.

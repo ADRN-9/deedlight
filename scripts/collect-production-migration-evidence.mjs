@@ -144,21 +144,80 @@ function readFdBytes(fd) {
   return bytes;
 }
 function digestFd(fd) { return sha256(readFdBytes(fd)); }
-export function openPinnedCa(caPath,expectedDigest){
- if(!/^[a-f0-9]{64}$/.test(expectedDigest??""))throw new CollectorError("TLS_CA_PIN_INVALID");
- const absolutePath=path.resolve(caPath),parentPath=path.dirname(absolutePath),parent=lstatSync(parentPath);
- if(parent.isSymbolicLink()||!parent.isDirectory()||realpathSync(parentPath)!==parentPath||(parent.mode&0o077)!==0||(typeof process.getuid==="function"&&parent.uid!==process.getuid()))throw new CollectorError("TLS_CA_DIRECTORY_INVALID");
- const link=lstatSync(absolutePath);
- if(link.isSymbolicLink()||!link.isFile()||(link.mode&0o077)!==0||(typeof process.getuid==="function"&&link.uid!==process.getuid()))throw new CollectorError("TLS_CA_INVALID");
- const fd=openSync(absolutePath,fsConstants.O_RDONLY|(fsConstants.O_NOFOLLOW??0));
- try{const opened=fstatSync(fd);if(!opened.isFile()||opened.dev!==link.dev||opened.ino!==link.ino)throw new CollectorError("TLS_CA_REPLACED");
-  const digest=digestFd(fd);if(!timingSafeEqual(Buffer.from(digest,"hex"),Buffer.from(expectedDigest,"hex")))throw new CollectorError("TLS_CA_DIGEST_MISMATCH");
-  return{fd,path:absolutePath,dev:opened.dev,ino:opened.ino,digest};
- }catch(error){closeSync(fd);throw error;}
+export function openPinnedCa(caPath, expectedDigest) {
+  if (!/^[a-f0-9]{64}$/.test(expectedDigest ?? "")) throw new CollectorError("TLS_CA_PIN_INVALID");
+  const absolutePath = path.resolve(caPath), parentPath = path.dirname(absolutePath), parent = lstatSync(parentPath);
+  if (parent.isSymbolicLink() || !parent.isDirectory() || realpathSync(parentPath) !== parentPath ||
+      (parent.mode & 0o077) !== 0 || (typeof process.getuid === "function" && parent.uid !== process.getuid())) {
+    throw new CollectorError("TLS_CA_DIRECTORY_INVALID");
+  }
+  const link = lstatSync(absolutePath);
+  if (link.isSymbolicLink() || !link.isFile() || (link.mode & 0o077) !== 0 ||
+      (typeof process.getuid === "function" && link.uid !== process.getuid())) throw new CollectorError("TLS_CA_INVALID");
+  const fd = openSync(absolutePath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+  try {
+    const opened = fstatSync(fd);
+    if (!opened.isFile() || opened.dev !== link.dev || opened.ino !== link.ino) throw new CollectorError("TLS_CA_REPLACED");
+    const digest = digestFd(fd);
+    if (!timingSafeEqual(Buffer.from(digest, "hex"), Buffer.from(expectedDigest, "hex"))) {
+      throw new CollectorError("TLS_CA_DIGEST_MISMATCH");
+    }
+    return { fd, path: absolutePath, dev: opened.dev, ino: opened.ino, digest, fdClosed: false, privateDirectory: null };
+  } catch (error) { closeSync(fd); throw error; }
 }
-export function assertPinnedCaUnchanged(guard){
- try{const p=lstatSync(guard.path),f=fstatSync(guard.fd);if(p.isSymbolicLink()||!p.isFile()||p.dev!==guard.dev||p.ino!==guard.ino||f.dev!==guard.dev||f.ino!==guard.ino||digestFd(guard.fd)!==guard.digest)throw new CollectorError("TLS_CA_CHANGED_DURING_COLLECTION");}
- catch(error){if(error instanceof CollectorError)throw error;throw new CollectorError("TLS_CA_CHANGED_DURING_COLLECTION");}return true;
+
+export function cleanupPinnedCa(guard, fsOps = {}) {
+  if (!guard) return;
+  if (!guard.fdClosed) {
+    closeSync(guard.fd);
+    guard.fdClosed = true;
+  }
+  if (guard.privateDirectory) {
+    (fsOps.rmSync ?? rmSync)(guard.privateDirectory, { recursive: true, force: true });
+    guard.privateDirectory = null;
+  }
+}
+
+export function createPinnedCaSnapshot(guard, fsOps = {}) {
+  const makeDirectory = fsOps.mkdtempSync ?? mkdtempSync;
+  const makeDirectoryMode = fsOps.chmodSync ?? chmodSync;
+  const writeFile = fsOps.writeFileSync ?? writeFileSync;
+  const remove = fsOps.rmSync ?? rmSync;
+  let directory;
+  try {
+    const copiedBytes = readFdBytes(guard.fd);
+    if (sha256(copiedBytes) !== guard.digest) throw new CollectorError("TLS_CA_CHANGED_DURING_COLLECTION");
+    directory = makeDirectory(path.join(fsOps.tmpdir ?? tmpdir(), "deedlight-ca-"));
+    makeDirectoryMode(directory, 0o700);
+    const snapshotPath = path.join(directory, "root.crt");
+    writeFile(snapshotPath, copiedBytes, { flag: "wx", mode: 0o600 });
+    makeDirectoryMode(snapshotPath, 0o600);
+    if (sha256(readFileSync(snapshotPath)) !== guard.digest) throw new CollectorError("TLS_CA_SNAPSHOT_DIGEST_MISMATCH");
+    guard.privateDirectory = directory;
+    return snapshotPath;
+  } catch (error) {
+    if (directory) remove(directory, { recursive: true, force: true });
+    cleanupPinnedCa(guard);
+    throw error;
+  }
+}
+
+export function assertPinnedCaUnchanged(guard) {
+  try {
+    const currentPath = lstatSync(guard.path), opened = fstatSync(guard.fd);
+    if (currentPath.isSymbolicLink() || !currentPath.isFile() || currentPath.dev !== guard.dev ||
+        currentPath.ino !== guard.ino || opened.dev !== guard.dev || opened.ino !== guard.ino ||
+        digestFd(guard.fd) !== guard.digest) throw new CollectorError("TLS_CA_CHANGED_DURING_COLLECTION");
+  } catch (error) {
+    if (error instanceof CollectorError) throw error;
+    throw new CollectorError("TLS_CA_CHANGED_DURING_COLLECTION");
+  }
+  return true;
+}
+
+export function withPinnedCaCleanup(loaded, action) {
+  try { return action(); }
+  finally { cleanupPinnedCa(loaded?.profile?.tlsCaGuard); }
 }
 
 function loadProfile(profilePath, repoPath) {
@@ -189,19 +248,7 @@ function loadProfile(profilePath, repoPath) {
   assertOutsideRepository(profile.passwordFilePath, repoPath, "PASSWORD_FILE_MUST_BE_EXTERNAL");
   profile.tlsCaGuard = openPinnedCa(profile.tlsRootCertPath, process.env.DEEDLIGHT_COLLECTOR_TLS_CA_SHA256 ?? "");
   profile.tlsRootCertificateSha256 = profile.tlsCaGuard.digest;
-  const privateCaDirectory = mkdtempSync(path.join(tmpdir(), "deedlight-ca-"));
-  try {
-    chmodSync(privateCaDirectory, 0o700);
-    const privateCaPath = path.join(privateCaDirectory, "root.crt");
-    writeFileSync(privateCaPath, readFdBytes(profile.tlsCaGuard.fd), { flag: "wx", mode: 0o600 });
-    chmodSync(privateCaPath, 0o600);
-    profile.tlsCaGuard.privateDirectory = privateCaDirectory;
-    profile.tlsRootCertPath = privateCaPath;
-  } catch (error) {
-    rmSync(privateCaDirectory, { recursive: true, force: true });
-    closeSync(profile.tlsCaGuard.fd);
-    throw error;
-  }
+  profile.tlsRootCertPath = createPinnedCaSnapshot(profile.tlsCaGuard);
   return { profile, profileDigest: sha256(bytes) };
 }
 function runPsql({ repoPath, profile, sqlPath, commitSha }) {
@@ -271,7 +318,22 @@ export function buildReceipt({ profile, profileDigest, commitSha, startedAt, com
 }
 const exactKeys=(v,keys)=>v&&typeof v==="object"&&!Array.isArray(v)&&Object.keys(v).length===keys.length&&keys.every(k=>Object.hasOwn(v,k));
 const hex=(v,n)=>typeof v==="string"&&new RegExp("^[a-f0-9]{"+n+"}$").test(v);
-const dateTime=v=>typeof v==="string"&&/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:[.][0-9]+)?(?:Z|[+-][0-9]{2}:[0-9]{2})$/.test(v)&&Number.isFinite(Date.parse(v));
+export function isStrictRfc3339(value) {
+  if (typeof value !== "string") return false;
+  const match = /^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\\.([0-9]+))?(Z|([+-])([0-9]{2}):([0-9]{2}))$/.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]), month = Number(match[2]), day = Number(match[3]);
+  const hour = Number(match[4]), minute = Number(match[5]), second = Number(match[6]);
+  const offsetHour = match[10] === undefined ? 0 : Number(match[10]);
+  const offsetMinute = match[11] === undefined ? 0 : Number(match[11]);
+  if (year < 1 || month < 1 || month > 12 || hour > 23 || minute > 59 || second > 59 ||
+      offsetHour > 23 || offsetMinute > 59) return false;
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const monthDays = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (day < 1 || day > monthDays[month - 1]) return false;
+  return Number.isFinite(Date.parse(value));
+}
+const dateTime = isStrictRfc3339;
 export function validateReceiptSchema(r){
  const invalid=()=>{throw new CollectorError("RECEIPT_SCHEMA_INVALID");};
  if(!exactKeys(r,["schemaVersion","kind","status","projectRef","endpoint","source","execution","evidence","signing"])||r.schemaVersion!==1||r.kind!=="deedlight-production-migration-collection"||r.status!=="UNSIGNED_NOT_ACCEPTED"||r.projectRef!==PROJECT_REF)invalid();
@@ -308,44 +370,50 @@ export function collect({ profilePath, outputDir }) {
   if (sqlBlob !== SQL_GIT_BLOB_SHA1) throw new CollectorError("SQL_BUNDLE_GIT_PIN_MISMATCH");
   const sqlPath = path.join(repoPath, SQL_PATH);
   if (sha256(readFileSync(sqlPath)) !== SQL_SHA256) throw new CollectorError("SQL_BUNDLE_SHA256_MISMATCH");
-  const { profile, profileDigest } = loadProfile(profilePath, repoPath);
-  const absoluteOutput = path.resolve(outputDir);
-  const outputParent = realpathSync(path.dirname(absoluteOutput));
-  assertOutsideRepository(outputParent, repoPath, "EVIDENCE_OUTPUT_MUST_BE_EXTERNAL");
-  if (existsSync(absoluteOutput)) throw new CollectorError("OUTPUT_DIRECTORY_ALREADY_EXISTS");
-  mkdirSync(absoluteOutput, { mode: 0o700 });
-  const outputRealPath = realpathSync(absoluteOutput);
-  assertOutsideRepository(outputRealPath, repoPath, "EVIDENCE_OUTPUT_MUST_BE_EXTERNAL");
-  const startedAt = new Date().toISOString();
-  let csv;
-  let evidencePath;
-  let receiptPath;
-  try {
-    csv = runPsql({ repoPath, profile, sqlPath, commitSha });
-    const validation = validateSqlOutput(csv);
-    const completedAt = new Date().toISOString();
-    const receipt = buildReceipt({ profile, profileDigest, commitSha, startedAt, completedAt, csv, validation });
-    const receiptBytes = Buffer.from(canonicalJson(receipt) + "\n", "utf8");
-    evidencePath = path.join(outputRealPath, "evidence.csv");
-    receiptPath = path.join(outputRealPath, "receipt.json");
-    writeFileSync(evidencePath, csv, { flag: "wx", mode: 0o600 });
-    writeFileSync(receiptPath, receiptBytes, { flag: "wx", mode: 0o600 });
-    return {
-      status: receipt.status, receiptPath, receiptSha256: sha256(receiptBytes),
-      evidenceSha256: receipt.evidence.sha256, databaseAclV1RowCount: validation.databaseAclRows,
-    };
-  } catch (error) {
-    for (const filePath of [receiptPath, evidencePath]) {
-      if (filePath && existsSync(filePath)) unlinkSync(filePath);
+  const loaded = loadProfile(profilePath, repoPath);
+  return withPinnedCaCleanup(loaded, () => {
+    const { profile, profileDigest } = loaded;
+    const absoluteOutput = path.resolve(outputDir);
+    let outputRealPath;
+    let csv;
+    let evidencePath;
+    let receiptPath;
+    let outputCreated = false;
+    try {
+      const outputParent = realpathSync(path.dirname(absoluteOutput));
+      assertOutsideRepository(outputParent, repoPath, "EVIDENCE_OUTPUT_MUST_BE_EXTERNAL");
+      if (existsSync(absoluteOutput)) throw new CollectorError("OUTPUT_DIRECTORY_ALREADY_EXISTS");
+      mkdirSync(absoluteOutput, { mode: 0o700 });
+      outputCreated = true;
+      outputRealPath = realpathSync(absoluteOutput);
+      assertOutsideRepository(outputRealPath, repoPath, "EVIDENCE_OUTPUT_MUST_BE_EXTERNAL");
+      const startedAt = new Date().toISOString();
+      csv = runPsql({ repoPath, profile, sqlPath, commitSha });
+      const validation = validateSqlOutput(csv);
+      const completedAt = new Date().toISOString();
+      const receipt = buildReceipt({ profile, profileDigest, commitSha, startedAt, completedAt, csv, validation });
+      const receiptBytes = Buffer.from(canonicalJson(receipt) + "\n", "utf8");
+      evidencePath = path.join(outputRealPath, "evidence.csv");
+      receiptPath = path.join(outputRealPath, "receipt.json");
+      writeFileSync(evidencePath, csv, { flag: "wx", mode: 0o600 });
+      writeFileSync(receiptPath, receiptBytes, { flag: "wx", mode: 0o600 });
+      return {
+        status: receipt.status, receiptPath, receiptSha256: sha256(receiptBytes),
+        evidenceSha256: receipt.evidence.sha256, databaseAclV1RowCount: validation.databaseAclRows,
+      };
+    } catch (error) {
+      for (const filePath of [receiptPath, evidencePath]) {
+        if (filePath && existsSync(filePath)) unlinkSync(filePath);
+      }
+      if (Buffer.isBuffer(csv)) csv.fill(0);
+      if (outputCreated) rmSync(absoluteOutput, { recursive: true, force: true });
+      throw error;
+    } finally {
+      if (Buffer.isBuffer(csv)) csv.fill(0);
     }
-    if (Buffer.isBuffer(csv)) csv.fill(0);
-    throw error;
-  } finally {
-    if (Buffer.isBuffer(csv)) csv.fill(0);
-    closeSync(profile.tlsCaGuard.fd);
-    rmSync(profile.tlsCaGuard.privateDirectory, { recursive: true, force: true });
-  }
+  });
 }
+
 function main() {
   const args = process.argv.slice(2); const values = {};
   for (let i = 0; i < args.length; i += 1) {

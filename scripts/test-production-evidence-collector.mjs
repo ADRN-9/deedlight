@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { closeSync, chmodSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, chmodSync, fstatSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -12,6 +12,10 @@ import {
   validateReceiptSchema,
   openPinnedCa,
   assertPinnedCaUnchanged,
+  cleanupPinnedCa,
+  createPinnedCaSnapshot,
+  withPinnedCaCleanup,
+  isStrictRfc3339,
   sha256,
   SQL_SHA256,
 } from "./collect-production-migration-evidence.mjs";
@@ -271,4 +275,76 @@ test("CA pin rejects unsafe directory and certificate permissions", () => {
   chmodSync(dir, 0o700); chmodSync(ca, 0o644);
   assert.throws(() => openPinnedCa(ca, sha256("trusted-ca")), (error) => error.code === "TLS_CA_INVALID");
   rmSync(dir, { recursive: true, force: true });
+});
+
+test("CA resources are cleaned after output-directory validation failure", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "deedlight-ca-output-")); chmodSync(root, 0o700);
+  const ca = path.join(root, "root.crt"); writeFileSync(ca, "pinned-ca"); chmodSync(ca, 0o600);
+  const guard = openPinnedCa(ca, sha256("pinned-ca"));
+  const snapshot = createPinnedCaSnapshot(guard);
+  const privateDirectory = guard.privateDirectory;
+  assert.throws(() => withPinnedCaCleanup({ profile: { tlsCaGuard: guard } }, () => {
+    throw new CollectorError("EVIDENCE_OUTPUT_MUST_BE_EXTERNAL");
+  }), (error) => error.code === "EVIDENCE_OUTPUT_MUST_BE_EXTERNAL");
+  assert.equal(guard.fdClosed, true);
+  assert.throws(() => fstatSync(guard.fd));
+  assert.equal(readFileSync(snapshot, "utf8"), "pinned-ca");
+  assert.throws(() => readFileSync(privateDirectory), { code: "ENOENT" });
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("CA snapshot creation failure removes temporary directory and closes descriptor", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "deedlight-ca-snapshot-failure-")); chmodSync(root, 0o700);
+  const ca = path.join(root, "root.crt"); writeFileSync(ca, "pinned-ca"); chmodSync(ca, 0o600);
+  const guard = openPinnedCa(ca, sha256("pinned-ca"));
+  let createdDirectory;
+  assert.throws(() => createPinnedCaSnapshot(guard, {
+    tmpdir: root,
+    mkdtempSync: (prefix) => { createdDirectory = mkdtempSync(prefix); return createdDirectory; },
+    writeFileSync: () => { throw new Error("simulated snapshot write failure"); },
+  }), /simulated snapshot write failure/);
+  assert.equal(guard.fdClosed, true);
+  assert.throws(() => fstatSync(guard.fd));
+  assert.throws(() => readFileSync(createdDirectory), { code: "ENOENT" });
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("CA snapshot hashes exact copied bytes against independent pin", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "deedlight-ca-snapshot-hash-")); chmodSync(root, 0o700);
+  const ca = path.join(root, "root.crt"); writeFileSync(ca, "pinned-ca"); chmodSync(ca, 0o600);
+  const guard = openPinnedCa(ca, sha256("pinned-ca"));
+  const snapshot = createPinnedCaSnapshot(guard);
+  assert.equal(sha256(readFileSync(snapshot)), guard.digest);
+  cleanupPinnedCa(guard);
+  assert.equal(guard.fdClosed, true);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("strict RFC3339 validates calendar, leap years, clock and timezone ranges", () => {
+  const valid = [
+    "2024-02-29T23:59:59Z",
+    "2024-02-29T12:30:45.123456Z",
+    "2026-11-26T06:45:00-08:00",
+    "2000-02-29T00:00:00+14:00",
+  ];
+  const invalid = [
+    "2026-02-31T12:00:00Z",
+    "2023-02-29T12:00:00Z",
+    "2024-04-31T12:00:00Z",
+    "2024-01-01T24:00:00Z",
+    "2024-01-01T12:60:00Z",
+    "2024-01-01T12:00:60Z",
+    "2024-01-01T12:00:00+24:00",
+    "2024-01-01T12:00:00+12:60",
+    "2024-01-01T12:00:00+1:00",
+    "0000-01-01T00:00:00Z",
+  ];
+  for (const value of valid) assert.equal(isStrictRfc3339(value), true, value);
+  for (const value of invalid) assert.equal(isStrictRfc3339(value), false, value);
+});
+
+test("receipt rejects impossible RFC3339 dates despite Date.parse normalization", () => {
+  const csv = Buffer.from(validCsv()), receipt = completeReceipt(csv);
+  receipt.execution.startedAt = "2026-02-31T12:00:00Z";
+  assert.throws(() => validateReceiptSchema(receipt), (error) => error.code === "RECEIPT_SCHEMA_INVALID");
 });

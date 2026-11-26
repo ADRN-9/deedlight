@@ -158,3 +158,11 @@ bash scripts/test-production-evidence-collector-postgres16.sh
 ```
 
 The PostgreSQL 16 harness uses disposable local identities and local certificates only. It must never receive Production credentials or endpoints. The migration analyzer and repository security assertions are required in the same exact-HEAD PR Validation workflow. A green unit suite alone does not establish the PostgreSQL 16 integration or the exact-HEAD CI gate.
+
+
+## Follow-up hardening — F-01 resource lifecycle and F-06 RFC3339
+
+- Immediately after `loadProfile` returns successfully, collection enters a cleanup-protected scope. Output-parent resolution, output-path authorization, existing-directory checks, directory creation, psql execution, evidence validation and receipt writes all run inside that scope. Every exit closes the CA descriptor and removes its private trust-anchor snapshot. Partial output is removed on failure.
+- Snapshot creation hashes the exact bytes read from the pinned descriptor against the independently provisioned CA digest, writes those bytes into the private 0700/0600 snapshot, and hashes the bytes read back from that snapshot against the same pin. Snapshot initialization failures remove the partially created temporary directory and close the descriptor.
+- Receipt timestamps now use strict RFC3339 syntax plus Gregorian calendar validation: month/day bounds, leap-year rules, hour/minute/second bounds and timezone offset ranges are checked before Date parsing/comparison. Impossible dates are not accepted merely because a date parser normalizes them.
+- Regression cases cover output-directory validation cleanup, simulated snapshot-write failure, copied-snapshot digest binding, February 31, non-leap February 29, valid leap-year February 29, invalid clock fields and invalid offsets.
