@@ -396,17 +396,18 @@ expect_history_failure() {
 
 run_audit >"${tmp_dir}/approved.log" 2>&1
 grep -Fq "audit_fixture_sequence" "${tmp_dir}/approved.log"
-if ! run_audit deedlight_catalog_auditor deedlight_catalog_auditor xaipiovflxomcbfwtwmu 0123456789abcdef0123456789abcdef01234567 __NONE__ hostile >"${tmp_dir}/hostile-search-path.log" 2>&1; then
-  echo "FAIL: authenticated collector failed with hostile session search_path" >&2
+if run_audit deedlight_catalog_auditor deedlight_catalog_auditor xaipiovflxomcbfwtwmu 0123456789abcdef0123456789abcdef01234567 __NONE__ hostile >"${tmp_dir}/hostile-search-path.log" 2>&1; then
+  echo "FAIL: collector accepted USAGE on the adversarial application schema" >&2
   exit 1
 fi
 grep -Fq "HOSTILE_SEARCH_PATH_RESOLUTION_CONFIRMED" "${tmp_dir}/hostile-search-path.log"
-grep -Fq "AUDIT_TRANSACTION_ROLLED_BACK" "${tmp_dir}/hostile-search-path.log"
+grep -Fq "prohibited USAGE on an application schema" "${tmp_dir}/hostile-search-path.log"
 if grep -Eq "HOSTILE (current_setting|to_regclass|has_table_privilege) SHADOW INVOKED" "${tmp_dir}/hostile-search-path.log"; then
   echo "FAIL: hostile shadow function was invoked during collector authorization" >&2
   exit 1
 fi
-echo "PASS: hostile search_path shadow functions were bypassed and collector authorization succeeded"
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE USAGE ON SCHEMA deedlight_audit_shadow FROM deedlight_catalog_auditor;"
+echo "PASS: hostile search_path shadow functions were bypassed and unsafe schema USAGE was rejected"
 grep -Fq "deedlight_catalog_auditor" "${tmp_dir}/approved.log"
 grep -Fq "AUDIT_TRANSACTION_ROLLED_BACK" "${tmp_dir}/approved.log"
 grep -Fq '"name": "search_path"' "${tmp_dir}/approved.log"
