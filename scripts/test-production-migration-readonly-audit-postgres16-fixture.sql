@@ -83,6 +83,9 @@ CREATE ROLE deedlight_audit_nested_leaf NOLOGIN NOSUPERUSER NOCREATEDB NOCREATER
 CREATE ROLE deedlight_audit_definer_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+REVOKE USAGE ON SCHEMA public FROM PUBLIC;
+REVOKE TEMP ON DATABASE deedlight_migration_order_test FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
 CREATE SCHEMA supabase_migrations;
 CREATE TABLE supabase_migrations.schema_migrations (
@@ -100,6 +103,9 @@ CREATE TABLE public.audit_fixture_termination_marker (id integer PRIMARY KEY);
 REVOKE SELECT ON pg_catalog.pg_roles FROM PUBLIC;
 GRANT USAGE ON SCHEMA supabase_migrations TO deedlight_catalog_auditor;
 GRANT SELECT ON supabase_migrations.schema_migrations TO deedlight_catalog_auditor;
+GRANT USAGE ON SCHEMA public TO deedlight_audit_definer_owner;
+GRANT SELECT ON public.audit_fixture_private TO deedlight_audit_definer_owner;
+INSERT INTO public.audit_fixture_private(id, private_value) VALUES (1, 'synthetic-private-fixture-value');
 
 GRANT SELECT ON pg_catalog.pg_class, pg_catalog.pg_attribute, pg_catalog.pg_attrdef,
   pg_catalog.pg_proc, pg_catalog.pg_auth_members, pg_catalog.pg_namespace,
@@ -152,6 +158,4 @@ END;
 $fixture$;
 ALTER FUNCTION public.audit_fixture_security_definer_identity()
   OWNER TO deedlight_audit_definer_owner;
-GRANT EXECUTE ON FUNCTION public.audit_fixture_security_definer_identity()
 
-  TO deedlight_catalog_auditor;
