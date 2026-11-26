@@ -69,6 +69,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Resend webhook signature, replay and destination regressions
+        run: node --test scripts/test-c73-provider-webhook.mjs
+
+      - name: Exported POST privileged-boundary instrumentation
+        run: node --test scripts/test-c516-webhook-route-instrumentation.mjs
+
+      - name: Webhook network isolation and recipient privacy canaries
+        run: node --test scripts/test-c73-webhook-isolation.mjs
+
+      - name: C73 webhook security assertions
+        run: node scripts/verify-c73-security.mjs
+
       - name: Diff integrity
         run: git diff --check
 
