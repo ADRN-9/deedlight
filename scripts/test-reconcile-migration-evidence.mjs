@@ -167,6 +167,7 @@ function fixture() {
         databasePrivilegesComplete: true,
         databasePrivileges: ["CONNECT"],
         databaseAclV1: [{
+          database_count: 1,
           database_oid: 100,
           database_name: "deedlight_fixture",
           allows_connections: true,
