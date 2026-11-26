@@ -140,6 +140,46 @@ BEGIN
     RAISE EXCEPTION 'Global or schema-specific default routine privileges expose prohibited EXECUTE or grant-option access.';
   END IF;
 
+  -- pg_default_acl stores only altered defaults. When a routine-owner role has
+  -- no global row, PostgreSQL's acldefault('f', owner) still grants PUBLIC EXECUTE.
+  -- Check every role able to CREATE in an application schema, including superusers;
+  -- pg_database_owner is a pseudo-role whose current database owner is checked by OID.
+  IF EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_roles owner_role
+    WHERE owner_role.rolname <> 'pg_database_owner'
+      AND EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_namespace n
+        WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+          AND n.nspname NOT LIKE 'pg_toast%'
+          AND (
+            n.nspowner = owner_role.oid
+            OR pg_catalog.has_schema_privilege(owner_role.oid, n.oid, 'CREATE')
+          )
+      )
+      AND EXISTS (
+        SELECT 1
+        FROM pg_catalog.aclexplode(COALESCE(
+          (
+            SELECT d.defaclacl
+            FROM pg_catalog.pg_default_acl d
+            WHERE d.defaclrole = owner_role.oid
+              AND d.defaclnamespace = 0
+              AND d.defaclobjtype = 'f'
+          ),
+          pg_catalog.acldefault('f', owner_role.oid)
+        )) global_acl
+        WHERE global_acl.privilege_type = 'EXECUTE'
+          AND (
+            global_acl.grantee = 0
+            OR global_acl.grantee IN (v_session_role_oid, v_effective_role_oid)
+          )
+      )
+  ) THEN
+    RAISE EXCEPTION 'Implicit or configured global routine defaults expose prohibited PUBLIC or collector EXECUTE.';
+  END IF;
+
   IF EXISTS (
     SELECT 1
     FROM pg_catalog.pg_roles r
