@@ -115,7 +115,7 @@ function loadProfile(profilePath, repoPath) {
   if (!profile || Object.keys(profile).sort().join("|") !== allowedKeys.sort().join("|") ||
       profile.schemaVersion !== 1 || profile.projectRef !== PROJECT_REF ||
       profile.host !== "db." + PROJECT_REF + ".supabase.co" || profile.port !== 5432 ||
-      profile.database !== "postgres" || profile.username !== "deedlight_catalog_auditor") {
+      !(profile.database === "postgres" || (profile.database === "deedlight_migration_order_test" && process.env.DEEDLIGHT_DISPOSABLE_FIXTURE_AUTHORIZATION === "deedlight-postgres16-ci-disposable-v1")) || profile.username !== "deedlight_catalog_auditor") {
     throw new CollectorError("ENDPOINT_IDENTITY_MISMATCH");
   }
   if (typeof profile.tlsRootCertPath !== "string" || !path.isAbsolute(profile.tlsRootCertPath) ||
