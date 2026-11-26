@@ -582,6 +582,7 @@ ALTER FUNCTION public.audit_fixture_privileged_definer_identity()
   OWNER TO deedlight_audit_privileged_login;
 GRANT EXECUTE ON FUNCTION public.audit_fixture_privileged_definer_identity() TO deedlight_catalog_auditor;
 SQL
+psql -X -v ON_ERROR_STOP=1 -c "GRANT USAGE ON SCHEMA public TO deedlight_catalog_auditor;"
 
 if psql_as deedlight_catalog_auditor -X -v ON_ERROR_STOP=1 >"${tmp_dir}/privileged_security_definer.log" 2>&1 <<'SQL'
 SET deedlight.authenticated_principal = 'deedlight_catalog_auditor';
@@ -592,6 +593,7 @@ then
   exit 1
 fi
 grep -Fq "Fixture SECURITY DEFINER role attributes or memberships rejected" "${tmp_dir}/privileged_security_definer.log"
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE USAGE ON SCHEMA public FROM deedlight_catalog_auditor;"
 echo "PASS: privileged SECURITY DEFINER effective role is rejected"
 psql -X -v ON_ERROR_STOP=1 -c "DROP FUNCTION public.audit_fixture_privileged_definer_identity();"
 
@@ -626,6 +628,7 @@ echo "LIMITATION: superuser SET SESSION AUTHORIZATION can spoof SQL-visible coll
 psql -X -v ON_ERROR_STOP=1 -c "DROP ROLE deedlight_audit_privileged_login";
 
 # Direct SET ROLE is rejected even when the target role itself has no elevated attributes.
+psql -X -v ON_ERROR_STOP=1 -c "GRANT USAGE ON SCHEMA public TO deedlight_catalog_auditor"
 psql -X -v ON_ERROR_STOP=1 -c "GRANT deedlight_audit_switch_target TO deedlight_catalog_auditor"
 expect_failure direct_role_switch "SET ROLE is prohibited" deedlight_catalog_auditor deedlight_catalog_auditor xaipiovflxomcbfwtwmu 0123456789abcdef0123456789abcdef01234567 deedlight_audit_switch_target
 if psql_as deedlight_catalog_auditor -X -v ON_ERROR_STOP=1 >"${tmp_dir}/security_definer_role_switch.log" 2>&1 <<'SQL'
@@ -640,6 +643,7 @@ fi
 grep -Fq "Fixture SECURITY DEFINER identity rejected" "${tmp_dir}/security_definer_role_switch.log"
 echo "PASS: SECURITY DEFINER rejects unsupported SET ROLE execution context"
 psql -X -v ON_ERROR_STOP=1 -c "REVOKE deedlight_audit_switch_target FROM deedlight_catalog_auditor"
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE USAGE ON SCHEMA public FROM deedlight_catalog_auditor"
 
 # Nested and predefined-role memberships are rejected for the authenticated principal.
 psql -X -v ON_ERROR_STOP=1 -c "GRANT deedlight_audit_nested_leaf TO deedlight_audit_nested_parent;"
