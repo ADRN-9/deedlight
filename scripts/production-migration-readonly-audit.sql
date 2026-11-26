@@ -104,6 +104,17 @@ BEGIN
     RAISE EXCEPTION 'Collector role owns the current database.';
   END IF;
 
+  IF EXISTS (
+    SELECT 1 FROM pg_catalog.pg_namespace n
+    WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+      AND n.nspname NOT LIKE 'pg_toast%'
+      AND (n.nspowner IN (v_session_role_oid, v_effective_role_oid)
+        OR pg_catalog.has_schema_privilege(v_session_role_oid, n.oid, 'CREATE')
+        OR pg_catalog.has_schema_privilege(v_effective_role_oid, n.oid, 'CREATE'))
+  ) THEN
+    RAISE EXCEPTION 'Collector role owns an application schema or has schema CREATE privilege.';
+  END IF;
+
   -- Application routines are not executable by the collector or PUBLIC.
   -- pg_proc OIDs cover functions, procedures, aggregates and window functions;
   -- ACL expansion uses PostgreSQL's built-in default ACL when proacl is NULL.
@@ -499,16 +510,6 @@ BEGIN
       AND acl.is_grantable
   ) THEN
     RAISE EXCEPTION 'Collector role has prohibited database grant-option privileges.';
-  END IF;
-  IF EXISTS (
-    SELECT 1 FROM pg_catalog.pg_namespace n
-    WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
-      AND n.nspname NOT LIKE 'pg_toast%'
-      AND (n.nspowner IN (v_session_role_oid, v_effective_role_oid)
-        OR pg_catalog.has_schema_privilege(v_session_role_oid, n.oid, 'CREATE')
-        OR pg_catalog.has_schema_privilege(v_effective_role_oid, n.oid, 'CREATE'))
-  ) THEN
-    RAISE EXCEPTION 'Collector role owns an application schema or has schema CREATE privilege.';
   END IF;
   SELECT n.nspname INTO v_unsafe_schema
   FROM pg_catalog.pg_namespace n
