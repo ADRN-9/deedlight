@@ -62,7 +62,17 @@ mock.module(verifierModule, {
     InvalidResendWebhook,
     verifyResendDeliveryWebhook: async () => {
       counts.verifier += 1;
-      throw new Error("Verifier must not run for an invalid destination");
+      return {
+        kind: "delivery",
+        eventId: "msg_C516Synthetic001",
+        providerEmailId: "synthetic-provider-id",
+        recipientEmail: "recipient-canary@example.test",
+        eventType: "email.delivered",
+        eventAt: new Date().toISOString(),
+        payloadSha256: "a".repeat(64),
+        suppressionReason: null,
+        bounceType: null
+      };
     }
   }
 });
@@ -83,6 +93,24 @@ mock.module(supabaseModule, {
 process.env.RESEND_WEBHOOK_SECRET = "whsec_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 process.env.SUPABASE_SERVICE_ROLE_KEY = "synthetic-service-role-key";
 const { POST } = await import(pathToFileURL(resolve("app/api/webhooks/resend/route.ts")).href);
+
+process.env.SUPABASE_URL = "https://xaipiovflxomcbfwtwmu.supabase.co";
+const validResponse = await POST(new Request("https://deedlight.test/api/webhooks/resend", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: "{}"
+}));
+if (validResponse.status !== 200
+  || counts.clients !== 1
+  || counts.verifier !== 1
+  || counts.database !== 1) {
+  throw new Error("Exported POST dependency mocks were not exercised by the valid control request");
+}
+counts.clients = 0;
+counts.verifier = 0;
+counts.database = 0;
+counts.outbound = 0;
+
 const destinations = [
   "https://anotherproject.supabase.co",
   "https://xaipiovflxomcbfwtwmu.supabase.co.attacker.example",
@@ -106,8 +134,7 @@ for (const destination of destinations) {
   }));
   statuses.push(response.status);
 }
-if (JSON.stringify(counts) === "") throw new Error("unreachable");
-process.stdout.write(JSON.stringify({ statuses, counts }));
+process.stdout.write(JSON.stringify({ statuses, counts, validControlStatus: validResponse.status }));
 `;
   const result = spawnSync(process.execPath, [
     "--experimental-test-module-mocks",
@@ -131,6 +158,7 @@ process.stdout.write(JSON.stringify({ statuses, counts }));
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.equal(result.stderr, "");
   const report = JSON.parse(result.stdout);
+  assert.equal(report.validControlStatus, 200);
   assert.deepEqual(report.statuses, Array(11).fill(503));
   assert.deepEqual(report.counts, {
     clients: 0,
