@@ -155,7 +155,11 @@ function loadProfile(profilePath, repoPath) {
   profile.tlsRootCertPath = assertOutsideRepository(profile.tlsRootCertPath, repoPath, "TLS_CA_MUST_BE_EXTERNAL");
   profile.passwordFilePath = requirePrivateRegularFile(profile.passwordFilePath, "PASSWORD_FILE_INVALID");
   assertOutsideRepository(profile.passwordFilePath, repoPath, "PASSWORD_FILE_MUST_BE_EXTERNAL");
-  if (!statSync(profile.tlsRootCertPath).isFile()) throw new CollectorError("TLS_CA_INVALID");
+  const caStat = lstatSync(profile.tlsRootCertPath);
+  if (caStat.isSymbolicLink() || !caStat.isFile() || (caStat.mode & 0o022) !== 0) {
+    throw new CollectorError("TLS_CA_INVALID");
+  }
+  profile.tlsRootCertificateSha256 = sha256(readFileSync(profile.tlsRootCertPath));
   return { profile, profileDigest: sha256(bytes) };
 }
 function runPsql({ repoPath, profile, sqlPath, commitSha }) {
@@ -190,6 +194,10 @@ function runPsql({ repoPath, profile, sqlPath, commitSha }) {
   return result.stdout;
 }
 export function buildReceipt({ profile, profileDigest, commitSha, startedAt, completedAt, csv, validation }) {
+  const currentCaDigest = sha256(readFileSync(profile.tlsRootCertPath));
+  if (currentCaDigest !== profile.tlsRootCertificateSha256) {
+    throw new CollectorError("TLS_CA_CHANGED_DURING_COLLECTION");
+  }
   return {
     schemaVersion: 1,
     kind: "deedlight-production-migration-collection",
@@ -199,7 +207,7 @@ export function buildReceipt({ profile, profileDigest, commitSha, startedAt, com
       hostname: profile.host, port: profile.port, database: profile.database, tlsMode: "verify-full",
       tlsVerified: true, tlsHostnameVerified: true, tlsChainVerified: true,
       projectIdentityMethod: "independently-pinned-profile-and-project-specific-TLS-hostname",
-      tlsRootCertificateSha256: sha256(readFileSync(profile.tlsRootCertPath)),
+      tlsRootCertificateSha256: profile.tlsRootCertificateSha256,
       independentlyPinnedProfileSha256: profileDigest,
     },
     source: {
