@@ -367,11 +367,16 @@ test("collect cleans CA descriptor and snapshot when output-directory validation
   process.env.DEEDLIGHT_COLLECTOR_ENDPOINT_PROFILE_SHA256 = sha256(profileBytes);
   process.env.DEEDLIGHT_COLLECTOR_TLS_CA_SHA256 = sha256("collector-test-ca");
   const before = new Set(readdirSync(tmpdir()).filter((name) => name.startsWith("deedlight-ca-")));
+  const descriptorCount = () => readdirSync("/proc/self/fd").length;
+  const descriptorsBefore = descriptorCount();
   const outputInsideRepository = path.join(process.cwd(), ".deedlight-output-must-not-be-created");
   try {
-    assert.throws(() => collect({ profilePath, outputDir: outputInsideRepository }),
-      (error) => error.code === "EVIDENCE_OUTPUT_MUST_BE_EXTERNAL");
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      assert.throws(() => collect({ profilePath, outputDir: outputInsideRepository }),
+        (error) => error.code === "EVIDENCE_OUTPUT_MUST_BE_EXTERNAL");
+    }
     assert.equal(readdirSync(tmpdir()).filter((name) => name.startsWith("deedlight-ca-")).filter((name) => !before.has(name)).length, 0);
+    assert.equal(descriptorCount(), descriptorsBefore);
     assert.equal(readFileSync(profilePath).equals(profileBytes), true);
   } finally {
     if (oldProfilePin === undefined) delete process.env.DEEDLIGHT_COLLECTOR_ENDPOINT_PROFILE_SHA256;
