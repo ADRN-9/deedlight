@@ -73,13 +73,15 @@ BEGIN
     WHERE oid = v_session_role_oid AND rolcanlogin
       AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb
       AND NOT rolreplication AND NOT rolbypassrls
+      AND NOT rolinherit
   ) OR NOT EXISTS (
     SELECT 1 FROM pg_catalog.pg_roles
     WHERE oid = v_effective_role_oid
       AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb
       AND NOT rolreplication AND NOT rolbypassrls
+      AND NOT rolinherit
   ) THEN
-    RAISE EXCEPTION 'Authenticated or effective role violates the least-privilege identity contract.';
+    RAISE EXCEPTION 'Authenticated or effective role violates the NOINHERIT least-privilege identity contract.';
   END IF;
   FOREACH v_catalog IN ARRAY ARRAY[
     'pg_catalog.pg_class', 'pg_catalog.pg_attribute', 'pg_catalog.pg_attrdef',
