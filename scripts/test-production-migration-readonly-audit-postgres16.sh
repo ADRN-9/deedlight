@@ -634,6 +634,7 @@ psql -X -v ON_ERROR_STOP=1 -c "GRANT USAGE ON SCHEMA public TO deedlight_catalog
 psql -X -v ON_ERROR_STOP=1 -c "GRANT USAGE ON SCHEMA public TO deedlight_audit_switch_target"
 psql -X -v ON_ERROR_STOP=1 -c "GRANT deedlight_audit_switch_target TO deedlight_catalog_auditor"
 expect_failure direct_role_switch "SET ROLE is prohibited" deedlight_catalog_auditor deedlight_catalog_auditor xaipiovflxomcbfwtwmu 0123456789abcdef0123456789abcdef01234567 deedlight_audit_switch_target
+psql -X -v ON_ERROR_STOP=1 -c "GRANT EXECUTE ON FUNCTION public.audit_fixture_security_definer_identity() TO deedlight_audit_switch_target"
 if psql_as deedlight_catalog_auditor -X -v ON_ERROR_STOP=1 >"${tmp_dir}/security_definer_role_switch.log" 2>&1 <<'SQL'
 SET deedlight.authenticated_principal = 'deedlight_catalog_auditor';
 SET ROLE deedlight_audit_switch_target;
@@ -644,6 +645,7 @@ then
   exit 1
 fi
 grep -Fq "Fixture SECURITY DEFINER identity rejected" "${tmp_dir}/security_definer_role_switch.log"
+psql -X -v ON_ERROR_STOP=1 -c "REVOKE EXECUTE ON FUNCTION public.audit_fixture_security_definer_identity() FROM deedlight_audit_switch_target"
 echo "PASS: SECURITY DEFINER rejects unsupported SET ROLE execution context"
 psql -X -v ON_ERROR_STOP=1 -c "REVOKE deedlight_audit_switch_target FROM deedlight_catalog_auditor"
 psql -X -v ON_ERROR_STOP=1 -c "REVOKE USAGE ON SCHEMA public FROM deedlight_audit_switch_target"
