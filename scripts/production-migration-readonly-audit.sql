@@ -481,7 +481,7 @@ BEGIN
   ORDER BY n.oid
   LIMIT 1;
   IF v_unsafe_schema IS NOT NULL THEN
-    RAISE EXCEPTION 'Collector role has prohibited USAGE on application schema %.', v_unsafe_schema;
+    RAISE EXCEPTION 'Collector role has prohibited USAGE on an application schema %.', v_unsafe_schema;
   END IF;
   IF NOT EXISTS (
     SELECT 1 FROM pg_catalog.pg_namespace n
