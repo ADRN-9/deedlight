@@ -33,6 +33,8 @@ DECLARE
   v_history_index_count integer;
   v_unsafe_routine text;
   v_unsafe_setting text;
+  v_unsafe_routine_oid oid;
+  v_database_owner oid;
 BEGIN
   IF pg_catalog.current_setting('transaction_read_only') <> 'on' THEN
     RAISE EXCEPTION 'Audit must execute in a read-only transaction.';
@@ -106,6 +108,51 @@ BEGIN
       RAISE EXCEPTION 'Required catalog SELECT access unavailable to authenticated/effective principal: %', v_catalog;
     END IF;
   END LOOP;
+
+  -- Application routines are not executable by the collector or PUBLIC.
+  -- pg_proc OIDs cover functions, procedures, aggregates and window functions;
+  -- ACL expansion uses PostgreSQL's built-in default ACL when proacl is NULL.
+  SELECT p.oid, pg_catalog.format('%I.%I', n.nspname, p.proname)
+  INTO v_unsafe_routine_oid, v_unsafe_routine
+  FROM pg_catalog.pg_proc p
+  JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+    AND n.nspname NOT LIKE 'pg_toast%'
+    AND (
+      EXISTS (
+        SELECT 1
+        FROM pg_catalog.aclexplode(
+          COALESCE(p.proacl, pg_catalog.acldefault('f', p.proowner))
+        ) acl
+        WHERE acl.privilege_type = 'EXECUTE'
+          AND acl.grantee IN (0, v_session_role_oid, v_effective_role_oid)
+      )
+      OR pg_catalog.has_function_privilege(v_session_role_oid, p.oid, 'EXECUTE')
+      OR pg_catalog.has_function_privilege(v_effective_role_oid, p.oid, 'EXECUTE')
+    )
+  ORDER BY p.oid
+  LIMIT 1;
+  IF v_unsafe_routine_oid IS NOT NULL THEN
+    RAISE EXCEPTION 'Collector or PUBLIC has prohibited EXECUTE privilege on application routine % (OID %).',
+      v_unsafe_routine, v_unsafe_routine_oid;
+  END IF;
+
+  -- Future routine defaults are checked globally and per schema. A NULL routine
+  -- ACL is not treated as empty: PostgreSQL's acldefault('f', owner) grants PUBLIC EXECUTE.
+  IF EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_default_acl d
+    CROSS JOIN LATERAL pg_catalog.aclexplode(d.defaclacl) acl
+    WHERE d.defaclobjtype = 'f'
+      AND acl.privilege_type = 'EXECUTE'
+      AND (
+        acl.grantee = 0
+        OR acl.grantee IN (v_session_role_oid, v_effective_role_oid)
+        OR acl.is_grantable
+      )
+  ) THEN
+    RAISE EXCEPTION 'Global or schema-specific default routine privileges expose prohibited EXECUTE or grant-option access.';
+  END IF;
 
   -- Routine settings are a reviewed allowlist, not a raw pg_proc.proconfig export.
   -- Reject custom GUCs, noncanonical search paths and unsafe limits before serialization.
@@ -381,9 +428,36 @@ BEGIN
     RAISE EXCEPTION 'Migration-history contains invalid version or migration-name metadata.';
   END IF;
 
+  SELECT d.datdba INTO v_database_owner
+  FROM pg_catalog.pg_database d
+  WHERE d.datname = pg_catalog.current_database();
+  IF v_database_owner IS NULL
+    OR v_database_owner IN (v_session_role_oid, v_effective_role_oid) THEN
+    RAISE EXCEPTION 'Collector role owns the current database.';
+  END IF;
+  IF NOT pg_catalog.has_database_privilege(v_session_role_oid, pg_catalog.current_database(), 'CONNECT')
+    OR NOT pg_catalog.has_database_privilege(v_effective_role_oid, pg_catalog.current_database(), 'CONNECT') THEN
+    RAISE EXCEPTION 'Collector requires database CONNECT privilege.';
+  END IF;
   IF pg_catalog.has_database_privilege(v_session_role_oid, pg_catalog.current_database(), 'CREATE')
     OR pg_catalog.has_database_privilege(v_effective_role_oid, pg_catalog.current_database(), 'CREATE') THEN
-    RAISE EXCEPTION 'Collector role has database CREATE privilege.';
+    RAISE EXCEPTION 'Collector role has prohibited database CREATE privilege.';
+  END IF;
+  IF pg_catalog.has_database_privilege(v_session_role_oid, pg_catalog.current_database(), 'TEMP')
+    OR pg_catalog.has_database_privilege(v_effective_role_oid, pg_catalog.current_database(), 'TEMP') THEN
+    RAISE EXCEPTION 'Collector role has prohibited database TEMP privilege.';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_database d
+    CROSS JOIN LATERAL pg_catalog.aclexplode(
+      COALESCE(d.datacl, pg_catalog.acldefault('d', d.datdba))
+    ) acl
+    WHERE d.datname = pg_catalog.current_database()
+      AND acl.grantee IN (v_session_role_oid, v_effective_role_oid)
+      AND acl.is_grantable
+  ) THEN
+    RAISE EXCEPTION 'Collector role has prohibited database grant-option privileges.';
   END IF;
   IF EXISTS (
     SELECT 1 FROM pg_catalog.pg_namespace n
@@ -394,6 +468,26 @@ BEGIN
         OR pg_catalog.has_schema_privilege(v_effective_role_oid, n.oid, 'CREATE'))
   ) THEN
     RAISE EXCEPTION 'Collector role owns an application schema or has schema CREATE privilege.';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM pg_catalog.pg_namespace n
+    WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+      AND n.nspname NOT LIKE 'pg_toast%'
+      AND n.nspname <> 'supabase_migrations'
+      AND (
+        pg_catalog.has_schema_privilege(v_session_role_oid, n.oid, 'USAGE')
+        OR pg_catalog.has_schema_privilege(v_effective_role_oid, n.oid, 'USAGE')
+      )
+  ) THEN
+    RAISE EXCEPTION 'Collector role has prohibited USAGE on an application schema.';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_namespace n
+    WHERE n.nspname = 'supabase_migrations'
+      AND pg_catalog.has_schema_privilege(v_session_role_oid, n.oid, 'USAGE')
+      AND pg_catalog.has_schema_privilege(v_effective_role_oid, n.oid, 'USAGE')
+  ) THEN
+    RAISE EXCEPTION 'Collector requires USAGE on supabase_migrations schema.';
   END IF;
 
   -- This also rejects membership in pg_read_all_data, pg_write_all_data,
