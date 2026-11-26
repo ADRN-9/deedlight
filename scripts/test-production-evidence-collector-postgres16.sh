@@ -80,9 +80,8 @@ for attempt in {1..60}; do
 done
 [[ "$ssl_enabled" == true ]] || { echo "FAIL: disposable PostgreSQL did not enable TLS after restart" >&2; exit 1; }
 
-if ! getent hosts "$endpoint_host" >/dev/null; then
-  echo "127.0.0.1 $endpoint_host" | sudo tee -a /etc/hosts >/dev/null
-fi
+# Override any public DNS answer unconditionally so this test can never reach Production.
+echo "127.0.0.1 $endpoint_host" | sudo tee -a /etc/hosts >/dev/null
 getent hosts "$endpoint_host" | grep -Fq "127.0.0.1"
 
 cat >"$work/collector-endpoint.json" <<EOF
