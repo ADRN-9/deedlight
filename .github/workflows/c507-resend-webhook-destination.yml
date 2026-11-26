@@ -40,6 +40,8 @@ jobs:
         run: npm ci
       - name: Resend webhook signature, replay and destination identity regressions
         run: node --test scripts/test-c73-provider-webhook.mjs
+      - name: Isolated exported-route network and privacy regressions
+        run: node --test scripts/test-c73-webhook-isolation.mjs
       - name: Existing C73 webhook security assertions
         run: node scripts/verify-c73-security.mjs
       - name: TypeScript
