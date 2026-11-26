@@ -221,7 +221,7 @@ These checks are enforced in analyzer code, adversarial unit tests and the Postg
 
 ## C489 — migration-history facts versus independent execution provenance
 
-The read-only audit section 13 exports exactly three database facts per supabase_migrations.schema_migrations row: version, name, and recorded_statement_count. These values describe the history table. They do not prove which SQL bytes executed, who executed them, the execution timestamp, a unique execution identifier, or whether a matching source file was run manually outside Supabase CLI.
+The read-only audit section 13 exports exactly three database facts per supabase_migrations.schema_migrations row using analyzer-native fields: version, name, and recordedStatementCount (a quoted SQL identifier). These values describe the history table. They do not prove which SQL bytes executed, who executed them, the execution timestamp, a unique execution identifier, or whether a matching source file was run manually outside Supabase CLI.
 
 The repository and supplied evidence currently identify no authenticated authoritative external Production execution-provenance source. No verified Production SQL Editor audit record, deployment execution receipt, platform audit event, or immutable runner receipt is available and cryptographically bound to the project, migration version, exact source blob SHA-1, actor, timestamp and execution identity. CI logs and disposable PostgreSQL runs are not Production execution records. Migration filenames, version prefixes, statement counts, catalog effects, Git commit history and migration-history rows must never be used to synthesize missing execution IDs, actors, timestamps or source hashes.
 
