@@ -85,7 +85,7 @@ done
 escaped_endpoint_host="${endpoint_host//./\\.}"
 sudo sed -i "/[[:space:]]${escaped_endpoint_host}\\([[:space:]]\\|$\\)/d" /etc/hosts
 echo "127.0.0.1 $endpoint_host" | sudo tee -a /etc/hosts >/dev/null
-resolved_endpoint="$(getent hosts "$endpoint_host" || true)"
+resolved_endpoint="$(getent ahostsv4 "$endpoint_host" || true)"
 grep -Fq "127.0.0.1" <<<"$resolved_endpoint" || {
   echo "FAIL: disposable endpoint did not resolve to loopback: $resolved_endpoint" >&2
   exit 1
