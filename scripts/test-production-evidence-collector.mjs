@@ -16,6 +16,7 @@ import {
   createPinnedCaSnapshot,
   withPinnedCaCleanup,
   isStrictRfc3339,
+  compareStrictTimestamps,
   collect,
   sha256,
   SQL_SHA256,
@@ -382,7 +383,7 @@ test("receipt accepts equal instants expressed with different timezone offsets",
   const csv = Buffer.from(validCsv()), receipt = completeReceipt(csv);
   receipt.execution.startedAt = "2026-01-01T05:00:00.123456789Z";
   receipt.execution.completedAt = "2026-01-01T00:00:00.123456789-05:00";
-  assert.equal(validateReceiptSchema(receipt).status, "UNSIGNED_E2");
+  assert.equal(validateReceiptSchema(receipt), true);
 });
 
 test("receipt rejects impossible RFC3339 dates despite Date.parse normalization", () => {

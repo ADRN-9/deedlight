@@ -334,7 +334,7 @@ function parseStrictTimestamp(value) {
   const offsetHour = match[10] === undefined ? 0 : Number(match[10]);
   const offsetMinute = match[11] === undefined ? 0 : Number(match[11]);
   if (year < 1 || month < 1 || month > 12 || hour > 23 || minute > 59 || second > 59 ||
-      offsetHour > 23 || offsetMinute > 59 || (match[8] === "-" && offsetHour === 0 && offsetMinute === 0)) return null;
+      offsetHour > 23 || offsetMinute > 59 || (match[9] === "-" && offsetHour === 0 && offsetMinute === 0)) return null;
   const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
   const monthDays = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
   if (day < 1 || day > monthDays[month - 1]) return null;
