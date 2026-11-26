@@ -367,6 +367,53 @@ test("PostgreSQL 16 client-disconnect harness verifies backend termination and r
   assert.doesNotMatch(runner, /pg_sleep\(60\)/);
 });
 
+test("collector routine and database privilege matrix is executable and regression guarded", () => {
+  const preflight = sql.slice(sql.indexOf("DO $audit_preflight$"), sql.indexOf("$audit_preflight$;"));
+  assert.match(preflight, /pg_catalog\.pg_proc p[\s\S]*?p\.oid/);
+  assert.match(preflight, /pg_catalog\.has_function_privilege\(v_session_role_oid, p\.oid, 'EXECUTE'\)/);
+  assert.match(preflight, /pg_catalog\.has_function_privilege\(v_effective_role_oid, p\.oid, 'EXECUTE'\)/);
+  assert.match(preflight, /pg_catalog\.acldefault\('f', p\.proowner\)/);
+  assert.match(preflight, /acl\.grantee = 0/);
+  assert.match(preflight, /d\.defaclobjtype = 'f'/);
+  assert.match(preflight, /default routine privileges expose prohibited EXECUTE/);
+  assert.match(preflight, /datdba/);
+  assert.match(preflight, /has_database_privilege\(v_session_role_oid, pg_catalog\.current_database\(\), 'CONNECT'\)/);
+  assert.match(preflight, /has_database_privilege\(v_session_role_oid, pg_catalog\.current_database\(\), 'CREATE'\)/);
+  assert.match(preflight, /has_database_privilege\(v_session_role_oid, pg_catalog\.current_database\(\), 'TEMP'\)/);
+  assert.match(preflight, /acl\.is_grantable/);
+  assert.match(preflight, /has_schema_privilege\(v_session_role_oid, n\.oid, 'USAGE'\)/);
+  assert.match(preflight, /n\.nspname <> 'supabase_migrations'/);
+  assert.match(preflight, /n\.nspname = 'supabase_migrations'[\s\S]*?has_schema_privilege\(v_effective_role_oid, n\.oid, 'USAGE'\)/);
+  assert.match(sql, /pg_proc OIDs cover functions, procedures, aggregates and window functions/);
+
+  const fixture = readFileSync(path.join(process.cwd(), "scripts/test-production-migration-readonly-audit-postgres16-fixture.sql"), "utf8");
+  const runner = readFileSync(path.join(process.cwd(), "scripts/test-production-migration-readonly-audit-postgres16.sh"), "utf8");
+  for (const token of [
+    "ALTER DEFAULT PRIVILEGES FOR ROLE postgres REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC",
+    "REVOKE TEMP ON DATABASE deedlight_migration_order_test FROM PUBLIC",
+    "REVOKE USAGE ON SCHEMA public FROM PUBLIC",
+    "synthetic-private-fixture-value",
+    "audit_fixture_security_definer_identity",
+  ]) assert.ok(fixture.includes(token), "missing safe fixture baseline: " + token);
+  for (const scenario of [
+    "security_definer_private_exfiltration", "public_routine_execute", "direct_routine_execute",
+    "global_default_routine_execute", "schema_default_routine_execute", "overloaded_function_oid_execute",
+    "procedure_execute", "aggregate_execute", "window_function_execute", "inherited_routine_execute",
+    "database_connect_required", "database_create", "database_temp", "database_grant_option",
+    "database_ownership", "application_schema_usage", "application_schema_ownership",
+  ]) assert.match(runner, new RegExp("expect_failure " + scenario));
+  assert.match(runner, /CREATE AGGREGATE public\.audit_fixture_aggregate/);
+  assert.match(runner, /LANGUAGE sql WINDOW/);
+  assert.match(runner, /GRANT EXECUTE ON ROUTINE public\.audit_fixture_overload\(integer\)/);
+  assert.match(runner, /pg_catalog\.has_function_privilege\('deedlight_catalog_auditor'/);
+  assert.match(runner, /ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO PUBLIC/);
+  assert.match(runner, /ALTER DATABASE deedlight_migration_order_test OWNER TO deedlight_catalog_auditor/);
+  assert.match(runner, /ALTER SCHEMA public OWNER TO deedlight_catalog_auditor/);
+  const workflow = readFileSync(path.join(process.cwd(), ".github/workflows/pr-validation.yml"), "utf8");
+  assert.match(workflow, /node --test scripts\/test-production-migration-readonly-audit\.mjs/);
+  assert.match(workflow, /bash scripts\/test-production-migration-readonly-audit-postgres16\.sh/);
+});
+
 test("sequence definitions, ownership, ACLs and index health are captured", () => {
   for (const token of [
     "pg_catalog.pg_sequence", "pg_catalog.pg_depend", "owned_table_schema",
