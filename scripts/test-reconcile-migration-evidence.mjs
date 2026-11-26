@@ -574,7 +574,7 @@ test("collector execution receipt binds project, collector, query digest, captur
     (e) => { e.queryBundleSha256 = hash("wrong-query"); },
     (e) => { e.projectRef = "other-project"; },
     (e) => { e.collectorIdentity = "other-collector"; },
-    (e) => { e.completedAt = "2026-11-25T00:40:00.000Z"; },
+    (e) => { e.completedAt = fixtureTime(-20 * 60 * 1000); },
     (e) => { e.resultDigest = hash("wrong-result"); },
     (e) => { e.statementCount = 0; },
   ]) {
@@ -1051,7 +1051,7 @@ test("evidence and collector approvals must be issued after capture", () => {
   try {
     const claims = f.approvals.evidenceApproval.claims;
     f.approvals.evidenceApproval = artifact("production-evidence-approval", "evidence-approver", claims, {
-      issuedAt: "2026-11-25T00:00:00.000Z",
+      issuedAt: fixtureTime(-31 * 60 * 1000),
     });
     const report = f.analyze();
     assert.equal(report.counts.Unknown, 39);
