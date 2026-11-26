@@ -79,6 +79,44 @@ test("database ACL edge OIDs accept canonical numeric JSON representations", () 
   assert.equal(validateSqlOutput(csv).databaseAclRows, 2);
 });
 
+test("duplicate database ACL edges fail closed", () => {
+  const edge = JSON.stringify({
+    grantee_oid: "0", grantee_name: "PUBLIC", grantor_oid: "10",
+    grantor_name: "postgres", privilege_type: "CONNECT", is_grantable: false,
+  });
+  const csv = validCsv().replace(
+    "database_acl_v1,2,1,10,t,built_in_default,[]",
+    "database_acl_v1,2,1,10,t,built_in_default," + JSON.stringify([JSON.parse(edge), JSON.parse(edge)]),
+  );
+  assert.throws(() => validateSqlOutput(csv), (error) => error.code === "DATABASE_ACL_EDGES_DUPLICATED");
+});
+
+test("duplicate or unordered database rows fail closed", () => {
+  const csv = validCsv().replace(
+    "database_acl_v1,2,2,10,f,explicit,[]",
+    "database_acl_v1,2,1,10,f,explicit,[]",
+  );
+  assert.throws(() => validateSqlOutput(csv), (error) => error.code === "DATABASE_ACL_PROJECTION_DUPLICATED_OR_UNORDERED");
+});
+
+test("database ACL NULL/default provenance must agree", () => {
+  const csv = validCsv().replace(
+    "database_acl_v1,2,1,10,t,built_in_default,[]",
+    "database_acl_v1,2,1,10,t,explicit,[]",
+  );
+  assert.throws(() => validateSqlOutput(csv), (error) => error.code === "DATABASE_ACL_PROJECTION_INCOMPLETE");
+});
+
+test("database ACL edge order must match stable SQL ordering", () => {
+  const first = { grantee_oid: 10, grantee_name: "role_a", grantor_oid: 10, grantor_name: "postgres", privilege_type: "CONNECT", is_grantable: false };
+  const second = { ...first, grantee_oid: 11, grantee_name: "role_b" };
+  const csv = validCsv().replace(
+    "database_acl_v1,2,1,10,t,built_in_default,[]",
+    "database_acl_v1,2,1,10,t,built_in_default," + JSON.stringify([second, first]),
+  );
+  assert.throws(() => validateSqlOutput(csv), (error) => error.code === "DATABASE_ACL_EDGES_UNORDERED");
+});
+
 test("malformed database ACL JSON fails closed", () => {
   const csv = validCsv().replace("database_acl_v1,2,1,10,t,built_in_default,[]", "database_acl_v1,2,1,10,t,built_in_default,{bad}");
   assert.throws(() => validateSqlOutput(csv), (error) => error instanceof CollectorError && error.code === "DATABASE_ACL_EDGES_INVALID_JSON");
