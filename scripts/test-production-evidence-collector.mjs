@@ -70,6 +70,15 @@ test("missing database_acl_v1 projection fails closed", () => {
   assert.throws(() => validateSqlOutput(csv), (error) => error instanceof CollectorError && error.code === "DATABASE_ACL_PROJECTION_MISSING");
 });
 
+test("database ACL edge OIDs accept canonical numeric JSON representations", () => {
+  const edge = JSON.stringify({
+    grantee_oid: "0", grantee_name: "PUBLIC", grantor_oid: 10,
+    grantor_name: "postgres", privilege_type: "CONNECT", is_grantable: false,
+  });
+  const csv = validCsv().replace("database_acl_v1,2,1,10,t,built_in_default,[]", "database_acl_v1,2,1,10,t,built_in_default," + edge);
+  assert.equal(validateSqlOutput(csv).databaseAclRows, 2);
+});
+
 test("malformed database ACL JSON fails closed", () => {
   const csv = validCsv().replace("database_acl_v1,2,1,10,t,built_in_default,[]", "database_acl_v1,2,1,10,t,built_in_default,{bad}");
   assert.throws(() => validateSqlOutput(csv), (error) => error instanceof CollectorError && error.code === "DATABASE_ACL_EDGES_INVALID_JSON");
