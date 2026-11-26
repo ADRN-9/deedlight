@@ -14,7 +14,7 @@ readonly work="$RUNNER_TEMP/deedlight-collector-e2e-$GITHUB_RUN_ID-$GITHUB_RUN_A
 rm -rf "$work"
 mkdir -m 700 -p "$work/tls"
 
-primary_addr="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$DEEDLIGHT_POSTGRES_CONTAINER_ID")"
+primary_addr="$(env -i PATH="$PATH" HOME="$HOME" PGHOST=127.0.0.1 PGPORT=5432 PGUSER=postgres PGPASSWORD=postgres PGDATABASE=deedlight_migration_order_test psql -X -At -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.host(pg_catalog.inet_server_addr())")"
 redirect_id="$DEEDLIGHT_POSTGRES_REDIRECT_CONTAINER_ID"
 redirect_addr="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$redirect_id")"
 [[ "$primary_addr" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]
