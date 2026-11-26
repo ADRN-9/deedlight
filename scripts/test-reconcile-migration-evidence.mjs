@@ -15,9 +15,16 @@ const categories = ["schema", "privileges", "ownership", "routines", "dataTransf
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const keys = Object.fromEntries(["evidence-approver", "mapping-approver", "collector"].map((role) => [role, generateKeyPairSync("ed25519")]));
 const signerIds = { "evidence-approver": "fixture-evidence-authority", "mapping-approver": "fixture-mapping-authority", collector: "fixture-collector-authority" };
+const fixtureTime = (offsetMs = 0) => new Date(Date.now() + offsetMs).toISOString();
+const FIXTURE_CAPTURED_AT = fixtureTime(-30 * 60 * 1000);
+const FIXTURE_APPROVED_AT = fixtureTime(-29 * 60 * 1000);
+const FIXTURE_EXPIRES_AT = fixtureTime(6 * 60 * 60 * 1000);
+const FIXTURE_EXECUTION_STARTED_AT = fixtureTime(-40 * 60 * 1000);
+const FIXTURE_EXECUTION_COMPLETED_AT = fixtureTime(-35 * 60 * 1000);
+const FIXTURE_HISTORY_EXECUTED_AT = fixtureTime(-90 * 60 * 1000);
 
 function artifact(kind, role, claims, overrides = {}) {
-  const now = "2026-11-25T01:00:00.000Z";
+  const now = FIXTURE_APPROVED_AT;
   const unsigned = {
     schemaVersion: 1,
     kind,
@@ -25,7 +32,7 @@ function artifact(kind, role, claims, overrides = {}) {
     keyId: role + "-key-1",
     approvalId: role + "-approval-1",
     issuedAt: now,
-    expiresAt: "2026-11-25T12:00:00.000Z",
+    expiresAt: FIXTURE_EXPIRES_AT,
     claims,
     ...overrides,
   };
@@ -97,7 +104,7 @@ function fixture() {
       version,
       name: path.basename(item.path).replace(/^\d{12}_/, "").replace(/\.sql$/, ""),
       sourceBlobSha1: item.blobSha1,
-      executedAt: "2026-11-24T23:00:00.000Z",
+      executedAt: FIXTURE_HISTORY_EXECUTED_AT,
       executedBy: "supabase_migration_runner",
       executionId: "fixture-execution-" + version,
     });
@@ -107,7 +114,7 @@ function fixture() {
     provenance: {
       environment: "production",
       projectRef: "xaipiovflxomcbfwtwmu",
-      capturedAt: "2026-11-25T00:30:00.000Z",
+      capturedAt: FIXTURE_CAPTURED_AT,
       collectorIdentity: "fixture-read-only-exporter",
       queryBundleSha256: hash("reviewed-read-only-query-bundle"),
     },
@@ -183,8 +190,8 @@ function fixture() {
         capturedAt: common.capturedAt,
         queryBundleSha256: common.queryBundleSha256,
         executionId,
-        startedAt: "2026-11-25T00:20:00.000Z",
-        completedAt: "2026-11-25T00:25:00.000Z",
+        startedAt: FIXTURE_EXECUTION_STARTED_AT,
+        completedAt: FIXTURE_EXECUTION_COMPLETED_AT,
         completed: true,
         readOnlyTransaction: true,
         statementCount: 4,
@@ -329,9 +336,9 @@ test("expired approval, revoked signer key and revoked approval ID fail closed",
   const changes = [
     (f) => {
       const claims = f.approvals.evidenceApproval.claims;
-      f.approvals.evidenceApproval = artifact("production-evidence-approval", "evidence-approver", claims, { expiresAt: "2026-11-25T00:59:00.000Z" });
+      f.approvals.evidenceApproval = artifact("production-evidence-approval", "evidence-approver", claims, { expiresAt: fixtureTime(-60 * 1000) });
     },
-    (f) => { f.trustRoots.keys.find((key) => key.role === "evidence-approver").revokedAt = "2026-11-25T00:00:00.000Z"; },
+    (f) => { f.trustRoots.keys.find((key) => key.role === "evidence-approver").revokedAt = fixtureTime(-60 * 1000); },
     (f) => { f.trustRoots.revokedApprovalIds.push(f.approvals.evidenceApproval.approvalId); },
     (f) => { f.approvals.evidenceApproval.signerId = "untrusted-signer"; },
   ];
@@ -583,7 +590,7 @@ test("collector execution receipt binds project, collector, query digest, captur
 });
 
 test("migration execution timestamps cannot be later than capture or current time", () => {
-  for (const executedAt of ["2026-11-25T00:31:00.000Z", "2026-11-25T01:01:00.000Z"]) {
+  for (const executedAt of [fixtureTime(-29 * 60 * 1000), fixtureTime(60 * 1000)]) {
     const f = fixture();
     try {
       f.evidence.history.rows[0].executedAt = executedAt;
@@ -600,7 +607,7 @@ test("malformed collector execution receipts fail closed", () => {
     (receipt) => { delete receipt.resultDigest; },
     (receipt) => { receipt.statementCount = "4"; },
     (receipt) => { receipt.startedAt = "not-a-timestamp"; },
-    (receipt) => { receipt.completedAt = "2026-11-25T00:31:00.000Z"; },
+    (receipt) => { receipt.completedAt = fixtureTime(-20 * 60 * 1000); },
   ]) {
     const f = fixture();
     try {
@@ -797,7 +804,7 @@ test("all timestamp-bearing evidence fields reject non-string and noncanonical v
 test("collector completion after evidence capture fails closed", () => {
   const f = fixture();
   try {
-    f.reapprove(undefined, (receipt) => { receipt.completedAt = "2026-11-25T00:31:00.000Z"; });
+    f.reapprove(undefined, (receipt) => { receipt.completedAt = fixtureTime(-20 * 60 * 1000); });
     const report = f.analyze();
     assert.equal(report.counts.Unknown, 39);
     assert.ok(report.trustProblems.some((reason) => reason.includes("execution receipt")));
@@ -845,7 +852,7 @@ test("approval and trust-root validity intervals require canonical timestamps an
     { issuedAt: 0 },
     { expiresAt: null },
     { issuedAt: "2026-02-30T00:00:00.000Z" },
-    { issuedAt: "2026-11-25T02:00:00.000Z", expiresAt: "2026-11-25T01:00:00.000Z" },
+    { issuedAt: fixtureTime(-28 * 60 * 1000), expiresAt: fixtureTime(-29 * 60 * 1000) },
   ];
   for (const overrides of approvalCases) {
     const f = fixture();
@@ -862,7 +869,7 @@ test("approval and trust-root validity intervals require canonical timestamps an
   const trustRootCases = [
     (key) => { key.notBefore = 0; },
     (key) => { key.notAfter = {}; },
-    (key) => { key.notBefore = "2026-11-25T02:00:00.000Z"; key.notAfter = "2026-11-25T01:00:00.000Z"; },
+    (key) => { key.notBefore = fixtureTime(-28 * 60 * 1000); key.notAfter = fixtureTime(-29 * 60 * 1000); },
   ];
   for (const mutate of trustRootCases) {
     const f = fixture();
@@ -880,8 +887,8 @@ test("collector execution rejects reversed start and completion timestamps", () 
   const f = fixture();
   try {
     f.reapprove(undefined, (receipt) => {
-      receipt.startedAt = "2026-11-25T00:26:00.000Z";
-      receipt.completedAt = "2026-11-25T00:25:00.000Z";
+      receipt.startedAt = fixtureTime(-34 * 60 * 1000);
+      receipt.completedAt = fixtureTime(-35 * 60 * 1000);
     });
     const report = f.analyze();
     assert.equal(report.counts.Unknown, 39);
@@ -997,9 +1004,9 @@ test("evidence, mapping and collector approvals require distinct trusted signers
 
 test("evidence approval must be issued strictly after capture", () => {
   const cases = [
-    { label: "earlier", issuedAt: "2026-11-25T00:29:00.000Z", accepted: false },
-    { label: "equal", issuedAt: "2026-11-25T00:30:00.000Z", accepted: false },
-    { label: "later", issuedAt: "2026-11-25T00:31:00.000Z", accepted: true },
+    { label: "earlier", issuedAt: fixtureTime(-31 * 60 * 1000), accepted: false },
+    { label: "equal", issuedAt: FIXTURE_CAPTURED_AT, accepted: false },
+    { label: "later", issuedAt: FIXTURE_APPROVED_AT, accepted: true },
   ];
   for (const scenario of cases) {
     const f = fixture();
@@ -1019,9 +1026,9 @@ test("evidence approval must be issued strictly after capture", () => {
 
 test("collector approval must be issued strictly after capture", () => {
   const cases = [
-    { label: "earlier", issuedAt: "2026-11-25T00:29:00.000Z", accepted: false },
-    { label: "equal", issuedAt: "2026-11-25T00:30:00.000Z", accepted: false },
-    { label: "later", issuedAt: "2026-11-25T00:31:00.000Z", accepted: true },
+    { label: "earlier", issuedAt: fixtureTime(-31 * 60 * 1000), accepted: false },
+    { label: "equal", issuedAt: FIXTURE_CAPTURED_AT, accepted: false },
+    { label: "later", issuedAt: FIXTURE_APPROVED_AT, accepted: true },
   ];
   for (const scenario of cases) {
     const f = fixture();
