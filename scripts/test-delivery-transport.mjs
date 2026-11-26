@@ -14,6 +14,7 @@ import {
   deliveryScheduleKind,
   enqueueWeeklyWithMonitoring,
   runScheduledDelivery,
+  weeklyDeliveryScheduleEnabled,
 } from "../lib/delivery/scheduler.ts";
 
 const job = {
@@ -657,4 +658,48 @@ test("daily and Weekly Goodness schedules have separate exact routing", () => {
   assert.equal(deliveryScheduleKind("0 16 * * 1"), "weekly");
   assert.equal(deliveryScheduleKind("0 16 * * *"), null);
   assert.equal(deliveryScheduleKind("*/5 * * * * "), null);
+});
+
+test("Weekly Goodness requires a separate exact opt-in even when a weekly Cron arrives", async () => {
+  assert.equal(weeklyDeliveryScheduleEnabled({}), false);
+  assert.equal(weeklyDeliveryScheduleEnabled({ WEEKLY_DELIVERY_ENABLED: "false" }), false);
+  assert.equal(weeklyDeliveryScheduleEnabled({ WEEKLY_DELIVERY_ENABLED: "TRUE" }), false);
+  assert.equal(weeklyDeliveryScheduleEnabled({ WEEKLY_DELIVERY_ENABLED: "true" }), true);
+
+  const logs = [];
+  const originalInfo = console.info;
+  console.info = (...args) => logs.push(args);
+  try {
+    const result = await runScheduledDelivery(runtimeEnv(), {
+      cron: "0 16 * * 1",
+      scheduledTime: fixedNow.getTime(),
+    });
+    assert.equal(result.enabled, true);
+    assert.equal(result.ignored, true);
+    assert.equal(result.enqueued, 0);
+    assert.equal(result.claimed, 0);
+    assert.equal(result.sent, 0);
+    assert.deepEqual(logs, [[
+      "Weekly Goodness scheduler held",
+      { reason: "weekly_delivery_not_approved" },
+    ]]);
+  } finally {
+    console.info = originalInfo;
+  }
+});
+
+test("delivery can be disabled and safely re-enabled without queue mutation", async () => {
+  const disabled = await runScheduledDelivery({ DELIVERY_ENABLED: "false" }, {
+    cron: "*/5 * * * *",
+    scheduledTime: fixedNow.getTime(),
+  });
+  assert.equal(disabled.enabled, false);
+  assert.equal(disabled.enqueued, 0);
+  assert.equal(disabled.claimed, 0);
+  assert.equal(disabled.sent, 0);
+
+  const stillDisabled = parseDeliveryRuntimeConfig({ DELIVERY_ENABLED: "false" });
+  const reenabled = parseDeliveryRuntimeConfig(runtimeEnv());
+  assert.deepEqual(stillDisabled, { enabled: false });
+  assert.equal(reenabled.enabled, true);
 });
