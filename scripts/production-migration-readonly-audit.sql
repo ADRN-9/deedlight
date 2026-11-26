@@ -118,10 +118,7 @@ BEGIN
       AND acl.privilege_type = 'EXECUTE'
       AND (
         acl.grantee = 0
-        OR (
-          acl.grantee IN (v_session_role_oid, v_effective_role_oid)
-          AND acl.is_grantable
-        )
+        OR acl.grantee IN (v_session_role_oid, v_effective_role_oid)
       )
   ) THEN
     RAISE EXCEPTION 'Global or schema-specific default routine privileges expose prohibited EXECUTE or grant-option access.';
