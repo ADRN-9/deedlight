@@ -47,6 +47,7 @@ tls="$work/tls"
 openssl req -x509 -newkey rsa:2048 -nodes -days 2 \
   -keyout "$tls/ca.key" -out "$tls/ca.crt" \
   -subj "/CN=DeedLight disposable collector test CA" >/dev/null 2>&1
+chmod 600 "$tls/ca.crt"
 openssl req -newkey rsa:2048 -nodes \
   -keyout "$tls/server.key" -out "$tls/server.csr" \
   -subj "/CN=$endpoint_host" >/dev/null 2>&1
@@ -115,6 +116,7 @@ profile_digest="$(sha256sum "$work/collector-endpoint.json" | awk '{print $1}')"
 PGHOSTADDR="$redirect_addr" PGSERVICE="attacker" PGSERVICEFILE="/dev/null" \
 PGOPTIONS="-c search_path=pg_catalog" PGSSLMODE=disable PGPASSWORD=wrong \
 DEEDLIGHT_COLLECTOR_ENDPOINT_PROFILE_SHA256="$profile_digest" \
+  DEEDLIGHT_COLLECTOR_TLS_CA_SHA256="$(sha256sum "$tls/ca.crt" | awk '{print $1}')" \
   node scripts/collect-production-migration-evidence.mjs \
     --profile "$work/collector-endpoint.json" --output "$work/evidence-success"
 
@@ -139,11 +141,13 @@ NODE
 openssl req -x509 -newkey rsa:2048 -nodes -days 2 \
   -keyout "$tls/wrong-ca.key" -out "$tls/wrong-ca.crt" \
   -subj "/CN=Untrusted DeedLight test CA" >/dev/null 2>&1
+chmod 600 "$tls/wrong-ca.crt"
 jq --arg ca "$tls/wrong-ca.crt" '.tlsRootCertPath = $ca' \
   "$work/collector-endpoint.json" >"$work/wrong-ca-profile.json"
 chmod 600 "$work/wrong-ca-profile.json"
 wrong_ca_digest="$(sha256sum "$work/wrong-ca-profile.json" | awk '{print $1}')"
 if DEEDLIGHT_COLLECTOR_ENDPOINT_PROFILE_SHA256="$wrong_ca_digest" \
+  DEEDLIGHT_COLLECTOR_TLS_CA_SHA256="$(sha256sum "$tls/wrong-ca.crt" | awk '{print $1}')" \
   node scripts/collect-production-migration-evidence.mjs \
     --profile "$work/wrong-ca-profile.json" --output "$work/evidence-wrong-ca" \
     >"$work/wrong-ca.stdout" 2>"$work/wrong-ca.stderr"; then
@@ -185,6 +189,7 @@ grep -Fq "DNS:wrong-host.invalid" <<<"$served_san" || {
   exit 1
 }
 if DEEDLIGHT_COLLECTOR_ENDPOINT_PROFILE_SHA256="$profile_digest" \
+  DEEDLIGHT_COLLECTOR_TLS_CA_SHA256="$(sha256sum "$tls/ca.crt" | awk '{print $1}')" \
   node scripts/collect-production-migration-evidence.mjs \
     --profile "$work/collector-endpoint.json" --output "$work/evidence-wrong-host" \
     >"$work/wrong-host.stdout" 2>"$work/wrong-host.stderr"; then
@@ -199,6 +204,7 @@ jq '.projectRef = "incorrect-project"' "$work/collector-endpoint.json" >"$work/w
 chmod 600 "$work/wrong-project-profile.json"
 wrong_project_digest="$(sha256sum "$work/wrong-project-profile.json" | awk '{print $1}')"
 if DEEDLIGHT_COLLECTOR_ENDPOINT_PROFILE_SHA256="$wrong_project_digest" \
+  DEEDLIGHT_COLLECTOR_TLS_CA_SHA256="$(sha256sum "$tls/ca.crt" | awk '{print $1}')" \
   node scripts/collect-production-migration-evidence.mjs \
     --profile "$work/wrong-project-profile.json" --output "$work/evidence-wrong-project" \
     >"$work/wrong-project.stdout" 2>"$work/wrong-project.stderr"; then

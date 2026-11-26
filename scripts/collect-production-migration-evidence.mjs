@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 
@@ -31,108 +31,57 @@ export function canonicalJson(value) {
   if (typeof value !== "object") throw new CollectorError("INVALID_CANONICAL_VALUE");
   return "{" + Object.keys(value).sort().map((key) => JSON.stringify(key) + ":" + canonicalJson(value[key])).join(",") + "}";
 }
-export function parseCsv(input) {
-  const text = Buffer.isBuffer(input) ? input.toString("utf8") : String(input);
-  if (Buffer.isBuffer(input) && !Buffer.from(text, "utf8").equals(input)) throw new CollectorError("INVALID_CSV_UTF8");
-  if (text.includes("\u0000")) throw new CollectorError("INVALID_CSV_NUL");
-  const normalized = text.replace(/\r\n/g, "\n");
-  const rows = []; let row = []; let cell = ""; let quoted = false; let quoteClosed = false;
-  for (let i = 0; i < normalized.length; i += 1) {
-    const ch = normalized[i];
-    if (quoted) {
-      if (ch === '"') {
-        if (normalized[i + 1] === '"') { cell += '"'; i += 1; }
-        else { quoted = false; quoteClosed = true; }
-      } else cell += ch;
-    } else if (quoteClosed && ch !== "," && ch !== "\n") {
-      throw new CollectorError("INVALID_CSV_AFTER_QUOTE");
-    } else if (ch === '"' && cell.length === 0 && !quoteClosed) quoted = true;
-    else if (ch === '"') throw new CollectorError("INVALID_CSV_QUOTE");
-    else if (ch === ",") { row.push(cell); cell = ""; quoteClosed = false; }
-    else if (ch === "\n") {
-      row.push(cell);
-      if (!(row.length === 1 && row[0] === "")) rows.push(row);
-      row = []; cell = ""; quoteClosed = false;
-    } else cell += ch;
-  }
-  if (quoted) throw new CollectorError("TRUNCATED_CSV_QUOTE");
-  if (cell.length || row.length) { row.push(cell); rows.push(row); }
-  if (!rows.length) throw new CollectorError("EMPTY_SQL_OUTPUT");
-  return rows;
+export function parseCsv(input){
+ const text=Buffer.isBuffer(input)?input.toString("utf8"):String(input);
+ if(Buffer.isBuffer(input)&&!Buffer.from(text,"utf8").equals(input))throw new CollectorError("INVALID_CSV_UTF8");
+ if(text.includes("\u0000"))throw new CollectorError("INVALID_CSV_NUL");
+ const rows=[];let row=[];let cell="";let quoted=false;let quoteClosed=false;
+ for(let i=0;i<text.length;i++){const ch=text[i];
+  if(quoted){if(ch==='"'){if(text[i+1]==='"'){cell+='"';i++;}else{quoted=false;quoteClosed=true;}}else cell+=ch;continue;}
+  if(ch==="\\r"){if(text[i+1]!=="\\n")throw new CollectorError("INVALID_CSV_BARE_CR");row.push(cell);if(!(row.length===1&&row[0]===""))rows.push(row);row=[];cell="";quoteClosed=false;i++;continue;}
+  if(quoteClosed&&ch!==","&&ch!=="\\n")throw new CollectorError("INVALID_CSV_AFTER_QUOTE");
+  if(ch==='"'&&cell.length===0&&!quoteClosed){quoted=true;continue;}if(ch==='"')throw new CollectorError("INVALID_CSV_QUOTE");
+  if(ch===","){row.push(cell);cell="";quoteClosed=false;continue;}
+  if(ch==="\\n"){row.push(cell);if(!(row.length===1&&row[0]===""))rows.push(row);row=[];cell="";quoteClosed=false;continue;}cell+=ch;
+ }
+ if(quoted)throw new CollectorError("TRUNCATED_CSV_QUOTE");
+ if(cell.length||row.length||quoteClosed){row.push(cell);rows.push(row);}if(!rows.length)throw new CollectorError("EMPTY_SQL_OUTPUT");return rows;
 }
 export function validateSqlOutput(csv) {
   const rows = parseCsv(csv);
   const markerHeaderIndex = rows.findIndex((row) => row.length === 1 && row[0] === "collector_transaction_closed");
   if (markerHeaderIndex < 0 || markerHeaderIndex !== rows.length - 2) throw new CollectorError("TRANSACTION_CLOSE_MARKER_MISSING");
   if (rows.at(-1).length !== 1 || rows.at(-1)[0] !== "t") throw new CollectorError("TRANSACTION_ROLLBACK_NOT_VERIFIED");
-  const projectionHeaderIndex = rows.findIndex((row) =>
-    row.includes("evidence_projection") && row.includes("database_count") &&
-    row.includes("database_oid") && row.includes("expanded_acl_edges"));
-  if (projectionHeaderIndex < 0 || projectionHeaderIndex >= markerHeaderIndex) throw new CollectorError("DATABASE_ACL_PROJECTION_MISSING");
-  const header = rows[projectionHeaderIndex];
-  const projectionColumn = header.indexOf("evidence_projection");
-  const countColumn = header.indexOf("database_count");
-  const oidColumn = header.indexOf("database_oid");
-  const ownerOidColumn = header.indexOf("owner_oid");
-  const dataclNullColumn = header.indexOf("datacl_was_null");
-  const aclSourceColumn = header.indexOf("acl_expansion_source");
-  const edgesColumn = header.indexOf("expanded_acl_edges");
-  if ([projectionColumn, countColumn, oidColumn, ownerOidColumn, dataclNullColumn, aclSourceColumn, edgesColumn].some((index) => index < 0)) {
-    throw new CollectorError("DATABASE_ACL_PROJECTION_SCHEMA_INVALID");
-  }
-  const databaseRows = rows.slice(projectionHeaderIndex + 1, markerHeaderIndex)
-    .filter((row) => row[projectionColumn] === "database_acl_v1");
-  if (!databaseRows.length) throw new CollectorError("DATABASE_ACL_PROJECTION_EMPTY");
-  const expectedCount = Number(databaseRows[0][countColumn]);
-  const databaseOids = new Set();
-  let previousDatabaseOid = -1;
-  if (!Number.isSafeInteger(expectedCount) || expectedCount < 1 || databaseRows.length !== expectedCount ||
-      databaseRows.some((row) => Number(row[countColumn]) !== expectedCount || row.length !== header.length ||
-        !/^(0|[1-9]\d*)$/.test(row[oidColumn] ?? "") || !/^(0|[1-9]\d*)$/.test(row[ownerOidColumn] ?? "") ||
-        !["t", "f"].includes(row[dataclNullColumn]) ||
-        !["built_in_default", "explicit"].includes(row[aclSourceColumn]) ||
-        (row[dataclNullColumn] === "t") !== (row[aclSourceColumn] === "built_in_default"))) {
-    throw new CollectorError("DATABASE_ACL_PROJECTION_INCOMPLETE");
-  }
-  for (const row of databaseRows) {
-    const databaseOid = Number(row[oidColumn]);
-    if (databaseOids.has(databaseOid) || databaseOid <= previousDatabaseOid) {
-      throw new CollectorError("DATABASE_ACL_PROJECTION_DUPLICATED_OR_UNORDERED");
-    }
-    databaseOids.add(databaseOid);
-    previousDatabaseOid = databaseOid;
-    let edges;
-    try { edges = JSON.parse(row[edgesColumn]); }
-    catch { throw new CollectorError("DATABASE_ACL_EDGES_INVALID_JSON"); }
-    const validOid = (value) => Number.isSafeInteger(value) && value >= 0 ||
-      typeof value === "string" && /^(0|[1-9]\d*)$/.test(value) && Number.isSafeInteger(Number(value));
-    const oidValue = (value) => Number(value);
-    const seenEdges = new Set();
-    let previousEdge = null;
-    if (!Array.isArray(edges)) throw new CollectorError("DATABASE_ACL_EDGES_INVALID");
-    for (const edge of edges) {
-      const expectedKeys = ["grantee_oid", "grantee_name", "grantor_oid", "grantor_name", "privilege_type", "is_grantable"];
-      if (!edge || typeof edge !== "object" || Array.isArray(edge) ||
-        Object.keys(edge).sort().join("|") !== expectedKeys.slice().sort().join("|") ||
-        !validOid(edge.grantee_oid) || !validOid(edge.grantor_oid) ||
-        typeof edge.grantee_name !== "string" || edge.grantee_name.length === 0 ||
-        typeof edge.grantor_name !== "string" || edge.grantor_name.length === 0 ||
-        typeof edge.privilege_type !== "string" || edge.privilege_type.length === 0 ||
-        typeof edge.is_grantable !== "boolean") {
-        throw new CollectorError("DATABASE_ACL_EDGES_INVALID");
-      }
-      const key = [oidValue(edge.grantee_oid), oidValue(edge.grantor_oid), edge.privilege_type, edge.is_grantable ? 1 : 0];
-      const serializedKey = JSON.stringify(key);
-      if (seenEdges.has(serializedKey)) throw new CollectorError("DATABASE_ACL_EDGES_DUPLICATED");
-      seenEdges.add(serializedKey);
-      if (previousEdge) {
-        const [pg, pr, pp, pf] = previousEdge;
-        const [cg, cr, cp, cf] = key;
-        const ordered = pg < cg || pg === cg && (pr < cr || pr === cr &&
-          (pp < cp || pp === cp && pf <= cf));
-        if (!ordered) throw new CollectorError("DATABASE_ACL_EDGES_UNORDERED");
-      }
-      previousEdge = key;
+  const expectedHeader=["evidence_projection","database_count","database_oid","database_name","allows_connections","is_template","owner_oid","owner_name","datacl_was_null","acl_expansion_source","expanded_acl_edges"];
+  const projectionHeaderIndex=rows.findIndex(row=>row.includes("evidence_projection"));
+  if(projectionHeaderIndex<0||projectionHeaderIndex>=markerHeaderIndex)throw new CollectorError("DATABASE_ACL_PROJECTION_MISSING");
+  const header=rows[projectionHeaderIndex];
+  if(header.length!==11||new Set(header).size!==11||header.some((v,i)=>v!==expectedHeader[i]))throw new CollectorError("DATABASE_ACL_PROJECTION_SCHEMA_INVALID");
+  const [projectionColumn,countColumn,oidColumn,nameColumn,allowsColumn,templateColumn,ownerOidColumn,ownerNameColumn,dataclNullColumn,aclSourceColumn,edgesColumn]=expectedHeader.map(v=>header.indexOf(v));
+  const databaseRows=rows.slice(projectionHeaderIndex+1,markerHeaderIndex);if(!databaseRows.length)throw new CollectorError("DATABASE_ACL_PROJECTION_EMPTY");
+  const positiveUint32=v=>typeof v==="string"&&/^[1-9][0-9]*$/.test(v)&&Number(v)<=0xffffffff;
+  const expectedCount=Number(databaseRows[0][countColumn]);const databaseOids=new Set();let previousDatabaseOid=-1;
+  if(!Number.isSafeInteger(expectedCount)||expectedCount<1||databaseRows.length!==expectedCount||databaseRows.some(row=>
+    row.length!==11||row[projectionColumn]!=="database_acl_v1"||!/^[1-9][0-9]*$/.test(row[countColumn]??"")||Number(row[countColumn])!==expectedCount||
+    !positiveUint32(row[oidColumn])||!positiveUint32(row[ownerOidColumn])||typeof row[nameColumn]!=="string"||!row[nameColumn]||
+    !["t","f"].includes(row[allowsColumn])||!["t","f"].includes(row[templateColumn])||typeof row[ownerNameColumn]!=="string"||!row[ownerNameColumn]||
+    !["t","f"].includes(row[dataclNullColumn])||!["built_in_default","explicit"].includes(row[aclSourceColumn])||
+    (row[dataclNullColumn]==="t")!==(row[aclSourceColumn]==="built_in_default")))throw new CollectorError("DATABASE_ACL_PROJECTION_INCOMPLETE");
+  for(const row of databaseRows){
+    const dbOid=Number(row[oidColumn]);if(databaseOids.has(dbOid)||dbOid<=previousDatabaseOid)throw new CollectorError("DATABASE_ACL_PROJECTION_DUPLICATED_OR_UNORDERED");databaseOids.add(dbOid);previousDatabaseOid=dbOid;
+    let edges;try{edges=JSON.parse(row[edgesColumn]);}catch{throw new CollectorError("DATABASE_ACL_EDGES_INVALID_JSON");}
+    const parseOid=(v,zero=false)=>{if(typeof v==="string"){if(!/^(?:0|[1-9][0-9]*)$/.test(v))return null;const n=Number(v);return Number.isSafeInteger(n)&&n<=0xffffffff&&(zero||n>0)?n:null;}return typeof v==="number"&&Number.isSafeInteger(v)&&v>=(zero?0:1)&&v<=0xffffffff?v:null;};
+    const seen=new Set();let previous=null;if(!Array.isArray(edges))throw new CollectorError("DATABASE_ACL_EDGES_INVALID");
+    for(const edge of edges){
+      const keys=["grantee_oid","grantee_name","grantor_oid","grantor_name","privilege_type","is_grantable"];
+      const grantee=edge&&typeof edge==="object"?parseOid(edge.grantee_oid,true):null,grantor=edge&&typeof edge==="object"?parseOid(edge.grantor_oid):null;
+      if(!edge||typeof edge!=="object"||Array.isArray(edge)||Object.keys(edge).sort().join("|")!==keys.slice().sort().join("|")||grantee===null||grantor===null||
+        typeof edge.grantee_name!=="string"||!edge.grantee_name||typeof edge.grantor_name!=="string"||!edge.grantor_name||
+        typeof edge.privilege_type!=="string"||!edge.privilege_type||typeof edge.is_grantable!=="boolean"||
+        (grantee===0&&edge.grantee_name!=="PUBLIC")||(grantee!==0&&edge.grantee_name==="PUBLIC"))throw new CollectorError("DATABASE_ACL_EDGES_INVALID");
+      const logical=JSON.stringify([grantee,grantor,edge.privilege_type]);if(seen.has(logical))throw new CollectorError("DATABASE_ACL_EDGES_DUPLICATED");seen.add(logical);
+      const order=[grantee,grantor,edge.privilege_type,edge.is_grantable?1:0];
+      if(previous){const[pg,pr,pp,pf]=previous,[cg,cr,cp,cf]=order;if(!(pg<cg||pg===cg&&(pr<cr||pr===cr&&(pp<cp||pp===cp&&pf<=cf))))throw new CollectorError("DATABASE_ACL_EDGES_UNORDERED");}previous=order;
     }
   }
   const resultRows = rows.slice(0, markerHeaderIndex);
@@ -162,6 +111,24 @@ function gitValue(repoPath, args, code) {
   if (result.error || result.status !== 0) throw new CollectorError(code);
   return result.stdout.trim();
 }
+function digestFd(fd){const size=fstatSync(fd).size,bytes=Buffer.alloc(size);let offset=0;while(offset<size){const n=readSync(fd,bytes,offset,size-offset,offset);if(n<=0)throw new CollectorError("TLS_CA_CHANGED_DURING_COLLECTION");offset+=n;}return sha256(bytes);}
+export function openPinnedCa(caPath,expectedDigest){
+ if(!/^[a-f0-9]{64}$/.test(expectedDigest??""))throw new CollectorError("TLS_CA_PIN_INVALID");
+ const absolutePath=path.resolve(caPath),parentPath=path.dirname(absolutePath),parent=lstatSync(parentPath);
+ if(parent.isSymbolicLink()||!parent.isDirectory()||realpathSync(parentPath)!==parentPath||(parent.mode&0o077)!==0||(typeof process.getuid==="function"&&parent.uid!==process.getuid()))throw new CollectorError("TLS_CA_DIRECTORY_INVALID");
+ const link=lstatSync(absolutePath);
+ if(link.isSymbolicLink()||!link.isFile()||(link.mode&0o077)!==0||(typeof process.getuid==="function"&&link.uid!==process.getuid()))throw new CollectorError("TLS_CA_INVALID");
+ const fd=openSync(absolutePath,fsConstants.O_RDONLY|(fsConstants.O_NOFOLLOW??0));
+ try{const opened=fstatSync(fd);if(!opened.isFile()||opened.dev!==link.dev||opened.ino!==link.ino)throw new CollectorError("TLS_CA_REPLACED");
+  const digest=digestFd(fd);if(!timingSafeEqual(Buffer.from(digest,"hex"),Buffer.from(expectedDigest,"hex")))throw new CollectorError("TLS_CA_DIGEST_MISMATCH");
+  return{fd,path:absolutePath,dev:opened.dev,ino:opened.ino,digest};
+ }catch(error){closeSync(fd);throw error;}
+}
+export function assertPinnedCaUnchanged(guard){
+ try{const p=lstatSync(guard.path),f=fstatSync(guard.fd);if(p.isSymbolicLink()||!p.isFile()||p.dev!==guard.dev||p.ino!==guard.ino||f.dev!==guard.dev||f.ino!==guard.ino||digestFd(guard.fd)!==guard.digest)throw new CollectorError("TLS_CA_CHANGED_DURING_COLLECTION");}
+ catch(error){if(error instanceof CollectorError)throw error;throw new CollectorError("TLS_CA_CHANGED_DURING_COLLECTION");}return true;
+}
+
 function loadProfile(profilePath, repoPath) {
   const profileRealPath = requirePrivateRegularFile(profilePath, "ENDPOINT_PROFILE_FILE_INVALID");
   assertOutsideRepository(profileRealPath, repoPath, "ENDPOINT_PROFILE_MUST_BE_EXTERNAL");
@@ -188,11 +155,8 @@ function loadProfile(profilePath, repoPath) {
   profile.tlsRootCertPath = assertOutsideRepository(profile.tlsRootCertPath, repoPath, "TLS_CA_MUST_BE_EXTERNAL");
   profile.passwordFilePath = requirePrivateRegularFile(profile.passwordFilePath, "PASSWORD_FILE_INVALID");
   assertOutsideRepository(profile.passwordFilePath, repoPath, "PASSWORD_FILE_MUST_BE_EXTERNAL");
-  const caStat = lstatSync(profile.tlsRootCertPath);
-  if (caStat.isSymbolicLink() || !caStat.isFile() || (caStat.mode & 0o022) !== 0) {
-    throw new CollectorError("TLS_CA_INVALID");
-  }
-  profile.tlsRootCertificateSha256 = sha256(readFileSync(profile.tlsRootCertPath));
+  profile.tlsCaGuard = openPinnedCa(profile.tlsRootCertPath, process.env.DEEDLIGHT_COLLECTOR_TLS_CA_SHA256 ?? "");
+  profile.tlsRootCertificateSha256 = profile.tlsCaGuard.digest;
   return { profile, profileDigest: sha256(bytes) };
 }
 function runPsql({ repoPath, profile, sqlPath, commitSha }) {
@@ -227,10 +191,7 @@ function runPsql({ repoPath, profile, sqlPath, commitSha }) {
   return result.stdout;
 }
 export function buildReceipt({ profile, profileDigest, commitSha, startedAt, completedAt, csv, validation }) {
-  const currentCaDigest = sha256(readFileSync(profile.tlsRootCertPath));
-  if (currentCaDigest !== profile.tlsRootCertificateSha256) {
-    throw new CollectorError("TLS_CA_CHANGED_DURING_COLLECTION");
-  }
+  assertPinnedCaUnchanged(profile.tlsCaGuard);
   return {
     schemaVersion: 1,
     kind: "deedlight-production-migration-collection",
@@ -263,21 +224,34 @@ export function buildReceipt({ profile, profileDigest, commitSha, startedAt, com
     },
   };
 }
-export function verifyReceiptAndEvidence(receipt, csv) {
-  if (!receipt || receipt.schemaVersion !== 1 || receipt.kind !== "deedlight-production-migration-collection" ||
-      receipt.status !== "UNSIGNED_NOT_ACCEPTED" || receipt.signing?.state !== "NOT_SIGNED") {
-    throw new CollectorError("RECEIPT_SCHEMA_OR_STATUS_INVALID");
-  }
-  if (sha256(csv) !== receipt.evidence?.sha256 || sha256(csv) !== receipt.execution?.evidenceFileSha256) {
-    throw new CollectorError("EVIDENCE_DIGEST_MISMATCH");
-  }
-  const validation = validateSqlOutput(csv);
-  const digest = sha256(Buffer.from(canonicalJson(validation.resultRows), "utf8"));
-  if (digest !== receipt.execution?.canonicalResultSha256 ||
-      validation.databaseAclRows !== receipt.execution?.databaseAclV1RowCount || !validation.transactionClosed) {
-    throw new CollectorError("RECEIPT_RESULT_BINDING_MISMATCH");
-  }
-  return true;
+const exactKeys=(v,keys)=>v&&typeof v==="object"&&!Array.isArray(v)&&Object.keys(v).length===keys.length&&keys.every(k=>Object.hasOwn(v,k));
+const hex=(v,n)=>typeof v==="string"&&new RegExp("^[a-f0-9]{"+n+"}$").test(v);
+const dateTime=v=>typeof v==="string"&&/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$/.test(v)&&Number.isFinite(Date.parse(v));
+export function validateReceiptSchema(r){
+ const invalid=()=>{throw new CollectorError("RECEIPT_SCHEMA_INVALID");};
+ if(!exactKeys(r,["schemaVersion","kind","status","projectRef","endpoint","source","execution","evidence","signing"])||r.schemaVersion!==1||r.kind!=="deedlight-production-migration-collection"||r.status!=="UNSIGNED_NOT_ACCEPTED"||r.projectRef!==PROJECT_REF)invalid();
+ const e=r.endpoint;if(!exactKeys(e,["hostname","port","database","tlsMode","tlsVerified","tlsHostnameVerified","tlsChainVerified","projectIdentityMethod","tlsRootCertificateSha256","independentlyPinnedProfileSha256"])||
+ e.hostname!=="db."+PROJECT_REF+".supabase.co"||e.port!==5432||!["postgres","deedlight_migration_order_test"].includes(e.database)||e.tlsMode!=="verify-full"||
+ e.tlsVerified!==true||e.tlsHostnameVerified!==true||e.tlsChainVerified!==true||e.projectIdentityMethod!=="independently-pinned-profile-and-project-specific-TLS-hostname"||
+ !hex(e.tlsRootCertificateSha256,64)||!hex(e.independentlyPinnedProfileSha256,64))invalid();
+ const s=r.source;if(!exactKeys(s,["repositoryCommitSha","migrationInventoryGitBlobSha1","sqlBundlePath","sqlBundleGitBlobSha1","sqlBundleSha256"])||
+ !hex(s.repositoryCommitSha,40)||s.migrationInventoryGitBlobSha1!==INVENTORY_GIT_BLOB_SHA1||s.sqlBundlePath!==SQL_PATH||s.sqlBundleGitBlobSha1!==SQL_GIT_BLOB_SHA1||s.sqlBundleSha256!==SQL_SHA256)invalid();
+ const x=r.execution;if(!exactKeys(x,["collectorId","authenticatedPrincipal","expectedEffectivePrincipal","transactionIsolation","readOnly","transactionRollbackVerified","startedAt","completedAt","outputFormat","canonicalization","resultRecordCount","databaseAclV1RowCount","canonicalResultSha256","evidenceFileSha256"])||
+ x.collectorId!==COLLECTOR_ID||x.authenticatedPrincipal!=="deedlight_catalog_auditor"||x.expectedEffectivePrincipal!=="deedlight_catalog_auditor"||
+ x.transactionIsolation!=="repeatable read"||x.readOnly!==true||x.transactionRollbackVerified!==true||!dateTime(x.startedAt)||!dateTime(x.completedAt)||Date.parse(x.completedAt)<Date.parse(x.startedAt)||
+ x.outputFormat!=="PostgreSQL psql CSV"||typeof x.canonicalization!=="string"||x.canonicalization.length<20||!Number.isSafeInteger(x.resultRecordCount)||x.resultRecordCount<1||
+ !Number.isSafeInteger(x.databaseAclV1RowCount)||x.databaseAclV1RowCount<1||!hex(x.canonicalResultSha256,64)||!hex(x.evidenceFileSha256,64))invalid();
+ const v=r.evidence;if(!exactKeys(v,["file","mediaType","byteLength","sha256"])||v.file!=="evidence.csv"||v.mediaType!=="text/csv"||!Number.isSafeInteger(v.byteLength)||v.byteLength<1||!hex(v.sha256,64))invalid();
+ const g=r.signing;if(!exactKeys(g,["state","keyId","signature","acceptance"])||g.state!=="NOT_SIGNED"||g.keyId!==null||g.signature!==null||g.acceptance!=="PROHIBITED_PENDING_INDEPENDENT_SIGNING_AND_VERIFICATION")invalid();
+ return true;
+}
+export function verifyReceiptAndEvidence(receipt,csv){
+ validateReceiptSchema(receipt);
+ if(sha256(csv)!==receipt.evidence.sha256||sha256(csv)!==receipt.execution.evidenceFileSha256||csv.length!==receipt.evidence.byteLength)throw new CollectorError("EVIDENCE_DIGEST_MISMATCH");
+ const validation=validateSqlOutput(csv),digest=sha256(Buffer.from(canonicalJson(validation.resultRows),"utf8"));
+ if(digest!==receipt.execution.canonicalResultSha256||validation.databaseAclRows!==receipt.execution.databaseAclV1RowCount||validation.resultRows.length!==receipt.execution.resultRecordCount||!validation.transactionClosed)
+  throw new CollectorError("RECEIPT_RESULT_BINDING_MISMATCH");
+ return true;
 }
 export function collect({ profilePath, outputDir }) {
   const repoPath = realpathSync(process.cwd());
@@ -298,10 +272,11 @@ export function collect({ profilePath, outputDir }) {
   const outputRealPath = realpathSync(absoluteOutput);
   assertOutsideRepository(outputRealPath, repoPath, "EVIDENCE_OUTPUT_MUST_BE_EXTERNAL");
   const startedAt = new Date().toISOString();
-  const csv = runPsql({ repoPath, profile, sqlPath, commitSha });
+  let csv;
   let evidencePath;
   let receiptPath;
   try {
+    csv = runPsql({ repoPath, profile, sqlPath, commitSha });
     const validation = validateSqlOutput(csv);
     const completedAt = new Date().toISOString();
     const receipt = buildReceipt({ profile, profileDigest, commitSha, startedAt, completedAt, csv, validation });
@@ -318,9 +293,12 @@ export function collect({ profilePath, outputDir }) {
     for (const filePath of [receiptPath, evidencePath]) {
       if (filePath && existsSync(filePath)) unlinkSync(filePath);
     }
-    csv.fill(0);
+    if (Buffer.isBuffer(csv)) csv.fill(0);
     throw error;
-  } finally { csv.fill(0); }
+  } finally {
+    if (Buffer.isBuffer(csv)) csv.fill(0);
+    closeSync(profile.tlsCaGuard.fd);
+  }
 }
 function main() {
   const args = process.argv.slice(2); const values = {};

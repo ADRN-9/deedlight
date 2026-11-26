@@ -45,7 +45,7 @@ The collector is not a signing authority, migration runner, SQL proxy, web endpo
 ### Trust assumptions
 
 - The endpoint profile file and DEEDLIGHT_COLLECTOR_ENDPOINT_PROFILE_SHA256 arrive through independently controlled operator configuration. A profile and its digest supplied by the same untrusted source are not independent.
-- The CA file is external to the repository. TLS uses libpq hostname verification (verify-full); a SQL GUC is never accepted as endpoint proof.
+- The CA file is external to the repository. Its SHA-256 is independently pinned with DEEDLIGHT_COLLECTOR_TLS_CA_SHA256, separately from the endpoint-profile digest. The collector opens the CA with O_NOFOLLOW, verifies ownership and private parent-directory/file permissions, holds the descriptor throughout collection, and rechecks path inode and descriptor digest before receipt creation. Replacement and in-place tampering fail closed. TLS uses libpq hostname verification (verify-full); a SQL GUC is never accepted as endpoint proof.
 - The production profile is fixed to project xaipiovflxomcbfwtwmu, host db.xaipiovflxomcbfwtwmu.supabase.co, database postgres, port 5432 and login deedlight_catalog_auditor. The disposable CI database name is accepted only when GitHub CI and the explicit fixture authorization are both present; it is not a Production mode.
 - The passfile must be a regular, non-symlink file with no group/other permission bits (normally mode 0600). The collector never reads or prints its contents.
 - A successful collection is not an accepted migration classification. E2 emits an explicitly unsigned receipt; E3 signing, E4 immutable storage and independent verification remain mandatory.
@@ -54,18 +54,18 @@ The collector is not a signing authority, migration runner, SQL proxy, web endpo
 
 Schema: schemas/production-migration-collection-receipt-v1.schema.json.
 
-The receipt binds project and endpoint identity, explicit successful TLS chain and hostname verification, TLS mode and CA digest, independently pinned endpoint-profile digest, exact repository commit, migration inventory blob, exact SQL bundle SHA-256, authenticated login, read-only/repeatable-read transaction and rollback verification, timestamps, result record count, full database_acl_v1 row count, canonical result digest, and raw evidence file digest.
+The verifier checks every required field and nested object against the complete v1 receipt schema and rejects unexpected fields. The receipt binds project and endpoint identity, explicit successful TLS chain and hostname verification, TLS mode and independently pinned CA digest, exact repository commit, migration inventory blob, exact SQL bundle SHA-256, authenticated login, read-only/repeatable-read transaction and rollback verification, timestamps, result record count, full database_acl_v1 row count, canonical result digest, and raw evidence file digest.
 
 Receipt state is always UNSIGNED_NOT_ACCEPTED. signing.keyId and signing.signature are null. The collector does not claim a trusted signature, durable retention, or acceptance.
 
 ## Canonical serialization and digest
 
 1. psql emits RFC 4180 CSV with headers for every result set. The approved SQL orders each projection explicitly.
-2. Decode UTF-8 and normalize CRLF to LF. Parse CSV with quote escaping; preserve record order, cell order, empty cells and cell strings. Reject NUL, unterminated quotes, empty output and malformed/incomplete mandatory projections.
+2. Decode UTF-8 without normalizing quoted content. Parse RFC4180 quoting and escaped quotes; preserve embedded CR/LF and empty leading, middle and trailing fields. Reject bare CR outside quoted fields, NUL, malformed quotes, invalid characters after a closing quote, unterminated quotes, empty output and malformed/incomplete mandatory projections.
 3. Canonical JSON serializes arrays in original order, objects with lexicographically sorted keys, and strings using JSON escaping. No locale-sensitive sorting or numeric coercion is performed on SQL cells.
 4. canonicalResultSha256 = SHA256(UTF8(canonicalJson(resultRecords))), excluding only the final collector transaction-close marker header/value.
 5. evidenceFileSha256 = SHA256(raw UTF-8 CSV bytes). Both digests are placed in the receipt. The receipt file itself can be hashed by the later signing/storage stage.
-6. The mandatory database_acl_v1 result header must include evidence_projection, database_count, database_oid, and expanded_acl_edges. The number of emitted rows must equal the declared database count, every row must have the expected width, and every OID must be decimal.
+6. The mandatory database_acl_v1 header must equal the exact eleven-column SQL projection in order; missing, duplicate, reordered or unexpected columns fail closed. Every row has exact width and validated field representations. Database, owner and grantor OIDs are positive PostgreSQL uint32 values; grantee OID zero maps exactly to PUBLIC. ACL duplicate identity is (grantee OID, grantor OID, privilege type), independent of grantability.
 7. A final same-session query must prove the read-only transaction has ended (transaction_read_only = off) and no transaction ID was assigned. The SQL bundle's explicit ROLLBACK is mandatory. Missing marker or false result invalidates collection.
 
 ## Failure-state contract
@@ -100,7 +100,7 @@ The external JSON profile has exactly these fields:
       "passwordFilePath": "/secure/config/.pgpass"
     }
 
-The profile file itself must be outside the repository and mode 0600. Set DEEDLIGHT_COLLECTOR_ENDPOINT_PROFILE_SHA256 to its independently provisioned SHA-256. The passfile must be external, regular, non-symlink and mode 0600. The CA file must be external. The output directory must not exist and must be outside the repository.
+The profile file itself must be outside the repository and mode 0600. Set DEEDLIGHT_COLLECTOR_ENDPOINT_PROFILE_SHA256 to its independently provisioned SHA-256 and DEEDLIGHT_COLLECTOR_TLS_CA_SHA256 to the separately provisioned SHA-256 of the exact CA certificate file. Never derive either pin from an untrusted profile during collection. The passfile must be external, regular, non-symlink and mode 0600. The CA file must be external. The output directory must not exist and must be outside the repository.
 
 Example invocation (no credential material in arguments):
 

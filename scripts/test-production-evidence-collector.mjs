@@ -1,12 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { closeSync, chmodSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import {
   CollectorError,
   canonicalJson,
   parseCsv,
   validateSqlOutput,
   verifyReceiptAndEvidence,
+  validateReceiptSchema,
+  openPinnedCa,
+  assertPinnedCaUnchanged,
   sha256,
   SQL_SHA256,
 } from "./collect-production-migration-evidence.mjs";
@@ -27,8 +32,23 @@ function replaceAclEdges(csv, edges) {
   const rows = parseCsv(csv);
   const row = rows.find((entry) => entry[0] === "database_acl_v1" && entry[2] === "1");
   assert.ok(row, "database_acl_v1 fixture row must exist");
-  row[6] = JSON.stringify(edges);
+  row[10] = JSON.stringify(edges);
   return serializeCsv(rows);
+}
+
+function completeReceipt(csv,validation=validateSqlOutput(csv)){
+ const digest=sha256(csv);
+ return{schemaVersion:1,kind:"deedlight-production-migration-collection",status:"UNSIGNED_NOT_ACCEPTED",projectRef:"xaipiovflxomcbfwtwmu",
+ endpoint:{hostname:"db.xaipiovflxomcbfwtwmu.supabase.co",port:5432,database:"postgres",tlsMode:"verify-full",tlsVerified:true,tlsHostnameVerified:true,tlsChainVerified:true,
+ projectIdentityMethod:"independently-pinned-profile-and-project-specific-TLS-hostname",tlsRootCertificateSha256:"a".repeat(64),independentlyPinnedProfileSha256:"b".repeat(64)},
+ source:{repositoryCommitSha:"c".repeat(40),migrationInventoryGitBlobSha1:"95d514a0bd97ff448c9507252eb1f5e69a507442",sqlBundlePath:"scripts/production-migration-readonly-audit.sql",
+ sqlBundleGitBlobSha1:"e55ed9207e8540d03de51c79e56c75d0bed130d1",sqlBundleSha256:"02f6db1822213453deb9fbe2588b893fbcd3ff312c4bb6b523238c7968db9d13"},
+ execution:{collectorId:"deedlight-readonly-collector-v1",authenticatedPrincipal:"deedlight_catalog_auditor",expectedEffectivePrincipal:"deedlight_catalog_auditor",transactionIsolation:"repeatable read",
+ readOnly:true,transactionRollbackVerified:true,startedAt:"2026-01-01T00:00:00Z",completedAt:"2026-01-01T00:01:00Z",outputFormat:"PostgreSQL psql CSV",
+ canonicalization:"UTF-8 canonical JSON with ordered records and sorted object keys",resultRecordCount:validation.resultRows.length,databaseAclV1RowCount:validation.databaseAclRows,
+ canonicalResultSha256:sha256(Buffer.from(canonicalJson(validation.resultRows))),evidenceFileSha256:digest},
+ evidence:{file:"evidence.csv",mediaType:"text/csv",byteLength:csv.length,sha256:digest},
+ signing:{state:"NOT_SIGNED",keyId:null,signature:null,acceptance:"PROHIBITED_PENDING_INDEPENDENT_SIGNING_AND_VERIFICATION"}};
 }
 
 function validCsv() {
@@ -37,9 +57,9 @@ function validCsv() {
     rows.push(["projection_" + i, "value"], ["sample", String(i)]);
   }
   rows.push(
-    ["evidence_projection", "database_count", "database_oid", "owner_oid", "datacl_was_null", "acl_expansion_source", "expanded_acl_edges"],
-    ["database_acl_v1", "2", "1", "10", "t", "built_in_default", "[]"],
-    ["database_acl_v1", "2", "2", "10", "f", "explicit", "[]"],
+    ["evidence_projection","database_count","database_oid","database_name","allows_connections","is_template","owner_oid","owner_name","datacl_was_null","acl_expansion_source","expanded_acl_edges"],
+    ["database_acl_v1","2","1","db_one","t","f","10","postgres","t","built_in_default","[]"],
+    ["database_acl_v1","2","2","db_two","t","t","10","postgres","f","explicit","[]"],
     ["collector_transaction_closed"],
     ["t"],
   );
@@ -81,7 +101,7 @@ test("false transaction marker fails closed", () => {
 
 test("missing database_acl_v1 projection fails closed", () => {
   const csv = validCsv().replace(
-    'evidence_projection,database_count,database_oid,owner_oid,datacl_was_null,acl_expansion_source,expanded_acl_edges\r\ndatabase_acl_v1,2,1,10,t,built_in_default,[]\r\ndatabase_acl_v1,2,2,10,f,explicit,[]\r\n',
+    'evidence_projection,database_count,database_oid,database_name,allows_connections,is_template,owner_oid,owner_name,datacl_was_null,acl_expansion_source,expanded_acl_edges\r\ndatabase_acl_v1,2,1,db_one,t,f,10,postgres,t,built_in_default,[]\r\ndatabase_acl_v1,2,2,db_two,t,t,10,postgres,f,explicit,[]\r\n',
     "",
   );
   assert.throws(() => validateSqlOutput(csv), (error) => error instanceof CollectorError && error.code === "DATABASE_ACL_PROJECTION_MISSING");
@@ -107,7 +127,7 @@ test("duplicate database ACL edges fail closed", () => {
 
 test("duplicate or unordered database rows fail closed", () => {
   const csv = validCsv().replace(
-    "database_acl_v1,2,2,10,f,explicit,[]",
+    "database_acl_v1,2,2,db_two,t,t,10,postgres,f,explicit,[]",
     "database_acl_v1,2,1,10,f,explicit,[]",
   );
   assert.throws(() => validateSqlOutput(csv), (error) => error.code === "DATABASE_ACL_PROJECTION_DUPLICATED_OR_UNORDERED");
@@ -115,8 +135,8 @@ test("duplicate or unordered database rows fail closed", () => {
 
 test("database ACL NULL/default provenance must agree", () => {
   const csv = validCsv().replace(
-    "database_acl_v1,2,1,10,t,built_in_default,[]",
-    "database_acl_v1,2,1,10,t,explicit,[]",
+    "database_acl_v1,2,1,db_one,t,f,10,postgres,t,built_in_default,[]",
+    "database_acl_v1,2,1,db_one,t,f,10,postgres,t,explicit,[]",
   );
   assert.throws(() => validateSqlOutput(csv), (error) => error.code === "DATABASE_ACL_PROJECTION_INCOMPLETE");
 });
@@ -129,12 +149,12 @@ test("database ACL edge order must match stable SQL ordering", () => {
 });
 
 test("malformed database ACL JSON fails closed", () => {
-  const csv = validCsv().replace("database_acl_v1,2,1,10,t,built_in_default,[]", "database_acl_v1,2,1,10,t,built_in_default,{bad}");
+  const csv = validCsv().replace("database_acl_v1,2,1,db_one,t,f,10,postgres,t,built_in_default,[]", "database_acl_v1,2,1,db_one,t,f,10,postgres,t,built_in_default,{bad}");
   assert.throws(() => validateSqlOutput(csv), (error) => error instanceof CollectorError && error.code === "DATABASE_ACL_EDGES_INVALID_JSON");
 });
 
 test("truncated database ACL rows fail closed", () => {
-  const csv = validCsv().replace('database_acl_v1,2,2,10,f,explicit,[]\r\n', "");
+  const csv = validCsv().replace('database_acl_v1,2,2,db_two,t,t,10,postgres,f,explicit,[]\r\n', "");
   assert.throws(() => validateSqlOutput(csv), (error) => error instanceof CollectorError && error.code === "DATABASE_ACL_PROJECTION_INCOMPLETE");
 });
 
@@ -146,18 +166,7 @@ test("malformed or truncated CSV fails closed", () => {
 test("receipt binds raw evidence and canonical result digest", () => {
   const csv = Buffer.from(validCsv());
   const rows = validateSqlOutput(csv);
-  const receipt = {
-    schemaVersion: 1,
-    kind: "deedlight-production-migration-collection",
-    status: "UNSIGNED_NOT_ACCEPTED",
-    execution: {
-      canonicalResultSha256: sha256(Buffer.from(canonicalJson(rows.resultRows))),
-      evidenceFileSha256: sha256(csv),
-      databaseAclV1RowCount: rows.databaseAclRows,
-    },
-    evidence: { sha256: sha256(csv) },
-    signing: { state: "NOT_SIGNED" },
-  };
+  const receipt = completeReceipt(csv, rows);
   assert.equal(verifyReceiptAndEvidence(receipt, csv), true);
   const tampered = Buffer.from(csv.toString().replace('database_acl_v1,2,1,', 'database_acl_v1,2,9,'));
   assert.throws(() => verifyReceiptAndEvidence(receipt, tampered), (error) => error.code === "EVIDENCE_DIGEST_MISMATCH");
@@ -166,21 +175,55 @@ test("receipt binds raw evidence and canonical result digest", () => {
 test("receipt cannot claim signed or accepted state in E2", () => {
   const csv = Buffer.from(validCsv());
   const rows = validateSqlOutput(csv);
-  const receipt = {
-    schemaVersion: 1, kind: "deedlight-production-migration-collection", status: "ACCEPTED",
-    execution: { canonicalResultSha256: sha256(Buffer.from(canonicalJson(rows.resultRows))), evidenceFileSha256: sha256(csv), databaseAclV1RowCount: 2 },
-    evidence: { sha256: sha256(csv) }, signing: { state: "SIGNED" },
-  };
+  const receipt = completeReceipt(csv, rows);
+  receipt.status = "ACCEPTED"; receipt.signing.state = "SIGNED";
   assert.throws(() => verifyReceiptAndEvidence(receipt, csv), (error) => error.code === "RECEIPT_SCHEMA_OR_STATUS_INVALID");
 });
 
 test("receipt result binding rejects a forged canonical digest", () => {
   const csv = Buffer.from(validCsv());
   const rows = validateSqlOutput(csv);
-  const receipt = {
-    schemaVersion: 1, kind: "deedlight-production-migration-collection", status: "UNSIGNED_NOT_ACCEPTED",
-    execution: { canonicalResultSha256: "0".repeat(64), evidenceFileSha256: sha256(csv), databaseAclV1RowCount: 2 },
-    evidence: { sha256: sha256(csv) }, signing: { state: "NOT_SIGNED" },
-  };
+  const receipt = completeReceipt(csv, rows);
+  receipt.execution.canonicalResultSha256 = "0".repeat(64);
   assert.throws(() => verifyReceiptAndEvidence(receipt, csv), (error) => error.code === "RECEIPT_RESULT_BINDING_MISMATCH");
+});
+
+test("CSV preserves quoted CRLF and empty edge fields",()=>{
+ assert.deepEqual(parseCsv(",middle,\\r\\n"),[["","middle",""]]);
+ assert.deepEqual(parseCsv("a,,c,\\r\\n"),[["a","","c",""]]);
+ assert.deepEqual(parseCsv("\\"\\",x,\\r\\n"),[["","x",""]]);
+ assert.deepEqual(parseCsv("\\"line 1\\r\\nline 2\\",z\\r\\n"),[["line 1\\r\\nline 2","z"]]);
+});
+test("CSV rejects bare CR and malformed quotes",()=>{for(const value of ["a\\rb","\\"a\\"x","a\\"b","\\"unterminated"])assert.throws(()=>parseCsv(value),CollectorError);});
+test("ACL header rejects each missing column, duplicates and unexpected columns",()=>{
+ const base=parseCsv(validCsv()),i=base.findIndex(row=>row[0]==="evidence_projection");
+ for(let n=0;n<11;n++){const rows=base.map(row=>[...row]);rows[i].splice(n,1);assert.throws(()=>validateSqlOutput(serializeCsv(rows)),e=>e.code==="DATABASE_ACL_PROJECTION_SCHEMA_INVALID");}
+ const dup=base.map(row=>[...row]);dup[i][3]=dup[i][2];assert.throws(()=>validateSqlOutput(serializeCsv(dup)),e=>e.code==="DATABASE_ACL_PROJECTION_SCHEMA_INVALID");
+ const extra=base.map(row=>[...row]);extra[i].push("unexpected");extra[i+1].push("x");extra[i+2].push("x");assert.throws(()=>validateSqlOutput(serializeCsv(extra)),e=>e.code==="DATABASE_ACL_PROJECTION_SCHEMA_INVALID");
+});
+test("database and owner OIDs are positive canonical uint32",()=>{for(const [column,value] of [[2,"0"],[2,"4294967296"],[2,"01"],[6,"0"],[6,"4294967296"]]){const rows=parseCsv(validCsv());rows[27][column]=value;assert.throws(()=>validateSqlOutput(serializeCsv(rows)),CollectorError);}});
+test("ACL grantor OID and PUBLIC identity are strict",()=>{
+ const edge={grantee_oid:0,grantee_name:"PUBLIC",grantor_oid:10,grantor_name:"postgres",privilege_type:"CONNECT",is_grantable:false};
+ for(const bad of [{...edge,grantor_oid:0},{...edge,grantor_oid:4294967296},{...edge,grantee_oid:1},{...edge,grantee_oid:"1",grantee_name:"PUBLIC"},{...edge,grantee_oid:"0",grantee_name:"role"}])assert.throws(()=>validateSqlOutput(replaceAclEdges(validCsv(),[bad])),CollectorError);
+});
+test("logical ACL duplicate ignores grantability",()=>{
+ const edge={grantee_oid:10,grantee_name:"role_a",grantor_oid:11,grantor_name:"postgres",privilege_type:"CONNECT",is_grantable:false};
+ assert.throws(()=>validateSqlOutput(replaceAclEdges(validCsv(),[edge,{...edge,is_grantable:true}])),e=>e.code==="DATABASE_ACL_EDGES_DUPLICATED");
+});
+test("receipt schema rejects missing top-level and nested required fields",()=>{
+ const csv=Buffer.from(validCsv()),receipt=completeReceipt(csv);
+ for(const key of Object.keys(receipt)){const copy=structuredClone(receipt);delete copy[key];assert.throws(()=>verifyReceiptAndEvidence(copy,csv),e=>e.code==="RECEIPT_SCHEMA_INVALID");}
+ for(const key of Object.keys(receipt.execution)){const copy=structuredClone(receipt);delete copy.execution[key];assert.throws(()=>validateReceiptSchema(copy),e=>e.code==="RECEIPT_SCHEMA_INVALID");}
+});
+test("receipt schema rejects unexpected fields, malformed timestamps and byte-length tampering",()=>{
+ const csv=Buffer.from(validCsv()),receipt=completeReceipt(csv),extra=structuredClone(receipt);extra.endpoint.extra=true;assert.throws(()=>validateReceiptSchema(extra),e=>e.code==="RECEIPT_SCHEMA_INVALID");
+ const date=structuredClone(receipt);date.execution.startedAt="bad";assert.throws(()=>validateReceiptSchema(date),e=>e.code==="RECEIPT_SCHEMA_INVALID");
+ const length=structuredClone(receipt);length.evidence.byteLength++;assert.throws(()=>verifyReceiptAndEvidence(length,csv),e=>e.code==="EVIDENCE_DIGEST_MISMATCH");
+});
+test("CA pin detects path replacement and in-place tampering",()=>{
+ const dir=mkdtempSync(path.join(tmpdir(),"deedlight-ca-"));chmodSync(dir,0o700);const ca=path.join(dir,"root.crt");writeFileSync(ca,"trusted-ca");chmodSync(ca,0o600);
+ let guard=openPinnedCa(ca,sha256("trusted-ca"));renameSync(ca,path.join(dir,"original.crt"));writeFileSync(ca,"replacement-ca");chmodSync(ca,0o600);
+ assert.throws(()=>assertPinnedCaUnchanged(guard),e=>e.code==="TLS_CA_CHANGED_DURING_COLLECTION");closeSync(guard.fd);
+ rmSync(ca);renameSync(path.join(dir,"original.crt"),ca);guard=openPinnedCa(ca,sha256("trusted-ca"));writeFileSync(ca,"tampered-ca");
+ assert.throws(()=>assertPinnedCaUnchanged(guard),e=>e.code==="TLS_CA_CHANGED_DURING_COLLECTION");closeSync(guard.fd);rmSync(dir,{recursive:true,force:true});
 });
