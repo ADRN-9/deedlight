@@ -29,7 +29,7 @@ assert(sql.includes("Legacy webhook identity entry point disabled"));
 assert(sql.includes("deedlight_record_resend_verified"));
 assert(route.includes('readLimitedRawBody(request)'));
 assert(route.includes('isTrustedSupabaseDestination(supabaseUrl)'));
-assert(route.includes('@/lib/supabase/trusted-destination'));
+assert(route.includes('lib/supabase/trusted-destination.ts'));
 assert(projectIdentity.includes('DEEDLIGHT_SUPABASE_PROJECT_REF = "xaipiovflxomcbfwtwmu"'));
 assert(destination.includes('value === DEEDLIGHT_SUPABASE_ORIGIN'));
 assert(destination.includes('url.protocol === "https:"'));
