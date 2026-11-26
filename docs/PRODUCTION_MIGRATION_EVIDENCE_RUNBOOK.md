@@ -64,7 +64,9 @@ Missing required history/catalog access or an unsupported history shape aborts c
 
 The CI fixture `scripts/test-production-migration-readonly-audit-postgres16.sh` runs only against a disposable PostgreSQL 16 service with no Production connection or credentials. It exercises:
 - approved catalog-only role success and explicit transaction rollback;
-- predefined `pg_read_all_data` membership rejection;\n- SECURITY DEFINER private-data exfiltration using a synthetic fixture value; PUBLIC/direct/inherited EXECUTE rejection by routine OID, including overloaded functions, procedures, aggregates and window functions; global and schema-specific future EXECUTE default rejection;\n- database CONNECT requirement, CREATE/TEMP/ownership/grant-option rejection, application-schema USAGE/ownership rejection, and cleanup/recovery after each rejected collection;
+- predefined `pg_read_all_data` membership rejection;
+- SECURITY DEFINER private-data exfiltration using a synthetic fixture value; PUBLIC/direct/inherited EXECUTE rejection by routine OID, including overloaded functions, procedures, aggregates and window functions; global and schema-specific future EXECUTE default rejection;
+- database CONNECT requirement, CREATE/TEMP/ownership/grant-option rejection, application-schema USAGE/ownership rejection, and cleanup/recovery after each rejected collection;
 - missing migration-history SELECT and missing catalog SELECT rejection;
 - table-level, column-level and sequence privilege rejection;
 - invalid project and repository metadata;
