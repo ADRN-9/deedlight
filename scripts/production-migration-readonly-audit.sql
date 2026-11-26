@@ -80,35 +80,6 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'Authenticated or effective role violates the least-privilege identity contract.';
   END IF;
-  IF EXISTS (
-    SELECT 1
-    FROM pg_catalog.pg_roles r
-    WHERE r.oid <> v_session_role_oid
-      AND pg_catalog.pg_has_role(v_session_role_oid, r.oid, 'MEMBER')
-  ) OR EXISTS (
-    SELECT 1
-    FROM pg_catalog.pg_roles r
-    WHERE r.oid <> v_effective_role_oid
-      AND pg_catalog.pg_has_role(v_effective_role_oid, r.oid, 'MEMBER')
-  ) THEN
-    RAISE EXCEPTION 'Authenticated or effective collector role has role membership.';
-  END IF;
-
-  FOREACH v_catalog IN ARRAY ARRAY[
-    'pg_catalog.pg_class', 'pg_catalog.pg_attribute', 'pg_catalog.pg_attrdef',
-    'pg_catalog.pg_proc', 'pg_catalog.pg_roles', 'pg_catalog.pg_auth_members',
-    'pg_catalog.pg_namespace', 'pg_catalog.pg_language', 'pg_catalog.pg_policies',
-    'pg_catalog.pg_constraint', 'pg_catalog.pg_indexes', 'pg_catalog.pg_trigger',
-    'pg_catalog.pg_default_acl', 'pg_catalog.pg_extension', 'pg_catalog.pg_sequence',
-    'pg_catalog.pg_index', 'pg_catalog.pg_depend', 'pg_catalog.pg_type', 'pg_catalog.pg_am'
-  ] LOOP
-    IF pg_catalog.to_regclass(v_catalog) IS NULL
-      OR NOT pg_catalog.has_table_privilege(v_session_role_oid, pg_catalog.to_regclass(v_catalog), 'SELECT')
-      OR NOT pg_catalog.has_table_privilege(v_effective_role_oid, pg_catalog.to_regclass(v_catalog), 'SELECT') THEN
-      RAISE EXCEPTION 'Required catalog SELECT access unavailable to authenticated/effective principal: %', v_catalog;
-    END IF;
-  END LOOP;
-
   -- Application routines are not executable by the collector or PUBLIC.
   -- pg_proc OIDs cover functions, procedures, aggregates and window functions;
   -- ACL expansion uses PostgreSQL's built-in default ACL when proacl is NULL.
@@ -155,6 +126,35 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'Global or schema-specific default routine privileges expose prohibited EXECUTE or grant-option access.';
   END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_roles r
+    WHERE r.oid <> v_session_role_oid
+      AND pg_catalog.pg_has_role(v_session_role_oid, r.oid, 'MEMBER')
+  ) OR EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_roles r
+    WHERE r.oid <> v_effective_role_oid
+      AND pg_catalog.pg_has_role(v_effective_role_oid, r.oid, 'MEMBER')
+  ) THEN
+    RAISE EXCEPTION 'Authenticated or effective collector role has role membership.';
+  END IF;
+
+  FOREACH v_catalog IN ARRAY ARRAY[
+    'pg_catalog.pg_class', 'pg_catalog.pg_attribute', 'pg_catalog.pg_attrdef',
+    'pg_catalog.pg_proc', 'pg_catalog.pg_roles', 'pg_catalog.pg_auth_members',
+    'pg_catalog.pg_namespace', 'pg_catalog.pg_language', 'pg_catalog.pg_policies',
+    'pg_catalog.pg_constraint', 'pg_catalog.pg_indexes', 'pg_catalog.pg_trigger',
+    'pg_catalog.pg_default_acl', 'pg_catalog.pg_extension', 'pg_catalog.pg_sequence',
+    'pg_catalog.pg_index', 'pg_catalog.pg_depend', 'pg_catalog.pg_type', 'pg_catalog.pg_am'
+  ] LOOP
+    IF pg_catalog.to_regclass(v_catalog) IS NULL
+      OR NOT pg_catalog.has_table_privilege(v_session_role_oid, pg_catalog.to_regclass(v_catalog), 'SELECT')
+      OR NOT pg_catalog.has_table_privilege(v_effective_role_oid, pg_catalog.to_regclass(v_catalog), 'SELECT') THEN
+      RAISE EXCEPTION 'Required catalog SELECT access unavailable to authenticated/effective principal: %', v_catalog;
+    END IF;
+  END LOOP;
 
   -- Routine settings are a reviewed allowlist, not a raw pg_proc.proconfig export.
   -- Reject custom GUCs, noncanonical search paths and unsafe limits before serialization.
