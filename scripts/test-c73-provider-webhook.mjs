@@ -11,6 +11,7 @@ import { SupabaseDeliveryRuntime } from "../lib/delivery/supabase-runtime.ts";
 import { DEEDLIGHT_SUPABASE_ORIGIN, DEEDLIGHT_SUPABASE_PROJECT_REF } from "../lib/supabase/project-identity.ts";
 import { isTrustedSupabaseDestination } from "../lib/supabase/trusted-destination.ts";
 import { readFileSync } from "node:fs";
+import { createResendWebhookHandler } from "../app/api/webhooks/resend/route.ts";
 
 const now = new Date();
 const signingKey = randomBytes(32);
@@ -131,6 +132,137 @@ test("webhook destination guard executes before privileged Supabase client const
   assert.notEqual(guard, -1);
   assert.notEqual(client, -1);
   assert.ok(guard < client);
+});
+
+
+test("actual webhook handler rejects invalid destinations with 503 and no privileged operations", async () => {
+  const invalidDestinations = [
+    "https://anotherproject.supabase.co",
+    "https://xaipiovflxomcbfwtwmu.supabase.co:8443",
+    "https://xaipiovflxomcbfwtwmu.supabase.co:443",
+    "https://user@xaipiovflxomcbfwtwmu.supabase.co",
+    "https://user:password@xaipiovflxomcbfwtwmu.supabase.co",
+    "https://xaipiovflxomcbfwtwmu.supabase.co/rest/v1",
+    "https://xaipiovflxomcbfwtwmu.supabase.co?target=other",
+    "https://xaipiovflxomcbfwtwmu.supabase.co#fragment",
+    "not a URL",
+    "https://[malformed",
+  ];
+  for (const destination of invalidDestinations) {
+    let clientConstructions = 0;
+    let databaseRequests = 0;
+    let signatureVerifications = 0;
+    const handler = createResendWebhookHandler({
+      env: {
+        RESEND_WEBHOOK_SECRET: "test-webhook-secret",
+        SUPABASE_SERVICE_ROLE_KEY: "test-service-role-key",
+        SUPABASE_URL: destination,
+      },
+      createPrivilegedClient: (() => {
+        clientConstructions += 1;
+        return { rpc: async () => {
+          databaseRequests += 1;
+          return { data: "recorded", error: null };
+        }};
+      }),
+      verifyWebhook: async () => {
+        signatureVerifications += 1;
+        throw new Error("Invalid destination must fail before verification");
+      },
+    });
+    const response = await handler(new Request("https://deedlight.test/api/webhooks/resend", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ type: "email.delivered" }),
+    }));
+    assert.equal(response.status, 503, destination);
+    assert.equal(clientConstructions, 0, destination);
+    assert.equal(databaseRequests, 0, destination);
+    assert.equal(signatureVerifications, 0, destination);
+  }
+});
+
+test("actual webhook handler rejects missing destination and required secrets with 503", async () => {
+  const configurations = [
+    { RESEND_WEBHOOK_SECRET: "secret", SUPABASE_SERVICE_ROLE_KEY: "key" },
+    { RESEND_WEBHOOK_SECRET: "secret", SUPABASE_SERVICE_ROLE_KEY: "key", SUPABASE_URL: "" },
+    { RESEND_WEBHOOK_SECRET: "", SUPABASE_SERVICE_ROLE_KEY: "key", SUPABASE_URL: DEEDLIGHT_SUPABASE_ORIGIN },
+    { RESEND_WEBHOOK_SECRET: "secret", SUPABASE_SERVICE_ROLE_KEY: "", SUPABASE_URL: DEEDLIGHT_SUPABASE_ORIGIN },
+  ];
+  for (const env of configurations) {
+    let clientConstructions = 0;
+    let databaseRequests = 0;
+    const handler = createResendWebhookHandler({
+      env,
+      createPrivilegedClient: (() => {
+        clientConstructions += 1;
+        return { rpc: async () => {
+          databaseRequests += 1;
+          return { data: "recorded", error: null };
+        }};
+      }),
+      verifyWebhook: async () => {
+        throw new Error("Missing configuration must fail before verification");
+      },
+    });
+    const response = await handler(new Request("https://deedlight.test/api/webhooks/resend", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    }));
+    assert.equal(response.status, 503);
+    assert.equal(clientConstructions, 0);
+    assert.equal(databaseRequests, 0);
+  }
+});
+
+test("actual webhook handler constructs the client only after a trusted destination and verified event", async () => {
+  let clientConstructions = 0;
+  let databaseRequests = 0;
+  let signatureVerifications = 0;
+  const payload = JSON.stringify({ type: "email.delivered" });
+  const handler = createResendWebhookHandler({
+    env: {
+      RESEND_WEBHOOK_SECRET: "test-webhook-secret",
+      SUPABASE_SERVICE_ROLE_KEY: "test-service-role-key",
+      SUPABASE_URL: DEEDLIGHT_SUPABASE_ORIGIN,
+    },
+    createPrivilegedClient: (() => {
+      clientConstructions += 1;
+      return { rpc: async (operation, args) => {
+        databaseRequests += 1;
+        assert.equal(operation, "deedlight_record_resend_delivery_v2");
+        assert.equal(args.p_event_id, id);
+        return { data: "recorded", error: null };
+      }};
+    }),
+    verifyWebhook: async ({ rawBody, headers, secret: suppliedSecret }) => {
+      signatureVerifications += 1;
+      assert.equal(suppliedSecret, "test-webhook-secret");
+      assert.equal(headers.get("content-type"), "application/json");
+      assert.equal(rawBody, payload);
+      return {
+        kind: "delivery",
+        eventId: id,
+        providerEmailId: "synthetic-provider-id",
+        recipientEmail: "synthetic@example.test",
+        eventType: "email.delivered",
+        eventAt: date,
+        payloadSha256: "a".repeat(64),
+        suppressionReason: null,
+        bounceType: null,
+      };
+    },
+  });
+  const response = await handler(new Request("https://deedlight.test/api/webhooks/resend", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: payload,
+  }));
+  assert.equal(response.status, 200);
+  assert.equal(signatureVerifications, 1);
+  assert.equal(clientConstructions, 1);
+  assert.equal(databaseRequests, 1);
 });
 
 test("kind-isolated claim RPC includes kind and fails on a cross-kind response", async () => {
