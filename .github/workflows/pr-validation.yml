@@ -43,7 +43,7 @@ jobs:
           [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
           ACTUAL_SHA="$(git rev-parse HEAD)"
           test "$ACTUAL_SHA" = "$EXPECTED_SHA"
-          printf 'EXPECTED_CANDIDATE_SHA=%s\\nCHECKED_OUT_SHA=%s\\n' "$EXPECTED_SHA" "$ACTUAL_SHA"
+          printf 'EXPECTED_CANDIDATE_SHA=%s\nCHECKED_OUT_SHA=%s\n' "$EXPECTED_SHA" "$ACTUAL_SHA"
 
       - name: Fail closed on production configuration
         shell: bash
@@ -138,7 +138,7 @@ jobs:
           [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
           ACTUAL_SHA="$(git rev-parse HEAD)"
           test "$ACTUAL_SHA" = "$EXPECTED_SHA"
-          printf 'EXPECTED_CANDIDATE_SHA=%s\\nCHECKED_OUT_SHA=%s\\n' "$EXPECTED_SHA" "$ACTUAL_SHA"
+          printf 'EXPECTED_CANDIDATE_SHA=%s\nCHECKED_OUT_SHA=%s\n' "$EXPECTED_SHA" "$ACTUAL_SHA"
 
       - name: Fail closed on production configuration
         shell: bash
@@ -199,7 +199,7 @@ jobs:
           [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
           ACTUAL_SHA="$(git rev-parse HEAD)"
           test "$ACTUAL_SHA" = "$EXPECTED_SHA"
-          printf 'EXPECTED_CANDIDATE_SHA=%s\\nCHECKED_OUT_SHA=%s\\n' "$EXPECTED_SHA" "$ACTUAL_SHA"
+          printf 'EXPECTED_CANDIDATE_SHA=%s\nCHECKED_OUT_SHA=%s\n' "$EXPECTED_SHA" "$ACTUAL_SHA"
 
       - name: Fail closed on production configuration
         shell: bash
@@ -260,7 +260,7 @@ jobs:
           [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
           ACTUAL_SHA="$(git rev-parse HEAD)"
           test "$ACTUAL_SHA" = "$EXPECTED_SHA"
-          printf 'EXPECTED_CANDIDATE_SHA=%s\\nCHECKED_OUT_SHA=%s\\n' "$EXPECTED_SHA" "$ACTUAL_SHA"
+          printf 'EXPECTED_CANDIDATE_SHA=%s\nCHECKED_OUT_SHA=%s\n' "$EXPECTED_SHA" "$ACTUAL_SHA"
 
       - name: Fail closed on production configuration
         shell: bash
@@ -324,7 +324,7 @@ jobs:
           [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
           ACTUAL_SHA="$(git rev-parse HEAD)"
           test "$ACTUAL_SHA" = "$EXPECTED_SHA"
-          printf 'EXPECTED_CANDIDATE_SHA=%s\\nCHECKED_OUT_SHA=%s\\n' "$EXPECTED_SHA" "$ACTUAL_SHA"
+          printf 'EXPECTED_CANDIDATE_SHA=%s\nCHECKED_OUT_SHA=%s\n' "$EXPECTED_SHA" "$ACTUAL_SHA"
 
       - name: Fail closed on production configuration
         shell: bash
@@ -385,7 +385,7 @@ jobs:
           [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
           ACTUAL_SHA="$(git rev-parse HEAD)"
           test "$ACTUAL_SHA" = "$EXPECTED_SHA"
-          printf 'EXPECTED_CANDIDATE_SHA=%s\\nCHECKED_OUT_SHA=%s\\n' "$EXPECTED_SHA" "$ACTUAL_SHA"
+          printf 'EXPECTED_CANDIDATE_SHA=%s\nCHECKED_OUT_SHA=%s\n' "$EXPECTED_SHA" "$ACTUAL_SHA"
 
       - name: Fail closed on Production configuration
         shell: bash
