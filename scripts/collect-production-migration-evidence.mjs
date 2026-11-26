@@ -380,6 +380,7 @@ export function validateReceiptSchema(r){
  return true;
 }
 export function verifyReceiptAndEvidence(receipt,csv){
+ // Mandatory semantic gate before receipt acceptance or any future signing stage.
  validateReceiptSchema(receipt);
  if(sha256(csv)!==receipt.evidence.sha256||sha256(csv)!==receipt.execution.evidenceFileSha256||csv.length!==receipt.evidence.byteLength)throw new CollectorError("EVIDENCE_DIGEST_MISMATCH");
  const validation=validateSqlOutput(csv),digest=sha256(Buffer.from(canonicalJson(validation.resultRows),"utf8"));

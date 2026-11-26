@@ -364,12 +364,42 @@ test("receipt timestamp profile rejects leap seconds and unknown local offsets",
   for (const value of unsupported) assert.equal(isStrictRfc3339(value), false, value);
 });
 
+test("receipt JSON Schema enforces DeedLight timestamp lexical profile", () => {
+  const receiptSchema = JSON.parse(readFileSync(new URL("../schemas/production-migration-collection-receipt-v1.schema.json", import.meta.url), "utf8"));
+  const fields = ["startedAt", "completedAt"];
+  const supported = ["0001-01-01T00:00:00Z", "2024-02-29T12:30:45.12345678901234567890Z", "2026-11-26T06:45:00-08:00", "2024-01-01T00:00:00+00:00", "2024-01-01T00:00:00-00:01"];
+  const rejected = ["2016-12-31T23:59:60Z", "2016-12-31T18:59:60-05:00", "2024-01-01T00:00:00-00:00", "2024-01-01T00:00:00+", "2024-01-01T00:00:00+01:000", "2024-01-01T24:00:00Z", "2024-01-01T00:60:00Z"];
+  for (const field of fields) {
+    const definition = receiptSchema.properties.execution.properties[field];
+    assert.equal(definition.format, "date-time");
+    assert.match(definition.description, /Leap seconds/);
+    assert.match(definition.description, /semantic verification/);
+    assert.equal(typeof definition.pattern, "string");
+    const lexical = new RegExp(definition.pattern);
+    for (const value of supported) assert.equal(lexical.test(value), true, field + ": " + value);
+    for (const value of rejected) assert.equal(lexical.test(value), false, field + ": " + value);
+  }
+});
+
 test("strict timestamp ordering preserves fractional precision and timezone equivalence", () => {
   assert.equal(compareStrictTimestamps("2024-01-01T00:00:00.1234567891Z", "2024-01-01T00:00:00.1234567890Z"), 1);
   assert.equal(compareStrictTimestamps("2024-01-01T00:00:00.1234567889Z", "2024-01-01T00:00:00.1234567890Z"), -1);
   assert.equal(compareStrictTimestamps("2024-01-01T00:00:00.123456789Z", "2023-12-31T19:00:00.123456789-05:00"), 0);
   assert.equal(compareStrictTimestamps("2024-01-01T00:00:00.000000001Z", "2023-12-31T19:00:00.000000002-05:00"), -1);
   assert.equal(compareStrictTimestamps("2024-01-01T00:00:00.1234000Z", "2024-01-01T00:00:00.1234Z"), 0);
+});
+
+test("semantic receipt verifier rejects cross-field timestamp inversions and accepts equivalent instants", () => {
+  const csv = Buffer.from(validCsv());
+  const inverted = completeReceipt(csv);
+  inverted.execution.startedAt = "2026-01-01T00:00:00.0000009Z";
+  inverted.execution.completedAt = "2026-01-01T00:00:00.0000008Z";
+  assert.throws(() => verifyReceiptAndEvidence(inverted, csv), (error) => error.code === "RECEIPT_SCHEMA_INVALID");
+
+  const equivalent = completeReceipt(csv);
+  equivalent.execution.startedAt = "2026-01-01T05:00:00.123456789Z";
+  equivalent.execution.completedAt = "2026-01-01T00:00:00.123456789-05:00";
+  assert.equal(verifyReceiptAndEvidence(equivalent, csv), true);
 });
 
 test("receipt rejects sub-millisecond completion inversions", () => {
