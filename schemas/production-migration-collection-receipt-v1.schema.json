@@ -47,7 +47,10 @@
           "const": 5432
         },
         "database": {
-          "const": "postgres"
+          "enum": [
+            "postgres",
+            "deedlight_migration_order_test"
+          ]
         },
         "tlsMode": {
           "const": "verify-full"
