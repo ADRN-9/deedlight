@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   CollectorError,
   canonicalJson,
@@ -7,6 +8,7 @@ import {
   validateSqlOutput,
   verifyReceiptAndEvidence,
   sha256,
+  SQL_SHA256,
 } from "./collect-production-migration-evidence.mjs";
 
 function validCsv() {
@@ -26,6 +28,11 @@ function validCsv() {
     return /[",\r\n]/.test(value) ? '"' + value.replace(/"/g, '""') + '"' : value;
   }).join(",")).join("\r\n") + "\r\n";
 }
+
+test("pinned approved SQL bundle matches its SHA-256", () => {
+  const sql = readFileSync(new URL("./production-migration-readonly-audit.sql", import.meta.url));
+  assert.equal(sha256(sql), SQL_SHA256);
+});
 
 test("canonical JSON sorts object keys but preserves array order", () => {
   assert.equal(canonicalJson({ z: 1, a: { y: 2, b: 3 } }), '{"a":{"b":3,"y":2},"z":1}');
