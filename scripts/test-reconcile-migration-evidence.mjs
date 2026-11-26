@@ -618,6 +618,20 @@ test("complete database_acl_v1 projection is mandatory and included in the signe
       || reason.includes("signed collector authority differs")
       || reason.includes("signed evidence approval does not bind the exact evidence")));
   } finally { tampered.cleanup(); }
+
+  const truncated = fixture();
+  try {
+    truncated.reapprove((databaseAuthority) => {
+      databaseAuthority.databaseAclV1.push({
+        ...databaseAuthority.databaseAclV1[0],
+        database_oid: 101,
+        database_name: "omitted_database",
+      });
+    });
+    const report = truncated.analyze();
+    assert.equal(report.counts.Unknown, 39);
+    assert.ok(report.trustProblems.some((reason) => reason.includes("incomplete, malformed or unordered database row")));
+  } finally { truncated.cleanup(); }
 });
 
 test("collector execution receipt binds project, collector, query digest, capture and result", () => {
