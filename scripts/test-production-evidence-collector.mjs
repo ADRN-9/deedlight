@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { closeSync, chmodSync, fstatSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, chmodSync, fstatSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -16,6 +16,7 @@ import {
   createPinnedCaSnapshot,
   withPinnedCaCleanup,
   isStrictRfc3339,
+  collect,
   sha256,
   SQL_SHA256,
 } from "./collect-production-migration-evidence.mjs";
@@ -347,4 +348,36 @@ test("receipt rejects impossible RFC3339 dates despite Date.parse normalization"
   const csv = Buffer.from(validCsv()), receipt = completeReceipt(csv);
   receipt.execution.startedAt = "2026-02-31T12:00:00Z";
   assert.throws(() => validateReceiptSchema(receipt), (error) => error.code === "RECEIPT_SCHEMA_INVALID");
+});
+
+test("collect cleans CA descriptor and snapshot when output-directory validation fails", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "deedlight-collect-output-failure-")); chmodSync(root, 0o700);
+  const caPath = path.join(root, "root.crt"), passwordPath = path.join(root, "passfile"), profilePath = path.join(root, "profile.json");
+  writeFileSync(caPath, "collector-test-ca", { mode: 0o600 });
+  writeFileSync(passwordPath, "localhost:5432:postgres:deedlight_catalog_auditor:placeholder\n", { mode: 0o600 });
+  const profile = {
+    schemaVersion: 1, projectRef: "xaipiovflxomcbfwtwmu", host: "db.xaipiovflxomcbfwtwmu.supabase.co",
+    port: 5432, database: "postgres", username: "deedlight_catalog_auditor",
+    tlsRootCertPath: caPath, passwordFilePath: passwordPath,
+  };
+  const profileBytes = Buffer.from(JSON.stringify(profile));
+  writeFileSync(profilePath, profileBytes, { mode: 0o600 });
+  const oldProfilePin = process.env.DEEDLIGHT_COLLECTOR_ENDPOINT_PROFILE_SHA256;
+  const oldCaPin = process.env.DEEDLIGHT_COLLECTOR_TLS_CA_SHA256;
+  process.env.DEEDLIGHT_COLLECTOR_ENDPOINT_PROFILE_SHA256 = sha256(profileBytes);
+  process.env.DEEDLIGHT_COLLECTOR_TLS_CA_SHA256 = sha256("collector-test-ca");
+  const before = new Set(readdirSync(tmpdir()).filter((name) => name.startsWith("deedlight-ca-")));
+  const outputInsideRepository = path.join(process.cwd(), ".deedlight-output-must-not-be-created");
+  try {
+    assert.throws(() => collect({ profilePath, outputDir: outputInsideRepository }),
+      (error) => error.code === "EVIDENCE_OUTPUT_MUST_BE_EXTERNAL");
+    assert.equal(readdirSync(tmpdir()).filter((name) => name.startsWith("deedlight-ca-")).filter((name) => !before.has(name)).length, 0);
+    assert.equal(readFileSync(profilePath).equals(profileBytes), true);
+  } finally {
+    if (oldProfilePin === undefined) delete process.env.DEEDLIGHT_COLLECTOR_ENDPOINT_PROFILE_SHA256;
+    else process.env.DEEDLIGHT_COLLECTOR_ENDPOINT_PROFILE_SHA256 = oldProfilePin;
+    if (oldCaPin === undefined) delete process.env.DEEDLIGHT_COLLECTOR_TLS_CA_SHA256;
+    else process.env.DEEDLIGHT_COLLECTOR_TLS_CA_SHA256 = oldCaPin;
+    rmSync(root, { recursive: true, force: true });
+  }
 });

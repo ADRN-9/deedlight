@@ -168,13 +168,17 @@ export function openPinnedCa(caPath, expectedDigest) {
 
 export function cleanupPinnedCa(guard, fsOps = {}) {
   if (!guard) return;
-  if (!guard.fdClosed) {
-    closeSync(guard.fd);
-    guard.fdClosed = true;
-  }
-  if (guard.privateDirectory) {
-    (fsOps.rmSync ?? rmSync)(guard.privateDirectory, { recursive: true, force: true });
-    guard.privateDirectory = null;
+  try {
+    if (!guard.fdClosed) {
+      closeSync(guard.fd);
+      guard.fdClosed = true;
+    }
+  } finally {
+    if (guard.privateDirectory) {
+      const directory = guard.privateDirectory;
+      guard.privateDirectory = null;
+      (fsOps.rmSync ?? rmSync)(directory, { recursive: true, force: true });
+    }
   }
 }
 
@@ -196,8 +200,11 @@ export function createPinnedCaSnapshot(guard, fsOps = {}) {
     guard.privateDirectory = directory;
     return snapshotPath;
   } catch (error) {
-    if (directory) remove(directory, { recursive: true, force: true });
-    cleanupPinnedCa(guard);
+    try {
+      if (directory) remove(directory, { recursive: true, force: true });
+    } finally {
+      cleanupPinnedCa(guard);
+    }
     throw error;
   }
 }
