@@ -8,6 +8,9 @@ import {
 } from "../lib/delivery/resend-webhook.ts";
 import { parseDeliveryRuntimeConfig } from "../lib/delivery/config.ts";
 import { SupabaseDeliveryRuntime } from "../lib/delivery/supabase-runtime.ts";
+import { DEEDLIGHT_SUPABASE_ORIGIN, DEEDLIGHT_SUPABASE_PROJECT_REF } from "../lib/supabase/project-identity.ts";
+import { isTrustedSupabaseDestination } from "../lib/supabase/trusted-destination.ts";
+import { readFileSync } from "node:fs";
 
 const now = new Date();
 const signingKey = randomBytes(32);
@@ -77,6 +80,57 @@ test("DELIVERY_ENABLED=false is strictly no-send even with missing provider secr
   assert.deepEqual(parseDeliveryRuntimeConfig({ DELIVERY_ENABLED: "false" }), { enabled: false });
   assert.deepEqual(parseDeliveryRuntimeConfig({}), { enabled: false });
   assert.throws(() => parseDeliveryRuntimeConfig({ DELIVERY_ENABLED: "true" }), /Missing required delivery configuration/);
+});
+
+
+test("webhook accepts only the exact canonical DeedLight Supabase destination", () => {
+  assert.equal(DEEDLIGHT_SUPABASE_PROJECT_REF, "xaipiovflxomcbfwtwmu");
+  assert.equal(DEEDLIGHT_SUPABASE_ORIGIN, "https://xaipiovflxomcbfwtwmu.supabase.co");
+  assert.equal(isTrustedSupabaseDestination(DEEDLIGHT_SUPABASE_ORIGIN), true);
+});
+
+test("webhook rejects unrelated Supabase projects and deceptive hostname variants", () => {
+  for (const value of [
+    "https://anotherproject.supabase.co",
+    "https://xaipiovflxomcbfwtwmu.supabase.co.attacker.example",
+    "https://xaipiovflxomcbfwtwmu.supabase.co.evil",
+    "https://xaipiovflxomcbfwtwmu.supabase.com",
+    "https://XAIPIOVFLXOMCBFWTWMU.supabase.co",
+    "https://xaipiovflxomcbfwtwmu.supabase.co.",
+  ]) {
+    assert.equal(isTrustedSupabaseDestination(value), false, value);
+  }
+});
+
+test("webhook rejects noncanonical origins, unexpected ports, credentials, paths, queries and fragments", () => {
+  for (const value of [
+    "http://xaipiovflxomcbfwtwmu.supabase.co",
+    "https://xaipiovflxomcbfwtwmu.supabase.co:443",
+    "https://xaipiovflxomcbfwtwmu.supabase.co:8443",
+    "https://user@xaipiovflxomcbfwtwmu.supabase.co",
+    "https://user:password@xaipiovflxomcbfwtwmu.supabase.co",
+    "https://xaipiovflxomcbfwtwmu.supabase.co/",
+    "https://xaipiovflxomcbfwtwmu.supabase.co/rest/v1",
+    "https://xaipiovflxomcbfwtwmu.supabase.co?redirect=evil",
+    "https://xaipiovflxomcbfwtwmu.supabase.co#fragment",
+    " https://xaipiovflxomcbfwtwmu.supabase.co",
+    "https://xaipiovflxomcbfwtwmu.supabase.co ",
+    "",
+    "not a url",
+  ]) {
+    assert.equal(isTrustedSupabaseDestination(value), false, value);
+  }
+  assert.equal(isTrustedSupabaseDestination(null), false);
+  assert.equal(isTrustedSupabaseDestination(undefined), false);
+});
+
+test("webhook destination guard executes before privileged Supabase client construction", () => {
+  const source = readFileSync(new URL("../app/api/webhooks/resend/route.ts", import.meta.url), "utf8");
+  const guard = source.indexOf("!isTrustedSupabaseDestination(supabaseUrl)");
+  const client = source.indexOf("createClient(supabaseUrl, serviceRoleKey");
+  assert.notEqual(guard, -1);
+  assert.notEqual(client, -1);
+  assert.ok(guard < client);
 });
 
 test("kind-isolated claim RPC includes kind and fails on a cross-kind response", async () => {

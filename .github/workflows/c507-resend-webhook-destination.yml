@@ -1,0 +1,52 @@
+name: C507 Resend webhook destination identity
+on:
+  push:
+    branches:
+      - security/resend-webhook-destination-identity-c507
+  pull_request:
+    branches:
+      - integration/deedlight-c79-925c97ee-isolated-v1
+permissions:
+  contents: read
+concurrency:
+  group: c507-resend-webhook-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  webhook_destination:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      DELIVERY_ENABLED: "false"
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-not-a-secret
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - name: Verify no Production configuration is present
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$DELIVERY_ENABLED" = false
+          for key in SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY SUPABASE_PROJECT_REF SUPABASE_DB_PASSWORD SUPABASE_ACCESS_TOKEN RESEND_API_KEY RESEND_WEBHOOK_SECRET CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+            test -z "$(printenv "$key" || true)"
+          done
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Resend webhook signature, replay and destination identity regressions
+        run: node --test scripts/test-c73-provider-webhook.mjs
+      - name: Existing C73 webhook security assertions
+        run: node scripts/verify-c73-security.mjs
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Next.js production build
+        run: npm run build
+      - name: Cloudflare package
+        run: npx opennextjs-cloudflare build
+      - name: Dependency audit
+        run: npm audit --audit-level=high

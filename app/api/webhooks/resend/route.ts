@@ -3,6 +3,7 @@ import {
   InvalidResendWebhook,
   verifyResendDeliveryWebhook,
 } from "@/lib/delivery/resend-webhook";
+import { isTrustedSupabaseDestination } from "@/lib/supabase/trusted-destination";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,19 +42,6 @@ async function readLimitedRawBody(request: Request): Promise<string> {
   }
 }
 
-function isValidSupabaseUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:"
-      && /^[a-z0-9-]+\.supabase\.co$/.test(url.hostname)
-      && !url.username && !url.password && !url.port
-      && (url.pathname === "/" || url.pathname === "")
-      && !url.search && !url.hash;
-  } catch {
-    return false;
-  }
-}
-
 const responseHeaders = {
   "Cache-Control": "no-store",
   "Content-Type": "text/plain; charset=utf-8",
@@ -63,7 +51,7 @@ export async function POST(request: Request): Promise<Response> {
   const secret = process.env.RESEND_WEBHOOK_SECRET;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const supabaseUrl = process.env.SUPABASE_URL;
-  if (!secret || !serviceRoleKey || !supabaseUrl || !isValidSupabaseUrl(supabaseUrl)) {
+  if (!secret || !serviceRoleKey || !isTrustedSupabaseDestination(supabaseUrl)) {
     return new Response("Webhook unavailable", { status: 503, headers: responseHeaders });
   }
   const declaredLength = Number(request.headers.get("content-length") || "0");
