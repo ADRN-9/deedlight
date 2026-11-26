@@ -70,6 +70,11 @@ test("missing database_acl_v1 projection fails closed", () => {
   assert.throws(() => validateSqlOutput(csv), (error) => error instanceof CollectorError && error.code === "DATABASE_ACL_PROJECTION_MISSING");
 });
 
+test("malformed database ACL JSON fails closed", () => {
+  const csv = validCsv().replace("database_acl_v1,2,1,10,t,built_in_default,[]", "database_acl_v1,2,1,10,t,built_in_default,{bad}");
+  assert.throws(() => validateSqlOutput(csv), (error) => error instanceof CollectorError && error.code === "DATABASE_ACL_EDGES_INVALID_JSON");
+});
+
 test("truncated database ACL rows fail closed", () => {
   const csv = validCsv().replace('database_acl_v1,2,2,10,f,explicit,[]\r\n', "");
   assert.throws(() => validateSqlOutput(csv), (error) => error instanceof CollectorError && error.code === "DATABASE_ACL_PROJECTION_INCOMPLETE");
