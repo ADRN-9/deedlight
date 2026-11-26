@@ -133,10 +133,10 @@ for (const destination of destinations) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ type: "email.delivered", data: { to: ["recipient-canary@example.test"] } })
   }));
-  if (response.status !== 503) throw new Error(`Unexpected status for invalid destination: ${destination}`);
+  if (response.status !== 503) throw new Error("Unexpected status for invalid destination: " + destination);
   for (const key of ["clients", "verifier", "database", "outbound"]) {
     if (counts[key] !== before[key]) {
-      throw new Error(`Unexpected ${key} activity for invalid destination: ${destination}`);
+      throw new Error("Unexpected " + key + " activity for invalid destination: " + destination);
     }
   }
   statuses.push(response.status);
