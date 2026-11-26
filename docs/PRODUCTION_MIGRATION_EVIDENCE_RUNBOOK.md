@@ -42,6 +42,22 @@ PostgreSQL's built-in defaults are security-relevant. A NULL routine ACL is not 
 
 Application routine exceptions are not implied by ownership, SECURITY DEFINER status, overload identity or an ACL omission. A new exception requires explicit DBA/security approval and a separately reviewed change to this policy and its adversarial fixtures.
 
+Global routine defaults must also be evaluated when pg_default_acl has no global row for an owner role: PostgreSQL then uses acldefault('f', owner), which includes PUBLIC EXECUTE. The audit checks that implicit default for every role that owns or can CREATE in an application schema, as well as all explicit global and schema-specific rows. The pg_database_owner pseudo-role is represented by the actual current database owner, whose schema-creation capability and default ACL are checked separately.
+
+## Remaining external infrastructure dependencies (not delivered by C460)
+
+The SQL policy and disposable CI fixtures do not create or prove the Production collector infrastructure. The following dependencies remain open:
+
+- A controlled, isolated collector runtime that connects directly as the dedicated non-superuser login; no superuser impersonation or browser-side collection.
+- Independent TLS certificate-chain and hostname verification, plus independent confirmation of the expected Supabase project and endpoint. SQL GUC labels remain untrusted metadata.
+- Production provisioning and DBA verification of the dedicated collector role against the approved matrix, including removal of inherited memberships, PUBLIC TEMP, application-schema USAGE, routine EXECUTE and unsafe default ACLs.
+- An approved secret manager or locked-down external PGSERVICEFILE/PGPASSFILE for the database credential. No credential material belongs in Git, command arguments, chat or evidence logs.
+- A KMS/HSM or controlled signing service for collector receipts, with key identity and rotation controls. No independent signing implementation or key is established by this change.
+- An immutable evidence store and operational retention/access controls for signed receipts, query digests, CI/deployment references and failure diagnostics.
+- Production operational validation: exact commit and SQL bundle digest, verified TLS peer, authenticated/effective identities, live effective privileges, read-only transaction, result digest, UTC capture time and signed receipt.
+
+These dependencies are NOT ESTABLISHED by the PostgreSQL 16 disposable test. No Production connection, credential access, TLS verification, KMS/HSM signing, deployment or Production collection was performed in C460.
+
 ## Execute only the read-only bundle
 
 Use a supported psql client in a controlled environment with `ON_ERROR_STOP`, no user startup file, TLS verification required and a dedicated read-only database role. Example shape (not a credential-bearing command):
