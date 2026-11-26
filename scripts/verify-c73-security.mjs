@@ -38,7 +38,7 @@ assert(destination.includes('url.username === ""'));
 assert(destination.includes('url.pathname === "/"'));
 assert(destination.includes('url.search === ""'));
 assert(destination.includes('url.hash === ""'));
-assert(route.indexOf('!isTrustedSupabaseDestination(supabaseUrl)') < route.indexOf('createClient(supabaseUrl, serviceRoleKey'));
+assert(route.indexOf('!isTrustedSupabaseDestination(supabaseUrl)') < route.indexOf('createPrivilegedClient(supabaseUrl, serviceRoleKey'));
 assert(route.includes('status: 503'));
 assert(route.includes('deedlight_record_resend_delivery_v2'));
 assert(route.includes('deedlight_record_resend_suppression_verified'));

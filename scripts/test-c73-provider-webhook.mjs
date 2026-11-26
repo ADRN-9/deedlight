@@ -128,7 +128,7 @@ test("webhook rejects noncanonical origins, unexpected ports, credentials, paths
 test("webhook destination guard executes before privileged Supabase client construction", () => {
   const source = readFileSync(new URL("../app/api/webhooks/resend/route.ts", import.meta.url), "utf8");
   const guard = source.indexOf("!isTrustedSupabaseDestination(supabaseUrl)");
-  const client = source.indexOf("createClient(supabaseUrl, serviceRoleKey");
+  const client = source.indexOf("createPrivilegedClient(supabaseUrl, serviceRoleKey");
   assert.notEqual(guard, -1);
   assert.notEqual(client, -1);
   assert.ok(guard < client);
