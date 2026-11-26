@@ -396,7 +396,7 @@ test("collector routine and database privilege matrix is executable and regressi
 
   const databaseProjection = sql.slice(sql.indexOf("-- 14. Complete database ACL evidence"), sql.indexOf("-- The collector captures the result digest"));
   for (const token of [
-    "'database_acl_v1'", "FROM pg_catalog.pg_database d", "d.oid AS database_oid",
+    "'database_acl_v1'", "pg_catalog.count(*) OVER () AS database_count", "FROM pg_catalog.pg_database d", "d.oid AS database_oid",
     "d.datdba AS owner_oid", "owner_role.rolname AS owner_name", "(d.datacl IS NULL)",
     "pg_catalog.acldefault('d', d.datdba)", "'PUBLIC'", "'grantee_oid'",
     "'grantor_oid'", "'privilege_type'", "'is_grantable'",
