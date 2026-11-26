@@ -69,7 +69,7 @@ PGPASSWORD=postgres psql -X -h 127.0.0.1 -p 5432 -U postgres -d "$fixture_db" \
   -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET ssl = 'on'" \
   -c "ALTER SYSTEM SET ssl_cert_file = '/var/lib/postgresql/data/deedlight-tls/server.crt'" \
   -c "ALTER SYSTEM SET ssl_key_file = '/var/lib/postgresql/data/deedlight-tls/server.key'"
-docker exec -u postgres "$tls_container_id" pg_ctl -D /var/lib/postgresql/data restart -m fast -w -t 30 >/dev/null
+docker restart "$tls_container_id" >/dev/null
 ssl_enabled=false
 for attempt in {1..60}; do
   if PGPASSWORD=postgres PGCONNECT_TIMEOUT=2 psql -X -h 127.0.0.1 -p 5432 -U postgres -d "$fixture_db" -At -c "SHOW ssl" 2>/dev/null | grep -Fxq on; then
@@ -166,7 +166,7 @@ docker exec "$tls_container_id" chmod 600 /var/lib/postgresql/data/deedlight-tls
 docker exec "$tls_container_id" chown postgres:postgres \
   /var/lib/postgresql/data/deedlight-tls/server.crt /var/lib/postgresql/data/deedlight-tls/server.key
 PGPASSWORD=postgres psql -X -h 127.0.0.1 -p 5432 -U postgres -d "$fixture_db" \
-docker exec -u postgres "$tls_container_id" pg_ctl -D /var/lib/postgresql/data restart -m fast -w -t 30 >/dev/null
+docker restart "$tls_container_id" >/dev/null
 server_ready=false
 for attempt in {1..60}; do
   if PGPASSWORD=postgres PGCONNECT_TIMEOUT=2 psql -X -h 127.0.0.1 -p 5432 -U postgres -d "$fixture_db" -At -c "SELECT 1" 2>/dev/null | grep -Fxq 1; then
