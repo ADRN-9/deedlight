@@ -17,9 +17,9 @@ function validCsv() {
     rows.push(["projection_" + i, "value"], ["sample", String(i)]);
   }
   rows.push(
-    ["evidence_projection", "database_count", "database_oid", "expanded_acl_edges"],
-    ["database_acl_v1", "2", "1", "[]"],
-    ["database_acl_v1", "2", "2", "[]"],
+    ["evidence_projection", "database_count", "database_oid", "owner_oid", "datacl_was_null", "acl_expansion_source", "expanded_acl_edges"],
+    ["database_acl_v1", "2", "1", "10", "t", "built_in_default", "[]"],
+    ["database_acl_v1", "2", "2", "10", "f", "explicit", "[]"],
     ["collector_transaction_closed"],
     ["t"],
   );
@@ -64,14 +64,14 @@ test("false transaction marker fails closed", () => {
 
 test("missing database_acl_v1 projection fails closed", () => {
   const csv = validCsv().replace(
-    'evidence_projection,database_count,database_oid,expanded_acl_edges\r\ndatabase_acl_v1,2,1,[]\r\ndatabase_acl_v1,2,2,[]\r\n',
+    'evidence_projection,database_count,database_oid,owner_oid,datacl_was_null,acl_expansion_source,expanded_acl_edges\r\ndatabase_acl_v1,2,1,10,t,built_in_default,[]\r\ndatabase_acl_v1,2,2,10,f,explicit,[]\r\n',
     "",
   );
   assert.throws(() => validateSqlOutput(csv), (error) => error instanceof CollectorError && error.code === "DATABASE_ACL_PROJECTION_MISSING");
 });
 
 test("truncated database ACL rows fail closed", () => {
-  const csv = validCsv().replace('database_acl_v1,2,2,[]\r\n', "");
+  const csv = validCsv().replace('database_acl_v1,2,2,10,f,explicit,[]\r\n', "");
   assert.throws(() => validateSqlOutput(csv), (error) => error instanceof CollectorError && error.code === "DATABASE_ACL_PROJECTION_INCOMPLETE");
 });
 
