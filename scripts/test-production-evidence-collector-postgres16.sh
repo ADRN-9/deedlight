@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "$tls_container_id"
+: "$DEEDLIGHT_POSTGRES_CONTAINER_ID"
 : "$RUNNER_TEMP"
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_root"
@@ -14,7 +14,7 @@ readonly work="$RUNNER_TEMP/deedlight-collector-e2e-$GITHUB_RUN_ID-$GITHUB_RUN_A
 rm -rf "$work"
 mkdir -m 700 -p "$work/tls"
 
-primary_id="$tls_container_id"
+primary_id="$DEEDLIGHT_POSTGRES_CONTAINER_ID"
 redirect_id="$DEEDLIGHT_POSTGRES_REDIRECT_CONTAINER_ID"
 primary_inspect_addr="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$primary_id")"
 redirect_inspect_addr="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$redirect_id")"
@@ -58,8 +58,8 @@ openssl x509 -req -in "$tls/server.csr" -CA "$tls/ca.crt" -CAkey "$tls/ca.key" \
   -CAcreateserial -out "$tls/server.crt" -days 2 -sha256 -extfile "$tls/server.ext" >/dev/null 2>&1
 
 docker exec "$tls_container_id" mkdir -p /var/lib/postgresql/data/deedlight-tls
-docker cp "$tls/server.crt" "$DEEDLIGHT_POSTGRES_CONTAINER_ID:/var/lib/postgresql/data/deedlight-tls/server.crt"
-docker cp "$tls/server.key" "$DEEDLIGHT_POSTGRES_CONTAINER_ID:/var/lib/postgresql/data/deedlight-tls/server.key"
+docker cp "$tls/server.crt" "$tls_container_id:/var/lib/postgresql/data/deedlight-tls/server.crt"
+docker cp "$tls/server.key" "$tls_container_id:/var/lib/postgresql/data/deedlight-tls/server.key"
 docker exec -u postgres "$tls_container_id" chmod 600 /var/lib/postgresql/data/deedlight-tls/server.key
 docker exec -u postgres "$tls_container_id" chown postgres:postgres \
   /var/lib/postgresql/data/deedlight-tls/server.crt /var/lib/postgresql/data/deedlight-tls/server.key
@@ -147,8 +147,8 @@ openssl req -newkey rsa:2048 -nodes \
 printf 'subjectAltName=DNS:wrong-host.invalid\nextendedKeyUsage=serverAuth\nkeyUsage=digitalSignature,keyEncipherment\n' >"$tls/wrong-host.ext"
 openssl x509 -req -in "$tls/wrong-host.csr" -CA "$tls/ca.crt" -CAkey "$tls/ca.key" \
   -CAcreateserial -out "$tls/wrong-host.crt" -days 2 -sha256 -extfile "$tls/wrong-host.ext" >/dev/null 2>&1
-docker cp "$tls/wrong-host.crt" "$DEEDLIGHT_POSTGRES_CONTAINER_ID:/var/lib/postgresql/data/deedlight-tls/server.crt"
-docker cp "$tls/wrong-host.key" "$DEEDLIGHT_POSTGRES_CONTAINER_ID:/var/lib/postgresql/data/deedlight-tls/server.key"
+docker cp "$tls/wrong-host.crt" "$tls_container_id:/var/lib/postgresql/data/deedlight-tls/server.crt"
+docker cp "$tls/wrong-host.key" "$tls_container_id:/var/lib/postgresql/data/deedlight-tls/server.key"
 docker exec -u postgres "$tls_container_id" chmod 600 /var/lib/postgresql/data/deedlight-tls/server.key
 docker exec -u postgres "$tls_container_id" chown postgres:postgres \
   /var/lib/postgresql/data/deedlight-tls/server.crt /var/lib/postgresql/data/deedlight-tls/server.key
