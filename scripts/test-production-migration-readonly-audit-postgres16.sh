@@ -404,6 +404,11 @@ grep -Fq "\"grantee_name\": \"PUBLIC\"" "${tmp_dir}/approved.log"
 grep -Fq "\"grantor_oid\"" "${tmp_dir}/approved.log"
 grep -Fq "\"is_grantable\"" "${tmp_dir}/approved.log"
 echo "PASS: complete ordered database ACL projection includes defaults, PUBLIC and grantor evidence"
+# Both collector identities must explicitly opt out of inherited role privileges.
+psql -X -v ON_ERROR_STOP=1 -c "ALTER ROLE deedlight_catalog_auditor INHERIT;"
+expect_failure authenticated_collector_inherit "NOINHERIT least-privilege identity contract"
+psql -X -v ON_ERROR_STOP=1 -c "ALTER ROLE deedlight_catalog_auditor NOINHERIT;"
+
 psql -X -v ON_ERROR_STOP=1 -c "GRANT USAGE ON SCHEMA deedlight_audit_shadow TO deedlight_catalog_auditor;"
 if run_audit deedlight_catalog_auditor deedlight_catalog_auditor xaipiovflxomcbfwtwmu 0123456789abcdef0123456789abcdef01234567 __NONE__ hostile >"${tmp_dir}/hostile-search-path.log" 2>&1; then
   echo "FAIL: collector accepted USAGE on the adversarial application schema" >&2
@@ -548,10 +553,23 @@ test "${definer_result}" = "deedlight_audit_definer_owner:deedlight_catalog_audi
 psql -X -v ON_ERROR_STOP=1 -c "REVOKE EXECUTE ON FUNCTION public.audit_fixture_security_definer_identity() FROM deedlight_catalog_auditor;"
 psql -X -v ON_ERROR_STOP=1 -c "REVOKE USAGE ON SCHEMA public FROM deedlight_catalog_auditor;"
 echo "PASS: SECURITY DEFINER preserves and validates the authenticated principal"
+psql -X -v ON_ERROR_STOP=1 -c "ALTER ROLE deedlight_audit_definer_owner INHERIT;"
+if psql_as deedlight_catalog_auditor -X -v ON_ERROR_STOP=1 >"${tmp_dir}/effective_definer_inherit.log" 2>&1 <<'SQL'
+SET deedlight.authenticated_principal = 'deedlight_catalog_auditor';
+SELECT public.audit_fixture_security_definer_identity();
+SQL
+then
+  echo "FAIL: SECURITY DEFINER owner with INHERIT unexpectedly passed" >&2
+  exit 1
+fi
+grep -Fq "Fixture SECURITY DEFINER role attributes, NOINHERIT state or memberships rejected" "${tmp_dir}/effective_definer_inherit.log"
+psql -X -v ON_ERROR_STOP=1 -c "ALTER ROLE deedlight_audit_definer_owner NOINHERIT;"
+echo "PASS: effective SECURITY DEFINER owner with INHERIT is rejected"
+
 
 # Add the privileged SECURITY DEFINER fixture only after the trusted baseline passes.
 psql -X -v ON_ERROR_STOP=1 -v fixture_privileged_password="$DEEDLIGHT_FIXTURE_PRIVILEGED_PASSWORD" <<'SQL'
-CREATE ROLE deedlight_audit_privileged_login LOGIN PASSWORD :'fixture_privileged_password' SUPERUSER;
+CREATE ROLE deedlight_audit_privileged_login LOGIN PASSWORD :'fixture_privileged_password' SUPERUSER NOINHERIT;
 ALTER DEFAULT PRIVILEGES FOR ROLE deedlight_audit_privileged_login REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 CREATE FUNCTION public.audit_fixture_privileged_definer_identity()
 RETURNS text
