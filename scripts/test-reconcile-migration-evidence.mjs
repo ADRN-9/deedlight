@@ -711,6 +711,19 @@ test("collector attestation must bind the exact project and query bundle", () =>
   } finally { f.cleanup(); }
 });
 
+test("nullable recorded statement count remains a database fact, not provenance", () => {
+  const f = fixture();
+  try {
+    f.evidence.history.rows[0].recordedStatementCount = null;
+    f.reapprove();
+    const report = f.analyze();
+    assert.equal(report.trustVerified, true);
+    assert.equal(report.acceptance, "NOT_ACCEPTED");
+    assert.equal(report.counts["Applied and verified"], 0);
+    assert.equal(report.classifications[0].status, "Schema represented but history ambiguous");
+  } finally { f.cleanup(); }
+});
+
 test("migration-history facts never establish execution provenance; fabricated fields fail closed", () => {
   const f = fixture();
   try {
@@ -822,7 +835,7 @@ test("malformed history names and unrecognized versions fail closed", () => {
     f.reapprove();
     const report = f.analyze();
     assert.equal(report.counts.Unknown, 39);
-    assert.ok(report.trustProblems.some((reason) => reason.includes("unrecognized version")));
+    assert.ok(report.trustProblems.some((reason) => reason.includes("only recognized version, name and recorded statement-count database facts")));
   } finally { f.cleanup(); }
 });
 

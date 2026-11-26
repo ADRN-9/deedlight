@@ -437,7 +437,8 @@ function validateEvidence(evidence, now, manifest, problems) {
         || typeof row.version !== "string" || !/^[0-9]{12}$/.test(row.version) || !versions.has(row.version)) {
         problems.push("migration history row must contain only recognized version, name and recorded statement-count database facts");
       } else if (typeof row.name !== "string" || !row.name.trim()
-        || !Number.isSafeInteger(row.recordedStatementCount) || row.recordedStatementCount < 0) {
+        || (row.recordedStatementCount !== null
+          && (!Number.isSafeInteger(row.recordedStatementCount) || row.recordedStatementCount < 0))) {
         problems.push("migration history row has an invalid migration name or recorded statement count");
       }
     }
