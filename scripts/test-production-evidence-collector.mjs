@@ -89,7 +89,7 @@ test("receipt binds raw evidence and canonical result digest", () => {
     signing: { state: "NOT_SIGNED" },
   };
   assert.equal(verifyReceiptAndEvidence(receipt, csv), true);
-  const tampered = Buffer.from(csv.toString().replace('"database_acl_v1","2","1"', '"database_acl_v1","2","9"'));
+  const tampered = Buffer.from(csv.toString().replace('database_acl_v1,2,1,', 'database_acl_v1,2,9,'));
   assert.throws(() => verifyReceiptAndEvidence(receipt, tampered), (error) => error.code === "EVIDENCE_DIGEST_MISMATCH");
 });
 
