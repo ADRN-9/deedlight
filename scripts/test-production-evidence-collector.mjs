@@ -289,7 +289,7 @@ test("CA resources are cleaned after output-directory validation failure", () =>
   }), (error) => error.code === "EVIDENCE_OUTPUT_MUST_BE_EXTERNAL");
   assert.equal(guard.fdClosed, true);
   assert.throws(() => fstatSync(guard.fd));
-  assert.equal(readFileSync(snapshot, "utf8"), "pinned-ca");
+  assert.throws(() => readFileSync(snapshot), { code: "ENOENT" });
   assert.throws(() => readFileSync(privateDirectory), { code: "ENOENT" });
   rmSync(root, { recursive: true, force: true });
 });
