@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "$DEEDLIGHT_POSTGRES_CONTAINER_ID"
+: "$tls_container_id"
 : "$RUNNER_TEMP"
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_root"
@@ -14,12 +14,23 @@ readonly work="$RUNNER_TEMP/deedlight-collector-e2e-$GITHUB_RUN_ID-$GITHUB_RUN_A
 rm -rf "$work"
 mkdir -m 700 -p "$work/tls"
 
-primary_addr="$(env -i PATH="$PATH" HOME="$HOME" PGHOST=127.0.0.1 PGPORT=5432 PGUSER=postgres PGPASSWORD=postgres PGDATABASE=deedlight_migration_order_test psql -X -At -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.host(pg_catalog.inet_server_addr())")"
+primary_id="$tls_container_id"
 redirect_id="$DEEDLIGHT_POSTGRES_REDIRECT_CONTAINER_ID"
-redirect_addr="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$redirect_id")"
+primary_inspect_addr="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$primary_id")"
+redirect_inspect_addr="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$redirect_id")"
+primary_addr="$(env -i PATH="$PATH" HOME="$HOME" PGHOST=127.0.0.1 PGPORT=5432 PGUSER=postgres PGPASSWORD=postgres PGDATABASE=deedlight_migration_order_test psql -X -At -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.host(pg_catalog.inet_server_addr())")"
+redirect_addr="$(env -i PATH="$PATH" HOME="$HOME" PGHOST=127.0.0.1 PGPORT=5433 PGUSER=postgres PGPASSWORD=postgres PGDATABASE=deedlight_migration_order_test psql -X -At -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.host(pg_catalog.inet_server_addr())")"
 [[ "$primary_addr" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]
 [[ "$redirect_addr" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]
 [[ "$primary_addr" != "$redirect_addr" ]]
+if [[ "$primary_addr" == "$primary_inspect_addr" ]]; then
+  tls_container_id="$primary_id"
+elif [[ "$primary_addr" == "$redirect_inspect_addr" ]]; then
+  tls_container_id="$redirect_id"
+else
+  echo "FAIL: PostgreSQL host-port identity did not match either disposable service container" >&2
+  exit 1
+fi
 
 export DEEDLIGHT_EXPECTED_SERVER_ADDR="$primary_addr"
 export DEEDLIGHT_REDIRECT_SERVER_ADDR="$redirect_addr"
@@ -46,11 +57,11 @@ EOF
 openssl x509 -req -in "$tls/server.csr" -CA "$tls/ca.crt" -CAkey "$tls/ca.key" \
   -CAcreateserial -out "$tls/server.crt" -days 2 -sha256 -extfile "$tls/server.ext" >/dev/null 2>&1
 
-docker exec "$DEEDLIGHT_POSTGRES_CONTAINER_ID" mkdir -p /var/lib/postgresql/data/deedlight-tls
+docker exec "$tls_container_id" mkdir -p /var/lib/postgresql/data/deedlight-tls
 docker cp "$tls/server.crt" "$DEEDLIGHT_POSTGRES_CONTAINER_ID:/var/lib/postgresql/data/deedlight-tls/server.crt"
 docker cp "$tls/server.key" "$DEEDLIGHT_POSTGRES_CONTAINER_ID:/var/lib/postgresql/data/deedlight-tls/server.key"
-docker exec -u postgres "$DEEDLIGHT_POSTGRES_CONTAINER_ID" chmod 600 /var/lib/postgresql/data/deedlight-tls/server.key
-docker exec -u postgres "$DEEDLIGHT_POSTGRES_CONTAINER_ID" chown postgres:postgres \
+docker exec -u postgres "$tls_container_id" chmod 600 /var/lib/postgresql/data/deedlight-tls/server.key
+docker exec -u postgres "$tls_container_id" chown postgres:postgres \
   /var/lib/postgresql/data/deedlight-tls/server.crt /var/lib/postgresql/data/deedlight-tls/server.key
 
 PGPASSWORD=postgres psql -X -h 127.0.0.1 -p 5432 -U postgres -d "$fixture_db" \
@@ -138,8 +149,8 @@ openssl x509 -req -in "$tls/wrong-host.csr" -CA "$tls/ca.crt" -CAkey "$tls/ca.ke
   -CAcreateserial -out "$tls/wrong-host.crt" -days 2 -sha256 -extfile "$tls/wrong-host.ext" >/dev/null 2>&1
 docker cp "$tls/wrong-host.crt" "$DEEDLIGHT_POSTGRES_CONTAINER_ID:/var/lib/postgresql/data/deedlight-tls/server.crt"
 docker cp "$tls/wrong-host.key" "$DEEDLIGHT_POSTGRES_CONTAINER_ID:/var/lib/postgresql/data/deedlight-tls/server.key"
-docker exec -u postgres "$DEEDLIGHT_POSTGRES_CONTAINER_ID" chmod 600 /var/lib/postgresql/data/deedlight-tls/server.key
-docker exec -u postgres "$DEEDLIGHT_POSTGRES_CONTAINER_ID" chown postgres:postgres \
+docker exec -u postgres "$tls_container_id" chmod 600 /var/lib/postgresql/data/deedlight-tls/server.key
+docker exec -u postgres "$tls_container_id" chown postgres:postgres \
   /var/lib/postgresql/data/deedlight-tls/server.crt /var/lib/postgresql/data/deedlight-tls/server.key
 PGPASSWORD=postgres psql -X -h 127.0.0.1 -p 5432 -U postgres -d "$fixture_db" \
   -v ON_ERROR_STOP=1 -c "SELECT pg_catalog.pg_reload_conf()"
