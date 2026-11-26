@@ -120,3 +120,11 @@ Do not run this against Production until the Production owner, DBA, security own
 ## Explicitly out of scope (E3–E5)
 
 No KMS/HSM signing, real key provisioning/rotation, immutable storage, retention policy, Production deployment, Production collection, or independent signed-receipt verifier is implemented here.
+
+## Security review remediation handoff (PR #24)
+
+The collector's F-01–F-06 remediation is recorded in the Production migration evidence runbook. The separate CA trust-anchor pin is supplied through `DEEDLIGHT_COLLECTOR_TLS_CA_SHA256`; the endpoint profile remains independently pinned through `DEEDLIGHT_COLLECTOR_ENDPOINT_PROFILE_SHA256`. The collector uses a private snapshot of the pinned CA bytes for libpq, and verifies the original descriptor/path identity before emitting an unsigned receipt.
+
+The exact ACL projection, uint32 OID/PUBLIC identity constraints, grantability-independent logical duplicate identity, strict CSV parser behavior and complete unsigned receipt schema are enforced in code and covered by adversarial tests. E2 receipts remain `UNSIGNED_NOT_ACCEPTED`; no signing, acceptance, Production collection, credential provisioning or migration is authorized by this remediation.
+
+Release status must be taken from the final exact-head CI workflow, including the collector unit/adversarial test job, PostgreSQL 16 integration job, migration analyzer, and security assertions. Earlier failed/cancelled workflow runs are diagnostic history, not evidence of a passing final head.

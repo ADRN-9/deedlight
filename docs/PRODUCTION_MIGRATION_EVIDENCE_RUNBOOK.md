@@ -137,3 +137,24 @@ On CI failure, the disposable harness prints and retains sanitized synthetic Pos
 ## Historical migration classifications\n\nMigration 007, Migration 018 and Migration 037 remain **NOT ESTABLISHED** for Production. This collector policy and its disposable fixtures do not prove historical execution, prerequisites, backfill completeness or live Production state. Do not mark any of these migrations applied or Production-matched based on this work.\n\n## No authorization to mutate
 
 This package does not authorize migration-history reconciliation, schema changes, role grants, backup deletion, deployment, scheduler activation or any Production mutation. Before a future change, require a verified backup/PITR restore point, isolated restore rehearsal, independently approved migration-effect mapping, resolved Migration 007 ambiguity and explicit DBA/security change approval.
+
+
+## Collector security review remediation — F-01 through F-06
+
+The PR #24 collector implementation now enforces the following additional controls. These are source-level contracts; their runtime status is established only by the exact-head CI run and its retained logs.
+
+- **F-01 — TLS trust-anchor integrity:** Set `DEEDLIGHT_COLLECTOR_TLS_CA_SHA256` to a separately provisioned SHA-256 for the exact CA certificate file. It is independent of `DEEDLIGHT_COLLECTOR_ENDPOINT_PROFILE_SHA256`; never calculate either expected pin from the untrusted profile during collection. The CA parent directory must be owned by the collector OS user and mode 0700; the regular CA file must be owned by that user and have no group/other permissions (normally 0600). The collector opens it with no-follow semantics, checks the independently pinned digest, retains the original descriptor, snapshots those pinned bytes into a private 0700 directory/0600 file used by libpq, and checks the original path inode and descriptor digest again before receipt creation. A replacement or in-place modification fails closed.
+- **F-02 — ACL projection completeness:** The mandatory `database_acl_v1` CSV header is exactly, and in order: `evidence_projection`, `database_count`, `database_oid`, `database_name`, `allows_connections`, `is_template`, `owner_oid`, `owner_name`, `datacl_was_null`, `acl_expansion_source`, `expanded_acl_edges`. Missing, duplicate, reordered or unexpected columns, wrong row widths, and malformed field representations invalidate collection.
+- **F-03 — PostgreSQL OIDs:** Database, owner and grantor OIDs must be positive canonical decimal values within uint32 (1–4294967295). Grantee OID may be zero only for PUBLIC, represented by the exact name `PUBLIC`; nonzero grantee OIDs may not use that name. ACL JSON accepts canonical decimal strings or safe integer JSON numbers only.
+- **F-04 — ACL logical uniqueness:** Duplicate ACL identity is (grantee OID, grantor OID, privilege type). Grantability does not create a distinct logical edge. SQL ordering remains deterministic by grantee, grantor, privilege type and grantability.
+- **F-05 — CSV parsing:** CRLF record delimiters are accepted; bare CR outside quoted fields is rejected. CR/LF inside quoted fields is preserved exactly. Empty leading, middle and trailing cells, escaped quotes, malformed quoting and characters after a closing quote have explicit regression coverage.
+- **F-06 — receipt verification:** `verifyReceiptAndEvidence` validates every required top-level and nested receipt field, exact object keys, field types/constants, timestamps, hashes, byte length and the explicitly unsigned/not-accepted signing state before checking raw and canonical evidence bindings. It does not accept signed or accepted receipts.
+
+Required regression commands (CI is the primary validation machine):
+
+```sh
+node --test scripts/test-production-evidence-collector.mjs
+bash scripts/test-production-evidence-collector-postgres16.sh
+```
+
+The PostgreSQL 16 harness uses disposable local identities and local certificates only. It must never receive Production credentials or endpoints. The migration analyzer and repository security assertions are required in the same exact-HEAD PR Validation workflow. A green unit suite alone does not establish the PostgreSQL 16 integration or the exact-HEAD CI gate.
