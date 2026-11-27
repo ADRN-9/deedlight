@@ -77,6 +77,35 @@ END
 $assert$;
 RESET ROLE;
 
+-- Reservation must reject a valid but substituted source identity.
+SET ROLE deedlight_ledger_approver;
+SELECT deedlight_execution_ledger.approve_execution(
+  'c5850000-0000-4000-8000-000000000004',
+  'c5850000-0000-4000-8000-000000000014',
+  'c5850000-0000-4000-8000-000000000024',
+  '{"path":"supabase/migrations/c585-approved.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb
+);
+RESET ROLE;
+SET ROLE deedlight_ledger_runner;
+DO $assert$
+DECLARE v_detail text;
+BEGIN
+  BEGIN
+    PERFORM deedlight_execution_ledger.reserve_execution(
+      'c5850000-0000-4000-8000-000000000004',
+      'c5850000-0000-4000-8000-000000000014',
+      'c5850000-0000-4000-8000-000000000024',
+      '{"path":"supabase/migrations/c585-substituted.sql","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}'::jsonb
+    );
+    RAISE EXCEPTION 'C585 reservation source substitution unexpectedly accepted';
+  EXCEPTION WHEN SQLSTATE 'D1002' THEN
+    GET STACKED DIAGNOSTICS v_detail=PG_EXCEPTION_DETAIL;
+    IF v_detail NOT LIKE '%reservation_source_identity_substitution%' THEN RAISE; END IF;
+  END;
+END
+$assert$;
+RESET ROLE;
+
 -- Marker source identity cannot be substituted after reservation.
 SET ROLE deedlight_ledger_runner;
 DO $assert$
