@@ -8,9 +8,11 @@ import { categoryEffectKeys, validateCategoryEffectContract } from "./migration-
 const PROJECT_REF = "xaipiovflxomcbfwtwmu";
 const INVENTORY_BLOB_SHA1 = "4e63f31368d446e905f4f44565be73337c7188fb";
 const MAX_EVIDENCE_AGE_MS = 24 * 60 * 60 * 1000;
+const HEX_256 = /^[a-f0-9]{64}$/;
 const PROVISIONED_TRUST_ROOTS_SHA256 = process.env.DEEDLIGHT_MIGRATION_TRUST_ROOTS_SHA256;
 const CATEGORIES = ["schema", "privileges", "ownership", "routines", "dataTransformations", "backfills", "dependencies", "preconditions", "postconditions"];
-const CATALOG_KINDS = ["schemas", "tables", "sequences", "columns", "constraints", "indexes", "triggers", "policies", "routines", "privileges", "ownership", "dataTransformations", "backfills", "dependencies", "preconditions", "postconditions"];
+const CATALOG_KINDS = ["schemas", "tables", "sequences", "columns", "constraints", "indexes", "triggers", "policies", "routines", "privileges", "ownership"];
+const CATALOG_CATEGORIES = new Set(["schema", "privileges", "ownership", "routines"]);
 const PRIVILEGE_OBJECT_KINDS = new Set(["tables", "sequences", "routines"]);
 const REQUIRED_ACCESS_SUMMARY = ["DATABASE_CONNECT", "SYSTEM_CATALOG_SELECT", "MIGRATION_HISTORY_SCHEMA_USAGE", "MIGRATION_HISTORY_SELECT"];
 const SCHEMA_KINDS = new Set(["tables", "columns", "constraints", "indexes", "triggers", "policies"]);
@@ -455,7 +457,7 @@ function validateIndependentEffectEvidence(mapping, evidence, manifest, problems
         if (v && v.status === "independently_verified") expectedConditions.push({
           sourcePath: entry.path, sourceBlobSha1: entry.blobSha1, category, sourceRange: effect.contract.sourceRange,
           predicateSha256: effect.contract.predicateSha256, expectedOutcome: effect.contract.expectedOutcome,
-          querySha256: v.querySha256, evidenceDigest: v.evidenceDigest, capturedAt: v.capturedAt, executionId: v.executionId,
+          observedOutcome: v.observedOutcome, querySha256: v.querySha256, evidenceDigest: v.evidenceDigest, capturedAt: v.capturedAt, executionId: v.executionId,
         });
       }
     }
@@ -463,7 +465,7 @@ function validateIndependentEffectEvidence(mapping, evidence, manifest, problems
   const validateRows = (rows, expected, kind) => {
     const keys = kind === "backfill"
       ? ["sourcePath", "sourceBlobSha1", "sourceRange", "targetRelation", "predicateSha256", "querySha256", "rowCount", "evidenceDigest", "capturedAt", "executionId"]
-      : ["sourcePath", "sourceBlobSha1", "category", "sourceRange", "predicateSha256", "expectedOutcome", "querySha256", "evidenceDigest", "capturedAt", "executionId"];
+      : ["sourcePath", "sourceBlobSha1", "category", "sourceRange", "predicateSha256", "expectedOutcome", "observedOutcome", "querySha256", "evidenceDigest", "capturedAt", "executionId"];
     const seen = new Set();
     for (const row of rows) {
       if (!exactKeys(row, keys) || !inventory.has(row.sourcePath) || row.sourceBlobSha1 !== inventory.get(row.sourcePath)
@@ -474,8 +476,10 @@ function validateIndependentEffectEvidence(mapping, evidence, manifest, problems
         || row.sourceRange.startLine < 1 || row.sourceRange.endLine < row.sourceRange.startLine
         || (kind === "backfill" && (!Number.isSafeInteger(row.rowCount) || row.rowCount < 0
           || !exactKeys(row.targetRelation, ["schema", "relation"]) || !row.targetRelation.schema || !row.targetRelation.relation))
-        || (kind === "condition" && (!["preconditions", "postconditions"].includes(row.category)
-          || !["true", "false", "zero_rows", "nonzero_rows"].includes(row.expectedOutcome)))) {
+         || (kind === "condition" && (!["preconditions", "postconditions"].includes(row.category)
+          || !["true", "false", "zero_rows", "nonzero_rows"].includes(row.expectedOutcome)
+          || !["true", "false", "zero_rows", "nonzero_rows"].includes(row.observedOutcome)
+          || row.observedOutcome !== row.expectedOutcome))) {
         problems.push(kind + " evidence record is malformed or not bound to a pinned migration source");
         continue;
       }
@@ -535,6 +539,7 @@ function validateMapping(mapping, manifest, source, problems) {
     const flattened = [];
     const unsupportedCategories = [];
     const unknownCategories = [];
+    const nonCatalogEvidenceCategories = [];
     const seenEffects = new Set();
     let coverageMalformed = false;
     for (const category of CATEGORIES) {
@@ -600,7 +605,8 @@ function validateMapping(mapping, manifest, source, problems) {
           break;
         }
         seenEffects.add(key);
-        flattened.push({ kind: effect.kind, identity: effect.identity, fingerprint: effect.fingerprint, category });
+        if (CATALOG_CATEGORIES.has(category)) flattened.push({ kind: effect.kind, identity: effect.identity, fingerprint: effect.fingerprint, category });
+        else nonCatalogEvidenceCategories.push(category);
       }
       if (coverageMalformed) break;
     }
@@ -611,7 +617,7 @@ function validateMapping(mapping, manifest, source, problems) {
     if (flattened.length === 0) {
       problems.push("mapping contains no deterministic effects for " + item.path);
     }
-    result.set(item.path, { effects: flattened, unsupportedCategories, unknownCategories });
+    result.set(item.path, { effects: flattened, unsupportedCategories, unknownCategories, nonCatalogEvidenceCategories: [...new Set(nonCatalogEvidenceCategories)] });
   }
   if (byPath.size !== manifest.migrations.length || manifest.migrations.some((item) => !byPath.has(item.path))) {
     problems.push("mapping path set does not exactly match the pinned 40-file inventory");
@@ -679,10 +685,11 @@ function classifyOne(item, manifest, evidence, source, mappedEffects) {
   if (!source.get(item.path)?.valid) return { status: "Unknown", reasons: ["migration source fingerprint is not verified"] };
   const mapping = mappedEffects.get(item.path);
   if (!mapping) return { status: "Unknown", reasons: ["migration has no complete authenticated effect mapping"] };
-  if (mapping.unsupportedCategories.length || mapping.unknownCategories.length) {
+  if (mapping.unsupportedCategories.length || mapping.unknownCategories.length || mapping.nonCatalogEvidenceCategories.length) {
     return { status: "Unknown", reasons: [
       ...mapping.unsupportedCategories.map((category) => "effect domain is explicitly unsupported: " + category),
       ...mapping.unknownCategories.map((category) => "effect domain is explicitly unknown: " + category),
+      ...mapping.nonCatalogEvidenceCategories.map((category) => "non-catalog lifecycle evidence is not authenticated as a PostgreSQL catalog object: " + category),
     ], exactExecutionEstablished: false };
   }
   const expected = mapping.effects;
