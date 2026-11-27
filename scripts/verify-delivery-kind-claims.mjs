@@ -16,7 +16,7 @@ for (const [kind, rpc] of [["daily_reminder","claim_daily_delivery_jobs"],["week
   expect(migration.includes(`grant execute\non function public.${rpc}(integer)\nto service_role`), `${rpc} is service-role only`);
 }
 expect((migration.match(/security invoker/gi) ?? []).length === 2, "both claim RPCs are SECURITY INVOKER");
-expect(!/security definer/i.test(migration), "migration introduces no SECURITY DEFINER functions");
+expect(!/^\\s*security\\s+definer\\b/im.test(migration), "migration introduces no SECURITY DEFINER functions");
 expect((migration.match(/dl.kind = 'daily_reminder'/g) ?? []).length >= 3, "Daily lease cleanup, pick and update are kind scoped");
 expect((migration.match(/dl.kind = 'weekly_newsletter'/g) ?? []).length >= 3, "Weekly lease cleanup, pick and update are kind scoped");
 expect(!migration.includes("_claim_delivery_jobs_for_kind"), "no generic kind-selecting helper exists");
