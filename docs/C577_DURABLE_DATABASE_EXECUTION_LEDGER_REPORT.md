@@ -1,6 +1,6 @@
 # DeedLight C577 — Durable Database Execution Ledger and Atomic Replay Prevention
 
-**Status:** Disposable PostgreSQL 16 ledger implementation and integration harness added. Production deployment, migration-runner integration, verifier trust, and Production acceptance are NOT ESTABLISHED. This is not a Production migration.
+**Status:** Disposable PostgreSQL 16 ledger implementation and integration harness PASS on implementation HEAD `e9a3513867e8e9824c3ea35c2d66b073c6eaa86a`. Exact-head PR Validation run #2226 / `46051047114` completed SUCCESS with 13/13 jobs. Production deployment, migration-runner integration, verifier trust, and Production acceptance are NOT ESTABLISHED. This is not a Production migration.
 
 ## 1. Baseline and scope
 
@@ -151,20 +151,33 @@ Not delivered in C577:
 
 No Production migration execution, migration-history reconciliation, trust-root provisioning, credential exposure, PR merge or Production activation occurred.
 
+## 11. Exact implementation-head CI evidence
+
+- Implementation HEAD: `e9a3513867e8e9824c3ea35c2d66b073c6eaa86a`.
+- PR #33: OPEN, unmerged; base C576 `74af17632cdf27d032058d6782d96f569ef92fca`.
+- Workflow run #2226 / `46051047114`: completed SUCCESS, **13/13 jobs**.
+- Dedicated PostgreSQL job: `migration_execution_ledger_postgres16`, SUCCESS. Its output contains `C577 disposable PostgreSQL 16 execution ledger and concurrent replay tests: PASS`.
+- `validate` job: SUCCESS. Migration analyzer, C575 backfill, C576 pre/postconditions, collector, adapter, offline package integrity, security assertions, webhook/transport, TypeScript, Next.js build, Cloudflare packaging and dependency audit all passed.
+- All other PostgreSQL 16 behavior jobs passed.
+
+The first C577 run #2212 exposed an incorrect test expectation for SQL-level verifier EXECUTE denial; the test was corrected to expect `insufficient_privilege`. An intermediate C577 PostgreSQL job passed on run #2214. The final implementation-head run #2226 then passed after the same-transaction marker and its missing-marker regression were added.
+
+The report-only update that records this evidence creates a later PR head; a separate exact-head run is still required for that final documentation-inclusive commit.
+
 ## 10. Final classification
 
 | Area | Classification |
 |---|---|
 | C576 baseline and predecessor CI | PASS |
-| Disposable ledger schema and server-derived DB identity | IMPLEMENTED; CI pending |
-| Database-scoped unique record/execution IDs | IMPLEMENTED; CI pending |
-| Atomic reservation and single-use approval consumption | IMPLEMENTED; CI pending |
-| Terminal-state immutability and crash-state recovery | IMPLEMENTED; CI pending |
+| Disposable ledger schema and server-derived DB identity | PASS in disposable PostgreSQL 16 CI |
+| Database-scoped unique record/execution IDs | PASS in disposable PostgreSQL 16 CI |
+| Atomic reservation and single-use approval consumption | PASS in disposable PostgreSQL 16 CI |
+| Terminal-state immutability and crash-state recovery | PASS in disposable PostgreSQL 16 CI |
 | Independent server-side pre/post snapshots | IMPLEMENTED for allowlisted disposable fixture query |
 | Separate role-gated approver/runner/observer/verifier/recovery operations | IMPLEMENTED; Production identity governance NOT ESTABLISHED |
-| Transaction rollback and concurrency race evidence | NOT ESTABLISHED until exact-head CI completes |
-| Same-transaction effect marker rollback coupling | NOT ESTABLISHED until exact-head CI completes |
-| Actual process kill and crash-recovery evidence | NOT ESTABLISHED until exact-head CI completes |
+| Transaction rollback and concurrency race evidence | PASS in disposable PostgreSQL 16 CI |
+| Same-transaction effect marker rollback coupling | PASS in disposable PostgreSQL 16 CI |
+| Actual process kill and crash-recovery evidence | PASS in disposable PostgreSQL 16 CI |
 | Production migration-runner integration | BLOCKED |
 | Production observation query bundles | BLOCKED |
 | Production verifier trust root | BLOCKED |
