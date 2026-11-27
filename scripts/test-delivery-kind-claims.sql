@@ -40,9 +40,17 @@ begin
     raise exception 'Kind-specific claim RPC privilege boundary is invalid.';
   end if;
 
-  if has_function_privilege('service_role','public.claim_delivery_jobs(timestamp with time zone,integer)','EXECUTE')
-    or has_function_privilege('service_role','public._claim_delivery_jobs_for_kind(text,timestamp with time zone,integer)','EXECUTE') then
-    raise exception 'Generic or internal claim function remains callable by service_role.';
+  if has_function_privilege('service_role','public.claim_delivery_jobs(timestamp with time zone,integer)','EXECUTE') then
+    raise exception 'Legacy unrestricted claim function remains callable by service_role.';
+  end if;
+
+  if to_regprocedure('public._claim_delivery_jobs_for_kind(text,timestamp with time zone,integer)') is not null then
+    raise exception 'A generic internal kind selector must not exist.';
+  end if;
+
+  if (select prosecdef from pg_catalog.pg_proc where oid='public.claim_daily_delivery_jobs(integer)'::regprocedure)
+    or (select prosecdef from pg_catalog.pg_proc where oid='public.claim_weekly_delivery_jobs(integer)'::regprocedure) then
+    raise exception 'Kind-scoped claim RPCs must remain SECURITY INVOKER.';
   end if;
 end;
 $privileges$;
@@ -137,11 +145,6 @@ begin
   begin
     perform * from public.claim_delivery_jobs(clock_timestamp(), 10);
     raise exception 'Service role executed the legacy unrestricted claim RPC.';
-  exception when insufficient_privilege then null;
-  end;
-  begin
-    perform * from public._claim_delivery_jobs_for_kind('daily_reminder', clock_timestamp(), 10);
-    raise exception 'Service role executed the private claim implementation.';
   exception when insufficient_privilege then null;
   end;
 end;
@@ -258,7 +261,7 @@ select jsonb_build_object(
   'kind_scoped_retry_exhaustion','pass',
   'malformed_batch_rejection','pass',
   'legacy_generic_rpc_denied','pass',
-  'private_helper_denied','pass',
+  'no_generic_kind_helper','pass',
   'stale_token_rejected','pass',
   'browser_role_denial','pass'
 ) as delivery_kind_claim_behavior;
