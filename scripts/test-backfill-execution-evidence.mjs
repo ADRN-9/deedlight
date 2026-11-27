@@ -394,3 +394,16 @@ test("condition verifier issued before post-state observation is rejected", () =
   assert.ok(verifyConditions(f).problems.includes("VERIFIER:AUTHORITY_EXPIRED_OR_TIME_INVALID")
     || verifyConditions(f).problems.includes("VERIFIER:IDENTITY_VERSION_OR_POST_OBSERVATION_TIME_INVALID"));
 });
+
+test("altered but rehashed observations fail independent verifier evidence binding", () => {
+  const f = conditionFixture();
+  f.record.postExecutionState.rows[0].facts.offering_count = 26;
+  f.record.postExecutionState.rowsSha256 = hash(canonical(f.record.postExecutionState.rows));
+  assert.ok(verifyConditions(f).problems.includes("EXECUTION_RECORD:BASE_EVIDENCE_INVALID"));
+});
+
+test("unknown verifier key is rejected even with an otherwise intact attestation", () => {
+  const f = conditionFixture();
+  f.conditionVerification.keyId = "untrusted-verifier-key";
+  assert.ok(verifyConditions(f).problems.includes("VERIFIER:AUTHORITY_MISSING_OR_INVALID"));
+});
