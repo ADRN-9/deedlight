@@ -31,7 +31,7 @@ function fixture() {
       tlsRootCertificateSha256: "a".repeat(64), independentlyPinnedProfileSha256: "b".repeat(64),
     },
     source: {
-      repositoryCommitSha: "c".repeat(40), migrationInventoryGitBlobSha1: "95d514a0bd97ff448c9507252eb1f5e69a507442",
+      repositoryCommitSha: "c".repeat(40), migrationInventoryGitBlobSha1: "a18cf2c65eb595ecd143fbaa16e2d81badf8d1f8",
       sqlBundlePath: "scripts/production-migration-readonly-audit.sql",
       sqlBundleGitBlobSha1: "8f8c38ba0c2a463ee25c6dae1dc1b15e24e3819f",
       sqlBundleSha256: "afda6bcfc9f7abc7765b8dfb54bf02d1cdb0d8062da2a9f953336b638d13af7d",
