@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://deedlight.com/schemas/migration-pre-postcondition-contract-v1.schema.json",
+  "title": "DeedLight Migration Preconditions and Postconditions v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "contractId", "sourceIdentity", "databaseIdentity", "preconditions", "postconditions", "relationships"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "deedlight-migration-pre-postcondition-contract" },
+    "contractId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "sourceIdentity": { "$ref": "#/$defs/sourceIdentity" },
+    "databaseIdentity": { "$ref": "#/$defs/databaseIdentity" },
+    "preconditions": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/condition" } },
+    "postconditions": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/condition" } },
+    "relationships": { "type": "array", "items": { "$ref": "#/$defs/relationship" } }
+  },
+  "$defs": {
+    "sha1": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "sourceIdentity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "version", "gitBlobSha1", "sha256", "sourceRange", "statementSha256"],
+      "properties": {
+        "path": { "type": "string", "pattern": "^supabase/migrations/.+\\.sql$" },
+        "version": { "type": "string", "minLength": 1 },
+        "gitBlobSha1": { "$ref": "#/$defs/sha1" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "sourceRange": {
+          "type": "object", "additionalProperties": false, "required": ["startLine", "endLine"],
+          "properties": { "startLine": { "type": "integer", "minimum": 1 }, "endLine": { "type": "integer", "minimum": 1 } }
+        },
+        "statementSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "databaseIdentity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["projectRef", "environment", "databaseName", "serverIdentity", "serverVersion"],
+      "properties": {
+        "projectRef": { "type": "string", "minLength": 1 },
+        "environment": { "enum": ["production", "staging", "development", "test"] },
+        "databaseName": { "type": "string", "minLength": 1 },
+        "serverIdentity": { "type": "string", "minLength": 1 },
+        "serverVersion": { "type": "string", "minLength": 1 }
+      }
+    },
+    "condition": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "observation", "operator", "expected"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "observation": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "operator": { "enum": ["equals", "not_equals"] },
+        "expected": {}
+      }
+    },
+    "relationship": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "observation", "operator", "expectedDelta"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "observation": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "operator": { "const": "integer_delta_equals" },
+        "expectedDelta": { "type": "integer" }
+      }
+    }
+  }
+}
