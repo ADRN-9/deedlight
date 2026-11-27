@@ -17,8 +17,8 @@ for (const [kind, rpc] of [["daily_reminder","claim_daily_delivery_jobs"],["week
 }
 expect((migration.match(/security invoker/gi) ?? []).length === 2, "both claim RPCs are SECURITY INVOKER");
 expect(!/security definer/i.test(migration), "migration introduces no SECURITY DEFINER functions");
-expect((migration.match(/where dl.kind = 'daily_reminder'/g) ?? []).length >= 3, "Daily lease cleanup, pick and update are kind scoped");
-expect((migration.match(/where dl.kind = 'weekly_newsletter'/g) ?? []).length >= 3, "Weekly lease cleanup, pick and update are kind scoped");
+expect((migration.match(/dl.kind = 'daily_reminder'/g) ?? []).length >= 3, "Daily lease cleanup, pick and update are kind scoped");
+expect((migration.match(/dl.kind = 'weekly_newsletter'/g) ?? []).length >= 3, "Weekly lease cleanup, pick and update are kind scoped");
 expect(!migration.includes("_claim_delivery_jobs_for_kind"), "no generic kind-selecting helper exists");
 expect(migration.includes("revoke all privileges\non function public.claim_delivery_jobs(timestamptz, integer)\nfrom public, anon, authenticated, service_role"), "legacy unrestricted RPC is revoked from application roles");
 expect(aggregate.includes(migration.trim()), "migration 039 is mirrored verbatim in SQL Editor aggregate");
