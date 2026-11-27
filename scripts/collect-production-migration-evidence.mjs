@@ -20,6 +20,7 @@ const COLLECTOR_ID = "deedlight-readonly-collector-v1";
 const PSQL_BINARY = "/usr/bin/psql";
 const GIT_BINARY = "/usr/bin/git";
 
+export const CSV_QUOTED_EMPTY = "\u0001DEEDLIGHT_CSV_QUOTED_EMPTY\u0001";
 export class CollectorError extends Error {
   constructor(code) { super(code); this.name = "CollectorError"; this.code = code; }
 }
@@ -38,6 +39,7 @@ export function parseCsv(input) {
   const text = Buffer.isBuffer(input) ? input.toString("utf8") : String(input);
   if (Buffer.isBuffer(input) && !Buffer.from(text, "utf8").equals(input)) throw new CollectorError("INVALID_CSV_UTF8");
   if (text.includes("\u0000")) throw new CollectorError("INVALID_CSV_NUL");
+  if (text.includes(CSV_QUOTED_EMPTY)) throw new CollectorError("CSV_RESERVED_SENTINEL");
   const CR = String.fromCharCode(13), LF = String.fromCharCode(10);
   const rows = []; let row = []; let cell = ""; let quoted = false; let quoteClosed = false;
   for (let i = 0; i < text.length; i += 1) {
@@ -45,7 +47,7 @@ export function parseCsv(input) {
     if (quoted) {
       if (ch === '"') {
         if (text[i + 1] === '"') { cell += '"'; i += 1; }
-        else { quoted = false; quoteClosed = true; }
+        else { quoted = false; quoteClosed = true; if (cell === "") cell = CSV_QUOTED_EMPTY; }
       } else cell += ch;
       continue;
     }
@@ -173,8 +175,8 @@ export function validateSqlOutput(csv) {
     if (!/^[0-9]{12}$/.test(version) || seenVersions.has(version) || version <= previousVersion) {
       throw new CollectorError("MIGRATION_HISTORY_VERSION_INVALID");
     }
-    const name = rawName === "" ? null : rawName;
-    if (name !== null && name !== "\\N" && !/^[A-Za-z0-9_-]+$/.test(name)) throw new CollectorError("MIGRATION_HISTORY_NAME_INVALID");
+    const name = rawName === "" ? null : rawName === CSV_QUOTED_EMPTY ? "" : rawName;
+    if (name !== null && name !== "" && name !== "\\N" && !/^[A-Za-z0-9_-]+$/.test(name)) throw new CollectorError("MIGRATION_HISTORY_NAME_INVALID");
     const recordedStatementCount = rawCount === "" ? null : Number(rawCount);
     if (recordedStatementCount !== null && (!/^(0|[1-9][0-9]*)$/.test(rawCount) ||
         !Number.isSafeInteger(recordedStatementCount) || recordedStatementCount < 0)) {
@@ -455,7 +457,7 @@ export function buildReceipt({ profile, profileDigest, commitSha, startedAt, com
       collectorId: COLLECTOR_ID, authenticatedPrincipal: profile.username, expectedEffectivePrincipal: profile.username,
       transactionIsolation: "repeatable read", readOnly: true, transactionRollbackVerified: validation.transactionClosed,
       startedAt, completedAt, outputFormat: "PostgreSQL psql CSV",
-      canonicalization: "RFC4180 CSV parsed as ordered string-cell records; UTF-8 canonical JSON with lexicographically sorted object keys and preserved array order; SHA-256",
+      canonicalization: "RFC4180 CSV parsed as ordered string-cell records; unquoted empty cells preserve SQL NULL and quoted empty cells use a reserved internal sentinel; UTF-8 canonical JSON with lexicographically sorted object keys and preserved array order; SHA-256",
       resultRecordCount: validation.resultRows.length, databaseAclV1RowCount: validation.databaseAclRows, migrationHistoryRowCount: validation.migrationHistoryRows.length,
       canonicalResultSha256: sha256(Buffer.from(canonicalJson(validation.resultRows), "utf8")),
       evidenceFileSha256: sha256(csv),
