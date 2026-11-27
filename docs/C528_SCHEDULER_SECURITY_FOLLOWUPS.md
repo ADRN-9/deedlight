@@ -28,16 +28,18 @@ All commits are on the existing PR #24 branch; no branch retargeting was attempt
 - `481606a9acbe7fbda6559c4ef3211a65931148e2` — replace UUID max aggregate in test fixture.
 - `1d521e4ec9b74870e645a50242ec32cf72f51602` — correct Weekly reclaim fixture structure.
 - `44d8dff3419ea2cb82480936bd4acacdd54fa929` — compare the first freshly issued Weekly token against the second reclaim token.
-- **Current PR HEAD at report preparation:** `44d8dff3419ea2cb82480936bd4acacdd54fa929`.
+- - `88282621e7855e53555c7fed450759c612c14f04` — strengthen clock checks per function.
+- `b49c93003fc41804e1e942a079483601f477d7d5` — correct per-function lease verifier regexes.
+- **Current PR HEAD before this report refresh:** `b49c93003fc41804e1e942a079483601f477d7d5`.
 
 Migration 039 was independently re-fetched at this HEAD and its blob SHA remains the original value. Its 18 `clock_timestamp()` occurrences were checked against the static-verifier threshold; no lease-expiry predicate using `now()` was found. The SQL Editor aggregate still contains migration 039 verbatim.
 
 ## Validation status and blockers
 
 - Source-level inspection confirms the Weekly test captures the first new token, forces that lease to expire, invokes the Weekly claim function again, and asserts the first token is rejected by `authorize_delivery_job`.
-- Source-level inspection confirms the verifier's regular expressions target the actual function signatures and clock predicates.
+- Source-level inspection confirms the verifier extracts each claim function body separately and requires wall-clock checks for expiry, due-job eligibility, and five-minute lease assignment; transaction-start `now()` is rejected.
 - The existing CI workflow is already wired to run `node scripts/verify-delivery-kind-claims.mjs` in `validate` and `scripts/test-delivery-kind-claims.sql` through the PostgreSQL migration-order job.
-- **No exact-head workflow run ID or successful test result is available yet.** GitHub's commit-workflow-run lookup and combined-status lookup returned empty results for `44d8dff3419ea2cb82480936bd4acacdd54fa929`. This agent does not have a repository shell/runner, so it cannot truthfully claim local execution of Node or PostgreSQL tests. Exact-head CI remains a release blocker pending an observable workflow run.
+- **No exact-head workflow run ID or successful test result is available yet.** GitHub's commit-workflow-run lookup and combined-status lookup returned empty results for the current PR head when checked; both lookups returned empty results. No workflow run ID is available to report. This agent does not have a repository shell/runner, so it cannot truthfully claim local execution of Node or PostgreSQL tests. Exact-head CI remains a release blocker pending an observable workflow run.
 
 ## Unchanged external blockers
 
