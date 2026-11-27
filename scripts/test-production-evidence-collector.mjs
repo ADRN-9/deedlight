@@ -202,6 +202,21 @@ test("migration history projection uses the exact analyzer-native field contract
   assert.throws(() => validateSqlOutput(renamed), CollectorError);
 });
 
+test("migration history preserves literal NULL names and rejects nonnumeric statement-count text", () => {
+  const literalName = validCsv().replace(
+    "202611240037,migration_037_fixture,1",
+    "202611240037,NULL,1",
+  );
+  assert.equal(validateSqlOutput(literalName).migrationHistoryRows[0].name, "NULL");
+
+  const invalidCount = validCsv().replace(
+    "202611240037,migration_037_fixture,1",
+    "202611240037,migration_037_fixture,NULL",
+  );
+  assert.throws(() => validateSqlOutput(invalidCount),
+    (error) => error.code === "MIGRATION_HISTORY_STATEMENT_COUNT_INVALID");
+});
+
 test("migration history rejects malformed versions, duplicate versions, names and statement counts", () => {
   for (const [from, to, code] of [
     ["202611240037,migration_037_fixture,1", "bad-version,migration_037_fixture,1", "MIGRATION_HISTORY_VERSION_INVALID"],

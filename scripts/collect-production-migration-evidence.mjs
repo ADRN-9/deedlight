@@ -171,9 +171,9 @@ export function validateSqlOutput(csv) {
     if (!/^[0-9]{12}$/.test(version) || seenVersions.has(version) || version <= previousVersion) {
       throw new CollectorError("MIGRATION_HISTORY_VERSION_INVALID");
     }
-    const name = rawName === "" || rawName === "NULL" ? null : rawName;
+    const name = rawName === "" ? null : rawName;
     if (name !== null && !/^[A-Za-z0-9_-]+$/.test(name)) throw new CollectorError("MIGRATION_HISTORY_NAME_INVALID");
-    const recordedStatementCount = rawCount === "" || rawCount === "NULL" ? null : Number(rawCount);
+    const recordedStatementCount = rawCount === "" ? null : Number(rawCount);
     if (recordedStatementCount !== null && (!/^(0|[1-9][0-9]*)$/.test(rawCount) ||
         !Number.isSafeInteger(recordedStatementCount) || recordedStatementCount < 0)) {
       throw new CollectorError("MIGRATION_HISTORY_STATEMENT_COUNT_INVALID");
