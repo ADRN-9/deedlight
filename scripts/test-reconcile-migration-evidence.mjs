@@ -1706,3 +1706,47 @@ test("independent measurement evidence must exactly match mapped backfills",()=>
     }finally{f.cleanup();}
   }
 });
+
+
+test("condition evidence binds exact source, predicate and matching observed outcome in authenticated payload",()=>{
+  const f=fixture();
+  try{
+    const item=sourceManifest.migrations[0];
+    const sourceLine=readFileSync(path.join(repoRoot,item.path),"utf8").split(/\r?\n/)[0];
+    const effect={
+      kind:"preconditions",identity:"fixture.precondition",fingerprint:hash("condition-effect"),
+      description:"Synthetic test-only condition with independently authenticated fixture outcome.",
+      sourcePath:item.path,
+      contract:{
+        predicateSql:"SELECT true",predicateSha256:hash("SELECT true"),expectedOutcome:"true",
+        verification:{
+          status:"independently_verified",observedOutcome:"true",predicateSha256:hash("SELECT true"),
+          evidenceDigest:hash("condition-result"),querySha256:hash("SELECT true"),
+          capturedAt:FIXTURE_CAPTURED_AT,executionId:"fixture-condition-run",sourceBlobSha1:item.blobSha1,
+        },
+        sourceRange:{startLine:1,endLine:1},sourceStatementSha256:hash(sourceLine),
+      },
+    };
+    f.mapping.migrations[0].effects.preconditions=[effect];
+    f.mapping.migrations[0].coverage.preconditions.disposition="effects";
+    f.evidence.conditionVerifications.push({
+      sourcePath:item.path,sourceBlobSha1:item.blobSha1,category:"preconditions",
+      sourceRange:effect.contract.sourceRange,predicateSha256:effect.contract.predicateSha256,
+      expectedOutcome:"true",observedOutcome:"true",querySha256:effect.contract.verification.querySha256,
+      evidenceDigest:effect.contract.verification.evidenceDigest,capturedAt:effect.contract.verification.capturedAt,
+      executionId:effect.contract.verification.executionId,
+    });
+    f.reapprove();
+    const valid=f.analyze();
+    assert.equal(valid.trustVerified,true,valid.trustProblems.join("; "));
+    assert.equal(valid.acceptance,"NOT_ACCEPTED");
+    assert.ok(valid.unresolvedLifecycleEvidence>0);
+
+    f.evidence.conditionVerifications[0].observedOutcome="false";
+    f.reapprove();
+    const contradictory=f.analyze();
+    assert.equal(contradictory.trustVerified,false);
+    assert.equal(contradictory.acceptance,"NOT_ACCEPTED");
+    assert.ok(contradictory.trustProblems.some(reason=>reason.includes("condition evidence")));
+  }finally{f.cleanup();}
+});
