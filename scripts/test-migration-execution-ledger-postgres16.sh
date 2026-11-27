@@ -47,6 +47,10 @@ env -i PATH="$PATH" HOME="${HOME:-/tmp}" PGPASSWORD=postgres \
     BEGIN;
     SET LOCAL ROLE deedlight_ledger_runner;
     INSERT INTO deedlight_execution_ledger.test_effects(effect_value) VALUES ('uncommitted crash effect');
+    SELECT deedlight_execution_ledger.record_effect_commit_marker(
+      'c5700000-0000-4000-8000-000000000027',
+      '{"path":"supabase/migrations/test-crash.sql","sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}'::jsonb
+    );
     SELECT pg_catalog.pg_sleep(30);
     COMMIT;
   " >"$tmp_dir/crash.log" 2>&1 &
