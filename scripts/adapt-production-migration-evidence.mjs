@@ -5,7 +5,7 @@ import process from "node:process";
 import {
   canonicalJson, CSV_QUOTED_EMPTY, INVENTORY_GIT_BLOB_SHA1, PROJECT_REF, RECEIPT_SCHEMA_GIT_BLOB_SHA1,
   RECEIPT_SCHEMA_SHA256, SQL_GIT_BLOB_SHA1, SQL_PATH, SQL_PROJECTIONS, SQL_SHA256,
-  sha256, validateSqlOutput, verifyReceiptAndEvidence,
+  isStrictRfc3339, sha256, validateSqlOutput, verifyReceiptAndEvidence,
 } from "./collect-production-migration-evidence.mjs";
 import { gitBlobSha1, validateInventory } from "./verify-migration-inventory-aggregate.mjs";
 import { categoryEffectKeys, validateCategoryEffectContract } from "./migration-effect-contracts.mjs";
@@ -343,7 +343,7 @@ export function adaptCollectorEvidence({receipt,csv,inventoryBytes,schemaBytes,m
     ||identityRow.database_name!==receipt.endpoint.database)fail("PROVENANCE_DATABASE_IDENTITY_MISMATCH");
   if(!hex(receipt?.source?.repositoryCommitSha,40)||identityRow.repository_sha!==receipt.source.repositoryCommitSha)fail("PROVENANCE_REPOSITORY_IDENTITY_MISMATCH");
   const databaseCaptureTimestamp=identityRow.captured_at_utc;
-  if(typeof databaseCaptureTimestamp!=="string"||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z$/.test(databaseCaptureTimestamp))fail("COLLECTOR_CAPTURE_TIMESTAMP_INVALID");
+  if(!isStrictRfc3339(databaseCaptureTimestamp))fail("COLLECTOR_CAPTURE_TIMESTAMP_INVALID");
   const capturedAt=receipt.execution.completedAt;
   const structure=p.get("migration_history_structure_v1");
   const structureByName=new Map(structure.map(row=>[row[1],row]));
