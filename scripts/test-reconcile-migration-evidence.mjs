@@ -49,6 +49,9 @@ function fixture() {
   for (const item of sourceManifest.migrations) copyFileSync(path.join(repoRoot, item.path), path.join(rootDir, item.path));
 
   const migrationEffects = sourceManifest.migrations.map((item, index) => {
+    const sourceLines = readFileSync(path.join(repoRoot, item.path), "utf8").split(/\r?\n/);
+    const sourceRange = { startLine: 1, endLine: 1 };
+    const sourceStatementSha256 = hash(sourceLines[0]);
     const schemaEffect = {
       kind: index % 2 ? "columns" : "tables",
       identity: "fixture.schema." + index,
@@ -59,7 +62,23 @@ function fixture() {
       kind: "backfills",
       identity: "fixture.backfill." + index,
       fingerprint: hash("backfill:" + index),
-      description: "Backfill transformation and postcondition evidence",
+      description: "Synthetic test-only backfill contract; never Production evidence.",
+      sourcePath: item.path,
+      contract: {
+        targetRelation: { schema: "fixture", relation: "backfill_target" },
+        predicate: { sql: "id IS NULL", sha256: hash("id IS NULL") },
+        measurement: {
+          status: "independently_measured",
+          rowCount: 7,
+          querySha256: hash("test-only-backfill-query:" + index),
+          evidenceDigest: hash("test-only-backfill-result:" + index),
+          capturedAt: FIXTURE_CAPTURED_AT,
+          executionId: "test-only-execution-" + index,
+          sourceBlobSha1: item.blobSha1,
+        },
+        sourceRange,
+        sourceStatementSha256,
+      },
     };
     const effects = {
       schema: [schemaEffect],
@@ -70,7 +89,16 @@ function fixture() {
         kind: "dataTransformations",
         identity: "fixture.transform." + index,
         fingerprint: hash("transform:" + index),
-        description: "Data transformation with exact source and result invariants",
+        description: "Synthetic test-only transformation contract; never Production evidence.",
+        sourcePath: item.path,
+        contract: {
+          operation: "UPDATE",
+          sourceRelations: [{ schema: "fixture", relation: "transform_source" }],
+          targetRelation: { schema: "fixture", relation: "transform_target" },
+          predicate: { sql: "id IS NOT NULL", sha256: hash("id IS NOT NULL") },
+          sourceRange,
+          sourceStatementSha256,
+        },
       }],
       backfills: [dataEffect],
       dependencies: [],
@@ -114,6 +142,13 @@ function fixture() {
   }
   const evidence = {
     schemaVersion: 2,
+    backfillMeasurements: migrationEffects.map(entry => {
+      const effect = entry.effects.backfills[0], c = effect.contract, m = c.measurement;
+      return { sourcePath: entry.path, sourceBlobSha1: entry.blobSha1, sourceRange: c.sourceRange,
+        targetRelation: c.targetRelation, predicateSha256: c.predicate.sha256, querySha256: m.querySha256,
+        rowCount: m.rowCount, evidenceDigest: m.evidenceDigest, capturedAt: m.capturedAt, executionId: m.executionId };
+    }),
+    conditionVerifications: [],
     provenance: {
       environment: "production",
       projectRef: "xaipiovflxomcbfwtwmu",
@@ -1579,6 +1614,87 @@ test("mapping rejects missing categories, malformed fingerprints and incomplete 
       assert.equal(report.acceptance,"NOT_ACCEPTED");
       assert.equal(report.counts.Unknown,40);
       assert.ok(report.trustProblems.some(reason=>reason.includes("mapping")||reason.includes("effect")));
+    }finally{f.cleanup();}
+  }
+});
+
+
+test("authenticated analyzer rejects incomplete or inconsistent category-specific contracts",()=>{
+  const mutations=[
+    f=>{delete f.mapping.migrations[0].effects.dataTransformations[0].contract;},
+    f=>{f.mapping.migrations[0].effects.dataTransformations[0].contract.targetRelation={schema:"fixture"};},
+    f=>{f.mapping.migrations[0].effects.dataTransformations[0].sourcePath="supabase/migrations/unpinned.sql";},
+    f=>{f.mapping.migrations[0].effects.backfills[0].contract.measurement.rowCount=-1;},
+    f=>{f.mapping.migrations[0].effects.backfills[0].contract.measurement.evidenceDigest="not-a-digest";},
+    f=>{f.mapping.migrations[0].effects.backfills[0].contract.measurement.status="not_measured";
+      f.mapping.migrations[0].effects.backfills[0].contract.measurement={status:"not_measured",reason:"No independent execution measurement is available for this fixture."};},
+    f=>{f.mapping.migrations[0].effects.backfills[0].contract.measurement.sourceBlobSha1="0".repeat(40);},
+  ];
+  for(const mutate of mutations){
+    const f=fixture();
+    try{
+      mutate(f);f.reapprove();const report=f.analyze();
+      assert.equal(report.trustVerified,false);
+      assert.equal(report.acceptance,"NOT_ACCEPTED");
+      assert.equal(report.counts.Unknown,40);
+      assert.ok(report.trustProblems.some(reason=>reason.includes("contract")||reason.includes("backfill")||reason.includes("mapping")));
+    }finally{f.cleanup();}
+  }
+});
+
+test("dependency, precondition and postcondition contracts cannot omit their semantic bindings",()=>{
+  const cases=[
+    ["dependencies",effect=>{effect.contract.dependsOnMigrationPath=effect.sourcePath;}],
+    ["preconditions",effect=>{effect.contract.expectedOutcome="unknown";}],
+    ["postconditions",effect=>{effect.contract.verification={status:"not_verified",reason:"Source SQL does not prove a historical postcondition result."};}],
+  ];
+  for(const [category,mutate] of cases){
+    const f=fixture();
+    try{
+      const item=sourceManifest.migrations[0];
+      const effect={kind:category,identity:"fixture."+category,fingerprint:hash(category),
+        description:"Synthetic test-only semantic effect.",sourcePath:item.path,
+        contract:category==="dependencies"
+          ?{dependencyType:"foreign_key",fromRelation:{schema:"fixture",relation:"child"},toRelation:{schema:"fixture",relation:"parent"},
+            dependsOnMigrationPath:sourceManifest.migrations[1].path,dependsOnMigrationBlobSha1:sourceManifest.migrations[1].blobSha1,sourceRange:{startLine:1,endLine:1},sourceStatementSha256:hash(readFileSync(path.join(repoRoot,item.path),"utf8").split(/\r?\n/)[0])}
+          :{predicateSql:"SELECT true",predicateSha256:hash("SELECT true"),expectedOutcome:"true",
+            verification:{status:"independently_verified",evidenceDigest:hash("evidence"),querySha256:hash("query"),
+              capturedAt:FIXTURE_CAPTURED_AT,executionId:"test-only-condition-execution",sourceBlobSha1:item.blobSha1},
+            sourceRange:{startLine:1,endLine:1},sourceStatementSha256:hash(readFileSync(path.join(repoRoot,item.path),"utf8").split(/\r?\n/)[0])},
+      };
+      f.mapping.migrations[0].effects[category]=[effect];
+      f.mapping.migrations[0].coverage[category].disposition="effects";
+      if(category==="preconditions"||category==="postconditions"){
+        f.evidence.conditionVerifications.push({sourcePath:item.path,sourceBlobSha1:item.blobSha1,category,
+          sourceRange:effect.contract.sourceRange,predicateSha256:effect.contract.predicateSha256,
+          expectedOutcome:effect.contract.expectedOutcome,querySha256:effect.contract.verification.querySha256,
+          evidenceDigest:effect.contract.verification.evidenceDigest,capturedAt:effect.contract.verification.capturedAt,
+          executionId:effect.contract.verification.executionId});
+      }
+      mutate(effect);f.reapprove();const report=f.analyze();
+      assert.equal(report.trustVerified,false);
+      assert.equal(report.acceptance,"NOT_ACCEPTED");
+      assert.equal(report.counts.Unknown,40);
+    }finally{f.cleanup();}
+  }
+});
+
+
+test("independent measurement evidence must exactly match mapped backfills",()=>{
+  const mutations=[
+    f=>{f.evidence.backfillMeasurements=[];},
+    f=>{f.evidence.backfillMeasurements.push(structuredClone(f.evidence.backfillMeasurements[0]));},
+    f=>{f.evidence.backfillMeasurements[0].rowCount+=1;},
+    f=>{f.evidence.backfillMeasurements[0].sourceBlobSha1="0".repeat(40);},
+    f=>{f.evidence.backfillMeasurements[0].sourceRange={startLine:0,endLine:1};},
+  ];
+  for(const mutate of mutations){
+    const f=fixture();
+    try{
+      mutate(f);f.reapprove();const report=f.analyze();
+      assert.equal(report.trustVerified,false);
+      assert.equal(report.acceptance,"NOT_ACCEPTED");
+      assert.ok(report.trustProblems.some(reason=>reason.includes("backfill evidence")));
     }finally{f.cleanup();}
   }
 });

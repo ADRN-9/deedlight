@@ -66,6 +66,9 @@ jobs:
       - name: Production migration audit SQL static safety regressions
         run: node --test scripts/test-production-migration-readonly-audit.mjs
 
+      - name: Verify C556 source-derived migration effect observations
+        run: node scripts/verify-c556-migration-source-observations.mjs
+
       - name: Migration reconciliation analyzer adversarial security regressions
         run: node --test scripts/test-reconcile-migration-evidence.mjs
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import {
@@ -8,6 +8,7 @@ import {
   sha256, validateSqlOutput, verifyReceiptAndEvidence,
 } from "./collect-production-migration-evidence.mjs";
 import { gitBlobSha1, validateInventory } from "./verify-migration-inventory-aggregate.mjs";
+import { categoryEffectKeys, validateCategoryEffectContract } from "./migration-effect-contracts.mjs";
 
 const CATALOG_KINDS = ["schemas","tables","sequences","columns","constraints","indexes","triggers","policies","routines","privileges","ownership"];
 const CATEGORIES = ["schema","privileges","ownership","routines","dataTransformations","backfills","dependencies","preconditions","postconditions"];
@@ -191,6 +192,17 @@ function validateMapping(mapping,inventory){
   if(mapping===undefined||mapping===null)return null;
   if(!exact(mapping,["schemaVersion","migrations"])||mapping.schemaVersion!==1||!Array.isArray(mapping.migrations)||mapping.migrations.length!==inventory.migrations.length)fail("MIGRATION_MAPPING_INCOMPLETE");
   const byPath=new Map(),allowedDispositions=new Set(["effects","none","unsupported","unknown"]);
+  const inventoryPaths=new Map(inventory.migrations.map(item=>[item.path,item.blobSha1]));
+  const sourceRoot=realpathSync(process.cwd());
+  const sourceTexts=new Map(inventory.migrations.map(item=>{
+    const absolute=path.resolve(sourceRoot,item.path);
+    if(!absolute.startsWith(sourceRoot+path.sep))fail("MIGRATION_MAPPING_SOURCE_PATH_ESCAPE");
+    const stat=lstatSync(absolute);
+    if(!stat.isFile()||stat.isSymbolicLink()||!realpathSync(absolute).startsWith(sourceRoot+path.sep))fail("MIGRATION_MAPPING_SOURCE_NOT_REGULAR");
+    const bytes=readFileSync(absolute);
+    if(gitBlobSha1(bytes)!==item.blobSha1||bytes.length!==item.byteLength)fail("MIGRATION_MAPPING_SOURCE_FINGERPRINT_MISMATCH");
+    return [item.path,bytes.toString("utf8")];
+  }));
   for(const entry of mapping.migrations){
     if(!exact(entry,["path","blobSha1","coverage","effects"])||typeof entry.path!=="string"||byPath.has(entry.path)||!hex(entry.blobSha1,40))fail("MIGRATION_MAPPING_ENTRY_INVALID");
     if(!exact(entry.effects,CATEGORIES)||!exact(entry.coverage,CATEGORIES))fail("MIGRATION_MAPPING_CATEGORIES_INVALID");
@@ -208,8 +220,12 @@ function validateMapping(mapping,inventory){
       }
       for(const effect of effects){
         const allowedKinds=category==="schema"?SCHEMA_EFFECT_KINDS:category==="routines"?new Set(["routines"]):new Set([category]);
-        if(!exact(effect,["description","fingerprint","identity","kind"])||typeof effect.identity!=="string"||!effect.identity.trim()
-          ||!allowedKinds.has(effect.kind)||!hex(effect.fingerprint,64)||typeof effect.description!=="string"||!effect.description.trim())fail("MIGRATION_MAPPING_EFFECT_INVALID");
+        if(!exact(effect,categoryEffectKeys(category))||typeof effect.identity!=="string"||!effect.identity.trim()
+          ||!allowedKinds.has(effect.kind)||!hex(effect.fingerprint,64)||typeof effect.description!=="string"||!effect.description.trim()
+          ||(categoryEffectKeys(category).includes("sourcePath")&&effect.sourcePath!==entry.path))fail("MIGRATION_MAPPING_EFFECT_INVALID");
+        const sourceRange=effect.contract&&effect.contract.sourceRange;
+        if(!sourceRange||!review.sourceRanges.some(range=>sourceRange.startLine>=range.startLine&&sourceRange.endLine<=range.endLine))fail("MIGRATION_MAPPING_SOURCE_RANGE_UNCOVERED");
+        if(validateCategoryEffectContract(category,effect,inventoryPaths,{requireEvidence:false,sourceText:sourceTexts.get(entry.path)}))fail("MIGRATION_MAPPING_CATEGORY_CONTRACT_INVALID");
         const effectIdentity=effect.kind+"\\0"+effect.identity;
         if(seenEffects.has(effectIdentity))fail("MIGRATION_MAPPING_EFFECT_DUPLICATED");
         seenEffects.add(effectIdentity);
@@ -341,7 +357,7 @@ export function adaptCollectorEvidence({receipt,csv,inventoryBytes,schemaBytes,m
   const normalizedMapping=validateMapping(mapping,inventory);
   const catalogObjects=buildCatalog(p);
   const environment=receipt.endpoint.database==="postgres"?"production":"test";
-  const evidence={schemaVersion:2,
+  const evidence={schemaVersion:2,backfillMeasurements:[],conditionVerifications:[],
     provenance:{environment,projectRef:PROJECT_REF,capturedAt,collectorIdentity:receipt.execution.collectorId,queryBundleSha256:receipt.source.sqlBundleSha256},
     history:{complete:true,rows:validation.migrationHistoryRows},
     catalog:{complete:false,completeKinds:[...CATALOG_KINDS],objects:catalogObjects}};

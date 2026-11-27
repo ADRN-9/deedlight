@@ -3,6 +3,7 @@ import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gitBlobSha1, validateInventory } from "./verify-migration-inventory-aggregate.mjs";
+import { categoryEffectKeys, validateCategoryEffectContract } from "./migration-effect-contracts.mjs";
 
 const PROJECT_REF = "xaipiovflxomcbfwtwmu";
 const INVENTORY_BLOB_SHA1 = "4e63f31368d446e905f4f44565be73337c7188fb";
@@ -159,7 +160,7 @@ function validateSourceInventory(rootDir, manifest) {
     const bytes = readRegularFile(rootDir, item.path);
     const actual = gitBlobSha1(bytes);
     source.set(item.path, actual === item.blobSha1 && bytes.length === item.byteLength
-      ? { valid: true, blobSha1: actual, lineCount: bytes.toString("utf8").split(/\r?\n/).length }
+      ? { valid: true, blobSha1: actual, lineCount: bytes.toString("utf8").split(/\r?\n/).length, content: bytes.toString("utf8") }
       : { valid: false, reason: "source fingerprint or byte length differs from pinned inventory", actualBlobSha1: actual });
   }
   return source;
@@ -422,7 +423,75 @@ function validateCollectorAuthority(claims, provenance, evidenceDigest, authorit
   if (db.proofQueryBundleSha256 !== provenance.queryBundleSha256) {
     problems.push("collector privilege proof was not produced by the approved query bundle");
   }
+} 
+function validateIndependentEffectEvidence(mapping, evidence, manifest, problems) {
+  const exactKeys = (value, keys) => value && typeof value === "object" && !Array.isArray(value)
+    && Object.keys(value).sort().join(",") === [...keys].sort().join(",");
+  const inventory = new Map(manifest.migrations.map(item => [item.path, item.blobSha1]));
+  const measurements = evidence && evidence.backfillMeasurements;
+  const conditions = evidence && evidence.conditionVerifications;
+  if (!Array.isArray(measurements) || !Array.isArray(conditions)) {
+    problems.push("independent backfill measurements and condition verifications must be explicit arrays");
+    return;
+  }
+  const expectedMeasurements = [];
+  const expectedConditions = [];
+  for (const entry of mapping && Array.isArray(mapping.migrations) ? mapping.migrations : []) {
+    if (!entry || typeof entry !== "object") continue;
+    for (const effect of entry.effects && Array.isArray(entry.effects.backfills) ? entry.effects.backfills : []) {
+      if (!effect || typeof effect !== "object") continue;
+      const m = effect.contract && effect.contract.measurement;
+      if (m && m.status === "independently_measured" && effect.contract && effect.contract.predicate && effect.contract.predicate.sha256) expectedMeasurements.push({
+        sourcePath: entry.path, sourceBlobSha1: entry.blobSha1, sourceRange: effect.contract.sourceRange,
+        targetRelation: effect.contract.targetRelation, predicateSha256: effect.contract.predicate.sha256,
+        querySha256: m.querySha256, rowCount: m.rowCount, evidenceDigest: m.evidenceDigest,
+        capturedAt: m.capturedAt, executionId: m.executionId,
+      });
+    }
+    for (const category of ["preconditions", "postconditions"]) {
+      for (const effect of entry.effects && Array.isArray(entry.effects[category]) ? entry.effects[category] : []) {
+        if (!effect || typeof effect !== "object") continue;
+        const v = effect.contract && effect.contract.verification;
+        if (v && v.status === "independently_verified") expectedConditions.push({
+          sourcePath: entry.path, sourceBlobSha1: entry.blobSha1, category, sourceRange: effect.contract.sourceRange,
+          predicateSha256: effect.contract.predicateSha256, expectedOutcome: effect.contract.expectedOutcome,
+          querySha256: v.querySha256, evidenceDigest: v.evidenceDigest, capturedAt: v.capturedAt, executionId: v.executionId,
+        });
+      }
+    }
+  }
+  const validateRows = (rows, expected, kind) => {
+    const keys = kind === "backfill"
+      ? ["sourcePath", "sourceBlobSha1", "sourceRange", "targetRelation", "predicateSha256", "querySha256", "rowCount", "evidenceDigest", "capturedAt", "executionId"]
+      : ["sourcePath", "sourceBlobSha1", "category", "sourceRange", "predicateSha256", "expectedOutcome", "querySha256", "evidenceDigest", "capturedAt", "executionId"];
+    const seen = new Set();
+    for (const row of rows) {
+      if (!exactKeys(row, keys) || !inventory.has(row.sourcePath) || row.sourceBlobSha1 !== inventory.get(row.sourcePath)
+        || !HEX_256.test(row.predicateSha256 || "") || !HEX_256.test(row.querySha256 || "")
+        || !HEX_256.test(row.evidenceDigest || "") || !parseTime(row.capturedAt, kind + " evidence timestamp", problems)
+        || typeof row.executionId !== "string" || !row.executionId.trim()
+        || !exactKeys(row.sourceRange, ["startLine", "endLine"]) || !Number.isSafeInteger(row.sourceRange.startLine) || !Number.isSafeInteger(row.sourceRange.endLine)
+        || row.sourceRange.startLine < 1 || row.sourceRange.endLine < row.sourceRange.startLine
+        || (kind === "backfill" && (!Number.isSafeInteger(row.rowCount) || row.rowCount < 0
+          || !exactKeys(row.targetRelation, ["schema", "relation"]) || !row.targetRelation.schema || !row.targetRelation.relation))
+        || (kind === "condition" && (!["preconditions", "postconditions"].includes(row.category)
+          || !["true", "false", "zero_rows", "nonzero_rows"].includes(row.expectedOutcome)))) {
+        problems.push(kind + " evidence record is malformed or not bound to a pinned migration source");
+        continue;
+      }
+      const key = canonicalJson(row);
+      if (seen.has(key)) problems.push(kind + " evidence contains a duplicate record");
+      seen.add(key);
+    }
+    const expectedSet = new Set(expected.map(canonicalJson));
+    if (seen.size !== expectedSet.size || [...expectedSet].some(key => !seen.has(key))) {
+      problems.push(kind + " evidence records do not exactly match the signed category-specific mapping");
+    }
+  };
+  validateRows(measurements, expectedMeasurements, "backfill");
+  validateRows(conditions, expectedConditions, "condition");
 }
+
 function validateMapping(mapping, manifest, source, problems) {
   if (!mapping || mapping.schemaVersion !== 1 || !Array.isArray(mapping.migrations)
     || mapping.migrations.length !== manifest.migrations.length) {
@@ -444,6 +513,7 @@ function validateMapping(mapping, manifest, source, problems) {
     byPath.set(entry.path, entry);
   }
   const result = new Map();
+  const inventoryPaths = new Map(manifest.migrations.map((item) => [item.path, item.blobSha1]));
   const allowedDispositions = new Set(["effects", "none", "unsupported", "unknown"]);
   for (const item of manifest.migrations) {
     const entry = byPath.get(item.path);
@@ -503,10 +573,23 @@ function validateMapping(mapping, manifest, source, problems) {
       for (const effect of effects) {
         const allowed = category === "schema" ? SCHEMA_KINDS
           : category === "routines" ? new Set(["routines"]) : new Set([category]);
-        if (!effect || Object.keys(effect).sort().join(",") !== ["description", "fingerprint", "identity", "kind"].sort().join(",")
+        if (!effect || Object.keys(effect).sort().join(",") !== categoryEffectKeys(category).sort().join(",")
           || !allowed.has(effect.kind) || typeof effect.identity !== "string" || !effect.identity.trim()
           || !/^[a-f0-9]{64}$/.test(effect.fingerprint || "")
-          || typeof effect.description !== "string" || !effect.description.trim()) {
+          || typeof effect.description !== "string" || !effect.description.trim()
+          || (categoryEffectKeys(category).includes("sourcePath") && effect.sourcePath !== item.path)) {
+          coverageMalformed = true;
+          break;
+        }
+        const contractRange = effect.contract && effect.contract.sourceRange;
+        if (!contractRange || !ranges.some((range) => contractRange.startLine >= range.startLine && contractRange.endLine <= range.endLine)) {
+          problems.push("category-specific effect source range is not covered by reviewed mapping ranges for " + item.path);
+          coverageMalformed = true;
+          break;
+        }
+        const contractProblem = validateCategoryEffectContract(category, effect, inventoryPaths, { sourceText: source.get(item.path).content });
+        if (contractProblem) {
+          problems.push(contractProblem + " for " + item.path);
           coverageMalformed = true;
           break;
         }
@@ -538,7 +621,7 @@ function validateMapping(mapping, manifest, source, problems) {
 function validateEvidence(evidence, now, manifest, problems) {
   const exactKeys = (value, keys) => value && typeof value === "object" && !Array.isArray(value)
     && Object.keys(value).sort().join(",") === [...keys].sort().join(",");
-  const required = ["catalog", "collectorAuthority", "history", "mapping", "provenance", "schemaVersion"];
+  const required = ["backfillMeasurements", "catalog", "collectorAuthority", "conditionVerifications", "history", "mapping", "provenance", "schemaVersion"];
   const allowed = [...required, "externalExecutionProvenance"];
   if (!evidence || evidence.schemaVersion !== 2
     || required.some((key) => !Object.prototype.hasOwnProperty.call(evidence || {}, key))
@@ -726,6 +809,7 @@ export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approval
   validateEvidence(evidence, now, manifest, problems);
   const mapping = evidence && evidence.mapping;
   const mappedEffects = validateMapping(mapping, manifest, source, problems);
+  validateIndependentEffectEvidence(mapping, evidence, manifest, problems);
   const evidenceDigest = sha256(evidencePayload(evidence));
   const mapDigest = mappingDigest(mapping);
   const provenance = evidence && evidence.provenance || {};
