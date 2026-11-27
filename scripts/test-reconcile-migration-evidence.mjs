@@ -1605,3 +1605,56 @@ test("mapping rejects missing categories, malformed fingerprints and incomplete 
     }finally{f.cleanup();}
   }
 });
+
+
+test("authenticated analyzer rejects incomplete or inconsistent category-specific contracts",()=>{
+  const mutations=[
+    f=>{delete f.mapping.migrations[0].effects.dataTransformations[0].contract;},
+    f=>{f.mapping.migrations[0].effects.dataTransformations[0].contract.targetRelation={schema:"fixture"};},
+    f=>{f.mapping.migrations[0].effects.dataTransformations[0].sourcePath="supabase/migrations/unpinned.sql";},
+    f=>{f.mapping.migrations[0].effects.backfills[0].contract.measurement.rowCount=-1;},
+    f=>{f.mapping.migrations[0].effects.backfills[0].contract.measurement.evidenceDigest="not-a-digest";},
+    f=>{f.mapping.migrations[0].effects.backfills[0].contract.measurement.status="not_measured";
+      f.mapping.migrations[0].effects.backfills[0].contract.measurement={status:"not_measured",reason:"No independent execution measurement is available for this fixture."};},
+    f=>{f.mapping.migrations[0].effects.backfills[0].contract.measurement.sourceBlobSha1="0".repeat(40);},
+  ];
+  for(const mutate of mutations){
+    const f=fixture();
+    try{
+      mutate(f);f.reapprove();const report=f.analyze();
+      assert.equal(report.trustVerified,false);
+      assert.equal(report.acceptance,"NOT_ACCEPTED");
+      assert.equal(report.counts.Unknown,40);
+      assert.ok(report.trustProblems.some(reason=>reason.includes("contract")||reason.includes("backfill")||reason.includes("mapping")));
+    }finally{f.cleanup();}
+  }
+});
+
+test("dependency, precondition and postcondition contracts cannot omit their semantic bindings",()=>{
+  const cases=[
+    ["dependencies",effect=>{effect.contract.dependsOnMigrationPath=effect.sourcePath;}],
+    ["preconditions",effect=>{effect.contract.expectedOutcome="unknown";}],
+    ["postconditions",effect=>{effect.contract.verification={status:"not_verified",reason:"Source SQL does not prove a historical postcondition result."};}],
+  ];
+  for(const [category,mutate] of cases){
+    const f=fixture();
+    try{
+      const item=sourceManifest.migrations[0];
+      const effect={kind:category,identity:"fixture."+category,fingerprint:hash(category),
+        description:"Synthetic test-only semantic effect.",sourcePath:item.path,
+        contract:category==="dependencies"
+          ?{dependencyType:"foreign_key",fromRelation:{schema:"fixture",relation:"child"},toRelation:{schema:"fixture",relation:"parent"},
+            dependsOnMigrationPath:sourceManifest.migrations[1].path,sourceStatementSha256:hash("dependency")}
+          :{predicateSql:"SELECT true",predicateSha256:hash(category),expectedOutcome:"true",
+            verification:{status:"independently_verified",evidenceDigest:hash("evidence"),querySha256:hash("query"),
+              capturedAt:FIXTURE_CAPTURED_AT,executionId:"test-only-condition-execution"}},
+      };
+      f.mapping.migrations[0].effects[category]=[effect];
+      f.mapping.migrations[0].coverage[category].disposition="effects";
+      mutate(effect);f.reapprove();const report=f.analyze();
+      assert.equal(report.trustVerified,false);
+      assert.equal(report.acceptance,"NOT_ACCEPTED");
+      assert.equal(report.counts.Unknown,40);
+    }finally{f.cleanup();}
+  }
+});
