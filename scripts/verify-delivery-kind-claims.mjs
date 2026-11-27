@@ -33,6 +33,8 @@ expect(scheduler.includes('env.WEEKLY_DELIVERY_ENABLED === "true"'), "Weekly rem
 expect(sqlTests.includes("claim_daily_delivery_jobs(10)") && sqlTests.includes("claim_weekly_delivery_jobs(10)"), "database tests exercise both kind RPCs");
 expect(sqlTests.includes("Daily claim mutated a Weekly queued, expired, or exhausted job"), "Daily adversarial cross-kind mutation check exists");
 expect(sqlTests.includes("Weekly claim mutated an already-claimed Daily job"), "Weekly adversarial cross-kind mutation check exists");
+expect(sqlTests.includes("Weekly claim mutated a Daily queued, expired, or exhausted job"), "Weekly adversarial cross-kind eligible-job isolation check exists");
+expect(sqlTests.includes("Anonymous role executed legacy unrestricted claim") && sqlTests.includes("Authenticated role executed legacy unrestricted claim"), "browser denial of legacy unrestricted RPC is exercised");
 expect(sqlTests.includes("claim_daily_delivery_jobs(null)") && sqlTests.includes("claim_weekly_delivery_jobs(null)"), "null batch sizes rejected");
 expect(sqlTests.includes("Legacy unrestricted claim function remains callable"), "legacy unrestricted RPC denial tested");
 expect(sqlTests.includes("SECURITY INVOKER") && sqlTests.includes("to_regprocedure('public._claim_delivery_jobs_for_kind"), "database test asserts invoker functions and absence of generic helper");
