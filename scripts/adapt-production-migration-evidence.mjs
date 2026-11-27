@@ -223,8 +223,10 @@ function validateMapping(mapping,inventory){
         if(!exact(effect,categoryEffectKeys(category))||typeof effect.identity!=="string"||!effect.identity.trim()
           ||!allowedKinds.has(effect.kind)||!hex(effect.fingerprint,64)||typeof effect.description!=="string"||!effect.description.trim()
           ||(categoryEffectKeys(category).includes("sourcePath")&&effect.sourcePath!==entry.path))fail("MIGRATION_MAPPING_EFFECT_INVALID");
-        const sourceRange=effect.contract&&effect.contract.sourceRange;
-        if(!sourceRange||!review.sourceRanges.some(range=>sourceRange.startLine>=range.startLine&&sourceRange.endLine<=range.endLine))fail("MIGRATION_MAPPING_SOURCE_RANGE_UNCOVERED");
+        if(categoryEffectKeys(category).includes("sourcePath")){
+          const sourceRange=effect.contract&&effect.contract.sourceRange;
+          if(!sourceRange||!review.sourceRanges.some(range=>sourceRange.startLine>=range.startLine&&sourceRange.endLine<=range.endLine))fail("MIGRATION_MAPPING_SOURCE_RANGE_UNCOVERED");
+        }
         if(validateCategoryEffectContract(category,effect,inventoryPaths,{requireEvidence:false,sourceText:sourceTexts.get(entry.path)}))fail("MIGRATION_MAPPING_CATEGORY_CONTRACT_INVALID");
         const effectIdentity=effect.kind+"\\0"+effect.identity;
         if(seenEffects.has(effectIdentity))fail("MIGRATION_MAPPING_EFFECT_DUPLICATED");
