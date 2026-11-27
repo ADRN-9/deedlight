@@ -832,16 +832,17 @@ test("migration-history SQL normalization preserves SQL NULL and literal NULL ma
     ["202607260005", SQL_NULL_SENTINEL, "NULL"],
     ["202607260006", "NULL", "0"],
     ["202607270008", "\\N", "1"],
-    ["202607270009", "", "1"],
   ]);
   assert.deepEqual(rows, [
     { version: "202607260004", name: "sprint4_reactions", recordedStatementCount: 12 },
     { version: "202607260005", name: null, recordedStatementCount: null },
     { version: "202607260006", name: "NULL", recordedStatementCount: 0 },
     { version: "202607270008", name: "\\N", recordedStatementCount: 1 },
-    { version: "202607270009", name: "", recordedStatementCount: 1 },
   ]);
-  assert.ok(validateMigrationHistoryRows(rows, sourceManifest).some((problem) => problem.includes("invalid migration name")));
+  assert.deepEqual(validateMigrationHistoryRows(rows, sourceManifest), []);
+  const emptyName = normalizeMigrationHistoryRows([["202607270008", "", "1"]]);
+  assert.equal(emptyName[0].name, "");
+  assert.ok(validateMigrationHistoryRows(emptyName, sourceManifest).some((problem) => problem.includes("invalid migration name")));
   for (const malformed of [
     [["202607260004", "sprint4_reactions"]],
     [["202607260004", "sprint4_reactions", "bad"]],
