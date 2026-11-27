@@ -246,6 +246,10 @@ export function validateBackfillExecutionRecord(record, {
   const publicKeyFingerprints = new Set();
   const rootRoles = new Set();
   for (const key of (Array.isArray(trustRoots?.keys) ? trustRoots.keys : [])) {
+    if (!key || typeof key !== "object" || Array.isArray(key)) {
+      problems.push("TRUST:KEY_BUNDLE_INVALID");
+      continue;
+    }
     if (!exact(key, ["algorithm", "keyId", "notAfter", "notBefore", "publicKeyPem", "revokedAt", "role", "signerId", "status"])
       || !roles.has(key.role) || key.algorithm !== "Ed25519" || key.status !== "active"
       || typeof key.keyId !== "string" || !key.keyId || typeof key.signerId !== "string" || !key.signerId
