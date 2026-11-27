@@ -37,14 +37,14 @@ export function validateCategoryEffectContract(category, effect, inventoryPaths,
       || typeof contract.predicate.sql !== "string" || !contract.predicate.sql.trim()
       || !HEX_256.test(contract.predicate.sha256 || "") || digestText(contract.predicate.sql) !== contract.predicate.sha256)) return "transformation predicate is malformed or unbound";
     const operationPattern = {
-      INSERT_SELECT: /^\\s*insert\\s+into\\b[\\s\\S]*?\\bselect\\b/i,
-      UPDATE: /^\\s*update\\b[\\s\\S]*?\\bset\\b/i,
-      DELETE: /^\\s*delete\\s+from\\b/i,
-      UPSERT: /^\\s*insert\\s+into\\b[\\s\\S]*?\\bon\\s+conflict\\b/i,
-      MERGE: /^\\s*merge\\s+into\\b[\\s\\S]*?\\bwhen\\b/i,
+      INSERT_SELECT: /^\s*insert\s+into\b[\s\S]*?\bselect\b/i,
+      UPDATE: /^\s*update\b[\s\S]*?\bset\b/i,
+      DELETE: /^\s*delete\s+from\b/i,
+      UPSERT: /^\s*insert\s+into\b[\s\S]*?\bon\s+conflict\b/i,
+      MERGE: /^\s*merge\s+into\b[\s\S]*?\bwhen\b/i,
     }[contract.operation];
     if (!operationPattern.test(sourceStatement)) return "transformation operation does not match its pinned SQL source range";
-    const relationOccurs = value => new RegExp("(^|[^A-Za-z0-9_$])(?:" + value.schema + "\\\\s*\\\\.\\\\s*)?" + value.relation + "([^A-Za-z0-9_$]|$)", "i").test(sourceStatement);
+    const relationOccurs = value => new RegExp("(^|[^A-Za-z0-9_$])(?:" + value.schema + "\\s*\\.\\s*)?" + value.relation + "([^A-Za-z0-9_$]|$)", "i").test(sourceStatement);
     if (!relationOccurs(contract.targetRelation) || contract.sourceRelations.some(value => !relationOccurs(value))) {
       return "transformation source/target relations do not occur in the pinned SQL source range";
     }
