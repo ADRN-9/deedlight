@@ -217,6 +217,7 @@ CREATE TABLE IF NOT EXISTS deedlight_execution_ledger.observation_queries (
   query_bundle_id text NOT NULL,
   query_bundle_digest text NOT NULL CHECK (query_bundle_digest ~ '^[a-f0-9]{64}$'),
   UNIQUE (query_id, query_sha256, query_bundle_id, query_bundle_digest),
+  UNIQUE (query_id, query_sha256, query_bundle_digest),
   FOREIGN KEY (query_bundle_id, query_bundle_digest)
     REFERENCES deedlight_execution_ledger.query_bundle_manifests(bundle_id, manifest_sha256)
 );
@@ -664,14 +665,14 @@ DECLARE v_actor name := deedlight_execution_ledger.actor_role();
         v_identity deedlight_execution_ledger.database_identity%ROWTYPE;
         v_count integer;
 BEGIN
-  IF v_actor IS DISTINCT FROM 'deedlight_ledger_recovery' THEN RAISE EXCEPTION 'recovery authority required'; END IF;
+  IF v_actor IS DISTINCT FROM 'deedlight_ledger_recovery' THEN PERFORM deedlight_execution_ledger.raise_trust_failure('missing_trust','recovery_authority_missing',jsonb_build_object('actor',v_actor)); END IF;
   IF p_stale_after IS NULL OR p_stale_after <= interval '0 seconds'
-    OR p_stale_after > interval '7 days' THEN RAISE EXCEPTION 'recovery timeout outside safe bounds'; END IF;
+    OR p_stale_after > interval '7 days' THEN PERFORM deedlight_execution_ledger.raise_trust_failure('incomplete_preconditions','recovery_timeout_outside_safe_bounds','{}'::jsonb); END IF;
   SELECT * INTO STRICT v_identity FROM deedlight_execution_ledger.database_identity WHERE singleton;
   UPDATE deedlight_execution_ledger.executions
   SET status = CASE WHEN status = 'reserved' THEN 'interrupted' ELSE 'unknown' END,
       completed_at = pg_catalog.clock_timestamp(),
-      outcome_detail = pg_catalog.jsonb_build_object('reason','stale_execution_recovery','recoveryActor',v_actor)
+      outcome_detail = CASE WHEN status='running' THEN pg_catalog.jsonb_build_object('category','ambiguous_execution_outcome','diagnosticCode','D1008','reason','running_execution_stale_after_heartbeat','recoveryActor',v_actor) ELSE pg_catalog.jsonb_build_object('category','incomplete_preconditions','reason','reserved_execution_expired_before_start','recoveryActor',v_actor) END
   WHERE system_identifier = v_identity.system_identifier AND database_oid = v_identity.database_oid
     AND status IN ('reserved','running')
     AND heartbeat_at < pg_catalog.clock_timestamp() - p_stale_after;
