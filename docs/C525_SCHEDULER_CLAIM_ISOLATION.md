@@ -77,3 +77,29 @@ The RPCs enforce kind isolation for application claim calls. The existing `servi
 PR #25's independent-review dependency remains outstanding. C524's successful CI is not independent security approval and is not treated as approval of C525.
 
 **Acceptance status:** implementation and exact-HEAD CI PASS; independent security review remains outstanding. The documentation-only status refresh requires its own exact-HEAD CI. No Production rollout is authorized by this work.
+
+
+## C528 — Coordinated rollback requirement
+
+Migration 039 changes the database RPC contract: the unrestricted
+`claim_delivery_jobs(timestamptz, integer)` is revoked from every application
+role, including `service_role`, and the application must call the two
+kind-scoped RPCs. This is a coordinated application/database change.
+
+**Do not roll back by deploying old application code alone.** An older worker
+that still invokes `claim_delivery_jobs` will fail with a permission error
+after migration 039. Re-granting that legacy RPC would restore the cross-kind
+claim surface this migration is specifically intended to remove, and is not an
+acceptable rollback.
+
+If a rollback is approved, first stop/hold scheduler execution using the
+approved operational procedure and keep the global delivery kill switch off.
+Then deploy an application version that is compatible with the *currently
+installed* kind-scoped RPCs (or keep the current compatible application).
+Database rollback, if ever justified, requires a separately reviewed,
+forward-safe migration plan and explicit security review; it must not
+automatically restore legacy EXECUTE grants or weaken Daily/Weekly isolation.
+Re-enable delivery only after exact application/database compatibility,
+permissions, and CI evidence are verified. Production rollback is not
+authorized by this document.
+
