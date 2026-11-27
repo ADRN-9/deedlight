@@ -92,7 +92,9 @@ AS $fn$
     AND (SELECT pg_catalog.count(*) FROM pg_catalog.jsonb_object_keys(p_source_identity)) = 2
     AND pg_catalog.jsonb_typeof(p_source_identity->'path') = 'string'
     AND pg_catalog.btrim(p_source_identity->>'path') <> ''
-    AND (p_source_identity->>'path') !~ '(^/|(^|/)\\.\\.(/|$)|[[:cntrl:]])'
+    AND pg_catalog.left(p_source_identity->>'path',1) <> '/'
+    AND pg_catalog.strpos(p_source_identity->>'path','..') = 0
+    AND pg_catalog.strpos(p_source_identity->>'path',pg_catalog.chr(10)) = 0
     AND pg_catalog.jsonb_typeof(p_source_identity->'sha256') = 'string'
     AND (p_source_identity->>'sha256') ~ '^[a-f0-9]{64}$'
 $fn$;
