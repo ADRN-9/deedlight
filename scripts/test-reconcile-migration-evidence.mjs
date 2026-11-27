@@ -1767,3 +1767,28 @@ test("condition evidence binds exact source, predicate and matching observed out
     }
   }finally{f.cleanup();}
 });
+
+test("malformed and untrusted evidence always yields complete structured lifecycle classifications", () => {
+  const mutations = [
+    (f) => { delete f.mapping.migrations[0].effects.dependencies; },
+    (f) => { f.approvals.evidenceApproval.signature = "not-a-valid-signature"; },
+    (f) => { f.mapping.migrations[0].coverage.backfills = null; },
+    (f) => { f.trustRoots.keys = []; },
+    (f) => { f.evidence.collectorAuthority = null; },
+  ];
+  for (const mutate of mutations) {
+    const f = fixture();
+    try {
+      mutate(f);
+      const report = f.analyze();
+      assert.equal(report.acceptance, "NOT_ACCEPTED");
+      assert.ok(Array.isArray(report.classifications));
+      assert.equal(report.classifications.length, 40);
+      for (const classification of report.classifications) {
+        assert.ok(Array.isArray(classification.nonCatalogEvidenceCategories));
+        assert.ok(Array.isArray(classification.unsupportedNonCatalogCategories));
+        assert.ok(Array.isArray(classification.unknownNonCatalogCategories));
+      }
+    } finally { f.cleanup(); }
+  }
+});
