@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import {
@@ -193,8 +193,13 @@ function validateMapping(mapping,inventory){
   if(!exact(mapping,["schemaVersion","migrations"])||mapping.schemaVersion!==1||!Array.isArray(mapping.migrations)||mapping.migrations.length!==inventory.migrations.length)fail("MIGRATION_MAPPING_INCOMPLETE");
   const byPath=new Map(),allowedDispositions=new Set(["effects","none","unsupported","unknown"]);
   const inventoryPaths=new Map(inventory.migrations.map(item=>[item.path,item.blobSha1]));
+  const sourceRoot=realpathSync(process.cwd());
   const sourceTexts=new Map(inventory.migrations.map(item=>{
-    const bytes=readFileSync(path.join(process.cwd(),item.path));
+    const absolute=path.resolve(sourceRoot,item.path);
+    if(!absolute.startsWith(sourceRoot+path.sep))fail("MIGRATION_MAPPING_SOURCE_PATH_ESCAPE");
+    const stat=lstatSync(absolute);
+    if(!stat.isFile()||stat.isSymbolicLink()||!realpathSync(absolute).startsWith(sourceRoot+path.sep))fail("MIGRATION_MAPPING_SOURCE_NOT_REGULAR");
+    const bytes=readFileSync(absolute);
     if(gitBlobSha1(bytes)!==item.blobSha1||bytes.length!==item.byteLength)fail("MIGRATION_MAPPING_SOURCE_FINGERPRINT_MISMATCH");
     return [item.path,bytes.toString("utf8")];
   }));
