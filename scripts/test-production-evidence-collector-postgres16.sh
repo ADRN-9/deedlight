@@ -126,13 +126,38 @@ DEEDLIGHT_COLLECTOR_ENDPOINT_PROFILE_SHA256="$profile_digest" \
   node scripts/collect-production-migration-evidence.mjs \
     --profile "$work/collector-endpoint.json" --output "$work/evidence-success"
 
+validate_receipt_schema() {
+  npx --yes --package=ajv-cli@5.0.0 -- ajv validate --spec=draft2020 \
+    -s "$repo_root/schemas/production-migration-collection-receipt-v1.schema.json" -d "$1"
+}
+validate_receipt_schema "$work/evidence-success/receipt.json"
+jq '.source.sqlBundleGitBlobSha1 = "8f8c38ba0c2a463ee25c6dae1dc1b15e24e3819f"' \
+  "$work/evidence-success/receipt.json" >"$work/receipt-stale-sql-blob.json"
+if validate_receipt_schema "$work/receipt-stale-sql-blob.json"; then
+  echo "FAIL: published receipt schema accepted a stale SQL Git blob fingerprint" >&2
+  exit 1
+fi
+jq '.source.sqlBundleSha256 = "afda6bcfc9f7abc7765b8dfb54bf02d1cdb0d8062da2a9f953336b638d13af7d"' \
+  "$work/evidence-success/receipt.json" >"$work/receipt-stale-sql-sha256.json"
+if validate_receipt_schema "$work/receipt-stale-sql-sha256.json"; then
+  echo "FAIL: published receipt schema accepted a stale SQL SHA-256 fingerprint" >&2
+  exit 1
+fi
+
 node --input-type=module - "$work/evidence-success" <<'NODE'
 import assert from "node:assert/strict";
 import { readFileSync, statSync } from "node:fs";
-import { validateSqlOutput, verifyReceiptAndEvidence } from "./scripts/collect-production-migration-evidence.mjs";
+import { validateSqlOutput, verifyReceiptAndEvidence, SQL_GIT_BLOB_SHA1, SQL_SHA256, RECEIPT_SCHEMA_GIT_BLOB_SHA1, RECEIPT_SCHEMA_SHA256 } from "./scripts/collect-production-migration-evidence.mjs";
 const dir = process.argv[2];
 const receipt = JSON.parse(readFileSync(dir + "/receipt.json", "utf8"));
 const evidence = readFileSync(dir + "/evidence.csv");
+const publishedSchema = JSON.parse(readFileSync(new URL("./schemas/production-migration-collection-receipt-v1.schema.json", import.meta.url), "utf8"));
+assert.equal(publishedSchema.properties.source.properties.sqlBundleGitBlobSha1.const, SQL_GIT_BLOB_SHA1);
+assert.equal(publishedSchema.properties.source.properties.sqlBundleSha256.const, SQL_SHA256);
+assert.equal(receipt.source.sqlBundleGitBlobSha1, SQL_GIT_BLOB_SHA1);
+assert.equal(receipt.source.sqlBundleSha256, SQL_SHA256);
+assert.equal(receipt.source.receiptSchemaGitBlobSha1, RECEIPT_SCHEMA_GIT_BLOB_SHA1);
+assert.equal(receipt.source.receiptSchemaSha256, RECEIPT_SCHEMA_SHA256);
 assert.equal(receipt.status, "UNSIGNED_NOT_ACCEPTED");
 assert.equal(receipt.projectRef, "xaipiovflxomcbfwtwmu");
 assert.equal(receipt.execution.authenticatedPrincipal, "deedlight_catalog_auditor");
@@ -159,7 +184,28 @@ node scripts/adapt-production-migration-evidence.mjs \
 node --input-type=module - "$work/normalized-candidate.json" <<'NODE'
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { validateCollectorPrivilegeEvidence } from "./scripts/reconcile-migration-evidence.mjs";
 const candidate = JSON.parse(readFileSync(process.argv[2], "utf8"));
+const authority = candidate.databaseAuthorityCandidate;
+const catalogObjects = candidate.evidence.catalog.objects;
+assert.deepEqual(authority.requiredAccessSummary, [
+  "DATABASE_CONNECT", "SYSTEM_CATALOG_SELECT", "MIGRATION_HISTORY_SCHEMA_USAGE", "MIGRATION_HISTORY_SELECT",
+]);
+assert.ok(catalogObjects.length > 0);
+assert.ok(authority.columnPrivileges.length > 0);
+assert.deepEqual(validateCollectorPrivilegeEvidence(authority, catalogObjects), []);
+
+const broadened = structuredClone(authority);
+broadened.databasePrivileges.push("CREATE");
+assert.notDeepEqual(validateCollectorPrivilegeEvidence(broadened, catalogObjects), []);
+
+const missingColumn = structuredClone(authority);
+missingColumn.columnPrivileges.pop();
+assert.notDeepEqual(validateCollectorPrivilegeEvidence(missingColumn, catalogObjects), []);
+
+const duplicateColumn = structuredClone(authority);
+duplicateColumn.columnPrivileges.push(structuredClone(duplicateColumn.columnPrivileges[0]));
+assert.notDeepEqual(validateCollectorPrivilegeEvidence(duplicateColumn, catalogObjects), []);
 assert.equal(candidate.status, "UNSIGNED_NOT_ACCEPTED");
 assert.equal(candidate.acceptance, "NOT_ACCEPTED");
 assert.equal(candidate.evidence.schemaVersion, 2);
