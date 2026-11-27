@@ -279,10 +279,26 @@ pid_b=$!
 both_blocked=false
 for attempt in $(seq 1 200); do
   blocked="$(clean_psql --tuples-only --no-align --command "
-    SELECT count(*) FROM pg_catalog.pg_stat_activity waiter
-    WHERE waiter.application_name IN ('deedlight_c585_waiter_a','deedlight_c585_waiter_b')
-      AND waiter.wait_event_type='Lock'
-      AND $holder_backend_pid = ANY(pg_catalog.pg_blocking_pids(waiter.pid))
+    WITH RECURSIVE waiters AS (
+      SELECT pid FROM pg_catalog.pg_stat_activity
+      WHERE application_name IN ('deedlight_c585_waiter_a','deedlight_c585_waiter_b')
+        AND wait_event_type='Lock'
+    ), blocker_chain(waiter_pid, blocker_pid, path, depth) AS (
+      SELECT waiter.pid, blocker.pid, ARRAY[waiter.pid, blocker.pid], 1
+      FROM waiters waiter
+      CROSS JOIN LATERAL unnest(pg_catalog.pg_blocking_pids(waiter.pid)) AS blocker(pid)
+      UNION ALL
+      SELECT chain.waiter_pid, blocker.pid, chain.path || blocker.pid, chain.depth + 1
+      FROM blocker_chain chain
+      CROSS JOIN LATERAL unnest(pg_catalog.pg_blocking_pids(chain.blocker_pid)) AS blocker(pid)
+      WHERE NOT blocker.pid = ANY(chain.path) AND chain.depth < 16
+    )
+    SELECT count(DISTINCT waiter.pid)
+    FROM waiters waiter
+    WHERE EXISTS (
+      SELECT 1 FROM blocker_chain chain
+      WHERE chain.waiter_pid=waiter.pid AND $holder_backend_pid = ANY(chain.path)
+    )
   ")"
   if [[ "$blocked" == "2" ]]; then
     both_blocked=true
@@ -291,7 +307,14 @@ for attempt in $(seq 1 200); do
   sleep 0.1
 done
 [[ "$both_blocked" == "true" ]] || {
-  echo "FAIL: both replay waiters were not observed blocked by holder PID $holder_backend_pid" >&2
+  echo "FAIL: both replay waiters were not observed in the holder's lock chain (holder PID $holder_backend_pid; observed=$blocked)" >&2
+  clean_psql --command "
+    SELECT pid, application_name, state, wait_event_type, wait_event,
+           pg_catalog.pg_blocking_pids(pid) AS blocking_pids, left(query,240) AS query
+    FROM pg_catalog.pg_stat_activity
+    WHERE application_name IN ('deedlight_c585_lock_holder','deedlight_c585_waiter_a','deedlight_c585_waiter_b')
+    ORDER BY application_name
+  " >&2
   cat "$tmp_dir/race-a.log" "$tmp_dir/race-b.log"
   exit 1
 }
