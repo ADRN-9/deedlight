@@ -104,25 +104,6 @@ export function validateCollectorPrivilegeEvidence(db, inventoryObjects) {
   }
   return problems;
 }
-export function normalizeMigrationHistoryRows(tuples) {
-  assert(Array.isArray(tuples), "migration-history SQL output must be an array of rows");
-  return tuples.map((tuple, index) => {
-    assert(Array.isArray(tuple) && tuple.length === 3,
-      "migration-history SQL row " + index + " must contain exactly version, name and recorded statement count");
-    const [version, name, rawCount] = tuple;
-    const normalizedName = name === "NULL" || name === "\\N" || name === null ? null : name;
-    assert(typeof version === "string" && (normalizedName === null || (typeof normalizedName === "string" && normalizedName.trim())),
-      "migration-history SQL row " + index + " is missing version or has an invalid name");
-    let recordedStatementCount = rawCount;
-    if (rawCount === "NULL" || rawCount === "\\N" || rawCount === null) recordedStatementCount = null;
-    else if (typeof rawCount === "string" && /^(0|[1-9][0-9]*)$/.test(rawCount)) recordedStatementCount = Number(rawCount);
-    assert(recordedStatementCount === null || (Number.isSafeInteger(recordedStatementCount) && recordedStatementCount >= 0),
-      "migration-history SQL row " + index + " has an invalid recorded statement count");
-    return { version, name: normalizedName, recordedStatementCount };
-  });
-}
-
-
 export function evidencePayload(evidence) {
   return Buffer.from(canonicalJson(evidence));
 }
