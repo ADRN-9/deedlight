@@ -282,4 +282,4 @@ env -i PATH="$PATH" HOME="${HOME:-/tmp}" PGPASSWORD=postgres \
     RESET ROLE;
   "
 
-echo "C577 disposable PostgreSQL 16 execution ledger and concurrent replay tests: PASS"
+echo "C578 disposable PostgreSQL 16 execution-ledger remediation tests: PASS"
