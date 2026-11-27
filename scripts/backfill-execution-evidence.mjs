@@ -268,6 +268,8 @@ export function validateBackfillExecutionRecord(record, {
   if (!UUID.test(record.recordId || "") || !authorizationClaims
     || canonicalBackfillJson(authorizationClaims) !== canonicalBackfillJson(expectedAuthorization)
     || !Number.isFinite(authorizationIssuedAt) || !Number.isFinite(authorizationExpiresAt)
+    || authorizationClaims.authorizedAt !== record.authorization?.issuedAt
+    || authorizationClaims.expiresAt !== record.authorization?.expiresAt
     || authorizationIssuedAt > startedAt || authorizationExpiresAt < completedAt) {
     problems.push("AUTHORIZATION:NOT_BOUND_TO_EXACT_SOURCE_EXECUTION_AND_DATABASE");
   }
@@ -284,6 +286,7 @@ export function validateBackfillExecutionRecord(record, {
   const verifierIssuedAt = timestamp(record.verification?.issuedAt);
   if (!verificationClaims || canonicalBackfillJson(verificationClaims) !== canonicalBackfillJson(expectedVerification)
     || !Number.isFinite(verifierIssuedAt) || !postValid || verifierIssuedAt < timestamp(record.postExecutionState.observedAt)
+    || verificationClaims.verifiedAt !== record.verification?.issuedAt
     || typeof verificationClaims.verifierVersion !== "string" || !verificationClaims.verifierVersion.trim()
     || record.verification?.signerId === record.execution?.executorIdentity
     || record.authorization?.signerId === record.verification?.signerId
