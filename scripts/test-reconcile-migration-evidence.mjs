@@ -241,7 +241,7 @@ function fixture() {
         mappingApproval: artifact("migration-mapping-approval", "mapping-approver", {
           projectRef: "xaipiovflxomcbfwtwmu",
           mappingDigest: mapHash,
-          inventoryBlobSha1: "a18cf2c65eb595ecd143fbaa16e2d81badf8d1f8",
+          inventoryBlobSha1: "4e63f31368d446e905f4f44565be73337c7188fb",
           migrationCount: 40,
           versionCount: 39,
         }),
