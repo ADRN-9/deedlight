@@ -468,7 +468,7 @@ BEGIN
     RAISE EXCEPTION 'finalization accepted different pre/post observation queries';
   EXCEPTION WHEN raise_exception THEN
     IF SQLERRM = 'finalization accepted different pre/post observation queries' THEN RAISE; END IF;
-    IF SQLERRM <> 'committed effect marker and matching pre/post observation query identity required before finalization' THEN RAISE; END IF;
+    IF SQLSTATE <> 'D1004' THEN RAISE; END IF;
   END;
 END
 $assert$;
