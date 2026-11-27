@@ -84,6 +84,8 @@ RESET ROLE;
 
 DO $assert$
 DECLARE v_pre jsonb; v_post jsonb; v_status text; v_pre_observer name; v_post_observer name;
+        v_pre_query text; v_post_query text; v_pre_query_digest text; v_post_query_digest text;
+        v_pre_bundle_digest text; v_post_bundle_digest text;
 BEGIN
   SELECT status INTO STRICT v_status FROM deedlight_execution_ledger.executions
     WHERE execution_id = 'c5700000-0000-4000-8000-000000000021';
@@ -95,10 +97,22 @@ BEGIN
     WHERE execution_id = 'c5700000-0000-4000-8000-000000000021' AND phase = 'pre';
   SELECT observer_identity INTO STRICT v_post_observer FROM deedlight_execution_ledger.snapshots
     WHERE execution_id = 'c5700000-0000-4000-8000-000000000021' AND phase = 'post';
+  SELECT query_id, query_sha256, query_bundle_digest
+    INTO STRICT v_pre_query, v_pre_query_digest, v_pre_bundle_digest
+    FROM deedlight_execution_ledger.snapshots
+    WHERE execution_id = 'c5700000-0000-4000-8000-000000000021' AND phase = 'pre';
+  SELECT query_id, query_sha256, query_bundle_digest
+    INTO STRICT v_post_query, v_post_query_digest, v_post_bundle_digest
+    FROM deedlight_execution_ledger.snapshots
+    WHERE execution_id = 'c5700000-0000-4000-8000-000000000021' AND phase = 'post';
   IF v_status <> 'succeeded' OR v_pre->'rows'->0->>'effect_count' <> '0'
     OR v_post->'rows'->0->>'effect_count' <> '1'
     OR v_pre_observer <> 'deedlight_ledger_observer' OR v_post_observer <> 'deedlight_ledger_observer'
-    OR v_pre->'databaseIdentity' <> v_post->'databaseIdentity' THEN
+    OR v_pre->'databaseIdentity' <> v_post->'databaseIdentity'
+    OR v_pre_query <> v_post_query OR v_pre_query_digest <> v_post_query_digest
+    OR v_pre_bundle_digest <> v_post_bundle_digest
+    OR v_pre->>'querySha256' <> v_post->>'querySha256'
+    OR v_pre->>'queryBundleDigest' <> v_post->>'queryBundleDigest' THEN
     RAISE EXCEPTION 'successful execution or independent pre/post snapshots invalid';
   END IF;
 END
