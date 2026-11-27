@@ -83,6 +83,20 @@ BEGIN
 END
 $fn$;
 
+CREATE OR REPLACE FUNCTION deedlight_execution_ledger.valid_source_identity(p_source_identity jsonb)
+RETURNS boolean
+LANGUAGE sql IMMUTABLE
+SET search_path = pg_catalog
+AS $fn$
+  SELECT pg_catalog.jsonb_typeof(p_source_identity) = 'object'
+    AND pg_catalog.jsonb_object_length(p_source_identity) = 2
+    AND pg_catalog.jsonb_typeof(p_source_identity->'path') = 'string'
+    AND pg_catalog.btrim(p_source_identity->>'path') <> ''
+    AND (p_source_identity->>'path') !~ '(^/|(^|/)\\.\\.(/|$)|[[:cntrl:]])'
+    AND pg_catalog.jsonb_typeof(p_source_identity->'sha256') = 'string'
+    AND (p_source_identity->>'sha256') ~ '^[a-f0-9]{64}$'
+$fn$;
+
 CREATE TABLE IF NOT EXISTS deedlight_execution_ledger.query_bundle_manifests (
   bundle_id text PRIMARY KEY CHECK (bundle_id ~ '^[a-z][a-z0-9_]{0,63}$'),
   manifest jsonb NOT NULL CHECK (pg_catalog.jsonb_typeof(manifest) = 'array'),
@@ -744,6 +758,11 @@ FOR EACH ROW EXECUTE FUNCTION deedlight_execution_ledger.guard_approval_consumpt
 DROP TRIGGER IF EXISTS execution_delete_guard ON deedlight_execution_ledger.executions;
 CREATE TRIGGER execution_delete_guard BEFORE DELETE ON deedlight_execution_ledger.executions
 FOR EACH ROW EXECUTE FUNCTION deedlight_execution_ledger.reject_ledger_mutation();
+DROP TRIGGER IF EXISTS query_bundle_manifests_append_only ON deedlight_execution_ledger.query_bundle_manifests;
+CREATE TRIGGER query_bundle_manifests_append_only BEFORE UPDATE OR DELETE
+ON deedlight_execution_ledger.query_bundle_manifests
+FOR EACH ROW EXECUTE FUNCTION deedlight_execution_ledger.reject_ledger_mutation();
+
 DROP TRIGGER IF EXISTS observation_queries_append_only ON deedlight_execution_ledger.observation_queries;
 CREATE TRIGGER observation_queries_append_only BEFORE UPDATE OR DELETE ON deedlight_execution_ledger.observation_queries
 FOR EACH ROW EXECUTE FUNCTION deedlight_execution_ledger.reject_ledger_mutation();
