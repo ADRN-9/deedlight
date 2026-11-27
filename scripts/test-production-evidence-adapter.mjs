@@ -173,10 +173,12 @@ test("receipt endpoint database and repository SHA must bind to SQL identity",()
   assert.throws(()=>adaptCollectorEvidence({receipt:missingCommit,csv:bytes,inventoryBytes,schemaBytes}));
   const testDatabase="deedlight_migration_order_test";
   const testRows=parseCsv(bytes);
+  const identityRow=testRows.find(row=>row[0]==="identity_v1");
   const databaseRow=testRows.find(row=>row[0]==="database_acl_v1");
-  assert.ok(databaseRow);
+  assert.ok(identityRow&&databaseRow);
+  identityRow[2]=testDatabase;
   databaseRow[3]=testDatabase;
-  const testBytes=serialize(testRows.map(row=>row[0]==="identity_v1"?row.map((value,index)=>index===1?"a".repeat(40):value):row));
+  const testBytes=serialize(testRows);
   const testReceipt=receiptFor(testBytes);testReceipt.endpoint.database=testDatabase;
   const candidate=adaptCollectorEvidence({receipt:testReceipt,csv:testBytes,inventoryBytes,schemaBytes});
   assert.equal(candidate.evidence.provenance.environment,"test");
