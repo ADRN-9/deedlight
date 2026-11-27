@@ -66,7 +66,7 @@ function fixture() {
       sourcePath: item.path,
       contract: {
         targetRelation: { schema: "fixture", relation: "backfill_target" },
-        predicate: { sql: "id IS NULL", sha256: hash("predicate:" + index) },
+        predicate: { sql: "id IS NULL", sha256: hash("id IS NULL") },
         measurement: {
           status: "independently_measured",
           rowCount: 7,
@@ -95,7 +95,7 @@ function fixture() {
           operation: "UPDATE",
           sourceRelations: [{ schema: "fixture", relation: "transform_source" }],
           targetRelation: { schema: "fixture", relation: "transform_target" },
-          predicate: { sql: "id IS NOT NULL", sha256: hash("transform-predicate:" + index) },
+          predicate: { sql: "id IS NOT NULL", sha256: hash("id IS NOT NULL") },
           sourceRange,
           sourceStatementSha256,
         },
@@ -1649,10 +1649,10 @@ test("dependency, precondition and postcondition contracts cannot omit their sem
         description:"Synthetic test-only semantic effect.",sourcePath:item.path,
         contract:category==="dependencies"
           ?{dependencyType:"foreign_key",fromRelation:{schema:"fixture",relation:"child"},toRelation:{schema:"fixture",relation:"parent"},
-            dependsOnMigrationPath:sourceManifest.migrations[1].path,sourceRange:{startLine:1,endLine:1},sourceStatementSha256:hash(readFileSync(path.join(repoRoot,item.path),"utf8").split(/\r?\n/)[0])}
-          :{predicateSql:"SELECT true",predicateSha256:hash(category),expectedOutcome:"true",
+            dependsOnMigrationPath:sourceManifest.migrations[1].path,dependsOnMigrationBlobSha1:sourceManifest.migrations[1].blobSha1,sourceRange:{startLine:1,endLine:1},sourceStatementSha256:hash(readFileSync(path.join(repoRoot,item.path),"utf8").split(/\r?\n/)[0])}
+          :{predicateSql:"SELECT true",predicateSha256:hash("SELECT true"),expectedOutcome:"true",
             verification:{status:"independently_verified",evidenceDigest:hash("evidence"),querySha256:hash("query"),
-              capturedAt:FIXTURE_CAPTURED_AT,executionId:"test-only-condition-execution"},
+              capturedAt:FIXTURE_CAPTURED_AT,executionId:"test-only-condition-execution",sourceBlobSha1:item.blobSha1},
             sourceRange:{startLine:1,endLine:1},sourceStatementSha256:hash(readFileSync(path.join(repoRoot,item.path),"utf8").split(/\r?\n/)[0])},
       };
       f.mapping.migrations[0].effects[category]=[effect];
