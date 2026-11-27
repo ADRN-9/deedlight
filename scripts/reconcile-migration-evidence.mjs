@@ -88,8 +88,8 @@ export function validateCollectorPrivilegeEvidence(db, inventoryObjects) {
   if (!db || db.privilegeContractVersion !== "catalog_only_v1") {
     problems.push("collector privilege evidence contract version is missing or unsupported");
   }
-  if (!Array.isArray(db && db.effectivePrivileges)
-    || canonicalJson(db.effectivePrivileges) !== canonicalJson(REQUIRED_ACCESS_SUMMARY)) {
+  if (!Array.isArray(db && db.requiredAccessSummary)
+    || canonicalJson(db.requiredAccessSummary) !== canonicalJson(REQUIRED_ACCESS_SUMMARY)) {
     problems.push("collector required-access summary does not match the catalog-only privilege contract");
   }
   const inventory = Array.isArray(inventoryObjects) ? inventoryObjects : [];
@@ -303,8 +303,8 @@ function validateCollectorAuthority(claims, provenance, evidenceDigest, authorit
   for (const flag of ["isSuperuser", "canCreateRole", "canCreateDatabase", "bypassRls", "isReplication", "ownsObjects"]) {
     if (db[flag] !== false) problems.push("collector database role is elevated or its " + flag + " status is not proven false");
   }
-  if (!Array.isArray(db.effectivePrivileges)
-    || canonicalJson(db.effectivePrivileges) !== canonicalJson(REQUIRED_ACCESS_SUMMARY)) {
+  if (!Array.isArray(db.requiredAccessSummary)
+    || canonicalJson(db.requiredAccessSummary) !== canonicalJson(REQUIRED_ACCESS_SUMMARY)) {
     problems.push("collector required-access summary does not match the catalog-only privilege contract");
   }
   if (!Array.isArray(db.databasePrivileges)
