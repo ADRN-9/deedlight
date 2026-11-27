@@ -59,7 +59,7 @@ This establishes kernel network-namespace isolation for the tested CI job, not a
 - Baseline audit: C507 run 45908996323, exact baseline SHA `0958d169160586f4e764267f79a9eb8d45791a4c`; the audit reported nine moderate instances.
 - Dependency lock refresh and zero-advisory audit: C524 run 45914403038; artifact 15161263694.
 - OS network namespace, direct egress-denial probe, webhook tests and zero-advisory audit: C524 run 45914752342; artifact 15161189729; candidate SHA `0242a07ac54a2d1a87193fc2bda6d8f92e0b9679`.
-- On that candidate, targeted C507 runs 45914630328 and 45914752379 and Full PR Validation run 45914752345 completed successfully. (The later run at 45914752379 was still in progress when this report was first drafted; final exact-head results are to be added after the temporary workflow is removed.)
+- On candidate `0242a07ac54a2d1a87193fc2bda6d8f92e0b9679`, targeted C507 runs 45914760178 and 45914752379 completed successfully; Full PR Validation run 45914752345 completed successfully. The workflow checkout guards confirmed that candidate SHA in each job. The temporary C524 workflow was then removed after its OS-namespace and zero-audit artifacts were captured.
 
 The temporary workflow is intentionally bounded to this branch, has no Production secrets, installs with lifecycle scripts disabled for the lock refresh, records the audit artifact, and is removed after evidence collection.
 
