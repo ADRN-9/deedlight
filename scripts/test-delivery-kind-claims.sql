@@ -282,7 +282,7 @@ insert into public.delivery_ledger (
 set role service_role;
 do $weekly_stale_reclaim$
 declare
-  v_old_token uuid := '92000000-0000-0000-0000-000000000110';
+  v_stale_token uuid;
   v_new_token uuid;
   v_job_id uuid;
   v_claim_count integer;
@@ -293,11 +293,13 @@ begin
   where job_id = '91000000-0000-0000-0000-000000000110';
   v_claim_count := case when found then 1 else 0 end;
 
-  if v_claim_count <> 1 or v_new_token is null or v_new_token = v_old_token then
+  if v_claim_count <> 1 or v_new_token is null or v_new_token = v_stale_token then
     raise exception 'Weekly expired claim was not reclaimed with a fresh token.';
   end if;
 
-  -- Expire the newly issued lease, then reclaim again to make the old token stale.
+  v_stale_token := v_new_token;
+
+  -- Expire the first fresh lease, then reclaim again to make its token stale.
   update public.delivery_ledger
   set claim_expires_at = clock_timestamp() - interval '1 second'
   where id = '91000000-0000-0000-0000-000000000110'
@@ -317,7 +319,7 @@ begin
   begin
     perform public.authorize_delivery_job(
       '91000000-0000-0000-0000-000000000110',
-      v_old_token
+      v_stale_token
     );
     raise exception 'Stale Weekly claim token authorized a reclaimed job.';
   exception when sqlstate '42501' then
