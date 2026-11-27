@@ -173,3 +173,8 @@ After pushing the final C578 branch changes, inspect the dedicated PostgreSQL jo
 If any of these conditions are absent, classify the corresponding test as FAIL or NOT ESTABLISHED and fix it before considering the remediation complete.
 
 **Production remains NO-GO.** No merge, Production migration, migration-history reconciliation, trust-root provisioning, credential operation, or Production activation is authorized or performed.
+
+
+## C593 historical evidence reconciliation
+
+The later C578 branch-head candidate is `eb6b1ca392563bce388819d1a5462932e340cbeb`, validated by push run #2258 / `46056320456` (13/13 jobs) and PR merge-context run #2259 / `46056326657` (13/13 jobs). PostgreSQL job `140699564456` actual decoded logs contain the matching/mismatched snapshot evidence and corrected crash handshake, SIGKILL status 137, backend exit, rollback of effects and marker, survival of the reservation/approval consumption, UNKNOWN recovery, and replay rejection. This supersedes earlier report snapshots that named an intermediate PR #34 head; it does not establish Production trust. These are historical predecessor results, not validation of C593.

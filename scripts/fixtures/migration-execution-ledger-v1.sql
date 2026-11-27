@@ -73,7 +73,7 @@ BEGIN
   END IF;
   SELECT pg_catalog.string_agg(
     (value->>'queryId') || ':' || (value->>'querySha256'),
-    pg_catalog.chr(10) ORDER BY value->>'queryId'
+    pg_catalog.chr(10) ORDER BY pg_catalog.convert_to(value->>'queryId', 'UTF8')
   ) INTO v_canonical
   FROM pg_catalog.jsonb_array_elements(p_manifest) AS e(value);
   RETURN pg_catalog.encode(
@@ -353,27 +353,46 @@ $fn$;
 
 CREATE OR REPLACE FUNCTION deedlight_execution_ledger.current_database_identity()
 RETURNS jsonb
-LANGUAGE plpgsql STABLE SECURITY DEFINER
+LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, deedlight_execution_ledger
 AS $fn$
 DECLARE v_identity deedlight_execution_ledger.database_identity%ROWTYPE;
         v_system_identifier text;
         v_database_oid oid;
+        v_server_version_num integer;
 BEGIN
   SELECT system_identifier::text INTO STRICT v_system_identifier FROM pg_catalog.pg_control_system();
   SELECT oid INTO STRICT v_database_oid FROM pg_catalog.pg_database WHERE datname = pg_catalog.current_database();
-  SELECT * INTO STRICT v_identity FROM deedlight_execution_ledger.database_identity WHERE singleton;
+  v_server_version_num := pg_catalog.current_setting('server_version_num')::integer;
+  SELECT * INTO v_identity FROM deedlight_execution_ledger.database_identity WHERE singleton;
+  IF NOT FOUND THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust', 'database_identity_anchor_missing', '{}'::jsonb
+    );
+  END IF;
   IF v_identity.system_identifier <> v_system_identifier
     OR v_identity.database_oid <> v_database_oid
     OR v_identity.database_name <> pg_catalog.current_database()
-    OR v_identity.server_version_num <> pg_catalog.current_setting('server_version_num')::integer THEN
-    RAISE EXCEPTION 'server-derived database identity mismatch';
+    OR v_identity.server_version_num <> v_server_version_num THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust', 'live_database_identity_mismatch',
+      pg_catalog.jsonb_build_object(
+        'anchorSystemIdentifier', v_identity.system_identifier,
+        'liveSystemIdentifier', v_system_identifier,
+        'anchorDatabaseOid', v_identity.database_oid,
+        'liveDatabaseOid', v_database_oid,
+        'anchorDatabaseName', v_identity.database_name,
+        'liveDatabaseName', pg_catalog.current_database(),
+        'anchorServerVersionNum', v_identity.server_version_num,
+        'liveServerVersionNum', v_server_version_num
+      )
+    );
   END IF;
   RETURN pg_catalog.jsonb_build_object(
     'systemIdentifier', v_system_identifier,
     'databaseOid', v_database_oid,
     'databaseName', pg_catalog.current_database(),
-    'serverVersionNum', pg_catalog.current_setting('server_version_num')::integer
+    'serverVersionNum', v_server_version_num
   );
 END
 $fn$;
@@ -384,9 +403,11 @@ CREATE OR REPLACE FUNCTION deedlight_execution_ledger.approve_execution(
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, deedlight_execution_ledger
 AS $fn$
-DECLARE v_actor name := deedlight_execution_ledger.actor_role();
+DECLARE v_actor name;
         v_identity deedlight_execution_ledger.database_identity%ROWTYPE;
 BEGIN
+  PERFORM deedlight_execution_ledger.current_database_identity();
+  v_actor := deedlight_execution_ledger.actor_role();
   IF v_actor IS DISTINCT FROM 'deedlight_ledger_approver' THEN
     RAISE EXCEPTION 'approver authority required';
   END IF;
@@ -409,10 +430,12 @@ CREATE OR REPLACE FUNCTION deedlight_execution_ledger.reserve_execution(
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, deedlight_execution_ledger
 AS $fn$
-DECLARE v_actor name := deedlight_execution_ledger.actor_role();
+DECLARE v_actor name;
         v_identity deedlight_execution_ledger.database_identity%ROWTYPE;
         v_approval deedlight_execution_ledger.approvals%ROWTYPE;
 BEGIN
+  PERFORM deedlight_execution_ledger.current_database_identity();
+  v_actor := deedlight_execution_ledger.actor_role();
   IF v_actor IS DISTINCT FROM 'deedlight_ledger_runner' THEN
     PERFORM deedlight_execution_ledger.raise_trust_failure('missing_trust','runner_authority_missing',jsonb_build_object('actor',v_actor));
   END IF;
@@ -450,10 +473,12 @@ CREATE OR REPLACE FUNCTION deedlight_execution_ledger.record_effect_commit_marke
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, deedlight_execution_ledger
 AS $fn$
-DECLARE v_actor name := deedlight_execution_ledger.actor_role();
+DECLARE v_actor name;
         v_identity deedlight_execution_ledger.database_identity%ROWTYPE;
         v_execution deedlight_execution_ledger.executions%ROWTYPE;
 BEGIN
+  PERFORM deedlight_execution_ledger.current_database_identity();
+  v_actor := deedlight_execution_ledger.actor_role();
   IF v_actor IS DISTINCT FROM 'deedlight_ledger_runner' THEN
     PERFORM deedlight_execution_ledger.raise_trust_failure('missing_trust','runner_authority_missing',jsonb_build_object('actor',v_actor));
   END IF;
@@ -489,7 +514,7 @@ CREATE OR REPLACE FUNCTION deedlight_execution_ledger.capture_snapshot(
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, deedlight_execution_ledger
 AS $fn$
-DECLARE v_actor name := deedlight_execution_ledger.actor_role();
+DECLARE v_actor name;
         v_identity deedlight_execution_ledger.database_identity%ROWTYPE;
         v_execution deedlight_execution_ledger.executions%ROWTYPE;
         v_query deedlight_execution_ledger.observation_queries%ROWTYPE;
@@ -498,6 +523,8 @@ DECLARE v_actor name := deedlight_execution_ledger.actor_role();
         v_snapshot jsonb;
         v_observed_at timestamptz := pg_catalog.clock_timestamp();
 BEGIN
+  PERFORM deedlight_execution_ledger.current_database_identity();
+  v_actor := deedlight_execution_ledger.actor_role();
   IF v_actor IS DISTINCT FROM 'deedlight_ledger_observer' THEN
     PERFORM deedlight_execution_ledger.raise_trust_failure('missing_trust','observer_authority_missing',jsonb_build_object('actor',v_actor));
   END IF;
@@ -541,10 +568,18 @@ BEGIN
     PERFORM deedlight_execution_ledger.raise_trust_failure('missing_trust','query_bundle_manifest_missing',jsonb_build_object('bundleId',v_query.query_bundle_id));
   END IF;
   IF v_bundle.member_count <> pg_catalog.jsonb_array_length(v_bundle.manifest)
-    OR deedlight_execution_ledger.canonical_query_bundle_digest(v_bundle.manifest) <> v_bundle.manifest_sha256
-    OR NOT EXISTS (SELECT 1 FROM pg_catalog.jsonb_array_elements(v_bundle.manifest) AS member(value)
-      WHERE value->>'queryId'=v_query.query_id AND value->>'querySha256'=v_query.query_sha256) THEN
-    PERFORM deedlight_execution_ledger.raise_trust_failure('snapshot_substitution','query_bundle_manifest_integrity_or_membership_mismatch',jsonb_build_object('queryId',p_query_id,'bundleId',v_query.query_bundle_id));
+    OR deedlight_execution_ledger.canonical_query_bundle_digest(v_bundle.manifest) <> v_bundle.manifest_sha256 THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'snapshot_substitution','query_bundle_manifest_integrity_mismatch',
+      jsonb_build_object('queryId',p_query_id,'bundleId',v_query.query_bundle_id)
+    );
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.jsonb_array_elements(v_bundle.manifest) AS member(value)
+    WHERE value->>'queryId'=v_query.query_id AND value->>'querySha256'=v_query.query_sha256) THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'snapshot_substitution','query_bundle_query_not_member',
+      jsonb_build_object('queryId',p_query_id,'bundleId',v_query.query_bundle_id)
+    );
   END IF;
   EXECUTE pg_catalog.format(
     'SELECT COALESCE(jsonb_agg(to_jsonb(q)), ''[]''::jsonb) FROM (%s) AS q', v_query.query_sql
@@ -573,9 +608,11 @@ RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, deedlight_execution_ledger
 AS $fn$
-DECLARE v_actor name := deedlight_execution_ledger.actor_role();
+DECLARE v_actor name;
         v_identity deedlight_execution_ledger.database_identity%ROWTYPE;
 BEGIN
+  PERFORM deedlight_execution_ledger.current_database_identity();
+  v_actor := deedlight_execution_ledger.actor_role();
   IF v_actor IS DISTINCT FROM 'deedlight_ledger_runner' THEN RAISE EXCEPTION 'migration runner authority required'; END IF;
   SELECT * INTO STRICT v_identity FROM deedlight_execution_ledger.database_identity WHERE singleton;
   IF NOT EXISTS (SELECT 1 FROM deedlight_execution_ledger.snapshots
@@ -597,9 +634,11 @@ RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, deedlight_execution_ledger
 AS $fn$
-DECLARE v_actor name := deedlight_execution_ledger.actor_role();
+DECLARE v_actor name;
         v_identity deedlight_execution_ledger.database_identity%ROWTYPE;
 BEGIN
+  PERFORM deedlight_execution_ledger.current_database_identity();
+  v_actor := deedlight_execution_ledger.actor_role();
   IF v_actor IS DISTINCT FROM 'deedlight_ledger_runner' THEN RAISE EXCEPTION 'migration runner authority required'; END IF;
   SELECT * INTO STRICT v_identity FROM deedlight_execution_ledger.database_identity WHERE singleton;
   UPDATE deedlight_execution_ledger.executions SET heartbeat_at = pg_catalog.clock_timestamp()
@@ -615,9 +654,11 @@ CREATE OR REPLACE FUNCTION deedlight_execution_ledger.finalize_execution(
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, deedlight_execution_ledger
 AS $fn$
-DECLARE v_actor name := deedlight_execution_ledger.actor_role();
+DECLARE v_actor name;
         v_identity deedlight_execution_ledger.database_identity%ROWTYPE;
 BEGIN
+  PERFORM deedlight_execution_ledger.current_database_identity();
+  v_actor := deedlight_execution_ledger.actor_role();
   IF v_actor IS DISTINCT FROM 'deedlight_ledger_runner' THEN RAISE EXCEPTION 'migration runner authority required'; END IF;
   IF p_outcome NOT IN ('succeeded','failed','partial') OR p_outcome_detail IS NULL
     OR pg_catalog.jsonb_typeof(p_outcome_detail) <> 'object' THEN
@@ -666,10 +707,12 @@ RETURNS integer
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, deedlight_execution_ledger
 AS $fn$
-DECLARE v_actor name := deedlight_execution_ledger.actor_role();
+DECLARE v_actor name;
         v_identity deedlight_execution_ledger.database_identity%ROWTYPE;
         v_count integer;
 BEGIN
+  PERFORM deedlight_execution_ledger.current_database_identity();
+  v_actor := deedlight_execution_ledger.actor_role();
   IF v_actor IS DISTINCT FROM 'deedlight_ledger_recovery' THEN PERFORM deedlight_execution_ledger.raise_trust_failure('missing_trust','recovery_authority_missing',jsonb_build_object('actor',v_actor)); END IF;
   IF p_stale_after IS NULL OR p_stale_after <= interval '0 seconds'
     OR p_stale_after > interval '7 days' THEN PERFORM deedlight_execution_ledger.raise_trust_failure('incomplete_preconditions','recovery_timeout_outside_safe_bounds','{}'::jsonb); END IF;
@@ -692,10 +735,12 @@ CREATE OR REPLACE FUNCTION deedlight_execution_ledger.record_verification(
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, deedlight_execution_ledger
 AS $fn$
-DECLARE v_actor name := deedlight_execution_ledger.actor_role();
+DECLARE v_actor name;
         v_identity deedlight_execution_ledger.database_identity%ROWTYPE;
         v_execution deedlight_execution_ledger.executions%ROWTYPE;
 BEGIN
+  PERFORM deedlight_execution_ledger.current_database_identity();
+  v_actor := deedlight_execution_ledger.actor_role();
   IF v_actor IS DISTINCT FROM 'deedlight_ledger_verifier' THEN RAISE EXCEPTION 'independent verifier authority required'; END IF;
   IF p_verdict NOT IN ('verified','rejected','inconclusive') OR p_evidence IS NULL
     OR pg_catalog.jsonb_typeof(p_evidence) <> 'object' THEN RAISE EXCEPTION 'verification evidence invalid'; END IF;
