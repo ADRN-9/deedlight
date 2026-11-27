@@ -174,26 +174,26 @@ crash_outcome="$(clean_psql --tuples-only --no-align --command \
 printf 'C578_CRASH_RECOVERY execution_id=c5700000-0000-4000-8000-000000000027 status=%s\n' "$crash_outcome"
 
 # The consumed approval and terminal UNKNOWN reservation must reject replay.
-clean_psql --command "
-  SET ROLE deedlight_ledger_runner;
-  DO \\$assert\\$
+clean_psql <<'SQL'
+SET ROLE deedlight_ledger_runner;
+DO $assert$
+BEGIN
   BEGIN
-    BEGIN
-      PERFORM deedlight_execution_ledger.reserve_execution(
-        'c5700000-0000-4000-8000-000000000007',
-        'c5700000-0000-4000-8000-000000000017',
-        'c5700000-0000-4000-8000-000000000027',
-        '{\"path\":\"supabase/migrations/test-crash.sql\",\"sha256\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"}'::jsonb
-      );
-      RAISE EXCEPTION 'unknown execution replay unexpectedly accepted';
-    EXCEPTION WHEN raise_exception THEN
-      IF SQLERRM = 'unknown execution replay unexpectedly accepted' THEN RAISE; END IF;
-      IF SQLERRM NOT LIKE 'approval is missing, consumed, or does not bind%' THEN RAISE; END IF;
-    END;
-  END
-  \\$assert\\$;
-  RESET ROLE;
-"
+    PERFORM deedlight_execution_ledger.reserve_execution(
+      'c5700000-0000-4000-8000-000000000007',
+      'c5700000-0000-4000-8000-000000000017',
+      'c5700000-0000-4000-8000-000000000027',
+      '{"path":"supabase/migrations/test-crash.sql","sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}'::jsonb
+    );
+    RAISE EXCEPTION 'unknown execution replay unexpectedly accepted';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM = 'unknown execution replay unexpectedly accepted' THEN RAISE; END IF;
+    IF SQLERRM NOT LIKE 'approval is missing, consumed, or does not bind%' THEN RAISE; END IF;
+  END;
+END
+$assert$;
+RESET ROLE;
+SQL
 echo "C578_CRASH_REPLAY_REJECTED execution_id=c5700000-0000-4000-8000-000000000027"
 
 # Two independent sessions race for one approved execution. Row locking and the
