@@ -86,3 +86,12 @@ Initial PR-triggered run #2285 / `46063685445` failed in PostgreSQL 16 fixture b
 Corrected the key-count checks to use `count(*) FROM pg_catalog.jsonb_object_keys(...)` in commit `a0e92bbeb18acec1d7d6fd15561e037ad1dcd56f`. Follow-up review also hardened path traversal checks and aligned the replay assertion with SQLSTATE D1005. Latest source HEAD is `cffd28989908442abd4b328d64fe1e891760c688`.
 
 The available GitHub workflow-run lookup has not returned a PR-triggered run for the latest commits. Therefore exact-head CI and actual PostgreSQL log verification remain PENDING. The failed #2285 run is not counted as validation success. Do not merge while this gate remains pending.
+
+
+## Latest handover status
+
+Latest implementation/test-harness commit: `f0c586335e956fa834f17e9fd4bb71144423e2f9`. This adds an explicit assertion that stale RUNNING recovery records `ambiguous_execution_outcome|D1008`.
+
+PR #35 is OPEN and mergeable; PR #33 and PR #34 remain OPEN and UNMERGED. The migration inventory remains 40 entries with the same blob SHA `4e63f31368d446e905f4f44565be73337c7188fb`. The PR changes exactly five files and contains no `supabase/migrations` or migration-inventory changes.
+
+The only available PR-triggered validation run is the initial run #2285 / `46063685445`, which failed during PostgreSQL 16 fixture bootstrap before C585 assertions. After that failure, the JSON key-count defect was corrected, source-path validation hardened, structured replay SQLSTATE handling updated, and ambiguous-outcome recovery assertion added. The GitHub commit-workflow lookup returns no PR-triggered run for the latest branch HEAD; therefore the final exact-head CI and actual PostgreSQL log gate are still **PENDING / NOT ESTABLISHED**. Do not treat run #2285 as validation of the corrected code.
