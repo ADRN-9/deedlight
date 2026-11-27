@@ -90,7 +90,9 @@ function fixture() {
   const mapping = { schemaVersion: 1, migrations: migrationEffects };
   const expected = migrationEffects.flatMap((entry) => categories.flatMap((category) => entry.effects[category]));
   const catalog = [
-    ...expected.map((effect) => ({ kind: effect.kind, identity: effect.identity, fingerprint: effect.fingerprint })),
+    ...expected.map((effect) => effect.kind === "columns"
+      ? { kind: effect.kind, identity: effect.identity, schema: "fixture", relation: "schema", column: effect.identity.split(".").at(-1), fingerprint: effect.fingerprint }
+      : ({ kind: effect.kind, identity: effect.identity, fingerprint: effect.fingerprint })),
     { kind: "schemas", identity: "public", fingerprint: hash("schema:public") },
     { kind: "schemas", identity: "supabase_migrations", fingerprint: hash("schema:supabase_migrations") },
     { kind: "tables", identity: "public.profiles", fingerprint: hash("table:public.profiles") },
