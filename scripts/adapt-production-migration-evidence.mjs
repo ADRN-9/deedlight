@@ -39,36 +39,85 @@ function projectionObjects(projections, id) {
 const bool = (value) => value === "t" || value === "f";
 const nonempty = (row, indexes) => indexes.every((i) => typeof row[i] === "string" && row[i].length > 0);
 function validateProjectionRows(p) {
+  for (const projection of SQL_PROJECTIONS) {
+    const rows=p.get(projection.id);
+    if (!Array.isArray(rows)) fail("PROJECTION_MISSING:"+projection.id);
+    if (!rows.length && !EMPTY_PROJECTION_ALLOWLIST.has(projection.id)) fail("PROJECTION_EMPTY_NOT_ALLOWED:"+projection.id);
+    if (rows.some(row=>!Array.isArray(row)||row.length!==projection.columns.length||row.some(cell=>typeof cell!=="string"))) fail("PROJECTION_ROW_SHAPE_INVALID:"+projection.id);
+  }
+  const unique=(id,key,code)=>{const seen=new Set();for(const row of p.get(id)){const value=key(row);if(seen.has(value))fail(code);seen.add(value);}};
   for (const row of p.get("relations_v1")) {
-    if (!nonempty(row,[0,1,2,3,4,7]) || !/^[1-9][0-9]*$/.test(row[7]) || !bool(row[5]) || !bool(row[6]) || !bool(row[10])
-        || (row[8] !== "" && !row[9])) fail("RELATIONS_PROJECTION_ROW_INVALID");
+    if (!nonempty(row,[0,1,2,3,4,7,8,9]) || !["r","p","v","m","f"].includes(row[2])
+      || !["p","u","t"].includes(row[4]) || !/^[1-9][0-9]*$/.test(row[7])
+      || !bool(row[5]) || !bool(row[6]) || !bool(row[10])) fail("RELATIONS_PROJECTION_ROW_INVALID");
   }
+  unique("relations_v1",r=>r[0]+"\0"+r[1]+"\0"+r[7],"RELATIONS_PROJECTION_DUPLICATED");
   for (const row of p.get("routines_v1")) {
-    if (!nonempty(row,[0,1,2,5,6,9]) || (row[2] !== "p" && !row[4]) || !bool(row[7]) || !bool(row[8]) || !["i","s","v"].includes(row[9])) fail("ROUTINES_PROJECTION_ROW_INVALID");
+    if (!nonempty(row,[0,1,2,5,6,9]) || !["f","p","a","w"].includes(row[2])
+      || (row[2] !== "p" && !row[4]) || !bool(row[7]) || !bool(row[8]) || !["i","s","v"].includes(row[9])) fail("ROUTINES_PROJECTION_ROW_INVALID");
+    let settings;try{settings=JSON.parse(row[10]);}catch{fail("ROUTINE_SETTINGS_INVALID");}
+    if(!Array.isArray(settings)||settings.some(item=>!exact(item,["name","value"])||typeof item.name!=="string"||!item.name||typeof item.value!=="string"))fail("ROUTINE_SETTINGS_INVALID");
   }
-  for (const id of ACL_IDS) for (const row of p.get(id)) {
-    if (!bool(row.at(-1)) || !row.some((cell) => cell !== "")) fail("ACL_PROJECTION_ROW_INVALID");
-    if (id === "relation_acl_v1" && !nonempty(row,[0,1,2,4,5,6])) fail("RELATION_ACL_ROW_INVALID");
-    if (id === "schema_acl_v1" && !nonempty(row,[0,1,2,3,4])) fail("SCHEMA_ACL_ROW_INVALID");
-    if (id === "routine_acl_v1" && !nonempty(row,[0,1,3,4,5])) fail("ROUTINE_ACL_ROW_INVALID");
-    if (id === "sequence_acl_v1" && !nonempty(row,[0,1,2,3,4,5])) fail("SEQUENCE_ACL_ROW_INVALID");
-    if (id === "default_privileges_v1" && !nonempty(row,[0,2,3,4,5])) fail("DEFAULT_PRIVILEGES_ROW_INVALID");
+  unique("routines_v1",r=>r[0]+"\0"+r[1]+"\0"+r[3],"ROUTINES_PROJECTION_DUPLICATED");
+  const aclSpecs={
+    relation_acl_v1:{grantee:4,grantor:5,privilege:6,grantable:7,allowed:RELATION_PRIVILEGES},
+    schema_acl_v1:{grantee:2,grantor:3,privilege:4,grantable:5,allowed:SCHEMA_PRIVILEGES},
+    routine_acl_v1:{grantee:3,grantor:4,privilege:5,grantable:6,allowed:new Set(["EXECUTE"])},
+    sequence_acl_v1:{grantee:3,grantor:4,privilege:5,grantable:6,allowed:SEQUENCE_PRIVILEGES},
+  };
+  for(const [id,spec] of Object.entries(aclSpecs)){
+    for(const row of p.get(id)){
+      if(!bool(row[spec.grantable])||!nonempty(row,[spec.grantee,spec.grantor,spec.privilege])||!spec.allowed.has(row[spec.privilege]))fail("ACL_PROJECTION_ROW_INVALID:"+id);
+      if(id==="relation_acl_v1"&&(!["relation","column"].includes(row[0])||!nonempty(row,[1,2])||(row[0]==="relation"&&row[3]!=="")||(row[0]==="column"&&!row[3])))fail("RELATION_ACL_ROW_INVALID");
+      if(id==="schema_acl_v1"&&!nonempty(row,[0,1]))fail("SCHEMA_ACL_ROW_INVALID");
+      if(id==="routine_acl_v1"&&!nonempty(row,[0,1]))fail("ROUTINE_ACL_ROW_INVALID");
+      if(id==="sequence_acl_v1"&&!nonempty(row,[0,1,2]))fail("SEQUENCE_ACL_ROW_INVALID");
+    }
+    unique(id,r=>r.join("\0"),"ACL_PROJECTION_DUPLICATED:"+id);
   }
-  for (const row of p.get("roles_v1")) {
+  for (const row of p.get("default_privileges_v1")) {
+    const allowed=row[2]==="r"?RELATION_PRIVILEGES:row[2]==="S"?SEQUENCE_PRIVILEGES:row[2]==="f"?new Set(["EXECUTE"]):null;
+    if(!nonempty(row,[0,1,2,3,4,5])||!allowed||!allowed.has(row[5])||!bool(row[6]))fail("DEFAULT_PRIVILEGES_ROW_INVALID");
+  }
+  unique("default_privileges_v1",r=>r.join("\0"),"DEFAULT_PRIVILEGES_DUPLICATED");
+  const roles=p.get("roles_v1"),roleNames=new Set();
+  for (const row of roles) {
     if (!nonempty(row,[0,8]) || row.slice(1,8).some((v) => !bool(v)) || !/^-?(0|[1-9][0-9]*)$/.test(row[8])
-        || (row[9] !== "" && row[9] !== "infinity" && !/^\d{4}-\d{2}-\d{2}T/.test(row[9]))) fail("ROLES_PROJECTION_ROW_INVALID");
+      || (row[9] !== "" && row[9] !== "infinity" && !/^\d{4}-\d{2}-\d{2}T/.test(row[9]))) fail("ROLES_PROJECTION_ROW_INVALID");
+    if(roleNames.has(row[0]))fail("ROLE_IDENTITY_DUPLICATED");roleNames.add(row[0]);
   }
-  for (const row of p.get("role_memberships_v1")) if (!nonempty(row,[0,1,2]) || row.slice(3,6).some((v) => !bool(v))) fail("ROLE_MEMBERSHIPS_ROW_INVALID");
+  const memberships=new Set();
+  for (const row of p.get("role_memberships_v1")) {
+    if (!nonempty(row,[0,1,2]) || row.slice(3,6).some((v) => !bool(v))) fail("ROLE_MEMBERSHIPS_ROW_INVALID");
+    const id=row.slice(0,3).join("\0");if(memberships.has(id))fail("ROLE_MEMBERSHIP_DUPLICATED");memberships.add(id);
+  }
   for (const row of p.get("rls_policies_v1")) {
-    if (!nonempty(row,[0,1,2,3,4,5]) || !["PERMISSIVE","RESTRICTIVE"].includes(row[3]) || !["ALL","SELECT","INSERT","UPDATE","DELETE"].includes(row[5])) fail("RLS_POLICY_ROW_INVALID");
+    if (!nonempty(row,[0,1,2,3,4,5]) || !["PERMISSIVE","RESTRICTIVE"].includes(row[3])
+      || !/^\{.*\}$/.test(row[4]) || !["ALL","SELECT","INSERT","UPDATE","DELETE"].includes(row[5])) fail("RLS_POLICY_ROW_INVALID");
   }
-  for (const row of p.get("constraints_v1")) if (!nonempty(row,[0,1,2,3,7]) || row.slice(4,7).some((v) => !bool(v))) fail("CONSTRAINT_ROW_INVALID");
+  unique("rls_policies_v1",r=>r.slice(0,3).join("\0"),"RLS_POLICY_DUPLICATED");
+  for (const row of p.get("constraints_v1")) if (!nonempty(row,[0,1,2,3,7]) || !["c","f","p","u","t","x"].includes(row[3]) || row.slice(4,7).some((v) => !bool(v))) fail("CONSTRAINT_ROW_INVALID");
+  unique("constraints_v1",r=>r.slice(0,3).join("\0"),"CONSTRAINT_DUPLICATED");
   for (const row of p.get("indexes_v1")) if (!nonempty(row,[0,1,2,11]) || row.slice(3,11).some((v) => !bool(v))) fail("INDEX_ROW_INVALID");
+  unique("indexes_v1",r=>r.slice(0,3).join("\0"),"INDEX_DUPLICATED");
   for (const row of p.get("triggers_v1")) if (!nonempty(row,[0,1,2,3,5]) || !["O","D","R","A"].includes(row[3]) || !bool(row[4])) fail("TRIGGER_ROW_INVALID");
+  unique("triggers_v1",r=>r.slice(0,3).join("\0"),"TRIGGER_DUPLICATED");
   for (const row of p.get("sequences_v1")) {
-    if (!nonempty(row,[0,1,2,3,4,5,6,7,8]) || row.slice(4,9).some((v) => !/^-?(0|[1-9][0-9]*)$/.test(v)) || !bool(row[9])) fail("SEQUENCE_ROW_INVALID");
+    if (!nonempty(row,[0,1,2,3,4,5,6,7,8]) || row.slice(4,9).some((v) => !/^-?(0|[1-9][0-9]*)$/.test(v)) || !bool(row[9])
+      || ([row[10],row[11],row[12]].some(Boolean)&&![row[10],row[11],row[12]].every(Boolean))) fail("SEQUENCE_ROW_INVALID");
   }
+  unique("sequences_v1",r=>r[0]+"\0"+r[1],"SEQUENCE_DUPLICATED");
   for (const row of p.get("extensions_v1")) if (!nonempty(row,[0,1,2,3])) fail("EXTENSION_ROW_INVALID");
+  unique("extensions_v1",r=>r[0],"EXTENSION_DUPLICATED");
+  const identity=projectionObjects(p,"identity_v1");
+  if(identity.length!==1)fail("IDENTITY_PROJECTION_CARDINALITY_INVALID");
+  const roleName=identity[0].current_role;
+  if(identity[0].session_role!==roleName)fail("COLLECTOR_ROLE_IDENTITY_MISMATCH");
+  const collectorRoles=roles.filter(row=>row[0]===roleName);
+  if(collectorRoles.length!==1)fail("COLLECTOR_ROLE_MISSING_OR_DUPLICATED");
+  const role=collectorRoles[0];
+  if(role[1]!=="t"||role[2]!=="f"||role[3]!=="f"||role[4]!=="f"||role[5]!=="f"||role[6]!=="f"||role[7]!=="f")fail("COLLECTOR_ROLE_PRIVILEGE_INVALID");
+  if(p.get("role_memberships_v1").length)fail("COLLECTOR_ROLE_MEMBERSHIP_PRESENT");
 }
 function buildCatalog(p) {
   const objects=[],seen=new Set();
