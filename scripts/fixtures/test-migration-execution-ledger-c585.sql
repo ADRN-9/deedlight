@@ -205,3 +205,27 @@ SELECT 'C585_SQL_AND_BUNDLE_SUBSTITUTION_REJECTED' AS evidence;
 SELECT 'C585_QUERY_MANIFEST_SNAPSHOT_IMMUTABILITY_PASS' AS evidence;
 SELECT 'C585_SOURCE_IDENTITY_SUBSTITUTION_REJECTED' AS evidence;
 SELECT 'C585_MISSING_PRE_POST_SNAPSHOT_REJECTED' AS evidence;
+
+-- Missing observer trust and malformed source identity have distinct fail-closed outcomes.
+SET ROLE deedlight_ledger_runner;
+DO $assert$
+BEGIN
+  BEGIN
+    PERFORM deedlight_execution_ledger.capture_snapshot(
+      'c5700000-0000-4000-8000-000000000028','post','test_effects_v1');
+    RAISE EXCEPTION 'C585 missing observer trust unexpectedly accepted';
+  EXCEPTION WHEN SQLSTATE 'D1001' THEN NULL;
+  END;
+  BEGIN
+    PERFORM deedlight_execution_ledger.reserve_execution(
+      'c5850000-0000-4000-8000-000000000004',
+      'c5850000-0000-4000-8000-000000000014',
+      'c5850000-0000-4000-8000-000000000024',
+      '{"path":"../escape.sql","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}'::jsonb);
+    RAISE EXCEPTION 'C585 malformed source identity unexpectedly accepted';
+  EXCEPTION WHEN SQLSTATE 'D1002' THEN NULL;
+  END;
+END
+$assert$;
+RESET ROLE;
+
