@@ -127,7 +127,7 @@ Disposable PostgreSQL CI can establish fixture behavior only. It cannot establis
 
 No local PostgreSQL execution is claimed. GitHub Actions was the validation machine.
 
-## 11. Documentation-inclusive exact-head verification
+## 9. Documentation-inclusive exact-head verification
 
 The current PR #34 head `02642d9894ba291ae45c34d32881f0a261cd7ab9`, which includes this handover's CI evidence, passed PR Validation run #2249 / `46055268836` with 13/13 jobs successful. The dedicated PostgreSQL job ID `140696115895` also passed and its actual decoded log repeated all required `C578_CRASH_*` and snapshot identity evidence. PR #34 remains OPEN/unmerged and PR #33 remains OPEN/unmerged.
 
@@ -157,7 +157,7 @@ The validate job passed migration inventory and aggregate checks, C575/C576 sour
 
 A later documentation-only update changes the PR head; that later HEAD must receive a fresh exact-head CI run before this report's final text is considered validated.
 
-## 9. Handover and safety disposition
+## 11. Handover and safety disposition
 
 After pushing the final C578 branch changes, inspect the dedicated PostgreSQL job's actual decoded log. A green workflow conclusion is insufficient. Require all five `C578_CRASH_*` evidence lines, the exact wait status 137, no PostgreSQL JSON syntax error, unchanged effects count, zero marker rows, surviving committed reservation, `unknown` recovery and rejected replay. Inspect the snapshot mismatch rejection and matching-query success evidence too.
 
