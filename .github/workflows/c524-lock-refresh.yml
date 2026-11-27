@@ -1,0 +1,44 @@
+name: C524 dependency lock refresh
+on:
+  push:
+    branches:
+      - security/resend-webhook-destination-identity-c507
+permissions:
+  contents: read
+concurrency:
+  group: c524-lock-refresh-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - name: Verify exact candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          printf 'C524_LOCK_REFRESH_SHA=%s\n' "$GITHUB_SHA"
+      - name: Refresh only affected dependency paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          npm update --package-lock-only typescript-eslint --ignore-scripts --no-audit --no-fund
+          npm audit --json > c524-npm-audit.json || test -s c524-npm-audit.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: c524-lock-refresh
+          path: |
+            package-lock.json
+            c524-npm-audit.json
+          if-no-files-found: error
+          retention-days: 3
