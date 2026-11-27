@@ -37,7 +37,7 @@ These digests are not interchangeable. The adapter verifies the actual inventory
 - Adapter validation checks typed row structure for relation, routine, ACL, role, membership, policy, constraint, index, trigger, sequence and extension projections.
 - Migration history is ordered by version. Empty CSV cells become SQL NULL; literal `NULL` and literal `\\N` remain strings. Statement counts accept only canonical nonnegative integers or SQL NULL.
 - Migration-history structure is checked by column identity and type, not physical column order.
-- The migration mapping is optional for candidate generation. If supplied, it must cover the exact 40-entry pinned inventory, without duplicate paths or malformed effects/coverage.
+- The analyzer capture timestamp is the collector receipt completion time; the database query timestamp is preserved separately as `databaseCaptureTimestamp` because the database host and collector runner clocks must not be assumed synchronized. The migration mapping is optional for candidate generation. If supplied, it must cover the exact 40-entry pinned inventory, without duplicate paths or malformed effects/coverage.
 - Catalog objects use SHA-256 over canonical JSON of their normalized source rows.
 
 ## Explicit incompleteness

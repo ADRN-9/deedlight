@@ -52,7 +52,7 @@ test("normalizes all 19 validated projections without crossing authentication bo
   const {candidate}=adapt();
   assert.equal(candidate.status,"UNSIGNED_NOT_ACCEPTED");assert.equal(candidate.acceptance,"NOT_ACCEPTED");
   assert.equal(candidate.evidence.schemaVersion,2);assert.equal(candidate.evidence.provenance.projectRef,PROJECT_REF);
-  assert.equal(candidate.evidence.provenance.queryBundleSha256,SQL_SHA256);assert.equal(candidate.evidence.provenance.capturedAt,"2026-11-26T00:00:00.000Z");assert.equal(candidate.evidence.history.complete,true);
+  assert.equal(candidate.evidence.provenance.queryBundleSha256,SQL_SHA256);assert.equal(candidate.evidence.provenance.capturedAt,"2026-11-26T00:00:01.000Z");assert.equal(candidate.databaseCaptureTimestamp,"2026-11-26T00:00:00.000Z");assert.equal(candidate.evidence.history.complete,true);
   assert.deepEqual(candidate.evidence.history.rows.map(r=>r.name),["NULL","\\N",null]);
   assert.equal(candidate.evidence.catalog.complete,false);assert.equal(candidate.projections.length,19);
   assert.deepEqual(candidate.projections.map(p=>p.id),SQL_PROJECTIONS.map(p=>p.id));

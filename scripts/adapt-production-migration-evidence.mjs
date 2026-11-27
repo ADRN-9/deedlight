@@ -173,9 +173,9 @@ export function adaptCollectorEvidence({receipt,csv,inventoryBytes,schemaBytes,m
   verifyReceiptAndEvidence(receipt,csv);
   const validation=validateSqlOutput(csv),p=parseProjections(validation);validateProjectionRows(p);
   const identityRow=projectionObjects(p,"identity_v1")[0];
-  const capturedAt=identityRow.captured_at_utc;
-  if(typeof capturedAt!=="string"||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$/.test(capturedAt)
-    ||Date.parse(capturedAt)<Date.parse(receipt.execution.startedAt)||Date.parse(capturedAt)>Date.parse(receipt.execution.completedAt))fail("COLLECTOR_CAPTURE_TIMESTAMP_INVALID");
+  const databaseCaptureTimestamp=identityRow.captured_at_utc;
+  if(typeof databaseCaptureTimestamp!=="string"||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$/.test(databaseCaptureTimestamp))fail("COLLECTOR_CAPTURE_TIMESTAMP_INVALID");
+  const capturedAt=receipt.execution.completedAt;
   const structure=p.get("migration_history_structure_v1");
   const structureByName=new Map(structure.map(row=>[row[1],row]));
   const structureValid=structure.length===3&&structureByName.size===3
@@ -194,7 +194,7 @@ export function adaptCollectorEvidence({receipt,csv,inventoryBytes,schemaBytes,m
     catalog:{complete:false,completeKinds:[...CATALOG_KINDS],objects:buildCatalog(p)}};
   if(normalizedMapping)evidence.mapping=normalizedMapping;
   return {schemaVersion:1,status:"UNSIGNED_NOT_ACCEPTED",acceptance:"NOT_ACCEPTED",adapter:"deedlight-collector-analyzer-adapter-v1",
-    receipt,evidence,databaseAuthorityCandidate:authorityCandidate(p),projections:rawProjections(p),
+    receipt,databaseCaptureTimestamp,evidence,databaseAuthorityCandidate:authorityCandidate(p),projections:rawProjections(p),
     integrity:{receiptCanonicalSha256:sha256(Buffer.from(canonicalJson(receipt),"utf8")),
       receiptSchemaGitBlobSha1:RECEIPT_SCHEMA_GIT_BLOB_SHA1,receiptSchemaSha256:RECEIPT_SCHEMA_SHA256,
       migrationInventoryGitBlobSha1:INVENTORY_GIT_BLOB_SHA1,repositoryCommitSha:receipt.source.repositoryCommitSha,sqlBundlePath:SQL_PATH,sqlBundleGitBlobSha1:SQL_GIT_BLOB_SHA1,
