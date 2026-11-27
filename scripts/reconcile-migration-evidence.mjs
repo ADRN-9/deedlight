@@ -571,8 +571,13 @@ function classifyOne(item, manifest, evidence, source, mappedEffects) {
   if (!expected) return { status: "Unknown", reasons: ["migration has no complete authenticated effect mapping"] };
   const catalog = new Map();
   for (const object of evidence.catalog.objects) {
-    if (!object || Object.keys(object).sort().join(",") !== "fingerprint,identity,kind" || !CATALOG_KINDS.includes(object.kind) || typeof object.identity !== "string" || !/^[a-f0-9]{64}$/.test(object.fingerprint || "")) {
-      return { status: "Unknown", reasons: ["malformed live catalog object fingerprint"] };
+    const expectedObjectKeys = object && object.kind === "columns"
+      ? "column,fingerprint,identity,kind,relation,schema"
+      : "fingerprint,identity,kind";
+    if (!object || Object.keys(object).sort().join(",") !== expectedObjectKeys || !CATALOG_KINDS.includes(object.kind)
+      || typeof object.identity !== "string" || !/^[a-f0-9]{64}$/.test(object.fingerprint || "")
+      || (object.kind === "columns" && [object.schema, object.relation, object.column].some((value) => typeof value !== "string" || !value.length))) {
+      return { status: "Unknown", reasons: ["malformed live catalog object fingerprint or structured column identity"] };
     }
     const key = object.kind + "\0" + object.identity;
     if (catalog.has(key)) return { status: "Unknown", reasons: ["duplicate live catalog object identity"] };
