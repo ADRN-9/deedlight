@@ -437,7 +437,9 @@ function validateIndependentEffectEvidence(mapping, evidence, manifest, problems
   const expectedMeasurements = [];
   const expectedConditions = [];
   for (const entry of mapping && Array.isArray(mapping.migrations) ? mapping.migrations : []) {
+    if (!entry || typeof entry !== "object") continue;
     for (const effect of entry.effects && Array.isArray(entry.effects.backfills) ? entry.effects.backfills : []) {
+      if (!effect || typeof effect !== "object") continue;
       const m = effect.contract && effect.contract.measurement;
       if (m && m.status === "independently_measured" && effect.contract && effect.contract.predicate && effect.contract.predicate.sha256) expectedMeasurements.push({
         sourcePath: entry.path, sourceBlobSha1: entry.blobSha1, sourceRange: effect.contract.sourceRange,
@@ -448,6 +450,7 @@ function validateIndependentEffectEvidence(mapping, evidence, manifest, problems
     }
     for (const category of ["preconditions", "postconditions"]) {
       for (const effect of entry.effects && Array.isArray(entry.effects[category]) ? entry.effects[category] : []) {
+        if (!effect || typeof effect !== "object") continue;
         const v = effect.contract && effect.contract.verification;
         if (v && v.status === "independently_verified") expectedConditions.push({
           sourcePath: entry.path, sourceBlobSha1: entry.blobSha1, category, sourceRange: effect.contract.sourceRange,
