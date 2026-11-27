@@ -21,6 +21,7 @@ import {
   sha256,
   SQL_SHA256,
   SQL_GIT_BLOB_SHA1,
+  SQL_PATH,
   RECEIPT_SCHEMA_GIT_BLOB_SHA1,
   RECEIPT_SCHEMA_SHA256,
   SQL_PROJECTIONS,
@@ -102,6 +103,22 @@ function removeProjection(csv, projectionId) {
 test("pinned approved SQL bundle matches its SHA-256", () => {
   const sql = readFileSync(new URL("./production-migration-readonly-audit.sql", import.meta.url));
   assert.equal(sha256(sql), SQL_SHA256);
+});
+
+test("published receipt schema SQL fingerprints match the collector and reject stale values", () => {
+  const schema = JSON.parse(readFileSync(new URL("../schemas/production-migration-collection-receipt-v1.schema.json", import.meta.url), "utf8"));
+  const source = schema.properties.source.properties;
+  assert.equal(source.sqlBundlePath.const, SQL_PATH);
+  assert.equal(source.sqlBundleGitBlobSha1.const, SQL_GIT_BLOB_SHA1);
+  assert.equal(source.sqlBundleSha256.const, SQL_SHA256);
+  const csv = Buffer.from(validCsv());
+  const receipt = completeReceipt(csv);
+  const staleBlob = structuredClone(receipt);
+  staleBlob.source.sqlBundleGitBlobSha1 = "8f8c38ba0c2a463ee25c6dae1dc1b15e24e3819f";
+  assert.throws(() => validateReceiptSchema(staleBlob), (error) => error.code === "RECEIPT_SCHEMA_INVALID");
+  const staleDigest = structuredClone(receipt);
+  staleDigest.source.sqlBundleSha256 = "afda6bcfc9f7abc7765b8dfb54bf02d1cdb0d8062da2a9f953336b638d13af7d";
+  assert.throws(() => validateReceiptSchema(staleDigest), (error) => error.code === "RECEIPT_SCHEMA_INVALID");
 });
 
 test("canonical JSON sorts object keys but preserves array order", () => {
