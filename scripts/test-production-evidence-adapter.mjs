@@ -298,6 +298,11 @@ function sourceLineBinding(entry){
   return {sourceRange:{startLine:1,endLine:1},sourceStatementSha256:sha256(Buffer.from(line))};
 }
 
+function sourceLineBinding(entry){
+  const line=readFileSync(new URL("../"+entry.path,import.meta.url),"utf8").split(/\r?\n/)[0];
+  return {sourceRange:{startLine:1,endLine:1},sourceStatementSha256:sha256(Buffer.from(line))};
+}
+
 test("category-specific transformation contract requires exact source and target relations",()=>{
   const mapping=mappingFixture(),entry=mapping.migrations[0],binding=sourceLineBinding(entry);
   const effect={kind:"dataTransformations",identity:"fixture.transform",fingerprint:"e".repeat(64),
