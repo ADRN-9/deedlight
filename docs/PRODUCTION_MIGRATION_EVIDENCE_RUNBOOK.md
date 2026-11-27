@@ -38,6 +38,18 @@ The collector contract is intentionally narrower than a generic read-only role. 
 | Application schema ownership | Deny | Reject ownership by authenticated or effective collector role |
 | PostgreSQL system catalogs | Preserve only the enumerated required catalog access, including `pg_database` | Existing catalog SELECT preflight explicitly requires SELECT on `pg_database` for authenticated and effective principals |
 
+### Canonical collector privilege evidence — `catalog_only_v1`
+
+The signed `databaseAuthority` uses one explicit least-privilege representation. `requiredAccessSummary` is a named summary of the four permitted access paths, not a claim that those privileges are granted uniformly across application schemas or objects:
+
+- `databasePrivileges: ["CONNECT"]` — current database only.
+- `catalogPrivileges: ["SELECT"]` — only the enumerated PostgreSQL system catalogs required by the audit.
+- `schemaPrivileges` contains exactly one row per inventoried non-system schema. Each row has `schema`, `scope`, and effective `privileges`. The `supabase_migrations` row is scoped as `migration_history` and permits `["USAGE"]`; every `application_data` schema must have `[]`.
+- `objectPrivileges` contains exactly one row per inventoried table, sequence and routine. Each row has `kind`, `identity`, `scope`, and effective `privileges`. Only `supabase_migrations.schema_migrations` is scoped as `migration_history` and permits `["SELECT"]`; every `application_data` object must have `[]`. Routines must never have `EXECUTE`.
+- `privilegeContractVersion` must equal `catalog_only_v1`. Missing, duplicate, unexpected or incomplete identities fail closed.
+
+This representation is derived from PostgreSQL effective-privilege functions for the authenticated collector login, not from raw ACL rows alone. The raw ACL and ownership projections remain separately retained as supporting evidence. In particular, do not grant application-schema USAGE or application-object privileges to satisfy the analyzer. The disposable PostgreSQL 16 integration test feeds actual `has_schema_privilege`, `has_table_privilege`, `has_sequence_privilege`, and `has_function_privilege` results through the same analyzer contract validator.
+
 Database ACL evidence is emitted as the `database_acl_v1` projection for every row in `pg_database`, including template databases. It records the database OID/name and connection/template flags; owner OID/name; whether the original `datacl` was NULL; whether edges came from the built-in default ACL or an explicit ACL; and every expanded ACL edge with grantee/grantor OIDs and names, explicit `PUBLIC` identification, privilege type and grant-option flag. A NULL `datacl` is expanded with `acldefault('d', datdba)`; an explicit empty ACL remains distinguishable from NULL. JSONB keys are canonical, ACL edges are ordered by grantee OID, grantor OID, privilege type and grantability, and database rows by OID/name. This complete projection is mandatory input to the canonical result digest and signed receipt; excluding it invalidates the evidence receipt.
 
 PostgreSQL does not permit `WITH GRANT OPTION` when the grantee is `PUBLIC`. The audit nevertheless explicitly rejects a PUBLIC (`grantee = 0`) grant-option ACL edge as a defensive invariant if an impossible/corrupt catalog state were ever observed. The PostgreSQL 16 regression attempts the prohibited GRANT and asserts the server rejects it; it does not fabricate an impossible ACL row.
