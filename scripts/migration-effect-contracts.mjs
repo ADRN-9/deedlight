@@ -8,6 +8,7 @@ const relation = value => exact(value, ["schema", "relation"])
   && RELATION.test(value.schema) && RELATION.test(value.relation);
 export const strictCategoryTimestamp = value => typeof value === "string"
   && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)
+  && value.slice(0, 4) !== "0000"
   && Number.isFinite(Date.parse(value)) && new Date(Date.parse(value)).toISOString() === value;
 
 export function validateCategoryEffectContract(category, effect, inventoryPaths, { requireEvidence = true, sourceText = null } = {}) {
