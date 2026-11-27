@@ -284,7 +284,7 @@ do $weekly_stale_reclaim$
 declare
   v_old_token uuid := '92000000-0000-0000-0000-000000000110';
   v_new_token uuid;
-  v_claim_count integer;
+  v_claim_count integer;\n  v_job_id uuid;
 begin
   select count(*), max(claim_token)
     into v_claim_count, v_new_token
