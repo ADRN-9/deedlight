@@ -76,7 +76,8 @@ function fixture() {
           executionId: "test-only-execution-" + index,
           sourceBlobSha1: item.blobSha1,
         },
-        sourceStatementSha256: hash("test-only-backfill-statement:" + index),
+        sourceRange,
+        sourceStatementSha256,
       },
     };
     const effects = {
