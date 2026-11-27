@@ -131,10 +131,16 @@ function validateProjectionRows(p) {
 }
 function buildCatalog(p) {
   const objects=[],seen=new Set();
-  const add=(kind,identity,value)=>{
+  const add=(kind,identity,value,structuredIdentity)=>{
     if(typeof identity!=="string"||!identity.trim())fail("CATALOG_IDENTITY_INVALID");
-    const key=kind+"\0"+identity;if(seen.has(key))fail("CATALOG_IDENTITY_DUPLICATED");seen.add(key);
-    objects.push({kind,identity,fingerprint:sha256(Buffer.from(canonicalJson(value),"utf8"))});
+    const key=kind+"\\0"+identity;if(seen.has(key))fail("CATALOG_IDENTITY_DUPLICATED");seen.add(key);
+    const object={kind,identity,fingerprint:sha256(Buffer.from(canonicalJson(value),"utf8"))};
+    if(structuredIdentity!==undefined){
+      if(!exact(structuredIdentity,["schema","relation","column"])
+        ||Object.values(structuredIdentity).some(part=>typeof part!=="string"||!part.length))fail("CATALOG_COLUMN_IDENTITY_INVALID");
+      Object.assign(object,structuredIdentity);
+    }
+    objects.push(object);
   };
   const relations=projectionObjects(p,"relations_v1"),routines=projectionObjects(p,"routines_v1");
   const sequences=projectionObjects(p,"sequences_v1"),schemaAcl=projectionObjects(p,"schema_acl_v1");
@@ -147,7 +153,7 @@ function buildCatalog(p) {
   for(const row of relations){
     const identity=row.schema_name+"."+row.relation_name,group=relationGroups.get(identity)??[];
     group.push(row);relationGroups.set(identity,group);
-    if(row.column_name)add("columns",identity+"."+row.column_name,row);
+    if(row.column_name)add("columns",identity+"."+row.column_name,row,{schema:row.schema_name,relation:row.relation_name,column:row.column_name});
     if(row.owner_name)relationOwners.set(identity,{owner:row.owner_name,relationKind:row.relation_kind});
   }
   for(const [identity,rows] of [...relationGroups].sort(([a],[b])=>a.localeCompare(b))){
@@ -257,16 +263,15 @@ function authorityCandidate(p,identity,catalogObjects,receipt){
   const columns=catalogObjects.filter(x=>x.kind==="columns");
   const columnPrivileges=[];
   for(const item of columns){
-    const source=p.get("relations_v1").find(r=>r[0]+"."+r[1]+"."+r[8]===item.identity);
-    if(!source)fail("PRIVILEGE_COLUMN_IDENTITY_INVALID:"+item.identity);
-    const history=source[0]==="supabase_migrations"&&source[1]==="schema_migrations";
-    const table=objectPrivileges.find(x=>x.kind==="tables"&&x.identity===source[0]+"."+source[1]);
-    const rows=relationAcl.filter(r=>r[0]==="column"&&r[1]===source[0]&&r[2]===source[1]&&r[3]===source[8]&&(r[4]===roleName||r[4]==="PUBLIC"));
+    if([item.schema,item.relation,item.column].some(part=>typeof part!=="string"||!part.length))fail("PRIVILEGE_COLUMN_IDENTITY_INVALID");
+    const history=item.schema==="supabase_migrations"&&item.relation==="schema_migrations";
+    const table=objectPrivileges.find(x=>x.kind==="tables"&&x.identity===item.schema+"."+item.relation);
+    const rows=relationAcl.filter(r=>r[0]==="column"&&r[1]===item.schema&&r[2]===item.relation&&r[3]===item.column&&(r[4]===roleName||r[4]==="PUBLIC"));
     if(rows.some(r=>r[7]!=="f"))fail("PRIVILEGE_COLUMN_GRANT_OPTION_INVALID:"+item.identity);
     const privileges=[...new Set([...(table?.privileges??[]),...rows.map(r=>r[6])])].sort();
     const expected=history?["SELECT"]:[];
     if(canonicalJson(privileges)!==canonicalJson(expected))fail("PRIVILEGE_COLUMN_SCOPE_INVALID:"+item.identity);
-    columnPrivileges.push({identity:item.identity,scope:history?"migration_history":"application_data",privileges});
+    columnPrivileges.push({schema:item.schema,relation:item.relation,column:item.column,scope:history?"migration_history":"application_data",privileges});
   }
   const databaseRows=p.get("database_acl_v1");
   const currentDatabase=databaseRows.filter(row=>row[3]===identity.database_name);
