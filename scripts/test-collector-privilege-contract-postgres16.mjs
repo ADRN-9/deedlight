@@ -38,4 +38,32 @@ assert.ok(appColumns.every((row) => row.privileges.length === 0),
 assert.ok(historyColumns.length > 0 && historyColumns.every((row) => row.privileges.length === 1 && row.privileges[0] === "SELECT"),
   "migration-history columns must be readable only through the approved history scope");
 assert.deepEqual(historyTable?.privileges, ["SELECT"]);
+
+// Exercise the same analyzer contract against adversarial mutations of real PostgreSQL-derived evidence.
+const rejects = (label, mutate) => {
+  const altered = structuredClone(db);
+  mutate(altered);
+  const violations = validateCollectorPrivilegeEvidence(altered, evidence.inventoryObjects);
+  assert.ok(violations.length > 0, label + " must fail the collector-to-analyzer contract");
+};
+rejects("application-schema USAGE", (authority) => {
+  authority.schemaPrivileges.find((row) => row.scope === "application_data").privileges.push("USAGE");
+});
+rejects("application-table SELECT", (authority) => {
+  authority.objectPrivileges.find((row) => row.scope === "application_data" && row.kind === "tables").privileges.push("SELECT");
+});
+rejects("application-column SELECT", (authority) => {
+  authority.columnPrivileges.find((row) => row.scope === "application_data").privileges.push("SELECT");
+});
+rejects("unexpected database TEMPORARY", (authority) => authority.databasePrivileges.push("TEMPORARY"));
+rejects("missing application column evidence", (authority) => {
+  authority.columnPrivileges.pop();
+});
+rejects("duplicate object evidence", (authority) => {
+  authority.objectPrivileges.push(structuredClone(authority.objectPrivileges[0]));
+});
+rejects("incorrect history scope", (authority) => {
+  authority.schemaPrivileges.find((row) => row.schema === "supabase_migrations").scope = "application_data";
+});
 console.log("PASS: PostgreSQL-derived collector authority matches catalog_only_v1; application schemas/objects remain inaccessible");
+console.log("PASS: analyzer rejects application grants, missing/duplicate evidence and unauthorized privilege scope");
