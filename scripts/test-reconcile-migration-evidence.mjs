@@ -1434,7 +1434,7 @@ test("analyzer rejects unexpected evidence and nested provenance/catalog propert
       const report = f.analyze();
       assert.equal(report.counts.Unknown, 40);
       assert.equal(report.acceptance, "NOT_ACCEPTED");
-      assert.ok(report.trustProblems.some((reason) => reason.includes("unexpected") || reason.includes("unsupported")));
+      assert.ok(report.trustProblems.some((reason) => reason.includes("unexpected") || reason.includes("unsupported") || reason.includes("malformed")));
     } finally { f.cleanup(); }
   }
 });

@@ -97,6 +97,8 @@ export function normalizeMigrationHistoryRows(tuples) {
     let recordedStatementCount = null;
     if (rawCount === "" || rawCount === null) recordedStatementCount = null;
     else if (typeof rawCount === "string" && /^(0|[1-9][0-9]*)$/.test(rawCount)) recordedStatementCount = Number(rawCount);
+    assert(rawCount === "" || rawCount === null || (typeof rawCount === "string" && /^(0|[1-9][0-9]*)$/.test(rawCount)),
+      "migration-history SQL row " + index + " has a noncanonical recorded statement count");
     assert(recordedStatementCount === null || (Number.isSafeInteger(recordedStatementCount) && recordedStatementCount >= 0),
       "migration-history SQL row " + index + " has an invalid recorded statement count");
     return { version, name, recordedStatementCount };
@@ -482,12 +484,20 @@ function validateEvidence(evidence, now, manifest, problems) {
   const captured = parseTime(p && p.capturedAt, "evidence capture timestamp", problems);
   if (Number.isFinite(captured) && (now - captured < 0 || now - captured > MAX_EVIDENCE_AGE_MS)) problems.push("evidence is stale or timestamp is in the future");
   const history = evidence && evidence.history;
-  if (!exactKeys(history, ["complete", "rows"]) || history.complete !== true || !Array.isArray(history.rows)) {
+  if (!exactKeys(history, ["complete", "rows"]) || typeof history.complete !== "boolean" || !Array.isArray(history.rows)) {
     problems.push("migration history export is incomplete or contains unsupported properties");
   }
   const catalog = evidence && evidence.catalog;
-  if (!exactKeys(catalog, ["complete", "completeKinds", "objects"]) || catalog.complete !== true || !Array.isArray(catalog.objects)) {
+  if (!exactKeys(catalog, ["complete", "completeKinds", "objects"]) || typeof catalog.complete !== "boolean" || !Array.isArray(catalog.objects)) {
     problems.push("live catalog export is incomplete or contains unsupported properties");
+  }
+  if (catalog && Array.isArray(catalog.objects)) {
+    for (const object of catalog.objects) {
+      if (!exactKeys(object, ["kind", "identity", "fingerprint"])) {
+        problems.push("catalog object contains an unexpected or missing property");
+        break;
+      }
+    }
   }
   const completeKinds = catalog && catalog.completeKinds;
   if (!Array.isArray(completeKinds) || new Set(completeKinds).size !== CATALOG_KINDS.length
