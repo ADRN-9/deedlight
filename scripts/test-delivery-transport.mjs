@@ -168,6 +168,44 @@ test("delayed invocation keeps logical enqueue time but claims using database ti
   ]);
 });
 
+test("Daily and Weekly runtime claims use separate RPCs and reject cross-kind rows", async () => {
+  const calls = [];
+  let returnedKind = "daily_reminder";
+  const runtime = new SupabaseDeliveryRuntime({
+    async rpc(name, params) {
+      calls.push({ name, params });
+      return {
+        data: [{
+          job_id: job.jobId,
+          user_id: job.userId,
+          kind: returnedKind,
+          delivery_key: job.deliveryKey,
+          scheduled_for: job.scheduledFor,
+          claim_token: job.claimToken,
+        }],
+        error: null,
+      };
+    },
+  });
+
+  assert.equal((await runtime.claim("daily_reminder", 5))[0].kind, "daily_reminder");
+  returnedKind = "weekly_newsletter";
+  assert.equal((await runtime.claim("weekly_newsletter", 5))[0].kind, "weekly_newsletter");
+  assert.deepEqual(calls, [
+    { name: "claim_daily_delivery_jobs", params: { p_limit: 5 } },
+    { name: "claim_weekly_delivery_jobs", params: { p_limit: 5 } },
+  ]);
+
+  returnedKind = "weekly_newsletter";
+  await assert.rejects(runtime.claim("daily_reminder", 5), /invalid shape/);
+  returnedKind = "daily_reminder";
+  await assert.rejects(runtime.claim("weekly_newsletter", 5), /invalid shape/);
+
+  const callsBeforeMalformed = calls.length;
+  await assert.rejects(runtime.claim("all", 5), /Delivery database operation failed: claim jobs/);
+  assert.equal(calls.length, callsBeforeMalformed);
+});
+
 test("sequential claim batches stay within the five-job lease budget", () => {
   assert.equal(deliveryClaimBatchSize(1), 1);
   assert.equal(deliveryClaimBatchSize(5), 5);
