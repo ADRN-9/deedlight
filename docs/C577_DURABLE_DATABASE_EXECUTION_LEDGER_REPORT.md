@@ -1,6 +1,6 @@
 # DeedLight C577 — Durable Database Execution Ledger and Atomic Replay Prevention
 
-**Status:** Disposable PostgreSQL 16 ledger implementation and integration harness PASS on implementation HEAD `e9a3513867e8e9824c3ea35c2d66b073c6eaa86a`. Exact-head PR Validation run #2226 / `46051047114` completed SUCCESS with 13/13 jobs. Production deployment, migration-runner integration, verifier trust, and Production acceptance are NOT ESTABLISHED. This is not a Production migration.
+**Status correction (C578 audit):** C577 implementation-head PR Validation run #2226 / `46051047114` completed SUCCESS with 13/13 jobs, but inspection of the actual PostgreSQL job log found the crash-recovery subtest invalid. PostgreSQL rejected the crash SQL because shell quoting removed JSON quotes before the client could enter the intended transaction. The harness then treated that unrelated nonzero client exit as a successful kill. Therefore C577's crash-recovery and marker-rollback evidence is **NOT ESTABLISHED**. See `docs/C578_EXECUTION_LEDGER_SECURITY_REMEDIATION.md` for the correction. Other C577 CI job results remain as recorded; no Production acceptance is implied.
 
 ## 1. Baseline and scope
 
@@ -108,12 +108,12 @@ Adversarial/integration scenarios:
 15. Runner cannot directly read ledger tables.
 16. Observer cannot directly mutate effect or ledger tables.
 17. A forged caller-supplied database identity argument has no matching API and fails.
-18. An actual disposable PostgreSQL client is SIGKILLed during an open effect transaction; the uncommitted effect rolls back while the separately committed RUNNING ledger entry survives and is recovered to unknown.
+18. The original C577 harness attempted to kill a disposable PostgreSQL client, but the actual server log shows malformed JSON stopped the client before the intended marker/sleep state. This is a defective test, not crash-recovery evidence.
 19. Two simultaneous independent sessions contend for the same approval; exactly one reservation may commit.
 20. The same record/execution UUID pair can be reserved in a second disposable database in the same cluster, demonstrating database scoping.
 21. The post-snapshot API rejects an execution with no committed effect marker.
 
-The crash test checks that the uncommitted effect is absent after client termination and that the ledger remains UNKNOWN. The race test checks exactly one committed row. The tests do not use Production.
+The original crash harness did not verify the intended crash path: it did not establish backend readiness, require SIGKILL status 137, check marker rollback, compare effect state, or prove replay rejection. The race test did check exactly one committed row. No tests use Production.
 
 ## 7. Integrity and trust limitations
 
@@ -162,7 +162,7 @@ No Production migration execution, migration-history reconciliation, trust-root 
 
 The first C577 run #2212 exposed an incorrect test expectation for SQL-level verifier EXECUTE denial; the test was corrected to expect `insufficient_privilege`. An intermediate C577 PostgreSQL job passed on run #2214. The final implementation-head run #2226 then passed after the same-transaction marker and its missing-marker regression were added.
 
-The report-only update that records this evidence creates a later PR head; a separate exact-head run is still required for that final documentation-inclusive commit.
+The report-only update that records this evidence created a later PR head; a separate exact-head run was still required for that documentation-inclusive commit. Independently, the actual PostgreSQL log review in C578 found the crash-test false positive described above.
 
 ## 11. Final classification
 
@@ -176,8 +176,8 @@ The report-only update that records this evidence creates a later PR head; a sep
 | Independent server-side pre/post snapshots | IMPLEMENTED for allowlisted disposable fixture query |
 | Separate role-gated approver/runner/observer/verifier/recovery operations | IMPLEMENTED; Production identity governance NOT ESTABLISHED |
 | Transaction rollback and concurrency race evidence | PASS in disposable PostgreSQL 16 CI |
-| Same-transaction effect marker rollback coupling | PASS in disposable PostgreSQL 16 CI |
-| Actual process kill and crash-recovery evidence | PASS in disposable PostgreSQL 16 CI |
+| Same-transaction effect marker rollback coupling | NOT ESTABLISHED; original crash harness failed before marker execution |
+| Actual process kill and crash-recovery evidence | NOT ESTABLISHED; original crash harness accepted unrelated nonzero exit |
 | Production migration-runner integration | BLOCKED |
 | Production observation query bundles | BLOCKED |
 | Production verifier trust root | BLOCKED |
