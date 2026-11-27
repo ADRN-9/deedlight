@@ -308,9 +308,11 @@ SELECT jsonb_build_object(
       )
       ELSE '[]'::jsonb
     END,
-    'databasePrivileges', CASE
-      WHEN pg_catalog.has_database_privilege(current_user, current_database(), 'CONNECT')
-        THEN jsonb_build_array('CONNECT') ELSE '[]'::jsonb END,
+    'databasePrivileges', to_jsonb(array_remove(ARRAY[
+      CASE WHEN pg_catalog.has_database_privilege(current_user, current_database(), 'CONNECT') THEN 'CONNECT' END,
+      CASE WHEN pg_catalog.has_database_privilege(current_user, current_database(), 'CREATE') THEN 'CREATE' END,
+      CASE WHEN pg_catalog.has_database_privilege(current_user, current_database(), 'TEMP') THEN 'TEMPORARY' END
+    ]::text[], NULL)),
     'catalogPrivileges', CASE WHEN NOT EXISTS (
       SELECT 1 FROM unnest(ARRAY[
         'pg_catalog.pg_class', 'pg_catalog.pg_attribute', 'pg_catalog.pg_attrdef',
