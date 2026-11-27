@@ -37,7 +37,7 @@ $fn$;
 
 CREATE OR REPLACE FUNCTION deedlight_execution_ledger.canonical_query_bundle_digest(p_manifest jsonb)
 RETURNS text
-LANGUAGE plpgsql IMMUTABLE SECURITY DEFINER
+LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path = pg_catalog, deedlight_execution_ledger
 AS $fn$
 DECLARE v_canonical text; v_count integer; v_unique_count integer; v_member jsonb;
@@ -462,14 +462,21 @@ DECLARE v_actor name := deedlight_execution_ledger.actor_role();
         v_identity deedlight_execution_ledger.database_identity%ROWTYPE;
         v_execution deedlight_execution_ledger.executions%ROWTYPE;
         v_query deedlight_execution_ledger.observation_queries%ROWTYPE;
+        v_bundle deedlight_execution_ledger.query_bundle_manifests%ROWTYPE;
         v_rows jsonb;
         v_snapshot jsonb;
         v_observed_at timestamptz := pg_catalog.clock_timestamp();
 BEGIN
   IF v_actor IS DISTINCT FROM 'deedlight_ledger_observer' THEN
-    RAISE EXCEPTION 'independent read-only observer authority required';
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust', 'observer_authority_missing', jsonb_build_object('actor',v_actor)
+    );
   END IF;
-  IF p_phase NOT IN ('pre','post') THEN RAISE EXCEPTION 'unsupported snapshot phase'; END IF;
+  IF p_phase NOT IN ('pre','post') THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'incomplete_preconditions', 'snapshot_phase_invalid', jsonb_build_object('phase',p_phase)
+    );
+  END IF;
   SELECT * INTO STRICT v_identity FROM deedlight_execution_ledger.database_identity WHERE singleton;
   SELECT * INTO STRICT v_execution FROM deedlight_execution_ledger.executions
   WHERE system_identifier = v_identity.system_identifier AND database_oid = v_identity.database_oid
@@ -491,7 +498,37 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'post-snapshot requires a committed effect marker from the active runner transaction';
   END IF;
-  SELECT * INTO STRICT v_query FROM deedlight_execution_ledger.observation_queries WHERE query_id = p_query_id;
+  SELECT * INTO v_query FROM deedlight_execution_ledger.observation_queries WHERE query_id = p_query_id;
+  IF NOT FOUND THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust', 'observation_query_not_registered', jsonb_build_object('queryId',p_query_id)
+    );
+  END IF;
+  IF pg_catalog.encode(deedlight_execution_ledger.digest(
+      pg_catalog.convert_to(v_query.query_sql,'UTF8'),'sha256'),'hex') <> v_query.query_sha256 THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'snapshot_substitution', 'registered_sql_digest_mismatch', jsonb_build_object('queryId',p_query_id)
+    );
+  END IF;
+  SELECT * INTO v_bundle FROM deedlight_execution_ledger.query_bundle_manifests
+  WHERE bundle_id = v_query.query_bundle_id AND manifest_sha256 = v_query.query_bundle_digest;
+  IF NOT FOUND THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust', 'query_bundle_manifest_missing', jsonb_build_object('bundleId',v_query.query_bundle_id)
+    );
+  END IF;
+  IF v_bundle.member_count <> pg_catalog.jsonb_array_length(v_bundle.manifest)
+    OR deedlight_execution_ledger.canonical_query_bundle_digest(v_bundle.manifest) <> v_bundle.manifest_sha256
+    OR NOT EXISTS (
+      SELECT 1 FROM pg_catalog.jsonb_array_elements(v_bundle.manifest) AS member(value)
+      WHERE value->>'queryId' = v_query.query_id
+        AND value->>'querySha256' = v_query.query_sha256
+    ) THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'snapshot_substitution', 'query_bundle_manifest_integrity_or_membership_mismatch',
+      jsonb_build_object('queryId',p_query_id,'bundleId',v_query.query_bundle_id)
+    );
+  END IF;
   EXECUTE pg_catalog.format(
     'SELECT COALESCE(jsonb_agg(to_jsonb(q)), ''[]''::jsonb) FROM (%s) AS q', v_query.query_sql
   ) INTO v_rows;
@@ -567,34 +604,66 @@ BEGIN
   IF v_actor IS DISTINCT FROM 'deedlight_ledger_runner' THEN RAISE EXCEPTION 'migration runner authority required'; END IF;
   IF p_outcome NOT IN ('succeeded','failed','partial') OR p_outcome_detail IS NULL
     OR pg_catalog.jsonb_typeof(p_outcome_detail) <> 'object' THEN
-    RAISE EXCEPTION 'terminal outcome must be explicit and supported';
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'incomplete_preconditions', 'terminal_outcome_not_explicit_or_supported',
+      jsonb_build_object('outcome',p_outcome)
+    );
   END IF;
   SELECT * INTO STRICT v_identity FROM deedlight_execution_ledger.database_identity WHERE singleton;
   IF NOT EXISTS (SELECT 1 FROM deedlight_execution_ledger.execution_commit_markers
     WHERE system_identifier = v_identity.system_identifier AND database_oid = v_identity.database_oid
-      AND execution_id = p_execution_id)
-    OR NOT EXISTS (
-      SELECT 1
-      FROM deedlight_execution_ledger.snapshots pre
-      JOIN deedlight_execution_ledger.snapshots post
-        ON post.system_identifier = pre.system_identifier
-       AND post.database_oid = pre.database_oid
-       AND post.execution_id = pre.execution_id
-      WHERE pre.system_identifier = v_identity.system_identifier
-        AND pre.database_oid = v_identity.database_oid
-        AND pre.execution_id = p_execution_id
-        AND pre.phase = 'pre' AND post.phase = 'post'
-        AND pre.query_id = post.query_id
-        AND pre.query_sha256 = post.query_sha256
-        AND pre.query_bundle_digest = post.query_bundle_digest
-    ) THEN
-    RAISE EXCEPTION 'committed effect marker and matching pre/post observation query identity required before finalization';
+      AND execution_id = p_execution_id) THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_execution_evidence', 'committed_effect_marker_missing',
+      jsonb_build_object('executionId',p_execution_id)
+    );
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM deedlight_execution_ledger.snapshots
+    WHERE system_identifier = v_identity.system_identifier AND database_oid = v_identity.database_oid
+      AND execution_id = p_execution_id AND phase = 'pre') THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'incomplete_preconditions', 'pre_snapshot_missing',
+      jsonb_build_object('executionId',p_execution_id)
+    );
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM deedlight_execution_ledger.snapshots
+    WHERE system_identifier = v_identity.system_identifier AND database_oid = v_identity.database_oid
+      AND execution_id = p_execution_id AND phase = 'post') THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'incomplete_preconditions', 'post_snapshot_missing',
+      jsonb_build_object('executionId',p_execution_id)
+    );
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM deedlight_execution_ledger.snapshots pre
+    JOIN deedlight_execution_ledger.snapshots post
+      ON post.system_identifier = pre.system_identifier
+     AND post.database_oid = pre.database_oid
+     AND post.execution_id = pre.execution_id
+    WHERE pre.system_identifier = v_identity.system_identifier
+      AND pre.database_oid = v_identity.database_oid
+      AND pre.execution_id = p_execution_id
+      AND pre.phase = 'pre' AND post.phase = 'post'
+      AND pre.query_id = post.query_id
+      AND pre.query_sha256 = post.query_sha256
+      AND pre.query_bundle_digest = post.query_bundle_digest
+  ) THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'snapshot_substitution', 'pre_post_query_identity_mismatch',
+      jsonb_build_object('executionId',p_execution_id)
+    );
   END IF;
   UPDATE deedlight_execution_ledger.executions
   SET status = p_outcome, completed_at = pg_catalog.clock_timestamp(), outcome_detail = p_outcome_detail
   WHERE system_identifier = v_identity.system_identifier AND database_oid = v_identity.database_oid
     AND execution_id = p_execution_id AND status = 'running' AND runner_identity = v_actor;
-  IF NOT FOUND THEN RAISE EXCEPTION 'active execution owned by this runner not found'; END IF;
+  IF NOT FOUND THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'failed_postconditions', 'execution_not_active_for_finalizing_runner',
+      jsonb_build_object('executionId',p_execution_id)
+    );
+  END IF;
 END
 $fn$;
 
