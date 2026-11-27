@@ -7,8 +7,8 @@ const exact = (value, keys) => value && typeof value === "object" && !Array.isAr
 const relation = value => exact(value, ["schema", "relation"])
   && RELATION.test(value.schema) && RELATION.test(value.relation);
 const timestamp = value => typeof value === "string"
-  && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(value)
-  && Number.isFinite(Date.parse(value));
+  && /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$/.test(value)
+  && Number.isFinite(Date.parse(value)) && new Date(Date.parse(value)).toISOString() === value;
 
 export function validateCategoryEffectContract(category, effect, inventoryPaths, { requireEvidence = true, sourceText = null } = {}) {
   if (!["dataTransformations", "backfills", "dependencies", "preconditions", "postconditions"].includes(category)) return null;
