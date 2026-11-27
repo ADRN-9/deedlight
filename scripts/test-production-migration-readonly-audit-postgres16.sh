@@ -564,7 +564,7 @@ awk '
   /^-- 13[.] Migration-history database facts only/ { section = 1; next }
   section && /^SELECT$/ { query = 1 }
   query { print }
-  query && index($0, "ORDER BY h.version, h.name;") == 1 { exit }
+  query && index($0, "ORDER BY h.name NULLS LAST, h.version;") == 1 { exit }
 ' scripts/production-migration-readonly-audit.sql >"${tmp_dir}/migration-history-query.sql"
 test -s "${tmp_dir}/migration-history-query.sql"
 psql_as deedlight_catalog_auditor -X -qAt -F '|' -P null='NULL' -v ON_ERROR_STOP=1 -c "SET deedlight.authenticated_principal = 'deedlight_catalog_auditor';" --file "${tmp_dir}/migration-history-query.sql" >"${tmp_dir}/migration-history.tsv"
@@ -574,11 +574,15 @@ node --input-type=module -e '
   import { readFileSync } from "node:fs";
   const history = JSON.parse(readFileSync(process.argv[1], "utf8"));
   assert.equal(history.complete, true);
-  assert.equal(history.rows.length, 1);
+  assert.equal(history.rows.length, 2);
   assert.deepEqual(Object.keys(history.rows[0]).sort(), ["name", "recordedStatementCount", "version"]);
   assert.equal(history.rows[0].version, "202611240038");
   assert.equal(history.rows[0].name, "fixture_migration");
   assert.equal(history.rows[0].recordedStatementCount, 1);
+  assert.deepEqual(Object.keys(history.rows[1]).sort(), ["name", "recordedStatementCount", "version"]);
+  assert.equal(history.rows[1].version, "202611240037");
+  assert.equal(history.rows[1].name, null);
+  assert.equal(history.rows[1].recordedStatementCount, 1);
 ' "${tmp_dir}/normalized-migration-history.json"
 echo "PASS: actual section-13 SQL output normalizes into analyzer-compatible history input"
 # Both collector identities must explicitly opt out of inherited role privileges.
