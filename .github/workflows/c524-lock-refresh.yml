@@ -51,6 +51,22 @@ jobs:
           set -euo pipefail
           if sudo unshare --net --mount-proc -- true 2> c524-netns-probe.err; then
             echo "OS_NETWORK_NAMESPACE=available" | tee c524-isolation-result.txt
+            sudo unshare --net --mount-proc -- node -e '
+              const net = require("node:net");
+              const socket = net.connect({ host: "1.1.1.1", port: 443 });
+              const timer = setTimeout(() => { socket.destroy(); console.error("network namespace probe timed out"); process.exit(2); }, 2000);
+              socket.once("connect", () => { clearTimeout(timer); socket.destroy(); console.error("unexpected outbound TCP connection"); process.exit(1); });
+              socket.once("error", (error) => {
+                clearTimeout(timer);
+                if (error.code === "ENETUNREACH" || error.code === "ENETDOWN") {
+                  console.log("OS_EGRESS_PROBE=blocked:" + error.code);
+                  process.exit(0);
+                }
+                console.error("unexpected network probe error:" + error.code);
+                process.exit(1);
+              });
+            '
+            echo "OS_NETWORK_NAMESPACE_EGRESS=blocked" | tee -a c524-isolation-result.txt
             sudo unshare --net --mount-proc -- node --test scripts/test-c73-webhook-isolation.mjs scripts/test-c516-webhook-route-instrumentation.mjs
             echo "OS_NETWORK_NAMESPACE_WEBHOOK_TESTS=pass" | tee -a c524-isolation-result.txt
           else
