@@ -168,7 +168,7 @@ export function adaptCollectorEvidence({receipt,csv,inventoryBytes,schemaBytes,m
   const validation=validateSqlOutput(csv),p=parseProjections(validation);validateProjectionRows(p);
   const structure=p.get("migration_history_structure_v1");
   if(structure.length!==3||structure.map(row=>row[1]).join("\0")!=="version\0name\0statements"
-    ||structure.some((row,i)=>row[0]!==String(i+1)||!bool(row[3])))fail("MIGRATION_HISTORY_STRUCTURE_INCOMPLETE");
+    ||structure.some((row,i)=>row[0]!==String(i+1)||!bool(row[3])))fail("MIGRATION_HISTORY_STRUCTURE_INCOMPLETE:"+JSON.stringify(structure));
   if(validation.migrationHistoryRows.length!==receipt.execution.migrationHistoryRowCount)fail("MIGRATION_HISTORY_CARDINALITY_MISMATCH");
   const normalizedMapping=validateMapping(mapping,inventory);
   const evidence={schemaVersion:2,
