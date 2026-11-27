@@ -119,53 +119,37 @@ END
 $assert$;
 RESET ROLE;
 
--- Duplicate execution ID with a fresh approval but a different record ID must hit the DB unique key.
-SELECT deedlight_execution_ledger.approve_execution(
-  'c5700000-0000-4000-8000-000000000002',
-  'c5700000-0000-4000-8000-000000000012',
-  'c5700000-0000-4000-8000-000000000021',
-  '{"path":"supabase/migrations/test.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb
-);
-SET ROLE deedlight_ledger_runner;
+-- Duplicate execution ID with a different record ID is rejected at approval.
 DO $assert$
 BEGIN
   BEGIN
-    PERFORM deedlight_execution_ledger.reserve_execution(
+    PERFORM deedlight_execution_ledger.approve_execution(
       'c5700000-0000-4000-8000-000000000002',
       'c5700000-0000-4000-8000-000000000012',
       'c5700000-0000-4000-8000-000000000021',
       '{"path":"supabase/migrations/test.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb
     );
-    RAISE EXCEPTION 'duplicate execution identity unexpectedly accepted';
+    RAISE EXCEPTION 'duplicate execution identity unexpectedly approved';
   EXCEPTION WHEN unique_violation THEN NULL;
   END;
 END
 $assert$;
-RESET ROLE;
 
--- Duplicate record ID with a fresh execution ID must hit the other database-scoped unique key.
-SELECT deedlight_execution_ledger.approve_execution(
-  'c5700000-0000-4000-8000-000000000003',
-  'c5700000-0000-4000-8000-000000000011',
-  'c5700000-0000-4000-8000-000000000023',
-  '{"path":"supabase/migrations/test.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb
-);
-SET ROLE deedlight_ledger_runner;
+-- Duplicate record ID with a different execution ID is rejected at approval.
 DO $assert$
 BEGIN
   BEGIN
-    PERFORM deedlight_execution_ledger.reserve_execution(
+    PERFORM deedlight_execution_ledger.approve_execution(
       'c5700000-0000-4000-8000-000000000003',
       'c5700000-0000-4000-8000-000000000011',
       'c5700000-0000-4000-8000-000000000023',
       '{"path":"supabase/migrations/test.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb
     );
-    RAISE EXCEPTION 'duplicate record identity unexpectedly accepted';
+    RAISE EXCEPTION 'duplicate record identity unexpectedly approved';
   EXCEPTION WHEN unique_violation THEN NULL;
   END;
 END
 $assert$;
-RESET ROLE;
 
 -- A reservation abandoned before execution becomes interrupted, never silently reusable.
 SELECT deedlight_execution_ledger.approve_execution(
