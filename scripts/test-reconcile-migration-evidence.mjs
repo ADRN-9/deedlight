@@ -1598,10 +1598,11 @@ test("unsupported and unknown effect domains are explicit blockers, never silent
       f.mapping.migrations[0].coverage.backfills.rationale="Fixture explicitly records an unresolved backfill review disposition.";
       f.reapprove();
       const report=f.analyze();
-      assert.equal(report.trustVerified,false);
+      assert.equal(report.trustVerified,true);
       assert.equal(report.acceptance,"NOT_ACCEPTED");
-      assert.equal(report.counts.Unknown,40);
-      assert.ok(report.trustProblems.some(reason=>reason.includes("backfills")&&reason.includes(disposition)));
+      assert.equal(report.counts.Unknown,0);
+      assert.ok(report.unresolvedLifecycleEvidence>0);
+      assert.ok(report.classifications[0].nonCatalogEvidenceCategories.includes("backfills"));
     }finally{f.cleanup();}
   }
 });
