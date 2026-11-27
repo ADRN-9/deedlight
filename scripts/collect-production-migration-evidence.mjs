@@ -136,7 +136,13 @@ export function validateSqlOutput(csv) {
     }
     if (currentIndex < 0) throw new CollectorError("SQL_PROJECTION_DATA_WITHOUT_HEADER");
     const projection = SQL_PROJECTIONS[currentIndex];
-    if (row.length !== projection.columns.length) throw new CollectorError("SQL_PROJECTION_ROW_WIDTH_INVALID");
+    if (row.length !== projection.columns.length) {
+      const next = SQL_PROJECTIONS[expectedIndex];
+      if (expectedIndex === currentIndex + 1 && next && row.length === next.columns.length) {
+        throw new CollectorError(missingProjectionCode(next));
+      }
+      throw new CollectorError("SQL_PROJECTION_ROW_WIDTH_INVALID");
+    }
     projectionRows[currentIndex].push(row);
   }
   if (expectedIndex !== SQL_PROJECTIONS.length) throw new CollectorError(missingProjectionCode(SQL_PROJECTIONS[expectedIndex]));
