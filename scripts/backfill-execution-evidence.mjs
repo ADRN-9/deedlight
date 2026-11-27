@@ -261,9 +261,14 @@ export function validateBackfillExecutionRecord(record, {
     recordId: record.recordId, executionId: record.executionId, sourceIdentity: sourceCore(source || {}),
     databaseIdentity: record.databaseIdentity, environment: record.databaseIdentity?.environment,
     coreDigest, authorizedBy: record.authorization?.signerId,
+    authorizedAt: record.authorization?.claims?.authorizedAt, expiresAt: record.authorization?.claims?.expiresAt,
   };
+  const authorizationIssuedAt = timestamp(record.authorization?.issuedAt);
+  const authorizationExpiresAt = timestamp(record.authorization?.expiresAt);
   if (!UUID.test(record.recordId || "") || !authorizationClaims
-    || canonicalBackfillJson(authorizationClaims) !== canonicalBackfillJson(expectedAuthorization)) {
+    || canonicalBackfillJson(authorizationClaims) !== canonicalBackfillJson(expectedAuthorization)
+    || !Number.isFinite(authorizationIssuedAt) || !Number.isFinite(authorizationExpiresAt)
+    || authorizationIssuedAt > startedAt || authorizationExpiresAt < completedAt) {
     problems.push("AUTHORIZATION:NOT_BOUND_TO_EXACT_SOURCE_EXECUTION_AND_DATABASE");
   }
   const expectedVerification = {
@@ -274,8 +279,12 @@ export function validateBackfillExecutionRecord(record, {
     postExecutionEvidenceSha256: sha256(Buffer.from(canonicalBackfillJson(record.postExecutionState), "utf8")),
     outcome: record.execution?.outcome, result: "PASS",
     verifierIdentity: record.verification?.signerId, verifierVersion: record.verification?.claims?.verifierVersion,
+    verifiedAt: record.verification?.claims?.verifiedAt,
   };
+  const verifierIssuedAt = timestamp(record.verification?.issuedAt);
   if (!verificationClaims || canonicalBackfillJson(verificationClaims) !== canonicalBackfillJson(expectedVerification)
+    || !Number.isFinite(verifierIssuedAt) || !postValid || verifierIssuedAt < timestamp(record.postExecutionState.observedAt)
+    || typeof verificationClaims.verifierVersion !== "string" || !verificationClaims.verifierVersion.trim()
     || record.verification?.signerId === record.execution?.executorIdentity
     || record.authorization?.signerId === record.verification?.signerId
     || record.authorization?.signerId === record.execution?.executorIdentity) {
