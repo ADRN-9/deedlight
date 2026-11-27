@@ -186,6 +186,98 @@ echo "PASS: real PGHOSTADDR redirection reached the adversarial server but fixtu
 
 psql -X -v ON_ERROR_STOP=1 --file scripts/test-production-migration-readonly-audit-postgres16-fixture.sql
 
+# Capture effective privileges as the real collector login and validate the exact signed-evidence contract.
+psql_as deedlight_catalog_auditor -X -qAt -v ON_ERROR_STOP=1 <<'SQL' | node scripts/test-collector-privilege-contract-postgres16.mjs
+WITH schemas AS (
+  SELECT n.oid, n.nspname
+  FROM pg_catalog.pg_namespace n
+  WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+    AND n.nspname NOT LIKE 'pg_toast%'
+), relations AS (
+  SELECT c.oid, c.relkind, n.nspname, c.relname
+  FROM pg_catalog.pg_class c
+  JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+    AND n.nspname NOT LIKE 'pg_toast%'
+    AND c.relkind IN ('r', 'p', 'v', 'm', 'f', 'S')
+), routines AS (
+  SELECT p.oid, n.nspname, p.proname,
+    pg_catalog.pg_get_function_identity_arguments(p.oid) AS identity_arguments
+  FROM pg_catalog.pg_proc p
+  JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+    AND n.nspname NOT LIKE 'pg_toast%'
+), inventory AS (
+  SELECT 'schemas'::text AS kind, nspname AS identity FROM schemas
+  UNION ALL
+  SELECT CASE WHEN relkind = 'S' THEN 'sequences' ELSE 'tables' END,
+    nspname || '.' || relname FROM relations
+  UNION ALL
+  SELECT 'routines', nspname || '.' || proname || '(' || identity_arguments || ')' FROM routines
+), schema_privileges AS (
+  SELECT jsonb_agg(jsonb_build_object(
+    'schema', n.nspname,
+    'scope', CASE WHEN n.nspname = 'supabase_migrations' THEN 'migration_history' ELSE 'application_data' END,
+    'privileges', CASE WHEN pg_catalog.has_schema_privilege(current_user, n.oid, 'USAGE')
+      THEN jsonb_build_array('USAGE') ELSE '[]'::jsonb END
+  ) ORDER BY n.nspname) AS rows
+  FROM schemas n
+), object_privileges AS (
+  SELECT jsonb_agg(jsonb_build_object(
+    'kind', CASE WHEN r.relkind = 'S' THEN 'sequences' ELSE 'tables' END,
+    'identity', r.nspname || '.' || r.relname,
+    'scope', CASE WHEN r.nspname = 'supabase_migrations' AND r.relname = 'schema_migrations'
+      AND r.relkind IN ('r', 'p') THEN 'migration_history' ELSE 'application_data' END,
+    'privileges', CASE WHEN r.relkind = 'S' THEN
+      to_jsonb(array_remove(ARRAY[
+        CASE WHEN pg_catalog.has_sequence_privilege(current_user, r.oid, 'USAGE') THEN 'USAGE' END,
+        CASE WHEN pg_catalog.has_sequence_privilege(current_user, r.oid, 'SELECT') THEN 'SELECT' END,
+        CASE WHEN pg_catalog.has_sequence_privilege(current_user, r.oid, 'UPDATE') THEN 'UPDATE' END
+      ]::text[], NULL))
+    ELSE to_jsonb(array_remove(ARRAY[
+      CASE WHEN pg_catalog.has_table_privilege(current_user, r.oid, 'SELECT') THEN 'SELECT' END,
+      CASE WHEN pg_catalog.has_table_privilege(current_user, r.oid, 'INSERT') THEN 'INSERT' END,
+      CASE WHEN pg_catalog.has_table_privilege(current_user, r.oid, 'UPDATE') THEN 'UPDATE' END,
+      CASE WHEN pg_catalog.has_table_privilege(current_user, r.oid, 'DELETE') THEN 'DELETE' END,
+      CASE WHEN pg_catalog.has_table_privilege(current_user, r.oid, 'TRUNCATE') THEN 'TRUNCATE' END,
+      CASE WHEN pg_catalog.has_table_privilege(current_user, r.oid, 'REFERENCES') THEN 'REFERENCES' END,
+      CASE WHEN pg_catalog.has_table_privilege(current_user, r.oid, 'TRIGGER') THEN 'TRIGGER' END
+    ]::text[], NULL)) END
+  ) ORDER BY r.nspname, r.relname) AS rows
+  FROM relations r
+  UNION ALL
+  SELECT jsonb_agg(jsonb_build_object(
+    'kind', 'routines',
+    'identity', nspname || '.' || proname || '(' || identity_arguments || ')',
+    'scope', 'application_data',
+    'privileges', CASE WHEN pg_catalog.has_function_privilege(current_user, oid, 'EXECUTE')
+      THEN jsonb_build_array('EXECUTE') ELSE '[]'::jsonb END
+  ) ORDER BY nspname, proname, identity_arguments) AS rows
+  FROM routines
+), all_objects AS (
+  SELECT value FROM object_privileges, LATERAL jsonb_array_elements(COALESCE(rows, '[]'::jsonb))
+  UNION ALL
+  SELECT value FROM object_privileges, LATERAL jsonb_array_elements(COALESCE(rows, '[]'::jsonb))
+  OFFSET 0
+)
+SELECT jsonb_build_object(
+  'inventoryObjects', (SELECT jsonb_agg(jsonb_build_object('kind', kind, 'identity', identity) ORDER BY kind, identity) FROM inventory),
+  'databaseAuthority', jsonb_build_object(
+    'privilegeContractVersion', 'catalog_only_v1',
+    'effectivePrivileges', jsonb_build_array(
+      'DATABASE_CONNECT', 'SYSTEM_CATALOG_SELECT', 'MIGRATION_HISTORY_SCHEMA_USAGE', 'MIGRATION_HISTORY_SELECT'
+    ),
+    'schemaPrivileges', (SELECT rows FROM schema_privileges),
+    'objectPrivileges', (
+      SELECT COALESCE(jsonb_agg(value ORDER BY value->>'kind', value->>'identity'), '[]'::jsonb)
+      FROM (
+        SELECT jsonb_array_elements(rows) AS value FROM object_privileges
+      ) collected
+    )
+  )
+);
+SQL
+
 # Hostile functions deliberately shadow security-sensitive built-ins on the session search_path.
 psql -X -v ON_ERROR_STOP=1 <<'SQL'
 CREATE SCHEMA deedlight_audit_shadow;
