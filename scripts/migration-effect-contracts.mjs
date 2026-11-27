@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 const HEX_256 = /^[a-f0-9]{64}$/;
 const HEX_160 = /^[a-f0-9]{40}$/;
 const RELATION = /^[A-Za-z_][A-Za-z0-9_$]*$/;
@@ -9,12 +10,21 @@ const timestamp = value => typeof value === "string"
   && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(value)
   && Number.isFinite(Date.parse(value));
 
-export function validateCategoryEffectContract(category, effect, inventoryPaths, { requireEvidence = true } = {}) {
+export function validateCategoryEffectContract(category, effect, inventoryPaths, { requireEvidence = true, sourceText = null } = {}) {
   if (!["dataTransformations", "backfills", "dependencies", "preconditions", "postconditions"].includes(category)) return null;
   const contract = effect && effect.contract;
   if (!contract || typeof contract !== "object" || Array.isArray(contract)) return category + " effect is missing its category-specific contract";
+  if (!sourceText || typeof sourceText !== "string") return category + " effect cannot be source-bound without the pinned SQL bytes";
+  const range = contract.sourceRange;
+  if (!exact(range, ["startLine", "endLine"]) || !Number.isSafeInteger(range.startLine) || !Number.isSafeInteger(range.endLine)
+    || range.startLine < 1 || range.endLine < range.startLine) return category + " effect has an invalid source range";
+  const sourceLines = sourceText.split(/\r?\n/);
+  if (range.endLine > sourceLines.length) return category + " effect source range exceeds pinned SQL line count";
+  const sourceStatement = sourceLines.slice(range.startLine - 1, range.endLine).join("\n");
+  const sourceDigest = createHash("sha256").update(sourceStatement, "utf8").digest("hex");
+  if (sourceDigest !== contract.sourceStatementSha256) return category + " effect source-statement fingerprint does not match the pinned SQL range";
   if (category === "dataTransformations") {
-    if (!exact(contract, ["operation", "sourceRelations", "targetRelation", "predicate", "sourceStatementSha256"])
+    if (!exact(contract, ["operation", "sourceRelations", "targetRelation", "predicate", "sourceRange", "sourceStatementSha256"])
       || !["INSERT_SELECT", "UPDATE", "DELETE", "UPSERT", "MERGE"].includes(contract.operation)
       || !Array.isArray(contract.sourceRelations) || !contract.sourceRelations.every(relation)
       || !relation(contract.targetRelation) || !HEX_256.test(contract.sourceStatementSha256 || "")) {
@@ -26,7 +36,7 @@ export function validateCategoryEffectContract(category, effect, inventoryPaths,
     return null;
   }
   if (category === "backfills") {
-    if (!exact(contract, ["targetRelation", "predicate", "measurement", "sourceStatementSha256"])
+    if (!exact(contract, ["targetRelation", "predicate", "measurement", "sourceRange", "sourceStatementSha256"])
       || !relation(contract.targetRelation) || !exact(contract.predicate, ["sql", "sha256"])
       || typeof contract.predicate.sql !== "string" || !contract.predicate.sql.trim()
       || !HEX_256.test(contract.predicate.sha256 || "") || !HEX_256.test(contract.sourceStatementSha256 || "")) {
@@ -47,7 +57,7 @@ export function validateCategoryEffectContract(category, effect, inventoryPaths,
     return null;
   }
   if (category === "dependencies") {
-    if (!exact(contract, ["dependencyType", "fromRelation", "toRelation", "dependsOnMigrationPath", "sourceStatementSha256"])
+    if (!exact(contract, ["dependencyType", "fromRelation", "toRelation", "dependsOnMigrationPath", "sourceRange", "sourceStatementSha256"])
       || !["foreign_key", "view_source", "routine_call", "data_order"].includes(contract.dependencyType)
       || !relation(contract.fromRelation) || !relation(contract.toRelation)
       || typeof contract.dependsOnMigrationPath !== "string" || !inventoryPaths.has(contract.dependsOnMigrationPath)
@@ -58,7 +68,7 @@ export function validateCategoryEffectContract(category, effect, inventoryPaths,
     return null;
   }
   if (category === "preconditions" || category === "postconditions") {
-    if (!exact(contract, ["predicateSql", "predicateSha256", "expectedOutcome", "verification"])
+    if (!exact(contract, ["predicateSql", "predicateSha256", "expectedOutcome", "verification", "sourceRange"])
       || typeof contract.predicateSql !== "string" || !contract.predicateSql.trim()
       || !HEX_256.test(contract.predicateSha256 || "")
       || !["true", "false", "zero_rows", "nonzero_rows"].includes(contract.expectedOutcome)) {
