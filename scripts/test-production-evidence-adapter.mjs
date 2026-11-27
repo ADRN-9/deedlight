@@ -86,8 +86,8 @@ test("missing, duplicated, reordered, unexpected and truncated projections fail 
   const base=fixtureCsv().toString("utf8"),lines=base.trimEnd().split("\r\n"),header=SQL_PROJECTIONS[4].columns.join(",");
   assert.throws(()=>adapt(Buffer.from(lines.filter(x=>x!==header).join("\r\n")+"\r\n")));
   assert.throws(()=>adapt(Buffer.from(base.replace(header+"\r\n",header+"\r\n"+header+"\r\n"))),/SQL_PROJECTION_DUPLICATED/);
-  assert.throws(()=>adapt(Buffer.from(base.replace(SQL_PROJECTIONS[0].columns.join(","),SQL_PROJECTIONS[1].columns.join(","))),/SQL_PROJECTION/);
-  assert.throws(()=>adapt(Buffer.from(base.replace(SQL_PROJECTIONS[1].columns.join(","),"unexpected_header,other_header")),/SQL_PROJECTION/);
+  assert.throws(()=>adapt(Buffer.from(base.replace(SQL_PROJECTIONS[0].columns.join(","),SQL_PROJECTIONS[1].columns.join(",")))),/SQL_PROJECTION/);
+  assert.throws(()=>adapt(Buffer.from(base.replace(SQL_PROJECTIONS[1].columns.join(","),"unexpected_header,other_header"))),/SQL_PROJECTION/);
   assert.throws(()=>adapt(Buffer.from(base.slice(0,-20))),/TRANSACTION_CLOSE_MARKER_MISSING|TRUNCATED/);
 });
 test("row-shape validators reject malformed relation, ACL and role values",()=>{
