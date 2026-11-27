@@ -462,14 +462,17 @@ DECLARE v_actor name := deedlight_execution_ledger.actor_role();
         v_identity deedlight_execution_ledger.database_identity%ROWTYPE;
         v_execution deedlight_execution_ledger.executions%ROWTYPE;
         v_query deedlight_execution_ledger.observation_queries%ROWTYPE;
+        v_bundle deedlight_execution_ledger.query_bundle_manifests%ROWTYPE;
         v_rows jsonb;
         v_snapshot jsonb;
         v_observed_at timestamptz := pg_catalog.clock_timestamp();
 BEGIN
   IF v_actor IS DISTINCT FROM 'deedlight_ledger_observer' THEN
-    RAISE EXCEPTION 'independent read-only observer authority required';
+    PERFORM deedlight_execution_ledger.raise_trust_failure('missing_trust','observer_authority_missing',jsonb_build_object('actor',v_actor));
   END IF;
-  IF p_phase NOT IN ('pre','post') THEN RAISE EXCEPTION 'unsupported snapshot phase'; END IF;
+  IF p_phase NOT IN ('pre','post') THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure('incomplete_preconditions','snapshot_phase_invalid',jsonb_build_object('phase',p_phase));
+  END IF;
   SELECT * INTO STRICT v_identity FROM deedlight_execution_ledger.database_identity WHERE singleton;
   SELECT * INTO STRICT v_execution FROM deedlight_execution_ledger.executions
   WHERE system_identifier = v_identity.system_identifier AND database_oid = v_identity.database_oid
@@ -491,7 +494,24 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'post-snapshot requires a committed effect marker from the active runner transaction';
   END IF;
-  SELECT * INTO STRICT v_query FROM deedlight_execution_ledger.observation_queries WHERE query_id = p_query_id;
+  SELECT * INTO v_query FROM deedlight_execution_ledger.observation_queries WHERE query_id = p_query_id;
+  IF NOT FOUND THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure('missing_trust','observation_query_not_registered',jsonb_build_object('queryId',p_query_id));
+  END IF;
+  IF pg_catalog.encode(deedlight_execution_ledger.digest(pg_catalog.convert_to(v_query.query_sql,'UTF8'),'sha256'),'hex') <> v_query.query_sha256 THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure('snapshot_substitution','registered_sql_digest_mismatch',jsonb_build_object('queryId',p_query_id));
+  END IF;
+  SELECT * INTO v_bundle FROM deedlight_execution_ledger.query_bundle_manifests
+  WHERE bundle_id = v_query.query_bundle_id AND manifest_sha256 = v_query.query_bundle_digest;
+  IF NOT FOUND THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure('missing_trust','query_bundle_manifest_missing',jsonb_build_object('bundleId',v_query.query_bundle_id));
+  END IF;
+  IF v_bundle.member_count <> pg_catalog.jsonb_array_length(v_bundle.manifest)
+    OR deedlight_execution_ledger.canonical_query_bundle_digest(v_bundle.manifest) <> v_bundle.manifest_sha256
+    OR NOT EXISTS (SELECT 1 FROM pg_catalog.jsonb_array_elements(v_bundle.manifest) AS member(value)
+      WHERE value->>'queryId'=v_query.query_id AND value->>'querySha256'=v_query.query_sha256) THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure('snapshot_substitution','query_bundle_manifest_integrity_or_membership_mismatch',jsonb_build_object('queryId',p_query_id,'bundleId',v_query.query_bundle_id));
+  END IF;
   EXECUTE pg_catalog.format(
     'SELECT COALESCE(jsonb_agg(to_jsonb(q)), ''[]''::jsonb) FROM (%s) AS q', v_query.query_sql
   ) INTO v_rows;
