@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
 
 const inventory = JSON.parse(readFileSync("supabase/migration-inventory.json", "utf8"));
 const sourcePath = "supabase/migrations/202607260005_sprint5_moderation.sql";
@@ -12,7 +11,6 @@ const sourceLines = sourceBytes.toString("utf8").split(/\r?\n/);
 const sourceRange = { startLine: 180, endLine: 188 };
 const sourceStatement = sourceLines.slice(sourceRange.startLine - 1, sourceRange.endLine).join("\n");
 const hash = value => createHash("sha256").update(value).digest("hex");
-const gitBlob = bytes => createHash("sha1").update(Buffer.concat([Buffer.from(`blob ${bytes.length}\0`), bytes])).digest("hex");
 const stable = value => Array.isArray(value) ? value.map(stable)
   : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map(key => [key, stable(value[key])])) : value;
 const canonical = value => JSON.stringify(stable(value));
@@ -39,8 +37,7 @@ const trustRoots = {
   ],
 };
 process.env.DEEDLIGHT_BACKFILL_TRUST_ROOTS_SHA256 = hash(canonical(trustRoots));
-const { validateBackfillExecutionRecord, backfillSha256, backfillGitBlobSha1, canonicalBackfillJson } =
-  await import("./backfill-execution-evidence.mjs");
+const { validateBackfillExecutionRecord } = await import("./backfill-execution-evidence.mjs");
 
 function signedArtifact(kind, signer, key, claims, id) {
   const issuedAt = kind.includes("authorization") ? iso(-30 * 60 * 1000) : iso(-5 * 60 * 1000);
@@ -205,6 +202,18 @@ test("invalid verifier signature is rejected", () => {
   const f = fixture();
   f.record.verification.signature = Buffer.alloc(64).toString("base64");
   assert.ok(validate(f).problems.includes("deedlight-backfill-independent-verification:SIGNATURE_INVALID"));
+});
+
+test("authorization issued after execution start is rejected", () => {
+  const f = fixture();
+  f.record.authorization.issuedAt = iso(-10 * 60 * 1000);
+  assert.ok(validate(f).problems.includes("AUTHORIZATION:NOT_BOUND_TO_EXACT_SOURCE_EXECUTION_AND_DATABASE"));
+});
+
+test("missing execution audit observation is rejected", () => {
+  const f = fixture();
+  f.record.executionEvidence = null;
+  assert.ok(validate(f).problems.some(x => x.startsWith("EXECUTION_EVIDENCE:OBSERVATION_MISSING")));
 });
 
 test("missing independent authorization is rejected", () => {
