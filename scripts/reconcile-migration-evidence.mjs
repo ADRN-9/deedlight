@@ -13,6 +13,7 @@ const CATALOG_KINDS = ["schemas", "tables", "sequences", "columns", "constraints
 const PRIVILEGE_OBJECT_KINDS = new Set(["tables", "sequences", "routines"]);
 const SCHEMA_KINDS = new Set(["tables", "columns", "constraints", "indexes", "triggers", "policies"]);
 const READ_ONLY_PRIVILEGES = new Set(["CONNECT", "USAGE", "SELECT"]);
+export const SQL_NULL_SENTINEL = "__DEEDLIGHT_SQL_NULL_V1__";
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -93,11 +94,11 @@ export function normalizeMigrationHistoryRows(tuples) {
       "migration-history SQL row " + index + " has an invalid version");
     assert(rawName === null || typeof rawName === "string",
       "migration-history SQL row " + index + " has an invalid name type");
-    const name = rawName === "" || rawName === null ? null : rawName;
+    const name = rawName === SQL_NULL_SENTINEL || rawName === null ? null : rawName;
     let recordedStatementCount = null;
-    if (rawCount === "" || rawCount === null) recordedStatementCount = null;
+    if (rawCount === "" || rawCount === null || rawCount === "NULL" || rawCount === SQL_NULL_SENTINEL) recordedStatementCount = null;
     else if (typeof rawCount === "string" && /^(0|[1-9][0-9]*)$/.test(rawCount)) recordedStatementCount = Number(rawCount);
-    assert(rawCount === "" || rawCount === null || (typeof rawCount === "string" && /^(0|[1-9][0-9]*)$/.test(rawCount)),
+    assert(rawCount === "" || rawCount === null || rawCount === "NULL" || rawCount === SQL_NULL_SENTINEL || (typeof rawCount === "string" && /^(0|[1-9][0-9]*)$/.test(rawCount)),
       "migration-history SQL row " + index + " has a noncanonical recorded statement count");
     assert(recordedStatementCount === null || (Number.isSafeInteger(recordedStatementCount) && recordedStatementCount >= 0),
       "migration-history SQL row " + index + " has an invalid recorded statement count");
