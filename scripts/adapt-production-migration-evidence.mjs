@@ -130,6 +130,7 @@ function validateMapping(mapping,inventory){
     if(!exact(entry,["path","blobSha1","coverage","effects"])||typeof entry.path!=="string"||byPath.has(entry.path)||!hex(entry.blobSha1,40))fail("MIGRATION_MAPPING_ENTRY_INVALID");
     if(!exact(entry.effects,CATEGORIES)||!exact(entry.coverage,CATEGORIES))fail("MIGRATION_MAPPING_CATEGORIES_INVALID");
     let count=0;
+    const seenEffects=new Set();
     for(const category of CATEGORIES){
       const effects=entry.effects[category],review=entry.coverage[category];
       if(!Array.isArray(effects)||!exact(review,["disposition","rationale","sourceRanges"])||review.disposition!==(effects.length?"effects":"none")
@@ -140,12 +141,11 @@ function validateMapping(mapping,inventory){
         if(!exact(effect,["description","fingerprint","identity","kind"])||typeof effect.identity!=="string"||!effect.identity.trim()
           ||!allowedKinds.has(effect.kind)||!hex(effect.fingerprint,64)||typeof effect.description!=="string"||!effect.description.trim())fail("MIGRATION_MAPPING_EFFECT_INVALID");
         const effectIdentity=effect.kind+"\\0"+effect.identity;
-        if(entry._effectIdentities?.has(effectIdentity))fail("MIGRATION_MAPPING_EFFECT_DUPLICATED");
-        (entry._effectIdentities??=new Set()).add(effectIdentity);
+        if(seenEffects.has(effectIdentity))fail("MIGRATION_MAPPING_EFFECT_DUPLICATED");
+        seenEffects.add(effectIdentity);
         count++;
       }
     }
-    delete entry._effectIdentities;
     if(!count)fail("MIGRATION_MAPPING_EMPTY");byPath.set(entry.path,entry);
   }
   for(const item of inventory.migrations){const entry=byPath.get(item.path);if(!entry||entry.blobSha1!==item.blobSha1)fail("MIGRATION_MAPPING_SOURCE_MISMATCH");}

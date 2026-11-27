@@ -119,6 +119,8 @@ test("migration mapping must cover exact 40 inventory entries without duplicates
   assert.throws(()=>adaptCollectorEvidence({receipt,csv:bytes,inventoryBytes,schemaBytes,mapping:mismatch}),/MIGRATION_MAPPING_SOURCE_MISMATCH/);
   const badKind=structuredClone(mapping);badKind.migrations[0].effects.schema[0].kind="routines";
   assert.throws(()=>adaptCollectorEvidence({receipt,csv:bytes,inventoryBytes,schemaBytes,mapping:badKind}),/MIGRATION_MAPPING_EFFECT_INVALID/);
+  const duplicateEffect=structuredClone(mapping);duplicateEffect.migrations[0].effects.schema.push(structuredClone(duplicateEffect.migrations[0].effects.schema[0]));
+  assert.throws(()=>adaptCollectorEvidence({receipt,csv:bytes,inventoryBytes,schemaBytes,mapping:duplicateEffect}),/MIGRATION_MAPPING_EFFECT_DUPLICATED/);
 });
 test("inventory preserves both Migration 007 sources and Migration 039",()=>{
   const paths=inventory.migrations.map(x=>x.path);
