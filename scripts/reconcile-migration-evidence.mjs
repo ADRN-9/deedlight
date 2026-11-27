@@ -445,7 +445,7 @@ function validateMapping(mapping, manifest, source, problems) {
     byPath.set(entry.path, entry);
   }
   const result = new Map();
-  const inventoryPaths = new Set(manifest.migrations.map((item) => item.path));
+  const inventoryPaths = new Map(manifest.migrations.map((item) => [item.path, item.blobSha1]));
   const allowedDispositions = new Set(["effects", "none", "unsupported", "unknown"]);
   for (const item of manifest.migrations) {
     const entry = byPath.get(item.path);
