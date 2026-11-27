@@ -314,6 +314,7 @@ test("category-specific transformation contract requires exact source and target
     contract:{operation:"UPDATE",sourceRelations:[{schema:"public",relation:"offerings"}],
       targetRelation:{schema:"public",relation:"offerings"},predicate:{sql:"id IS NOT NULL",sha256:sha256(Buffer.from("id IS NOT NULL"))},...binding}};
   entry.effects.dataTransformations=[effect];entry.coverage.dataTransformations.disposition="effects";
+  entry.coverage.dataTransformations.sourceRanges=[{startLine:1,endLine:sourceLines.length}];
   assert.doesNotThrow(()=>adapt(fixtureCsv(),mapping));
   for(const mutate of [
     x=>{x.contract.targetRelation={schema:"fixture"};},
