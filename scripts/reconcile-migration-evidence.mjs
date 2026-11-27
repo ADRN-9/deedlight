@@ -425,6 +425,8 @@ function validateCollectorAuthority(claims, provenance, evidenceDigest, authorit
   }
 } 
 function validateIndependentEffectEvidence(mapping, evidence, manifest, problems) {
+  const exactKeys = (value, keys) => value && typeof value === "object" && !Array.isArray(value)
+    && Object.keys(value).sort().join(",") === [...keys].sort().join(",");
   const inventory = new Map(manifest.migrations.map(item => [item.path, item.blobSha1]));
   const measurements = evidence && evidence.backfillMeasurements;
   const conditions = evidence && evidence.conditionVerifications;
