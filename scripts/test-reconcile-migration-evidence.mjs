@@ -95,8 +95,8 @@ function fixture() {
     { kind: "schemas", identity: "supabase_migrations", fingerprint: hash("schema:supabase_migrations") },
     { kind: "tables", identity: "public.profiles", fingerprint: hash("table:public.profiles") },
     { kind: "tables", identity: "supabase_migrations.schema_migrations", fingerprint: hash("table:supabase_migrations.schema_migrations") },
-    { kind: "columns", identity: "public.profiles.id", fingerprint: hash("column:public.profiles.id") },
-    { kind: "columns", identity: "supabase_migrations.schema_migrations.version", fingerprint: hash("column:history.version") },
+    { kind: "columns", identity: "public.profiles.id", schema: "public", relation: "profiles", column: "id", fingerprint: hash("column:public.profiles.id") },
+    { kind: "columns", identity: "supabase_migrations.schema_migrations.version", schema: "supabase_migrations", relation: "schema_migrations", column: "version", fingerprint: hash("column:history.version") },
   ];
   const historyRows = [];
   const byVersion = new Map();
@@ -203,9 +203,11 @@ function fixture() {
           })),
         columnPrivileges: evidence.catalog.objects.filter((entry) => entry.kind === "columns")
           .map((entry) => ({
-            identity: entry.identity,
-            scope: entry.identity.startsWith("supabase_migrations.schema_migrations.") ? "migration_history" : "application_data",
-            privileges: entry.identity.startsWith("supabase_migrations.schema_migrations.") ? ["SELECT"] : [],
+            schema: entry.schema,
+            relation: entry.relation,
+            column: entry.column,
+            scope: entry.schema === "supabase_migrations" && entry.relation === "schema_migrations" ? "migration_history" : "application_data",
+            privileges: entry.schema === "supabase_migrations" && entry.relation === "schema_migrations" ? ["SELECT"] : [],
           })),
         roleMemberships: [],
         ownedSchemas: [],
@@ -674,6 +676,46 @@ test("PR23 catalog-only contract is exact, scoped and complete in PR26 analyzer"
   } finally { f.cleanup(); }
 });
 
+test("dotted quoted schema and relation identifiers cannot impersonate migration-history columns", () => {
+  const f = fixture();
+  try {
+    f.reapprove();
+    const db = f.evidence.collectorAuthority.databaseAuthority;
+    const inventory = f.evidence.catalog.objects.map((entry) => ({ ...entry }));
+    const dottedColumns = [
+      { kind: "columns", identity: "supabase_migrations.schema_migrations.impostor.a", schema: "supabase_migrations.schema_migrations", relation: "impostor", column: "a", fingerprint: hash("quoted-schema-dot") },
+      { kind: "columns", identity: "supabase_migrations.schema_migrations.impostor.b", schema: "supabase_migrations", relation: "schema_migrations.impostor", column: "b", fingerprint: hash("quoted-relation-dot") },
+    ];
+    inventory.push(
+      { kind: "schemas", identity: "supabase_migrations.schema_migrations", fingerprint: hash("quoted-schema") },
+      { kind: "tables", identity: "supabase_migrations.schema_migrations.impostor", fingerprint: hash("quoted-schema-table") },
+      { kind: "schemas", identity: "supabase_migrations", fingerprint: hash("duplicate-existing-schema") },
+      { kind: "tables", identity: "supabase_migrations.schema_migrations.impostor", fingerprint: hash("quoted-relation-table") },
+      ...dottedColumns,
+    );
+    db.schemaPrivileges.push(
+      { schema: "supabase_migrations.schema_migrations", scope: "application_data", privileges: [] },
+    );
+    db.objectPrivileges.push(
+      { kind: "tables", identity: "supabase_migrations.schema_migrations.impostor", scope: "application_data", privileges: [] },
+    );
+    db.columnPrivileges.push(...dottedColumns.map(({ schema, relation, column }) => ({
+      schema, relation, column, scope: "application_data", privileges: [],
+    })));
+    assert.deepEqual(validateCollectorPrivilegeEvidence(db, inventory), []);
+
+    const schemaImpostor = db.columnPrivileges.find((row) => row.schema === "supabase_migrations.schema_migrations");
+    schemaImpostor.privileges = ["SELECT"];
+    assert.ok(validateCollectorPrivilegeEvidence(db, inventory).some((problem) => problem.includes("structured schema/relation/column identities")));
+    schemaImpostor.privileges = [];
+    schemaImpostor.scope = "migration_history";
+    assert.ok(validateCollectorPrivilegeEvidence(db, inventory).some((problem) => problem.includes("structured schema/relation/column identities")));
+    schemaImpostor.scope = "application_data";
+    delete schemaImpostor.schema;
+    assert.ok(validateCollectorPrivilegeEvidence(db, inventory).some((problem) => problem.includes("structured schema/relation/column identities")));
+  } finally { f.cleanup(); }
+});
+
 test("the pinned 40-entry migration inventory retains both 007 sources, Migration 039 and version order", () => {
   const migrations = sourceManifest.migrations;
   assert.equal(migrations.length, 40);
@@ -896,6 +938,10 @@ test("migration-history SQL normalization preserves SQL NULL and literal NULL ma
     { version: "202607270008", name: "\\N", recordedStatementCount: 1 },
   ]);
   assert.deepEqual(validateMigrationHistoryRows(rows, sourceManifest), []);
+  assert.ok(validateMigrationHistoryRows([rows[1], rows[0], ...rows.slice(2)], sourceManifest)
+    .some((problem) => problem.includes("strictly ascending")));
+  assert.ok(validateMigrationHistoryRows([rows[0], rows[2], rows[1], ...rows.slice(3)], sourceManifest)
+    .some((problem) => problem.includes("strictly ascending")));
   const emptyName = normalizeMigrationHistoryRows([["202607270008", "", "1"]]);
   assert.equal(emptyName[0].name, "");
   assert.ok(validateMigrationHistoryRows(emptyName, sourceManifest).some((problem) => problem.includes("invalid migration name")));
