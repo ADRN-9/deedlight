@@ -406,6 +406,74 @@ END
 $assert$;
 RESET ROLE;
 
+-- Finalization must reject two independently registered but different observation queries.
+SET ROLE deedlight_ledger_approver;
+SELECT deedlight_execution_ledger.approve_execution(
+  'c5700000-0000-4000-8000-000000000008',
+  'c5700000-0000-4000-8000-000000000018',
+  'c5700000-0000-4000-8000-000000000028',
+  '{"path":"supabase/migrations/test-query-mismatch.sql","sha256":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}'::jsonb
+);
+RESET ROLE;
+SET ROLE deedlight_ledger_runner;
+SELECT deedlight_execution_ledger.reserve_execution(
+  'c5700000-0000-4000-8000-000000000008',
+  'c5700000-0000-4000-8000-000000000018',
+  'c5700000-0000-4000-8000-000000000028',
+  '{"path":"supabase/migrations/test-query-mismatch.sql","sha256":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}'::jsonb
+);
+RESET ROLE;
+SET ROLE deedlight_ledger_observer;
+SELECT deedlight_execution_ledger.capture_snapshot(
+  'c5700000-0000-4000-8000-000000000028','pre','test_effects_v1'
+);
+RESET ROLE;
+SET ROLE deedlight_ledger_runner;
+SELECT deedlight_execution_ledger.start_execution('c5700000-0000-4000-8000-000000000028');
+BEGIN;
+INSERT INTO deedlight_execution_ledger.test_effects(effect_value)
+VALUES ('snapshot mismatch fixture effect');
+SELECT deedlight_execution_ledger.record_effect_commit_marker(
+  'c5700000-0000-4000-8000-000000000028',
+  '{"path":"supabase/migrations/test-query-mismatch.sql","sha256":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}'::jsonb
+);
+COMMIT;
+RESET ROLE;
+SET ROLE deedlight_ledger_observer;
+SELECT deedlight_execution_ledger.capture_snapshot(
+  'c5700000-0000-4000-8000-000000000028','post','test_effects_nonempty_v1'
+);
+RESET ROLE;
+SET ROLE deedlight_ledger_runner;
+DO $assert$
+BEGIN
+  BEGIN
+    PERFORM deedlight_execution_ledger.finalize_execution(
+      'c5700000-0000-4000-8000-000000000028','succeeded','{"result":"must-not-finalize"}'::jsonb
+    );
+    RAISE EXCEPTION 'finalization accepted different pre/post observation queries';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM = 'finalization accepted different pre/post observation queries' THEN RAISE; END IF;
+    IF SQLERRM <> 'committed effect marker and matching pre/post observation query identity required before finalization' THEN RAISE; END IF;
+  END;
+END
+$assert$;
+RESET ROLE;
+DO $assert$
+DECLARE v_pre_bundle text; v_post_bundle text; v_pre_query text; v_post_query text;
+BEGIN
+  SELECT query_bundle_digest, query_sha256 INTO STRICT v_pre_bundle, v_pre_query
+  FROM deedlight_execution_ledger.snapshots
+  WHERE execution_id = 'c5700000-0000-4000-8000-000000000028' AND phase = 'pre';
+  SELECT query_bundle_digest, query_sha256 INTO STRICT v_post_bundle, v_post_query
+  FROM deedlight_execution_ledger.snapshots
+  WHERE execution_id = 'c5700000-0000-4000-8000-000000000028' AND phase = 'post';
+  IF v_pre_bundle <> v_post_bundle OR v_pre_query = v_post_query THEN
+    RAISE EXCEPTION 'query mismatch fixture did not bind two distinct queries in one exact bundle';
+  END IF;
+END
+$assert$;
+
 -- Leave a committed RUNNING reservation for the shell harness to crash during a migration transaction.
 SET ROLE deedlight_ledger_approver;
 SELECT deedlight_execution_ledger.approve_execution(
@@ -447,4 +515,4 @@ END
 $assert$;
 RESET ROLE;
 
-SELECT 'C577 disposable PostgreSQL ledger integration: PASS' AS result;
+SELECT 'C578 disposable PostgreSQL ledger SQL setup: PASS; crash-recovery shell harness still pending' AS result;
