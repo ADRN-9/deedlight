@@ -54,7 +54,7 @@ BEGIN
   END IF;
   FOR v_member IN SELECT value FROM pg_catalog.jsonb_array_elements(p_manifest) AS e(value) LOOP
     IF pg_catalog.jsonb_typeof(v_member) <> 'object'
-      OR pg_catalog.jsonb_object_length(v_member) <> 2
+      OR (SELECT pg_catalog.count(*) FROM pg_catalog.jsonb_object_keys(v_member)) <> 2
       OR NOT (v_member ? 'queryId') OR NOT (v_member ? 'querySha256')
       OR coalesce(v_member->>'queryId','') !~ '^[a-z][a-z0-9_]{0,63}$'
       OR coalesce(v_member->>'querySha256','') !~ '^[a-f0-9]{64}$' THEN
@@ -89,7 +89,7 @@ LANGUAGE sql IMMUTABLE
 SET search_path = pg_catalog
 AS $fn$
   SELECT pg_catalog.jsonb_typeof(p_source_identity) = 'object'
-    AND pg_catalog.jsonb_object_length(p_source_identity) = 2
+    AND (SELECT pg_catalog.count(*) FROM pg_catalog.jsonb_object_keys(p_source_identity)) = 2
     AND pg_catalog.jsonb_typeof(p_source_identity->'path') = 'string'
     AND pg_catalog.btrim(p_source_identity->>'path') <> ''
     AND (p_source_identity->>'path') !~ '(^/|(^|/)\\.\\.(/|$)|[[:cntrl:]])'
