@@ -739,7 +739,7 @@ test("collector schema and object privilege identity sets must exactly match cat
       const report = f.analyze();
       assert.equal(report.counts.Unknown, 40);
       assert.equal(report.acceptance, "NOT_ACCEPTED");
-      assert.ok(report.trustProblems.some((reason) => reason.includes("privilege identities do not exactly match")));
+      assert.ok(report.trustProblems.some((reason) => reason.includes("least-privilege contract")));
     } finally { f.cleanup(); }
   }
 });
