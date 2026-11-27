@@ -83,3 +83,32 @@ The C556 observations are deliberately lexical candidates. A safe semantic gener
 - Repository-only implementation commits for C568 are recorded on PR #29. No Production database mutation, migration-history reconciliation, trust-root provisioning, evidence signing or PR merge was performed.
 - Execution status at handover: no local repository checkout/shell is available in this session. GitHub's commit-workflow-run lookup and combined commit-status lookup returned no run/status for the latest checked head. Analyzer, adapter, collector, PostgreSQL 16 and offline evidence tests therefore remain **NOT EXECUTED / NOT VERIFIED**, not PASS. A fresh successful exact-head Actions run and per-job conclusions remain mandatory.
 - Rollback: revert the C568 commits on `fix/c558-pr28-security-remediation`; no database rollback is needed.
+
+## C570 — PostgreSQL semantic-verification acceptance boundary
+
+### What the current implementation proves
+
+- The inventory pins the exact 40 migration source files and their Git blob identities. Source-range SHA-256 values prove that a reviewed excerpt has not changed relative to those bytes.
+- The adapter validates the shape of category-specific declarations. Its transformation operation/relation checks are lexical consistency checks only; they are not a PostgreSQL parser, AST, name resolver or proof of statement semantics.
+- A dependency contract can prove that a prerequisite path and blob belong to the pinned inventory. That does not prove that the SQL creates or consumes the declared relation edge, nor that the prerequisite is the migration that semantically establishes it.
+- A backfill measurement record can be checked for structure and consistency with the signed evidence payload. A row count, query digest, result digest and execution ID without independently verifiable query/result evidence do not establish that the stated PostgreSQL operation ran or produced that count.
+- The live catalog collector remains restricted to the eleven catalog kinds. It does not attest transformations, backfills, dependencies, preconditions or postconditions.
+
+### Fail-closed acceptance behavior
+
+The analyzer now treats all five non-catalog domains as requiring independent semantic verification, even when a mapping marks a domain `none`. A signed `none` disposition is still a mapping assertion; it cannot prove the absence of an effect. The report exposes `semanticVerification.status = UNKNOWN`, the required categories, per-migration `semanticVerificationRequiredCategories`, and explicit blockers. These blockers contribute to `unresolvedLifecycleEvidence` and prevent final `ACCEPTED` status.
+
+The current trust-root roles and evidence pipeline do not provide a separately verifiable PostgreSQL semantic-analysis approval, AST artifact, or independently inspectable backfill/condition execution result. Therefore no transformation, backfill, dependency, precondition or postcondition declaration can currently clear this acceptance boundary. Matching source digests, regex/lexical checks, signed mapping assertions, pinned prerequisite identities, or self-consistent digest fields are not substitutes.
+
+### What remains UNKNOWN
+
+- Complete PostgreSQL parse trees and semantic resolution for all 40 migration files.
+- Dynamic SQL and PL/pgSQL control-flow effects, including statements constructed at runtime.
+- Independently reviewed source/target transformation meaning and actual dependency edges.
+- Whether a declared backfill ran, its exact predicate and affected-row count, and the independently verified result set.
+- Whether preconditions/postconditions were executed against the intended database snapshot and returned the declared outcome.
+- Semantic proof that a non-catalog domain has no effect when a mapping says `none`.
+
+A future acceptance path needs a PostgreSQL-aware parser and reviewed semantic mapping, plus a separately authorized semantic approval bound to exact source blobs and parser output. Backfills and condition outcomes additionally need a narrow read-only execution collector that retains verifiable query/result artifacts, binds the exact project, source, query, execution and capture, and is independently attested. These capabilities are not claimed to exist in C570. No regex-based AST substitute is introduced.
+
+The catalog-only authorization boundary and eleven catalog kinds are unchanged. Production database state and migration history are unchanged. Production acceptance remains **NO-GO**.
