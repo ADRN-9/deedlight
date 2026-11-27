@@ -101,12 +101,15 @@ SET system_identifier = '0' || substr(system_identifier, 2)
 WHERE singleton;
 SET LOCAL session_replication_role = origin;
 
+CREATE TEMP TABLE c593_identity_side_effect_baseline AS
+SELECT
+  (SELECT count(*) FROM deedlight_execution_ledger.execution_commit_markers
+    WHERE execution_id='c5700000-0000-4000-8000-000000000028') AS marker_count,
+  (SELECT count(*) FROM deedlight_execution_ledger.executions WHERE status='running') AS running_count;
 SET LOCAL ROLE deedlight_ledger_runner;
 DO $identity$
-DECLARE v_detail text; v_before integer; v_after integer;
+DECLARE v_detail text;
 BEGIN
-  SELECT count(*) INTO v_before FROM deedlight_execution_ledger.execution_commit_markers
-    WHERE execution_id='c5700000-0000-4000-8000-000000000028';
   BEGIN
     PERFORM deedlight_execution_ledger.reserve_execution(
       'c5850000-0000-4000-8000-000000000004',
@@ -123,36 +126,58 @@ BEGIN
       'c5700000-0000-4000-8000-000000000028',
       '{"path":"supabase/migrations/test-query-mismatch.sql","sha256":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}'::jsonb);
     RAISE EXCEPTION 'C593 marker accepted substituted database identity';
-  EXCEPTION WHEN SQLSTATE 'D1001' THEN NULL;
+  EXCEPTION WHEN SQLSTATE 'D1001' THEN
+    GET STACKED DIAGNOSTICS v_detail=PG_EXCEPTION_DETAIL;
+    IF v_detail NOT LIKE '%live_database_identity_mismatch%' THEN RAISE; END IF;
   END;
   BEGIN
     PERFORM deedlight_execution_ledger.finalize_execution(
       'c5700000-0000-4000-8000-000000000028','failed','{"result":"identity-mismatch"}'::jsonb);
     RAISE EXCEPTION 'C593 finalize accepted substituted database identity';
-  EXCEPTION WHEN SQLSTATE 'D1001' THEN NULL;
+  EXCEPTION WHEN SQLSTATE 'D1001' THEN
+    GET STACKED DIAGNOSTICS v_detail=PG_EXCEPTION_DETAIL;
+    IF v_detail NOT LIKE '%live_database_identity_mismatch%' THEN RAISE; END IF;
   END;
-  SELECT count(*) INTO v_after FROM deedlight_execution_ledger.execution_commit_markers
-    WHERE execution_id='c5700000-0000-4000-8000-000000000028';
-  IF v_after <> v_before THEN RAISE EXCEPTION 'C593 identity failure changed commit markers'; END IF;
-  IF EXISTS (SELECT 1 FROM deedlight_execution_ledger.approvals
-    WHERE approval_id='c5850000-0000-4000-8000-000000000004' AND consumed_at IS NOT NULL) THEN
-    RAISE EXCEPTION 'C593 identity failure consumed approval';
-  END IF;
 END
 $identity$;
 RESET ROLE;
 
 SET LOCAL ROLE deedlight_ledger_recovery;
 DO $identity$
+DECLARE v_detail text;
 BEGIN
   BEGIN
     PERFORM deedlight_execution_ledger.recover_stale_executions(interval '1 microsecond');
     RAISE EXCEPTION 'C593 recovery accepted substituted database identity';
-  EXCEPTION WHEN SQLSTATE 'D1001' THEN NULL;
+  EXCEPTION WHEN SQLSTATE 'D1001' THEN
+    GET STACKED DIAGNOSTICS v_detail=PG_EXCEPTION_DETAIL;
+    IF v_detail NOT LIKE '%live_database_identity_mismatch%' THEN RAISE; END IF;
   END;
 END
 $identity$;
 RESET ROLE;
+
+DO $side_effects$
+BEGIN
+  IF (SELECT count(*) FROM deedlight_execution_ledger.execution_commit_markers
+      WHERE execution_id='c5700000-0000-4000-8000-000000000028')
+    <> (SELECT marker_count FROM c593_identity_side_effect_baseline) THEN
+    RAISE EXCEPTION 'C593 identity failure changed commit markers';
+  END IF;
+  IF (SELECT count(*) FROM deedlight_execution_ledger.executions WHERE status='running')
+    <> (SELECT running_count FROM c593_identity_side_effect_baseline) THEN
+    RAISE EXCEPTION 'C593 identity failure changed execution statuses';
+  END IF;
+  IF EXISTS (SELECT 1 FROM deedlight_execution_ledger.approvals
+    WHERE approval_id='c5850000-0000-4000-8000-000000000004' AND consumed_at IS NOT NULL) THEN
+    RAISE EXCEPTION 'C593 identity failure consumed approval';
+  END IF;
+  IF EXISTS (SELECT 1 FROM deedlight_execution_ledger.executions
+    WHERE execution_id='c5850000-0000-4000-8000-000000000024') THEN
+    RAISE EXCEPTION 'C593 identity failure created execution';
+  END IF;
+END
+$side_effects$;
 
 SET LOCAL session_replication_role = replica;
 UPDATE deedlight_execution_ledger.database_identity
