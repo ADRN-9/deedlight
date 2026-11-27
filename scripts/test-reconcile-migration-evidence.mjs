@@ -95,6 +95,7 @@ function fixture() {
     { kind: "schemas", identity: "supabase_migrations", fingerprint: hash("schema:supabase_migrations") },
     { kind: "tables", identity: "public.profiles", fingerprint: hash("table:public.profiles") },
     { kind: "tables", identity: "supabase_migrations.schema_migrations", fingerprint: hash("table:supabase_migrations.schema_migrations") },
+    { kind: "columns", identity: "public.profiles.id", fingerprint: hash("column:public.profiles.id") },
   ];
   const historyRows = [];
   const byVersion = new Map();
@@ -201,6 +202,9 @@ function fixture() {
               ? "migration_history" : "application_data",
             privileges: entry.kind === "tables" && entry.identity === "supabase_migrations.schema_migrations" ? ["SELECT"] : [],
           })),
+        columnPrivilegesComplete: true,
+        columnPrivileges: evidence.catalog.objects.filter((entry) => entry.kind === "columns")
+          .map((entry) => ({ identity: entry.identity, scope: "application_data", privileges: [] })),
         catalogPrivilegesComplete: true,
         catalogPrivileges: ["SELECT"],
         roleMemberships: [],
