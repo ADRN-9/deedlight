@@ -369,8 +369,17 @@ test("precondition and postcondition contracts require explicit predicates and v
   }
 });
 
-test("database capture timestamp rejects impossible calendar dates", () => {
-  for (const timestamp of ["2026-02-30T00:00:00.000Z", "2026-13-01T00:00:00.000Z", "0000-01-01T00:00:00.000Z"]) {
+test("database capture timestamp requires canonical UTC milliseconds and a valid calendar date", () => {
+  for (const timestamp of [
+    "2026-02-30T00:00:00.000Z",
+    "2026-13-01T00:00:00.000Z",
+    "0000-01-01T00:00:00.000Z",
+    "2026-11-26T00:00:00.000+00:00",
+    "2026-11-26T00:00:00.000-05:00",
+    "2026-11-26T00:00:00Z",
+    "2026-11-26T00:00:00.0Z",
+    "2026-11-26T00:00:00.0000Z",
+  ]) {
     const bytes = fixtureCsv(undefined, undefined, {
       identity_v1: [[PROJECT_REF, "a".repeat(40), "postgres", "deedlight_catalog_auditor",
         "deedlight_catalog_auditor", "16.0", "127.0.0.1", "5432", timestamp, "on"]],
