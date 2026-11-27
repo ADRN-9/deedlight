@@ -4,6 +4,7 @@ import test from "node:test";
 import { canonicalJson, INVENTORY_GIT_BLOB_SHA1, PROJECT_REF, RECEIPT_SCHEMA_GIT_BLOB_SHA1, RECEIPT_SCHEMA_SHA256, SQL_GIT_BLOB_SHA1, SQL_PATH, SQL_PROJECTIONS, SQL_SHA256, SQL_NULL_SENTINEL, CSV_QUOTED_EMPTY, parseCsv, sha256, validateSqlOutput } from "./collect-production-migration-evidence.mjs";
 import { gitBlobSha1 } from "./verify-migration-inventory-aggregate.mjs";
 import { adaptCollectorEvidence } from "./adapt-production-migration-evidence.mjs";
+import { validateCollectorPrivilegeEvidence } from "./reconcile-migration-evidence.mjs";
 const inventoryBytes=readFileSync(new URL("../supabase/migration-inventory.json",import.meta.url));
 const schemaBytes=readFileSync(new URL("../schemas/production-migration-collection-receipt-v1.schema.json",import.meta.url));
 const inventory=JSON.parse(inventoryBytes);
@@ -66,6 +67,7 @@ test("normalizes all 19 validated projections without crossing authentication bo
   assert.equal(candidate.evidence.provenance.environment,"production");
   assert.equal(candidate.unmappedCatalogEvidence.extensions_v1.status,"PRESERVED_NOT_NORMALIZED");
   assert.equal(candidate.databaseAuthorityCandidate.privilegeContractVersion,"catalog_only_v1");
+  assert.deepEqual(validateCollectorPrivilegeEvidence(candidate.databaseAuthorityCandidate,candidate.evidence.catalog.objects),[]);
   assert.deepEqual(candidate.databaseAuthorityCandidate.requiredAccessSummary,["DATABASE_CONNECT","SYSTEM_CATALOG_SELECT","MIGRATION_HISTORY_SCHEMA_USAGE","MIGRATION_HISTORY_SELECT"]);
   assert.deepEqual(candidate.databaseAuthorityCandidate.databasePrivileges,["CONNECT"]);
   assert.deepEqual(candidate.databaseAuthorityCandidate.schemaPrivileges,[
