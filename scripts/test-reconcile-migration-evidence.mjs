@@ -579,7 +579,11 @@ test("mapping requires source-linked review disposition for every effect domain"
       const report = f.analyze();
       assert.equal(report.counts.Unknown, 40);
       assert.equal(report.acceptance, "NOT_ACCEPTED");
-      assert.ok(report.trustProblems.some((reason) => reason.includes("reviewed coverage disposition") || reason.includes("source-linked coverage review")));
+      assert.ok(report.trustProblems.some((reason) =>
+        reason.includes("reviewed coverage disposition")
+        || reason.includes("source-linked coverage review")
+        || reason.includes("incomplete, malformed, unordered or overlapping source-linked coverage/effects")
+      ));
     } finally { f.cleanup(); }
   }
 });
@@ -1395,7 +1399,11 @@ test("mapping rejects unreviewed effect domains and extra effect fields", () => 
       f.reapprove();
       const report = f.analyze();
       assert.equal(report.counts.Unknown, 40);
-      assert.ok(report.trustProblems.some((reason) => reason.includes("effect domains") || reason.includes("malformed or empty effects")));
+      assert.ok(report.trustProblems.some((reason) =>
+        reason.includes("effect domains")
+        || reason.includes("malformed or empty effects")
+        || reason.includes("incomplete, malformed, unordered or overlapping source-linked coverage/effects")
+      ));
     } finally { f.cleanup(); }
   }
 });
