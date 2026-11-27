@@ -49,6 +49,9 @@ function fixture() {
   for (const item of sourceManifest.migrations) copyFileSync(path.join(repoRoot, item.path), path.join(rootDir, item.path));
 
   const migrationEffects = sourceManifest.migrations.map((item, index) => {
+    const sourceLines = readFileSync(path.join(repoRoot, item.path), "utf8").split(/\r?\n/);
+    const sourceRange = { startLine: 1, endLine: 1 };
+    const sourceStatementSha256 = hash(sourceLines[0]);
     const schemaEffect = {
       kind: index % 2 ? "columns" : "tables",
       identity: "fixture.schema." + index,
@@ -92,7 +95,8 @@ function fixture() {
           sourceRelations: [{ schema: "fixture", relation: "transform_source" }],
           targetRelation: { schema: "fixture", relation: "transform_target" },
           predicate: { sql: "id IS NOT NULL", sha256: hash("transform-predicate:" + index) },
-          sourceStatementSha256: hash("test-only-transform-statement:" + index),
+          sourceRange,
+          sourceStatementSha256,
         },
       }],
       backfills: [dataEffect],
@@ -1644,10 +1648,11 @@ test("dependency, precondition and postcondition contracts cannot omit their sem
         description:"Synthetic test-only semantic effect.",sourcePath:item.path,
         contract:category==="dependencies"
           ?{dependencyType:"foreign_key",fromRelation:{schema:"fixture",relation:"child"},toRelation:{schema:"fixture",relation:"parent"},
-            dependsOnMigrationPath:sourceManifest.migrations[1].path,sourceStatementSha256:hash("dependency")}
+            dependsOnMigrationPath:sourceManifest.migrations[1].path,sourceRange:{startLine:1,endLine:1},sourceStatementSha256:hash(readFileSync(path.join(repoRoot,item.path),"utf8").split(/\r?\n/)[0])}
           :{predicateSql:"SELECT true",predicateSha256:hash(category),expectedOutcome:"true",
             verification:{status:"independently_verified",evidenceDigest:hash("evidence"),querySha256:hash("query"),
-              capturedAt:FIXTURE_CAPTURED_AT,executionId:"test-only-condition-execution"}},
+              capturedAt:FIXTURE_CAPTURED_AT,executionId:"test-only-condition-execution"},
+            sourceRange:{startLine:1,endLine:1},sourceStatementSha256:hash(readFileSync(path.join(repoRoot,item.path),"utf8").split(/\r?\n/)[0])},
       };
       f.mapping.migrations[0].effects[category]=[effect];
       f.mapping.migrations[0].coverage[category].disposition="effects";
