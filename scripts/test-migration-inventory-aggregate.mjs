@@ -55,11 +55,11 @@ function expectAggregateFailure(f, pattern) {
   assert.throws(() => verifyAggregate(f.root, f.manifest, "supabase/run_in_sql_editor_all.sql", f.inventoryBlobSha1), pattern);
 }
 
-test("accepts exact 39-file inventory and preserves both distinct 007 sources", () => {
+test("accepts exact 40-file inventory and preserves both distinct 007 sources", () => {
   const f = fixture();
   try {
     const result = verifyMigrationInventory(f.root, f.manifest, f.inventoryBlobSha1);
-    assert.deepEqual(result, { migrationCount: 39, uniqueVersionCount: 38, seedUpsertCount: 3 });
+    assert.deepEqual(result, { migrationCount: 40, uniqueVersionCount: 39, seedUpsertCount: 3 });
     const a = f.aggregate.toString("utf8");
     for (const name of sourceManifest.intentionalDuplicateVersionGroups["202607260007"]) {
       const item = f.manifest.migrations.find((entry) => path.basename(entry.path) === name);
@@ -116,7 +116,7 @@ test("rejects unexpected additional SQL files", () => {
   } finally { f.cleanup(); }
 });
 
-for (const version of ["202611240037", "202611240038"]) {
+for (const version of ["202611240037", "202611240038", "202611260039"]) {
   test(`rejects modified migration ${version}`, () => {
     const f = fixture();
     try {
@@ -132,7 +132,7 @@ test("rejects truncated inventory JSON and incomplete inventory arrays", () => {
   try {
     writeFileSync(path.join(f.root, "supabase/migration-inventory.json"), '{"schemaVersion":1,"migrations":[');
     assert.throws(() => JSON.parse(readFileSync(path.join(f.root, "supabase/migration-inventory.json"), "utf8")));
-    assert.throws(() => verifyMigrationInventory(f.root, { ...f.manifest, migrations: f.manifest.migrations.slice(0, 38) }, f.inventoryBlobSha1), /truncated/);
+    assert.throws(() => verifyMigrationInventory(f.root, { ...f.manifest, migrations: f.manifest.migrations.slice(0, 39) }, f.inventoryBlobSha1), /truncated/);
   } finally { f.cleanup(); }
 });
 
