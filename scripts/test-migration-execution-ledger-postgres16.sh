@@ -32,6 +32,7 @@ actual_addr="$(clean_psql --tuples-only --no-align --command \
 
 clean_psql --file scripts/fixtures/migration-execution-ledger-v1.sql
 clean_psql --file scripts/fixtures/test-migration-execution-ledger-v1.sql
+clean_psql --file scripts/fixtures/test-migration-execution-ledger-c585.sql
 
 # Exercise a real interrupted migration transaction with a deterministic backend handshake.
 # The SQL file is a single-quoted heredoc: JSON reaches PostgreSQL unchanged.
