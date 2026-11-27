@@ -92,7 +92,9 @@ function fixture() {
   const catalog = [
     ...expected.map((effect) => ({ kind: effect.kind, identity: effect.identity, fingerprint: effect.fingerprint })),
     { kind: "schemas", identity: "public", fingerprint: hash("schema:public") },
+    { kind: "schemas", identity: "supabase_migrations", fingerprint: hash("schema:supabase_migrations") },
     { kind: "tables", identity: "public.profiles", fingerprint: hash("table:public.profiles") },
+    { kind: "tables", identity: "supabase_migrations.schema_migrations", fingerprint: hash("table:supabase_migrations.schema_migrations") },
   ];
   const historyRows = [];
   const byVersion = new Map();
@@ -160,7 +162,8 @@ function fixture() {
         bypassRls: false,
         isReplication: false,
         ownsObjects: false,
-        effectivePrivileges: ["CONNECT", "USAGE", "SELECT"],
+        privilegeContractVersion: "catalog_only_v1",
+        effectivePrivileges: ["DATABASE_CONNECT", "SYSTEM_CATALOG_SELECT", "MIGRATION_HISTORY_SCHEMA_USAGE", "MIGRATION_HISTORY_SELECT"],
         databasePrivilegesComplete: true,
         databasePrivileges: ["CONNECT"],
         databaseAclV1: [{
@@ -184,13 +187,19 @@ function fixture() {
         }],
         schemaPrivilegesComplete: true,
         schemaPrivileges: evidence.catalog.objects.filter((entry) => entry.kind === "schemas")
-          .map((entry) => ({ schema: entry.identity, privileges: ["USAGE"] })),
+          .map((entry) => ({
+            schema: entry.identity,
+            scope: entry.identity === "supabase_migrations" ? "migration_history" : "application_data",
+            privileges: entry.identity === "supabase_migrations" ? ["USAGE"] : [],
+          })),
         objectPrivilegesComplete: true,
         objectPrivileges: evidence.catalog.objects.filter((entry) => ["tables", "sequences", "routines"].includes(entry.kind))
           .map((entry) => ({
             kind: entry.kind,
             identity: entry.identity,
-            privileges: entry.kind === "routines" ? [] : ["SELECT"],
+            scope: entry.kind === "tables" && entry.identity === "supabase_migrations.schema_migrations"
+              ? "migration_history" : "application_data",
+            privileges: entry.kind === "tables" && entry.identity === "supabase_migrations.schema_migrations" ? ["SELECT"] : [],
           })),
         catalogPrivilegesComplete: true,
         catalogPrivileges: ["SELECT"],
