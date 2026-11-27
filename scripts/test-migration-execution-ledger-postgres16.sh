@@ -131,4 +131,32 @@ clean_psql --command "
   RESET ROLE;
 "
 
+# The same UUIDs may be reserved independently in another database in the same cluster.
+# system_identifier is shared, while database_oid is server-derived and distinct.
+clean_psql --command "CREATE DATABASE deedlight_ledger_scope_test"
+env -i PATH="$PATH" HOME="${HOME:-/tmp}" PGPASSWORD=postgres \
+  PGHOST=127.0.0.1 PGPORT=5432 PGUSER=postgres PGDATABASE=deedlight_ledger_scope_test \
+  PGSSLMODE=disable psql --no-psqlrc --set ON_ERROR_STOP=1 \
+  --file scripts/fixtures/migration-execution-ledger-v1.sql
+env -i PATH="$PATH" HOME="${HOME:-/tmp}" PGPASSWORD=postgres \
+  PGHOST=127.0.0.1 PGPORT=5432 PGUSER=postgres PGDATABASE=deedlight_ledger_scope_test \
+  PGSSLMODE=disable psql --no-psqlrc --set ON_ERROR_STOP=1 --command "
+    SET ROLE deedlight_ledger_approver;
+    SELECT deedlight_execution_ledger.approve_execution(
+      'c5700000-0000-4000-8000-000000000101',
+      'c5700000-0000-4000-8000-000000000011',
+      'c5700000-0000-4000-8000-000000000021',
+      '{\"path\":\"supabase/migrations/test.sql\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}'::jsonb
+    );
+    RESET ROLE;
+    SET ROLE deedlight_ledger_runner;
+    SELECT deedlight_execution_ledger.reserve_execution(
+      'c5700000-0000-4000-8000-000000000101',
+      'c5700000-0000-4000-8000-000000000011',
+      'c5700000-0000-4000-8000-000000000021',
+      '{\"path\":\"supabase/migrations/test.sql\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}'::jsonb
+    );
+    RESET ROLE;
+  "
+
 echo "C577 disposable PostgreSQL 16 execution ledger and concurrent replay tests: PASS"
