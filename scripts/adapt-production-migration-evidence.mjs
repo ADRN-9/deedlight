@@ -159,8 +159,11 @@ export function adaptCollectorEvidence({receipt,csv,inventoryBytes,schemaBytes,m
   let inventory;try{inventory=JSON.parse(inventoryBytes.toString("utf8"));}catch{fail("MIGRATION_INVENTORY_JSON_INVALID");}
   try{validateInventory(inventory);}catch{fail("MIGRATION_INVENTORY_INVALID");}
   if(gitBlobSha1(inventoryBytes)!==INVENTORY_GIT_BLOB_SHA1||receipt?.source?.migrationInventoryGitBlobSha1!==INVENTORY_GIT_BLOB_SHA1)fail("MIGRATION_INVENTORY_FINGERPRINT_MISMATCH");
-  if(gitBlobSha1(schemaBytes)!==RECEIPT_SCHEMA_GIT_BLOB_SHA1||sha256(schemaBytes)!==RECEIPT_SCHEMA_SHA256
-    ||receipt?.source?.receiptSchemaGitBlobSha1!==RECEIPT_SCHEMA_GIT_BLOB_SHA1||receipt?.source?.receiptSchemaSha256!==RECEIPT_SCHEMA_SHA256)fail("RECEIPT_SCHEMA_FINGERPRINT_MISMATCH");
+  const actualSchemaBlob=gitBlobSha1(schemaBytes),actualSchemaSha256=sha256(schemaBytes);
+  if(actualSchemaBlob!==RECEIPT_SCHEMA_GIT_BLOB_SHA1)fail("RECEIPT_SCHEMA_GIT_BLOB_SHA1_MISMATCH:"+actualSchemaBlob);
+  if(actualSchemaSha256!==RECEIPT_SCHEMA_SHA256)fail("RECEIPT_SCHEMA_RAW_SHA256_MISMATCH:"+actualSchemaSha256);
+  if(receipt?.source?.receiptSchemaGitBlobSha1!==RECEIPT_SCHEMA_GIT_BLOB_SHA1)fail("RECEIPT_SCHEMA_RECEIPT_BLOB_SHA1_MISMATCH:"+String(receipt?.source?.receiptSchemaGitBlobSha1));
+  if(receipt?.source?.receiptSchemaSha256!==RECEIPT_SCHEMA_SHA256)fail("RECEIPT_SCHEMA_RECEIPT_SHA256_MISMATCH:"+String(receipt?.source?.receiptSchemaSha256));
   verifyReceiptAndEvidence(receipt,csv);
   const validation=validateSqlOutput(csv),p=parseProjections(validation);validateProjectionRows(p);
   const structure=p.get("migration_history_structure_v1");
