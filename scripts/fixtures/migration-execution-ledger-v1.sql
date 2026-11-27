@@ -411,30 +411,33 @@ DECLARE v_actor name := deedlight_execution_ledger.actor_role();
         v_approval deedlight_execution_ledger.approvals%ROWTYPE;
 BEGIN
   IF v_actor IS DISTINCT FROM 'deedlight_ledger_runner' THEN
-    RAISE EXCEPTION 'migration runner authority required';
+    PERFORM deedlight_execution_ledger.raise_trust_failure('missing_trust','runner_authority_missing',jsonb_build_object('actor',v_actor));
   END IF;
-  SELECT * INTO STRICT v_identity FROM deedlight_execution_ledger.database_identity WHERE singleton;
+  IF NOT deedlight_execution_ledger.valid_source_identity(p_source_identity) THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure('invalid_source_identity','reservation_source_identity_invalid','{}'::jsonb);
+  END IF;
+  SELECT * INTO v_identity FROM deedlight_execution_ledger.database_identity WHERE singleton;
+  IF NOT FOUND THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure('missing_trust','database_identity_anchor_missing','{}'::jsonb);
+  END IF;
   SELECT * INTO v_approval FROM deedlight_execution_ledger.approvals
-  WHERE approval_id = p_approval_id
-    AND system_identifier = v_identity.system_identifier
-    AND database_oid = v_identity.database_oid
-    AND database_name = v_identity.database_name
-  FOR UPDATE;
-  IF NOT FOUND OR v_approval.consumed_at IS NOT NULL
-    OR v_approval.record_id <> p_record_id
-    OR v_approval.execution_id <> p_execution_id
-    OR v_approval.source_identity <> p_source_identity THEN
-    RAISE EXCEPTION 'approval is missing, consumed, or does not bind this execution scope';
+  WHERE approval_id=p_approval_id AND system_identifier=v_identity.system_identifier
+    AND database_oid=v_identity.database_oid AND database_name=v_identity.database_name FOR UPDATE;
+  IF NOT FOUND OR v_approval.consumed_at IS NOT NULL THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure('replay','approval_missing_or_consumed',jsonb_build_object('approvalId',p_approval_id));
+  END IF;
+  IF v_approval.record_id<>p_record_id OR v_approval.execution_id<>p_execution_id THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure('replay','approval_scope_mismatch',jsonb_build_object('approvalId',p_approval_id));
+  END IF;
+  IF v_approval.source_identity<>p_source_identity THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure('invalid_source_identity','reservation_source_identity_substitution',jsonb_build_object('approvalId',p_approval_id));
   END IF;
   INSERT INTO deedlight_execution_ledger.executions
-    (system_identifier, database_oid, database_name, record_id, execution_id,
-     approval_id, source_identity, status, approver_identity)
-  VALUES (v_identity.system_identifier, v_identity.database_oid, v_identity.database_name,
-    p_record_id, p_execution_id, p_approval_id, p_source_identity, 'reserved',
-    v_approval.approver_identity);
-  UPDATE deedlight_execution_ledger.approvals
-  SET consumed_at = pg_catalog.clock_timestamp()
-  WHERE approval_id = p_approval_id;
+    (system_identifier,database_oid,database_name,record_id,execution_id,approval_id,source_identity,status,approver_identity)
+  VALUES (v_identity.system_identifier,v_identity.database_oid,v_identity.database_name,p_record_id,p_execution_id,
+    p_approval_id,p_source_identity,'reserved',v_approval.approver_identity);
+  UPDATE deedlight_execution_ledger.approvals SET consumed_at=pg_catalog.clock_timestamp()
+  WHERE approval_id=p_approval_id;
 END
 $fn$;
 
@@ -449,20 +452,31 @@ DECLARE v_actor name := deedlight_execution_ledger.actor_role();
         v_execution deedlight_execution_ledger.executions%ROWTYPE;
 BEGIN
   IF v_actor IS DISTINCT FROM 'deedlight_ledger_runner' THEN
-    RAISE EXCEPTION 'migration runner authority required';
+    PERFORM deedlight_execution_ledger.raise_trust_failure('missing_trust','runner_authority_missing',jsonb_build_object('actor',v_actor));
   END IF;
-  SELECT * INTO STRICT v_identity FROM deedlight_execution_ledger.database_identity WHERE singleton;
-  SELECT * INTO STRICT v_execution FROM deedlight_execution_ledger.executions
-  WHERE system_identifier = v_identity.system_identifier AND database_oid = v_identity.database_oid
-    AND execution_id = p_execution_id FOR UPDATE;
-  IF v_execution.status <> 'running' OR v_execution.runner_identity <> v_actor
-    OR v_execution.source_identity <> p_source_identity THEN
-    RAISE EXCEPTION 'commit marker does not bind the active runner and exact source identity';
+  IF NOT deedlight_execution_ledger.valid_source_identity(p_source_identity) THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure('invalid_source_identity','marker_source_identity_invalid','{}'::jsonb);
+  END IF;
+  SELECT * INTO v_identity FROM deedlight_execution_ledger.database_identity WHERE singleton;
+  IF NOT FOUND THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure('missing_trust','database_identity_anchor_missing','{}'::jsonb);
+  END IF;
+  SELECT * INTO v_execution FROM deedlight_execution_ledger.executions
+  WHERE system_identifier=v_identity.system_identifier AND database_oid=v_identity.database_oid
+    AND execution_id=p_execution_id FOR UPDATE;
+  IF NOT FOUND THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure('missing_execution_evidence','marker_execution_missing',jsonb_build_object('executionId',p_execution_id));
+  END IF;
+  IF v_execution.source_identity<>p_source_identity THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure('invalid_source_identity','marker_source_identity_substitution',jsonb_build_object('executionId',p_execution_id));
+  END IF;
+  IF v_execution.status<>'running' OR v_execution.runner_identity<>v_actor THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure('missing_execution_evidence','marker_runner_not_active',jsonb_build_object('executionId',p_execution_id));
   END IF;
   INSERT INTO deedlight_execution_ledger.execution_commit_markers
-    (system_identifier, database_oid, execution_id, source_identity, runner_identity, transaction_id)
-  VALUES (v_identity.system_identifier, v_identity.database_oid, p_execution_id,
-    p_source_identity, v_actor, pg_catalog.pg_current_xact_id()::text);
+    (system_identifier,database_oid,execution_id,source_identity,runner_identity,transaction_id)
+  VALUES (v_identity.system_identifier,v_identity.database_oid,p_execution_id,p_source_identity,v_actor,
+    pg_catalog.pg_current_xact_id()::text);
 END
 $fn$;
 
