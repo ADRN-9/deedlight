@@ -102,10 +102,10 @@
           "const": "scripts/production-migration-readonly-audit.sql"
         },
         "sqlBundleGitBlobSha1": {
-          "const": "8f8c38ba0c2a463ee25c6dae1dc1b15e24e3819f"
+          "const": "41fa608f6275777a1fcc08f1520abe42c8b600dc"
         },
         "sqlBundleSha256": {
-          "const": "afda6bcfc9f7abc7765b8dfb54bf02d1cdb0d8062da2a9f953336b638d13af7d"
+          "const": "e6be28a9336579d46de58ea31dcb2ceed7310dad1bcc1aebd8d6ce6e1c5206a9"
         },
         "receiptSchemaGitBlobSha1": {
           "$ref": "#/$defs/sha1"
