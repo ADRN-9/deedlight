@@ -92,6 +92,8 @@ export const SQL_PROJECTIONS = Object.freeze([
 ]);
 const SQL_PROJECTION_BY_HEADER = new Map(SQL_PROJECTIONS.map((projection, index) => [projection.columns.join("\u0000"), index]));
 const SQL_HEADER_TOKENS = new Set(SQL_PROJECTIONS.flatMap((projection) => projection.columns));
+SQL_HEADER_TOKENS.add("migration_name");
+SQL_HEADER_TOKENS.add("recorded_statement_count");
 function missingProjectionCode(projection) {
   if (projection.id === "migration_history_v1") return "MIGRATION_HISTORY_PROJECTION_MISSING";
   if (projection.id === "database_acl_v1") return "DATABASE_ACL_PROJECTION_MISSING";
