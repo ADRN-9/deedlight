@@ -208,6 +208,8 @@ function validateMapping(mapping,inventory){
 function rawProjections(p){return SQL_PROJECTIONS.map(x=>({id:x.id,columns:[...x.columns],rows:p.get(x.id).map(row=>row.map(cell=>cell===CSV_QUOTED_EMPTY?"":cell))}));}
 function authorityCandidate(p,identity,catalogObjects,receipt){
   const roleName=identity.current_role;
+  const defaultAcl=projectionObjects(p,"default_privileges_v1");
+  if(defaultAcl.some(row=>row[3]===roleName||row[3]==="PUBLIC"))fail("PRIVILEGE_DEFAULT_SCOPE_INVALID");
   const role=projectionObjects(p,"roles_v1").find(row=>row[0]===roleName);
   if(!role||identity.session_role!==roleName)fail("COLLECTOR_ROLE_IDENTITY_MISMATCH");
   const memberships=projectionObjects(p,"role_memberships_v1");

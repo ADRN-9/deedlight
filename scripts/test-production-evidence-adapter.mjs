@@ -101,19 +101,21 @@ test("literal NULL and literal backslash-N remain strings; SQL NULL and quoted e
   assert.deepEqual(candidate.evidence.history.rows,[
     {version:"202607210001",name:"NULL",recordedStatementCount:1},
     {version:"202607210002",name:"\\N",recordedStatementCount:2},
-    {version:"202607220003",name:null,recordedStatementCount:3},\n    {version:"202607220004",name:"",recordedStatementCount:4}]);
+    {version:"202607220003",name:null,recordedStatementCount:3},
+    {version:"202607220004",name:"",recordedStatementCount:4}]);
 });
 test("invalid statement counts fail closed",()=>{
   for(const n of ["NULL","\\N","-1","01","1.5","9007199254740992"])assert.throws(()=>adapt(fixtureCsv([["202607210001","valid_name",n]])),/MIGRATION_HISTORY_STATEMENT_COUNT_INVALID/);
 });
 test("whole projection blocks cannot be reordered",()=>{
   const rows=parseCsv(fixtureCsv()),headers=new Map(SQL_PROJECTIONS.map(p=>[p.columns.join("\0"),p.id]));
-  const blocks=[];let active=null,tail=[];
+  const blocks=[];let active=null,tail=[],closed=false;
   for(const row of rows){
     const id=headers.get(row.join("\0"));
     if(id){active={id,rows:[row]};blocks.push(active);}
-    else if(active&&!(row.length===1&&row[0]==="collector_transaction_closed"))active.rows.push(row);
-    else tail.push(row);
+    else if(row.length===1&&row[0]==="collector_transaction_closed"){tail.push(row);active=null;closed=true;}
+    else if(closed||!active)tail.push(row);
+    else active.rows.push(row);
   }
   assert.equal(blocks.length,19);
   [blocks[0],blocks[1]]=[blocks[1],blocks[0]];
@@ -136,6 +138,11 @@ test("ACL values and application-data privilege scopes fail closed",()=>{
     ["relation","supabase_migrations","schema_migrations","","deedlight_catalog_auditor","postgres","SELECT","f"],
     ["column","public","profiles","id","deedlight_catalog_auditor","postgres","SELECT","f"]
   ]})),/PRIVILEGE_COLUMN_SCOPE_INVALID/);
+});
+test("default privileges and duplicate membership identities fail closed",()=>{
+  const membership=["auditor_parent","deedlight_catalog_auditor","postgres","f","f","f"];
+  assert.throws(()=>adapt(fixtureCsv(undefined,undefined,{role_memberships_v1:[membership,membership]})),/ROLE_MEMBERSHIP_DUPLICATED/);
+  assert.throws(()=>adapt(fixtureCsv(undefined,undefined,{default_privileges_v1:[["postgres","public","r","deedlight_catalog_auditor","postgres","SELECT","f"]]})),/PRIVILEGE_DEFAULT_SCOPE_INVALID/);
 });
 test("missing, duplicated, reordered, unexpected and truncated projections fail closed",()=>{
   const base=fixtureCsv().toString("utf8"),lines=base.trimEnd().split("\r\n"),header=SQL_PROJECTIONS[4].columns.join(",");
