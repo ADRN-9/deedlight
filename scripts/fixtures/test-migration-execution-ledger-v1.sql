@@ -102,6 +102,51 @@ SELECT deedlight_execution_ledger.record_verification(
 );
 RESET ROLE;
 
+-- Partial effects are recorded as partial, never upgraded to success by the verifier.
+SET ROLE deedlight_ledger_approver;
+SELECT deedlight_execution_ledger.approve_execution(
+  'c5700000-0000-4000-8000-000000000006',
+  'c5700000-0000-4000-8000-000000000016',
+  'c5700000-0000-4000-8000-000000000026',
+  '{"path":"supabase/migrations/test-partial.sql","sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}'::jsonb
+);
+RESET ROLE;
+SET ROLE deedlight_ledger_runner;
+SELECT deedlight_execution_ledger.reserve_execution(
+  'c5700000-0000-4000-8000-000000000006',
+  'c5700000-0000-4000-8000-000000000016',
+  'c5700000-0000-4000-8000-000000000026',
+  '{"path":"supabase/migrations/test-partial.sql","sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}'::jsonb
+);
+RESET ROLE;
+SET ROLE deedlight_ledger_observer;
+SELECT deedlight_execution_ledger.capture_snapshot(
+  'c5700000-0000-4000-8000-000000000026','pre','test_effects_v1'
+);
+RESET ROLE;
+SET ROLE deedlight_ledger_runner;
+SELECT deedlight_execution_ledger.start_execution('c5700000-0000-4000-8000-000000000026');
+RESET ROLE;
+INSERT INTO deedlight_execution_ledger.test_effects(effect_value) VALUES ('partial fixture effect');
+SET ROLE deedlight_ledger_observer;
+SELECT deedlight_execution_ledger.capture_snapshot(
+  'c5700000-0000-4000-8000-000000000026','post','test_effects_v1'
+);
+RESET ROLE;
+SET ROLE deedlight_ledger_runner;
+SELECT deedlight_execution_ledger.finalize_execution(
+  'c5700000-0000-4000-8000-000000000026','partial','{"reason":"fixture interrupted after a committed effect"}'::jsonb
+);
+RESET ROLE;
+DO $assert$
+BEGIN
+  IF (SELECT status FROM deedlight_execution_ledger.executions
+      WHERE execution_id = 'c5700000-0000-4000-8000-000000000026') <> 'partial' THEN
+    RAISE EXCEPTION 'partial execution was not preserved as partial';
+  END IF;
+END
+$assert$;
+
 -- Completed execution and consumed approval are permanently replay-protected.
 SET ROLE deedlight_ledger_runner;
 DO $assert$
@@ -186,6 +231,26 @@ BEGIN
   END IF;
 END
 $assert$;
+
+-- An interrupted reservation remains non-replayable.
+SET ROLE deedlight_ledger_runner;
+DO $assert$
+BEGIN
+  BEGIN
+    PERFORM deedlight_execution_ledger.reserve_execution(
+      'c5700000-0000-4000-8000-000000000004',
+      'c5700000-0000-4000-8000-000000000014',
+      'c5700000-0000-4000-8000-000000000024',
+      '{"path":"supabase/migrations/test.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb
+    );
+    RAISE EXCEPTION 'interrupted execution replay unexpectedly accepted';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM = 'interrupted execution replay unexpectedly accepted' THEN RAISE; END IF;
+    IF SQLERRM NOT LIKE 'approval is missing, consumed, or does not bind%' THEN RAISE; END IF;
+  END;
+END
+$assert$;
+RESET ROLE;
 
 -- A running process that disappears has an ambiguous outcome and becomes unknown.
 SET ROLE deedlight_ledger_approver;
