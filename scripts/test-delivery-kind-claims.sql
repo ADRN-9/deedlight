@@ -263,6 +263,67 @@ end;
 $weekly$;
 reset role;
 
+-- A Weekly token must become unusable after lease expiry and reclaim.
+-- The second claim must issue a different token for the same logical job.
+insert into public.delivery_ledger (
+  id, user_id, kind, delivery_key, state, scheduled_for,
+  claim_token, claimed_at, claim_expires_at, attempt_count
+) values (
+  '91000000-0000-0000-0000-000000000110',
+  '00000000-0000-0000-0000-000000000002',
+  'weekly_newsletter','weekly:c528:stale-reclaim','claimed',
+  clock_timestamp() - interval '3 minutes',
+  '92000000-0000-0000-0000-000000000110',
+  clock_timestamp() - interval '10 minutes',
+  clock_timestamp() - interval '1 minute',
+  1
+);
+
+set role service_role;
+do $weekly_stale_reclaim$
+declare
+  v_old_token uuid := '92000000-0000-0000-0000-000000000110';
+  v_new_token uuid;
+  v_claim_count integer;
+begin
+  select count(*), max(claim_token)
+    into v_claim_count, v_new_token
+  from public.claim_weekly_delivery_jobs(10)
+  where job_id = '91000000-0000-0000-0000-000000000110';
+
+  if v_claim_count <> 1 or v_new_token is null or v_new_token = v_old_token then
+    raise exception 'Weekly expired claim was not reclaimed with a fresh token.';
+  end if;
+
+  -- Expire the newly issued lease, then reclaim again to make the old token stale.
+  update public.delivery_ledger
+  set claim_expires_at = clock_timestamp() - interval '1 second'
+  where id = '91000000-0000-0000-0000-000000000110'
+    and state = 'claimed'
+    and claim_token = v_new_token;
+
+  select count(*), max(claim_token)
+    into v_claim_count, v_new_token
+  from public.claim_weekly_delivery_jobs(10)
+  where job_id = '91000000-0000-0000-0000-000000000110';
+
+  if v_claim_count <> 1 or v_new_token is null or v_new_token = v_old_token then
+    raise exception 'Weekly second reclaim did not retain a fresh token.';
+  end if;
+
+  begin
+    perform public.authorize_delivery_job(
+      '91000000-0000-0000-0000-000000000110',
+      v_old_token
+    );
+    raise exception 'Stale Weekly claim token authorized a reclaimed job.';
+  exception when sqlstate '42501' then
+    null;
+  end;
+end;
+$weekly_stale_reclaim$;
+reset role;
+
 -- Browser roles cannot execute either claim RPC.
 set role anon;
 do $anon$
@@ -314,6 +375,6 @@ select jsonb_build_object(
   'malformed_batch_rejection','pass',
   'legacy_generic_rpc_denied','pass',
   'no_generic_kind_helper','pass',
-  'stale_token_rejected','pass',
+  'stale_token_rejected','pass',\n  'weekly_stale_reclaim_token_rejected','pass',
   'browser_role_denial','pass'
 ) as delivery_kind_claim_behavior;
