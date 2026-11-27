@@ -1567,6 +1567,758 @@
           "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
         }
       }
+    },
+    {
+      "path": "supabase/migrations/202607270008_sprint8_short_video_studio.sql",
+      "blobSha1": "5b583bd99562e14db554943d034c748ce302f5ee",
+      "byteLength": 1890,
+      "lineCount": 50,
+      "observations": {
+        "transformations": [
+          {
+            "line": 17,
+            "operation": "UPDATE",
+            "targetCandidate": "public.daily_lights",
+            "sourceExcerpt": "update public.daily_lights"
+          }
+        ],
+        "foreignKeyReferences": [],
+        "guards": [
+          {
+            "line": 7,
+            "kind": "existence_guard",
+            "sourceExcerpt": "add column if not exists video_status text not null default 'not_started',"
+          },
+          {
+            "line": 8,
+            "kind": "existence_guard",
+            "sourceExcerpt": "add column if not exists video_platform text,"
+          },
+          {
+            "line": 9,
+            "kind": "existence_guard",
+            "sourceExcerpt": "add column if not exists video_hashtags text,"
+          },
+          {
+            "line": 10,
+            "kind": "existence_guard",
+            "sourceExcerpt": "add column if not exists video_notes text,"
+          },
+          {
+            "line": 11,
+            "kind": "existence_guard",
+            "sourceExcerpt": "add column if not exists video_asset_url text,"
+          },
+          {
+            "line": 12,
+            "kind": "existence_guard",
+            "sourceExcerpt": "add column if not exists tiktok_url text,"
+          },
+          {
+            "line": 13,
+            "kind": "existence_guard",
+            "sourceExcerpt": "add column if not exists instagram_url text,"
+          },
+          {
+            "line": 14,
+            "kind": "existence_guard",
+            "sourceExcerpt": "add column if not exists short_video_public boolean not null default false,"
+          },
+          {
+            "line": 15,
+            "kind": "existence_guard",
+            "sourceExcerpt": "add column if not exists video_posted_at timestamptz;"
+          },
+          {
+            "line": 29,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop constraint if exists daily_lights_video_status_check;"
+          },
+          {
+            "line": 33,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (video_status in ('not_started', 'planned', 'scripted', 'recorded', 'posted', 'archived'));"
+          },
+          {
+            "line": 35,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create index if not exists daily_lights_video_status_idx"
+          },
+          {
+            "line": 38,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create index if not exists daily_lights_video_public_idx"
+          },
+          {
+            "line": 42,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create index if not exists daily_lights_video_posted_at_idx"
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unknown",
+          "reason": "No REFERENCES candidate found; view, routine and procedural dependencies remain unparsed."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202608060009_sprint9_profiles_privacy.sql",
+      "blobSha1": "6594ce6daa0183944fcc548885d6514e8adb9436",
+      "byteLength": 6031,
+      "lineCount": 238,
+      "observations": {
+        "transformations": [
+          {
+            "line": 13,
+            "operation": "UPDATE",
+            "targetCandidate": "public.profiles",
+            "sourceExcerpt": "update public.profiles"
+          },
+          {
+            "line": 17,
+            "operation": "UPDATE",
+            "targetCandidate": "public.profiles",
+            "sourceExcerpt": "update public.profiles"
+          },
+          {
+            "line": 54,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.profiles",
+            "sourceExcerpt": "insert into public.profiles ("
+          }
+        ],
+        "foreignKeyReferences": [],
+        "guards": [
+          {
+            "line": 7,
+            "kind": "existence_guard",
+            "sourceExcerpt": "add column if not exists is_public boolean not null default false,"
+          },
+          {
+            "line": 8,
+            "kind": "existence_guard",
+            "sourceExcerpt": "add column if not exists show_contribution_stats boolean not null default true,"
+          },
+          {
+            "line": 9,
+            "kind": "existence_guard",
+            "sourceExcerpt": "add column if not exists default_offering_anonymous boolean not null default false;"
+          },
+          {
+            "line": 22,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop constraint if exists profiles_username_key;"
+          },
+          {
+            "line": 24,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop index if exists public.profiles_username_key;"
+          },
+          {
+            "line": 28,
+            "kind": "existence_guard",
+            "sourceExcerpt": "if not exists ("
+          },
+          {
+            "line": 36,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (username ~ '^[a-z0-9][a-z0-9_-]{2,29}$');"
+          },
+          {
+            "line": 44,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create unique index if not exists profiles_username_lower_key"
+          },
+          {
+            "line": 75,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"profiles_public_read\" on public.profiles;"
+          },
+          {
+            "line": 76,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"profiles_select_public\" on public.profiles;"
+          },
+          {
+            "line": 77,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"profiles_own_read\" on public.profiles;"
+          },
+          {
+            "line": 78,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"profiles_own_update\" on public.profiles;"
+          },
+          {
+            "line": 79,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"profiles_update_own\" on public.profiles;"
+          },
+          {
+            "line": 92,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check (user_id = auth.uid());"
+          },
+          {
+            "line": 109,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop view if exists public.profiles_public;"
+          },
+          {
+            "line": 214,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"offerings_public_approved_read\""
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unknown",
+          "reason": "No REFERENCES candidate found; view, routine and procedural dependencies remain unparsed."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202608100010_sprint9_2_community_identity_consistency.sql",
+      "blobSha1": "774708b7705d88a5a1e0da97e72a9d1b47c8884c",
+      "byteLength": 3294,
+      "lineCount": 138,
+      "observations": {
+        "transformations": [
+          {
+            "line": 15,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.profiles",
+            "sourceExcerpt": "insert into public.profiles ("
+          }
+        ],
+        "foreignKeyReferences": [],
+        "guards": []
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unknown",
+          "reason": "No REFERENCES candidate found; view, routine and procedural dependencies remain unparsed."
+        },
+        "preconditions": {
+          "disposition": "unknown",
+          "reason": "No simple guard candidate found; absence of a match is not proof of no precondition."
+        },
+        "postconditions": {
+          "disposition": "unknown",
+          "reason": "No simple guard candidate found; absence of a match is not proof of no postcondition."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202608100011_sprint9_3_moderation_aware_members.sql",
+      "blobSha1": "1d1b7b844b88077351d2658af4be2b2db92eda97",
+      "byteLength": 12225,
+      "lineCount": 487,
+      "observations": {
+        "transformations": [
+          {
+            "line": 338,
+            "operation": "UPDATE",
+            "targetCandidate": "public.profiles",
+            "sourceExcerpt": "update public.profiles"
+          },
+          {
+            "line": 342,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.member_moderation_events",
+            "sourceExcerpt": "insert into public.member_moderation_events ("
+          }
+        ],
+        "foreignKeyReferences": [
+          {
+            "line": 13,
+            "targetCandidate": "auth.users",
+            "sourceExcerpt": "member_user_id uuid not null references auth.users(id) on delete cascade,"
+          },
+          {
+            "line": 14,
+            "targetCandidate": "auth.users",
+            "sourceExcerpt": "actor_user_id uuid references auth.users(id) on delete set null,"
+          }
+        ],
+        "guards": [
+          {
+            "line": 11,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create table if not exists public.member_moderation_events ("
+          },
+          {
+            "line": 15,
+            "kind": "check_constraint",
+            "sourceExcerpt": "action text not null check (action in ('suspended', 'restored')),"
+          },
+          {
+            "line": 16,
+            "kind": "check_constraint",
+            "sourceExcerpt": "reason text not null check (char_length(reason) between 8 and 500),"
+          },
+          {
+            "line": 20,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create index if not exists member_moderation_events_member_created_idx"
+          },
+          {
+            "line": 23,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create index if not exists member_moderation_events_actor_created_idx"
+          },
+          {
+            "line": 28,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"member_moderation_events_admin_select\""
+          },
+          {
+            "line": 78,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Database-backed admin access is required.'"
+          },
+          {
+            "line": 83,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid member state filter.'"
+          },
+          {
+            "line": 170,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Database-backed admin access is required.'"
+          },
+          {
+            "line": 293,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Database-backed admin access is required.'"
+          },
+          {
+            "line": 298,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Member and suspension state are required.'"
+          },
+          {
+            "line": 303,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Moderation reason must be between 8 and 500 characters.'"
+          },
+          {
+            "line": 314,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Member profile not found.'"
+          },
+          {
+            "line": 319,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'You cannot suspend or restore your own account from this tool.'"
+          },
+          {
+            "line": 324,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Admin accounts are not managed by the member suspension tool.'"
+          },
+          {
+            "line": 330,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'This member is already suspended.'"
+          },
+          {
+            "line": 333,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'This member is already active.'"
+          },
+          {
+            "line": 370,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"offerings_update_own_or_admin\""
+          },
+          {
+            "line": 390,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check ("
+          },
+          {
+            "line": 404,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"offerings_user_update_safe_statuses\""
+          },
+          {
+            "line": 421,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check ("
+          },
+          {
+            "line": 432,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"reflections_own_insert\""
+          },
+          {
+            "line": 439,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check ("
+          },
+          {
+            "line": 456,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"reflections_own_update\""
+          },
+          {
+            "line": 472,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check ("
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unsupported",
+          "reason": "Foreign-key reference candidates found, but prerequisite migration ownership and execution ordering are not established by the SQL line alone."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202608110012_sprint10_1_daily_deed_completion.sql",
+      "blobSha1": "0973f72e39ce07b41e053a20f1b781c394578877",
+      "byteLength": 4462,
+      "lineCount": 188,
+      "observations": {
+        "transformations": [],
+        "foreignKeyReferences": [
+          {
+            "line": 15,
+            "targetCandidate": "public.daily_lights",
+            "sourceExcerpt": "references public.daily_lights(id)"
+          }
+        ],
+        "guards": [
+          {
+            "line": 14,
+            "kind": "existence_guard",
+            "sourceExcerpt": "add column if not exists daily_light_id uuid"
+          },
+          {
+            "line": 23,
+            "kind": "existence_guard",
+            "sourceExcerpt": "if not exists ("
+          },
+          {
+            "line": 31,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check ("
+          },
+          {
+            "line": 39,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create unique index if not exists"
+          },
+          {
+            "line": 46,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create index if not exists"
+          },
+          {
+            "line": 54,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create index if not exists"
+          },
+          {
+            "line": 68,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists"
+          },
+          {
+            "line": 72,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists"
+          },
+          {
+            "line": 76,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists"
+          },
+          {
+            "line": 80,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists"
+          },
+          {
+            "line": 98,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check ("
+          },
+          {
+            "line": 134,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop view if exists"
+          },
+          {
+            "line": 169,
+            "kind": "existence_guard",
+            "sourceExcerpt": "if not exists ("
+          },
+          {
+            "line": 177,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check ("
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unknown",
+          "reason": "No simple top-level DML candidate found; dynamic SQL and function bodies prevent a safe none assertion."
+        },
+        "backfills": {
+          "disposition": "unknown",
+          "reason": "No simple DML candidate found; absence of a source match is not proof of no backfill."
+        },
+        "dependencies": {
+          "disposition": "unsupported",
+          "reason": "Foreign-key reference candidates found, but prerequisite migration ownership and execution ordering are not established by the SQL line alone."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202608110013_sprint10_2_saved_lights_gentle_rhythm.sql",
+      "blobSha1": "5fd2f4a796a8a1dfd6237ccf36d1ab62c1dc1714",
+      "byteLength": 2769,
+      "lineCount": 123,
+      "observations": {
+        "transformations": [],
+        "foreignKeyReferences": [
+          {
+            "line": 14,
+            "targetCandidate": "public.daily_lights",
+            "sourceExcerpt": "references public.daily_lights(id)"
+          }
+        ],
+        "guards": [
+          {
+            "line": 13,
+            "kind": "existence_guard",
+            "sourceExcerpt": "add column if not exists daily_light_id uuid"
+          },
+          {
+            "line": 18,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop constraint if exists saved_lights_check;"
+          },
+          {
+            "line": 21,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop constraint if exists saved_lights_exactly_one_source;"
+          },
+          {
+            "line": 25,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check ("
+          },
+          {
+            "line": 33,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create unique index if not exists"
+          },
+          {
+            "line": 41,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create index if not exists"
+          },
+          {
+            "line": 55,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists"
+          },
+          {
+            "line": 59,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists"
+          },
+          {
+            "line": 63,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists"
+          },
+          {
+            "line": 67,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists"
+          },
+          {
+            "line": 85,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check ("
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unknown",
+          "reason": "No simple top-level DML candidate found; dynamic SQL and function bodies prevent a safe none assertion."
+        },
+        "backfills": {
+          "disposition": "unknown",
+          "reason": "No simple DML candidate found; absence of a source match is not proof of no backfill."
+        },
+        "dependencies": {
+          "disposition": "unsupported",
+          "reason": "Foreign-key reference candidates found, but prerequisite migration ownership and execution ordering are not established by the SQL line alone."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202608120014_sprint10_3_gentle_reminder_preferences.sql",
+      "blobSha1": "2af1a6a2aa5cffc6ef6d08849b6f71fab44a54d0",
+      "byteLength": 2523,
+      "lineCount": 105,
+      "observations": {
+        "transformations": [],
+        "foreignKeyReferences": [
+          {
+            "line": 8,
+            "targetCandidate": "auth.users",
+            "sourceExcerpt": "user_id uuid primary key references auth.users(id) on delete cascade,"
+          }
+        ],
+        "guards": [
+          {
+            "line": 7,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create table if not exists public.daily_reminder_preferences ("
+          },
+          {
+            "line": 12,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check ("
+          },
+          {
+            "line": 20,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop trigger if exists daily_reminder_preferences_set_updated_at"
+          },
+          {
+            "line": 30,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists"
+          },
+          {
+            "line": 34,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists"
+          },
+          {
+            "line": 38,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists"
+          },
+          {
+            "line": 56,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check ("
+          },
+          {
+            "line": 77,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check ("
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unknown",
+          "reason": "No simple top-level DML candidate found; dynamic SQL and function bodies prevent a safe none assertion."
+        },
+        "backfills": {
+          "disposition": "unknown",
+          "reason": "No simple DML candidate found; absence of a source match is not proof of no backfill."
+        },
+        "dependencies": {
+          "disposition": "unsupported",
+          "reason": "Foreign-key reference candidates found, but prerequisite migration ownership and execution ordering are not established by the SQL line alone."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
     }
   ]
 }
