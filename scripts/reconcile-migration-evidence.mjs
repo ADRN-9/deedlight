@@ -88,20 +88,26 @@ export function validateCollectorPrivilegeEvidence(db, inventoryObjects) {
     })) {
     problems.push("collector object privilege evidence does not match the least-privilege contract: only migration-history SELECT is allowed");
   }
-  const expectedColumns = inventory.filter((entry) => entry && entry.kind === "columns")
-    .map((entry) => entry.identity).sort();
-  const columnIds = columnRows.map((entry) => entry && entry.identity).sort();
-  if (!expectedColumns.length || columnIds.some((value) => typeof value !== "string")
-    || new Set(columnIds).size !== columnIds.length || canonicalJson(columnIds) !== canonicalJson(expectedColumns)
+  const expectedColumns = inventory.filter((entry) => entry && entry.kind === "columns");
+  const expectedColumnKeys = expectedColumns.map((entry) => {
+    if ([entry.schema, entry.relation, entry.column].some((value) => typeof value !== "string" || !value.length)) return null;
+    return canonicalJson([entry.schema, entry.relation, entry.column]);
+  });
+  const columnKeys = columnRows.map((entry) => entry && canonicalJson([entry.schema, entry.relation, entry.column]));
+  if (!expectedColumns.length || expectedColumnKeys.some((value) => value === null)
+    || columnKeys.some((value) => typeof value !== "string")
+    || new Set(expectedColumnKeys).size !== expectedColumnKeys.length
+    || new Set(columnKeys).size !== columnKeys.length
+    || canonicalJson([...columnKeys].sort()) !== canonicalJson([...expectedColumnKeys].sort())
     || columnRows.some((entry) => {
-      if (!entry) return true;
-      const history = entry.identity.startsWith("supabase_migrations.schema_migrations.");
-      return Object.keys(entry).sort().join(",") !== "identity,privileges,scope"
-        || entry.scope !== (history ? "migration_history" : "application_data")
+      if (!entry || Object.keys(entry).sort().join(",") !== "column,privileges,relation,schema,scope"
+        || [entry.schema, entry.relation, entry.column].some((value) => typeof value !== "string" || !value.length)) return true;
+      const history = entry.schema === "supabase_migrations" && entry.relation === "schema_migrations";
+      return entry.scope !== (history ? "migration_history" : "application_data")
         || !Array.isArray(entry.privileges)
         || canonicalJson(entry.privileges) !== canonicalJson(history ? ["SELECT"] : []);
     })) {
-    problems.push("collector column privilege evidence does not match the least-privilege contract: only migration-history SELECT is allowed");
+    problems.push("collector column privilege evidence does not match the least-privilege contract: structured schema/relation/column identities must exactly match inventory and only migration-history SELECT is allowed");
   }
   return problems;
 }
@@ -183,6 +189,7 @@ export function validateMigrationHistoryRows(rows, manifest) {
   if (!Array.isArray(rows)) return ["migration history export is incomplete"];
   const versions = new Set(manifest.migrations.map((item) => item.version));
   const seenVersions = new Set();
+  let previousVersion = null;
   for (const row of rows) {
     if (!row || Object.keys(row).sort().join(",") !== "name,recordedStatementCount,version"
       || typeof row.version !== "string" || !/^[0-9]{12}$/.test(row.version) || !versions.has(row.version)) {
@@ -194,6 +201,10 @@ export function validateMigrationHistoryRows(rows, manifest) {
     } else {
       seenVersions.add(row.version);
     }
+    if (previousVersion !== null && row.version <= previousVersion) {
+      problems.push("migration history rows are not strictly ascending by version");
+    }
+    previousVersion = row.version;
     if ((row.name !== null && (typeof row.name !== "string" || !row.name.trim()))
       || (row.recordedStatementCount !== null && (!Number.isSafeInteger(row.recordedStatementCount) || row.recordedStatementCount < 0))) {
       problems.push("migration history row has an invalid migration name or recorded statement count");
@@ -527,8 +538,12 @@ function validateEvidence(evidence, now, manifest, problems) {
   }
   if (catalog && Array.isArray(catalog.objects)) {
     for (const object of catalog.objects) {
-      if (!exactKeys(object, ["kind", "identity", "fingerprint"])) {
-        problems.push("catalog object contains an unexpected or missing property");
+      const expectedObjectKeys = object && object.kind === "columns"
+        ? ["kind", "identity", "fingerprint", "schema", "relation", "column"]
+        : ["kind", "identity", "fingerprint"];
+      if (!exactKeys(object, expectedObjectKeys)
+        || (object.kind === "columns" && [object.schema, object.relation, object.column].some((value) => typeof value !== "string" || !value.length))) {
+        problems.push("catalog object contains an unexpected or missing property, or an ambiguous structured column identity");
         break;
       }
     }
