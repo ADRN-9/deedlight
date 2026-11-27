@@ -7,7 +7,7 @@ const mapping = JSON.parse(readFileSync("docs/c574-migration-source-semantic-map
 
 function classifyFixtureLexeme(value) {
   if (value === "NULL") return "SQL_NULL_KEYWORD";
-  if (value === String.raw`'\\N'`) return "QUOTED_BACKSLASH_N_STRING";
+  if (value === "'" + String.fromCharCode(92) + "N'") return "QUOTED_BACKSLASH_N_STRING";
   if (value === "''") return "QUOTED_EMPTY_STRING";
   if (/^'.*'$/.test(value)) return "QUOTED_STRING";
   return "OTHER";
@@ -61,7 +61,7 @@ test("inventory filename ordering is not represented as historical execution ord
 });
 
 test("SQL NULL, quoted backslash-N and quoted empty string remain distinct lexemes", () => {
-  const tokens = ["NULL", String.raw`'\\N'`, "''"];
+  const tokens = ["NULL", "'" + String.fromCharCode(92) + "N'", "''"];
   assert.deepEqual(tokens.map(classifyFixtureLexeme), [
     "SQL_NULL_KEYWORD",
     "QUOTED_BACKSLASH_N_STRING",
