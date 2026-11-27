@@ -304,8 +304,8 @@ function sourceLineBinding(entry){
 test("adapter rejects category-confused effect after receiving a valid transformation contract", () => {
   const mapping = mappingFixture();
   const entry = mapping.migrations[3];
-  const sourceLines = readFileSync(new URL("../" + entry.path, import.meta.url), "utf8").split(/\\r?\\n/);
-  const updateLine = sourceLines.findIndex(line => /^\\s*update\\s+public\\.offerings\\s+set\\b/i.test(line));
+  const sourceLines = readFileSync(new URL("../" + entry.path, import.meta.url), "utf8").split(/\r?\n/);
+  const updateLine = sourceLines.findIndex(line => /^\s*update\s+public\.offerings\s+set\b/i.test(line));
   assert.ok(updateLine >= 0);
   const sourceStatement = sourceLines[updateLine];
   entry.effects.dataTransformations = [{
