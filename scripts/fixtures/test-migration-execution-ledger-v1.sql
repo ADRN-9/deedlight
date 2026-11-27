@@ -62,7 +62,15 @@ SET ROLE deedlight_ledger_runner;
 SELECT deedlight_execution_ledger.start_execution('c5700000-0000-4000-8000-000000000021');
 SELECT deedlight_execution_ledger.heartbeat_execution('c5700000-0000-4000-8000-000000000021');
 RESET ROLE;
+SET ROLE deedlight_ledger_runner;
+BEGIN;
 INSERT INTO deedlight_execution_ledger.test_effects(effect_value) VALUES ('fixture migration effect');
+SELECT deedlight_execution_ledger.record_effect_commit_marker(
+  'c5700000-0000-4000-8000-000000000021',
+  '{"path":"supabase/migrations/test.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb
+);
+COMMIT;
+RESET ROLE;
 SET ROLE deedlight_ledger_observer;
 SELECT deedlight_execution_ledger.capture_snapshot(
   'c5700000-0000-4000-8000-000000000021','post','test_effects_v1'
@@ -128,7 +136,15 @@ RESET ROLE;
 SET ROLE deedlight_ledger_runner;
 SELECT deedlight_execution_ledger.start_execution('c5700000-0000-4000-8000-000000000026');
 RESET ROLE;
+SET ROLE deedlight_ledger_runner;
+BEGIN;
 INSERT INTO deedlight_execution_ledger.test_effects(effect_value) VALUES ('partial fixture effect');
+SELECT deedlight_execution_ledger.record_effect_commit_marker(
+  'c5700000-0000-4000-8000-000000000026',
+  '{"path":"supabase/migrations/test-partial.sql","sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}'::jsonb
+);
+COMMIT;
+RESET ROLE;
 SET ROLE deedlight_ledger_observer;
 SELECT deedlight_execution_ledger.capture_snapshot(
   'c5700000-0000-4000-8000-000000000026','post','test_effects_v1'
@@ -401,6 +417,21 @@ SELECT deedlight_execution_ledger.capture_snapshot(
 RESET ROLE;
 SET ROLE deedlight_ledger_runner;
 SELECT deedlight_execution_ledger.start_execution('c5700000-0000-4000-8000-000000000027');
+RESET ROLE;
+SET ROLE deedlight_ledger_observer;
+DO $assert$
+BEGIN
+  BEGIN
+    PERFORM deedlight_execution_ledger.capture_snapshot(
+      'c5700000-0000-4000-8000-000000000027','post','test_effects_v1'
+    );
+    RAISE EXCEPTION 'post-snapshot accepted without committed migration marker';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM = 'post-snapshot accepted without committed migration marker' THEN RAISE; END IF;
+    IF SQLERRM <> 'post-snapshot requires a committed effect marker from the active runner transaction' THEN RAISE; END IF;
+  END;
+END
+$assert$;
 RESET ROLE;
 
 SELECT 'C577 disposable PostgreSQL ledger integration: PASS' AS result;
