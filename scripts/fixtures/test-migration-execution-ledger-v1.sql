@@ -521,9 +521,8 @@ BEGIN
       'c5700000-0000-4000-8000-000000000027','post','test_effects_v1'
     );
     RAISE EXCEPTION 'post-snapshot accepted without committed migration marker';
-  EXCEPTION WHEN raise_exception THEN
+  EXCEPTION WHEN SQLSTATE 'D1003' THEN
     IF SQLERRM = 'post-snapshot accepted without committed migration marker' THEN RAISE; END IF;
-    IF SQLERRM <> 'post-snapshot requires a committed effect marker from the active runner transaction' THEN RAISE; END IF;
   END;
 END
 $assert$;
