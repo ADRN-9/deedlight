@@ -86,6 +86,9 @@ jobs:
       - name: Delivery reliability security assertions
         run: node scripts/verify-delivery-reliability.mjs
 
+      - name: Daily and Weekly claim isolation security assertions
+        run: node scripts/verify-delivery-kind-claims.mjs
+
       - name: Gentle delivery transport security assertions
         run: node scripts/verify-gentle-delivery-transport.mjs
 
