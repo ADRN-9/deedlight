@@ -60,6 +60,7 @@ SELECT deedlight_execution_ledger.capture_snapshot(
 RESET ROLE;
 SET ROLE deedlight_ledger_runner;
 SELECT deedlight_execution_ledger.start_execution('c5700000-0000-4000-8000-000000000021');
+SELECT deedlight_execution_ledger.heartbeat_execution('c5700000-0000-4000-8000-000000000021');
 RESET ROLE;
 INSERT INTO deedlight_execution_ledger.test_effects(effect_value) VALUES ('fixture migration effect');
 SET ROLE deedlight_ledger_observer;
