@@ -141,9 +141,15 @@ export function validateCollectorPrivilegeEvidence(db, inventoryObjects) {
   const columnIds = columnRows.map((entry) => entry && entry.identity).sort();
   if (!expectedColumns.length || columnIds.some((value) => typeof value !== "string")
     || new Set(columnIds).size !== columnIds.length || canonicalJson(columnIds) !== canonicalJson(expectedColumns)
-    || columnRows.some((entry) => !entry || Object.keys(entry).sort().join(",") !== "identity,privileges,scope"
-      || entry.scope !== "application_data" || !Array.isArray(entry.privileges) || entry.privileges.length !== 0)) {
-    problems.push("collector column privilege evidence does not match the least-privilege contract: application columns must have no effective privileges");
+    || columnRows.some((entry) => {
+      if (!entry) return true;
+      const history = entry.identity.startsWith("supabase_migrations.schema_migrations.");
+      return Object.keys(entry).sort().join(",") !== "identity,privileges,scope"
+        || entry.scope !== (history ? "migration_history" : "application_data")
+        || !Array.isArray(entry.privileges)
+        || canonicalJson(entry.privileges) !== canonicalJson(history ? ["SELECT"] : []);
+    })) {
+    problems.push("collector column privilege evidence does not match the least-privilege contract: only migration-history SELECT is allowed");
   }
   return problems;
 }
