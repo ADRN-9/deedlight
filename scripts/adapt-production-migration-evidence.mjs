@@ -133,7 +133,7 @@ function buildCatalog(p) {
   const objects=[],seen=new Set();
   const add=(kind,identity,value,structuredIdentity)=>{
     if(typeof identity!=="string"||!identity.trim())fail("CATALOG_IDENTITY_INVALID");
-    const key=kind+"\\0"+identity;if(seen.has(key))fail("CATALOG_IDENTITY_DUPLICATED");seen.add(key);
+    const key=kind+"\0"+identity;if(seen.has(key))fail("CATALOG_IDENTITY_DUPLICATED");seen.add(key);
     const object={kind,identity,fingerprint:sha256(Buffer.from(canonicalJson(value),"utf8"))};
     if(structuredIdentity!==undefined){
       if(!exact(structuredIdentity,["schema","relation","column"])
