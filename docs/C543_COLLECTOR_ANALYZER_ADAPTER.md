@@ -89,3 +89,40 @@ node scripts/adapt-production-migration-evidence.mjs \
 ```
 
 The output file is created exclusively with mode 0600; an existing output path is not overwritten.
+
+
+## C555 — deterministic migration-effect coverage
+
+Each of the nine effect domains is mandatory for every inventory entry: schema, privileges, ownership, routines, data transformations, backfills, dependencies, preconditions and postconditions. Each domain has exactly one explicit disposition:
+
+- `effects`: one or more typed effects are required.
+- `none`: an affirmative reviewed finding that the pinned source range contains no effect in that domain.
+- `unsupported`: the source structure cannot currently be normalized safely. This is an explicit acceptance blocker.
+- `unknown`: the source semantics or evidence cannot be determined. This is an explicit acceptance blocker.
+
+The mapping must bind the exact inventory path and Git blob SHA-1. Each category has a non-empty rationale and one or more ordered, non-overlapping, in-bounds source line ranges. Effect records have strict category-specific kinds, unique kind/identity pairs across the entire migration, non-empty descriptions and SHA-256 fingerprints. Effects cannot be attached to `none`, `unsupported` or `unknown`; an `effects` disposition cannot be empty. The analyzer checks ranges against the actual pinned source file line count. A mapping with no deterministic effects, an unsupported/unknown category, malformed source ranges or malformed effects cannot pass analyzer trust validation.
+
+These are deterministic structural and catalog-consistency checks, not proof that a historical SQL statement executed. The effect fingerprint is compared with the current catalog object fingerprint during classification; this comparison establishes representation only, not source execution, actor, timestamp or execution identity.
+
+## C555 — analyzer acceptance-path integration gap and safe resolution
+
+The adapter deliberately emits only an unsigned candidate. Its `evidence` object does not contain `collectorAuthority`; its `databaseAuthorityCandidate` is an unauthenticated catalog-only privilege summary. The analyzer's acceptance path requires a separate `collectorAuthority` object whose execution receipt binds project, exact query-bundle fingerprint, collector identity, capture time, execution ID, statement count, start/completion timestamps, result digest and the exact database-authority projection. It also requires three distinct Ed25519 signatures (evidence approver, mapping approver and collector), independently provisioned trust roots, and signatures over the exact evidence/mapping digests.
+
+Therefore calling `validateCollectorPrivilegeEvidence` successfully is only a structural privilege-contract check. It does not exercise or satisfy authenticated analyzer acceptance. The current adapter-to-analyzer test must assert this rejection explicitly.
+
+A safe future integration must be a separate, narrow composition step: accept the adapter candidate plus independently generated and authenticated collector execution receipt, independently reviewed mapping, and the three signed approvals; verify that the collector receipt binds the exact receipt/CSV/query/result/candidate digests; then compose the analyzer evidence envelope without changing any candidate field. The adapter must never mint execution IDs, timestamps, collectorAuthority, approvals, signatures or trust roots. Until that contract and an independently authenticated execution source exist, the only safe result is `UNSIGNED_NOT_ACCEPTED` / `NOT_ACCEPTED`.
+
+There is a second acceptance limitation: current classifications deliberately return `Schema represented but history ambiguous`, `Partial or drifted` or `Unknown`; they never infer historical execution or verified non-execution from present catalog state and the version/name/statement-count migration-history table. Consequently a fully trusted envelope alone cannot make the present Production reconciliation acceptable. Before an acceptance-capable release, an authoritative, independently authenticated historical execution source and a fail-closed policy for ambiguous duplicate version `202607260007` must be specified and tested. Do not populate timestamps or execution identifiers from current catalog state, adapter capture time or operator recollection.
+
+## C555 — PR #23 / #24 conflict-aware integration plan
+
+The live changed-file lists overlap in five paths: `.github/workflows/pr-validation.yml`, `docs/PRODUCTION_MIGRATION_EVIDENCE_RUNBOOK.md`, `docs/PRODUCTION_MIGRATION_RECONCILIATION_LEDGER.md`, `scripts/reconcile-migration-evidence.mjs` and `scripts/test-reconcile-migration-evidence.mjs`.
+
+1. Keep PR #26 based on PR #24 until a reviewed integration branch is prepared; do not overwrite either divergent head or manufacture merge ancestry.
+2. Reconcile PR #23's catalog-only authorization and migration-history nullability/ordering corrections into the integration base with focused file-level merges. Preserve PR #24's collector E1/E2, receipt schema, TLS and exact output contract.
+3. Preserve PR #26's structured column identity checks, strict ascending history order, catalog-only privilege validator, 40-entry inventory, both distinct Migration 007 sources and Migration 039.
+4. Resolve workflow changes by combining required jobs and triggers rather than selecting one complete workflow version. Retain push validation for feature branches and the correct pull-request base filters.
+5. Merge the reconciliation ledger/runbook sections semantically; preserve the 40-entry source inventory and do not import PR #23's older 39-entry inventory.
+6. Run focused migration inventory, analyzer, adapter and PostgreSQL 16 integration suites on the final integration SHA; then require fresh exact-head CI and independent review before any merge decision.
+
+No PR base, history, migration SQL or Production migration state is changed by this plan.
