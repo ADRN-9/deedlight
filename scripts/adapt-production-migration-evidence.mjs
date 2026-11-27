@@ -217,7 +217,7 @@ function authorityCandidate(p,identity,catalogObjects,receipt){
   if(sessionRoleName!=="deedlight_catalog_auditor")fail("COLLECTOR_ROLE_IDENTITY_MISMATCH");
   const defaultAcl=p.get("default_privileges_v1");
   if(defaultAcl.some(row=>row[3]===roleName||row[3]==="PUBLIC"))fail("PRIVILEGE_DEFAULT_SCOPE_INVALID");
-  const role=p.get("roles_v1").find(row=>row[0]===roleName);
+  const role=p.get("roles_v1").find(row=>row[0]===sessionRoleName);
   if(!role)fail("COLLECTOR_ROLE_MISSING_OR_DUPLICATED");
   const membershipRoles=new Set([sessionRoleName,roleName]);
   const memberships=p.get("role_memberships_v1").filter(row=>membershipRoles.has(row[1]));
