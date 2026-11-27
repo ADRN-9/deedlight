@@ -20,7 +20,7 @@ set -euo pipefail
 clean_psql() {
   env -i PATH="$PATH" HOME="${HOME:-/tmp}" PGPASSWORD=postgres \
     PGHOST=127.0.0.1 PGPORT=5432 PGUSER=postgres PGDATABASE=deedlight_ledger_test \
-    PGSSLMODE=disable exec psql --no-psqlrc --set ON_ERROR_STOP=1 "$@"
+    PGSSLMODE=disable psql --no-psqlrc --set ON_ERROR_STOP=1 "$@"
 }
 
 actual_addr="$(clean_psql --tuples-only --no-align --command \
@@ -41,13 +41,15 @@ trap 'rm -rf "$tmp_dir"' EXIT
 before_crash_effects="$(clean_psql --tuples-only --no-align --command \
   "SELECT count(*) FROM deedlight_execution_ledger.test_effects")"
 set +e
-clean_psql --command "
-  BEGIN;
-  SET LOCAL ROLE deedlight_ledger_runner;
-  INSERT INTO deedlight_execution_ledger.test_effects(effect_value) VALUES ('uncommitted crash effect');
-  SELECT pg_catalog.pg_sleep(30);
-  COMMIT;
-" >"$tmp_dir/crash.log" 2>&1 &
+env -i PATH="$PATH" HOME="${HOME:-/tmp}" PGPASSWORD=postgres \
+  PGHOST=127.0.0.1 PGPORT=5432 PGUSER=postgres PGDATABASE=deedlight_ledger_test \
+  PGSSLMODE=disable psql --no-psqlrc --set ON_ERROR_STOP=1 --command "
+    BEGIN;
+    SET LOCAL ROLE deedlight_ledger_runner;
+    INSERT INTO deedlight_execution_ledger.test_effects(effect_value) VALUES ('uncommitted crash effect');
+    SELECT pg_catalog.pg_sleep(30);
+    COMMIT;
+  " >"$tmp_dir/crash.log" 2>&1 &
 crash_pid=$!
 sleep 0.5
 kill -9 "$crash_pid" 2>/dev/null
