@@ -200,6 +200,15 @@ WITH schemas AS (
   WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
     AND n.nspname NOT LIKE 'pg_toast%'
     AND c.relkind IN ('r', 'p', 'v', 'm', 'f', 'S')
+), columns AS (
+  SELECT c.oid AS relation_oid, n.nspname, c.relname, a.attnum, a.attname
+  FROM pg_catalog.pg_attribute a
+  JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+  JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+    AND n.nspname NOT LIKE 'pg_toast%'
+    AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+    AND a.attnum > 0 AND NOT a.attisdropped
 ), routines AS (
   SELECT p.oid, n.nspname, p.proname,
     pg_catalog.pg_get_function_identity_arguments(p.oid) AS identity_arguments
@@ -213,15 +222,31 @@ WITH schemas AS (
   SELECT CASE WHEN relkind = 'S' THEN 'sequences' ELSE 'tables' END,
     nspname || '.' || relname FROM relations
   UNION ALL
+  SELECT 'columns', nspname || '.' || relname || '.' || attname FROM columns
+  UNION ALL
   SELECT 'routines', nspname || '.' || proname || '(' || identity_arguments || ')' FROM routines
 ), schema_privileges AS (
   SELECT jsonb_agg(jsonb_build_object(
     'schema', n.nspname,
     'scope', CASE WHEN n.nspname = 'supabase_migrations' THEN 'migration_history' ELSE 'application_data' END,
-    'privileges', CASE WHEN pg_catalog.has_schema_privilege(current_user, n.oid, 'USAGE')
-      THEN jsonb_build_array('USAGE') ELSE '[]'::jsonb END
+    'privileges', to_jsonb(array_remove(ARRAY[
+      CASE WHEN pg_catalog.has_schema_privilege(current_user, n.oid, 'USAGE') THEN 'USAGE' END,
+      CASE WHEN pg_catalog.has_schema_privilege(current_user, n.oid, 'CREATE') THEN 'CREATE' END
+    ]::text[], NULL))
   ) ORDER BY n.nspname) AS rows
   FROM schemas n
+), column_privileges AS (
+  SELECT jsonb_agg(jsonb_build_object(
+    'identity', nspname || '.' || relname || '.' || attname,
+    'scope', 'application_data',
+    'privileges', to_jsonb(array_remove(ARRAY[
+      CASE WHEN pg_catalog.has_column_privilege(current_user, relation_oid, attnum, 'SELECT') THEN 'SELECT' END,
+      CASE WHEN pg_catalog.has_column_privilege(current_user, relation_oid, attnum, 'INSERT') THEN 'INSERT' END,
+      CASE WHEN pg_catalog.has_column_privilege(current_user, relation_oid, attnum, 'UPDATE') THEN 'UPDATE' END,
+      CASE WHEN pg_catalog.has_column_privilege(current_user, relation_oid, attnum, 'REFERENCES') THEN 'REFERENCES' END
+    ]::text[], NULL))
+  ) ORDER BY nspname, relname, attnum) AS rows
+  FROM columns
 ), object_privileges AS (
   SELECT jsonb_agg(jsonb_build_object(
     'kind', CASE WHEN r.relkind = 'S' THEN 'sequences' ELSE 'tables' END,
@@ -298,6 +323,7 @@ SELECT jsonb_build_object(
         OR NOT pg_catalog.has_table_privilege(current_user, pg_catalog.to_regclass(name), 'SELECT')
     ) THEN jsonb_build_array('SELECT') ELSE '[]'::jsonb END,
     'schemaPrivileges', (SELECT rows FROM schema_privileges),
+    'columnPrivileges', (SELECT rows FROM column_privileges),
     'objectPrivileges', (
       SELECT COALESCE(jsonb_agg(value ORDER BY value->>'kind', value->>'identity'), '[]'::jsonb)
       FROM (
