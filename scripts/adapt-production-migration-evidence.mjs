@@ -189,18 +189,23 @@ function buildCatalog(p) {
 }
 function validateMapping(mapping,inventory){
   if(mapping===undefined||mapping===null)return null;
-  if(!exact(mapping,["schemaVersion","migrations"])||mapping.schemaVersion!==1||!Array.isArray(mapping.migrations)||mapping.migrations.length!==40)fail("MIGRATION_MAPPING_INCOMPLETE");
-  const byPath=new Map();
+  if(!exact(mapping,["schemaVersion","migrations"])||mapping.schemaVersion!==1||!Array.isArray(mapping.migrations)||mapping.migrations.length!==inventory.migrations.length)fail("MIGRATION_MAPPING_INCOMPLETE");
+  const byPath=new Map(),allowedDispositions=new Set(["effects","none","unsupported","unknown"]);
   for(const entry of mapping.migrations){
     if(!exact(entry,["path","blobSha1","coverage","effects"])||typeof entry.path!=="string"||byPath.has(entry.path)||!hex(entry.blobSha1,40))fail("MIGRATION_MAPPING_ENTRY_INVALID");
     if(!exact(entry.effects,CATEGORIES)||!exact(entry.coverage,CATEGORIES))fail("MIGRATION_MAPPING_CATEGORIES_INVALID");
-    let count=0;
     const seenEffects=new Set();
     for(const category of CATEGORIES){
-      const effects=entry.effects[category],review=entry.coverage[category];
-      if(!Array.isArray(effects)||!exact(review,["disposition","rationale","sourceRanges"])||review.disposition!==(effects.length?"effects":"none")
-        ||typeof review.rationale!=="string"||review.rationale.trim().length<20||!Array.isArray(review.sourceRanges)||!review.sourceRanges.length
-        ||review.sourceRanges.some((range)=>!exact(range,["startLine","endLine"])||!Number.isSafeInteger(range.startLine)||!Number.isSafeInteger(range.endLine)||range.startLine<1||range.endLine<range.startLine))fail("MIGRATION_MAPPING_COVERAGE_INVALID");
+      const effects=entry.effects[category],review=entry.coverage[category],disposition=review?.disposition;
+      if(!Array.isArray(effects)||!exact(review,["disposition","rationale","sourceRanges"])||!allowedDispositions.has(disposition)
+        ||(disposition==="effects"&&effects.length===0)||(disposition!=="effects"&&effects.length!==0)
+        ||typeof review.rationale!=="string"||review.rationale.trim().length<20||!Array.isArray(review.sourceRanges)||!review.sourceRanges.length)fail("MIGRATION_MAPPING_COVERAGE_INVALID");
+      let previousEnd=0;
+      for(const range of review.sourceRanges){
+        if(!exact(range,["startLine","endLine"])||!Number.isSafeInteger(range.startLine)||!Number.isSafeInteger(range.endLine)
+          ||range.startLine<=previousEnd||range.endLine<range.startLine)fail("MIGRATION_MAPPING_SOURCE_RANGE_INVALID");
+        previousEnd=range.endLine;
+      }
       for(const effect of effects){
         const allowedKinds=category==="schema"?SCHEMA_EFFECT_KINDS:category==="routines"?new Set(["routines"]):new Set([category]);
         if(!exact(effect,["description","fingerprint","identity","kind"])||typeof effect.identity!=="string"||!effect.identity.trim()
@@ -208,13 +213,13 @@ function validateMapping(mapping,inventory){
         const effectIdentity=effect.kind+"\\0"+effect.identity;
         if(seenEffects.has(effectIdentity))fail("MIGRATION_MAPPING_EFFECT_DUPLICATED");
         seenEffects.add(effectIdentity);
-        count++;
       }
     }
-    if(!count)fail("MIGRATION_MAPPING_EMPTY");byPath.set(entry.path,entry);
+    byPath.set(entry.path,entry);
   }
   for(const item of inventory.migrations){const entry=byPath.get(item.path);if(!entry||entry.blobSha1!==item.blobSha1)fail("MIGRATION_MAPPING_SOURCE_MISMATCH");}
-  if(byPath.size!==40)fail("MIGRATION_MAPPING_PATH_SET_INVALID");return mapping;
+  if(byPath.size!==inventory.migrations.length)fail("MIGRATION_MAPPING_PATH_SET_INVALID");
+  return mapping;
 }
 function rawProjections(p){return SQL_PROJECTIONS.map(x=>({id:x.id,columns:[...x.columns],rows:p.get(x.id).map(row=>row.map(cell=>cell===CSV_QUOTED_EMPTY?"":cell))}));}
 function authorityCandidate(p,identity,catalogObjects,receipt){

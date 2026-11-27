@@ -4,7 +4,7 @@ import test from "node:test";
 import { canonicalJson, INVENTORY_GIT_BLOB_SHA1, PROJECT_REF, RECEIPT_SCHEMA_GIT_BLOB_SHA1, RECEIPT_SCHEMA_SHA256, SQL_GIT_BLOB_SHA1, SQL_PATH, SQL_PROJECTIONS, SQL_SHA256, SQL_NULL_SENTINEL, CSV_QUOTED_EMPTY, parseCsv, sha256, validateSqlOutput } from "./collect-production-migration-evidence.mjs";
 import { gitBlobSha1 } from "./verify-migration-inventory-aggregate.mjs";
 import { adaptCollectorEvidence } from "./adapt-production-migration-evidence.mjs";
-import { validateCollectorPrivilegeEvidence } from "./reconcile-migration-evidence.mjs";
+import { analyzeMigrationEvidence, validateCollectorPrivilegeEvidence } from "./reconcile-migration-evidence.mjs";
 const inventoryBytes=readFileSync(new URL("../supabase/migration-inventory.json",import.meta.url));
 const schemaBytes=readFileSync(new URL("../schemas/production-migration-collection-receipt-v1.schema.json",import.meta.url));
 const inventory=JSON.parse(inventoryBytes);
@@ -253,4 +253,41 @@ test("migration history structure validates exact columns without assuming physi
   assert.equal(adapt(reordered).candidate.evidence.history.complete,true);
   const malformed=fixtureCsv(undefined,[["1","version","text","t"],["2","version","text","t"],["3","statements","text[]","f"]]);
   assert.throws(()=>adapt(malformed),/MIGRATION_HISTORY_STRUCTURE_INCOMPLETE/);
+});
+
+
+test("explicit unsupported and unknown migration effect domains are retained without acceptance",()=>{
+  for(const disposition of ["unsupported","unknown"]){
+    const mapping=mappingFixture();
+    mapping.migrations[0].effects.backfills=[];
+    mapping.migrations[0].coverage.backfills.disposition=disposition;
+    mapping.migrations[0].coverage.backfills.rationale="Fixture explicitly records an unresolved backfill review disposition.";
+    const {candidate}=adapt(fixtureCsv(),mapping);
+    assert.equal(candidate.evidence.mapping.migrations[0].coverage.backfills.disposition,disposition);
+    assert.equal(candidate.status,"UNSIGNED_NOT_ACCEPTED");
+    assert.equal(candidate.acceptance,"NOT_ACCEPTED");
+  }
+});
+
+test("mapping rejects disposition/effect contradictions, unordered ranges and category confusion",()=>{
+  const mutations=[
+    mapping=>{mapping.migrations[0].coverage.schema.disposition="unsupported";},
+    mapping=>{mapping.migrations[0].coverage.dependencies.disposition="effects";},
+    mapping=>{mapping.migrations[0].coverage.schema.sourceRanges=[{startLine:5,endLine:8},{startLine:4,endLine:9}];},
+    mapping=>{mapping.migrations[0].coverage.schema.sourceRanges=[{startLine:1,endLine:4},{startLine:4,endLine:8}];},
+    mapping=>{mapping.migrations[0].effects.dataTransformations[0].kind="backfills";},
+    mapping=>{mapping.migrations[0].effects.preconditions=[{kind:"preconditions",identity:"x",fingerprint:"bad",description:"Malformed fingerprint fixture."}];mapping.migrations[0].coverage.preconditions.disposition="effects";},
+  ];
+  for(const mutate of mutations){const mapping=mappingFixture();mutate(mapping);assert.throws(()=>adapt(fixtureCsv(),mapping));}
+});
+
+test("adapter candidate cannot enter authenticated analyzer acceptance by structural validation alone",()=>{
+  const {candidate}=adapt();
+  assert.deepEqual(validateCollectorPrivilegeEvidence(candidate.databaseAuthorityCandidate,candidate.evidence.catalog.objects),[]);
+  assert.equal(Object.hasOwn(candidate.evidence,"collectorAuthority"),false);
+  const report=analyzeMigrationEvidence({rootDir:process.cwd(),manifest:inventory,evidence:candidate.evidence,approvals:{},trustRoots:{schemaVersion:1,keys:[]}});
+  assert.equal(report.trustVerified,false);
+  assert.equal(report.acceptance,"NOT_ACCEPTED");
+  assert.ok(report.trustProblems.some(reason=>reason.includes("missing required property")));
+  assert.ok(report.trustProblems.some(reason=>reason.includes("signed artifact is missing")));
 });
