@@ -107,10 +107,10 @@ test("invalid statement counts fail closed",()=>{
   for(const n of ["NULL","\\N","-1","01","1.5","9007199254740992"])assert.throws(()=>adapt(fixtureCsv([["202607210001","valid_name",n]])),/MIGRATION_HISTORY_STATEMENT_COUNT_INVALID/);
 });
 test("whole projection blocks cannot be reordered",()=>{
-  const rows=parseCsv(fixtureCsv()),headers=new Map(SQL_PROJECTIONS.map(p=>[p.columns.join("\\0"),p.id]));
+  const rows=parseCsv(fixtureCsv()),headers=new Map(SQL_PROJECTIONS.map(p=>[p.columns.join("\0"),p.id]));
   const blocks=[];let active=null,tail=[];
   for(const row of rows){
-    const id=headers.get(row.join("\\0"));
+    const id=headers.get(row.join("\0"));
     if(id){active={id,rows:[row]};blocks.push(active);}
     else if(active&&!(row.length===1&&row[0]==="collector_transaction_closed"))active.rows.push(row);
     else tail.push(row);
