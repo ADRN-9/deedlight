@@ -1678,3 +1678,23 @@ test("dependency, precondition and postcondition contracts cannot omit their sem
     }finally{f.cleanup();}
   }
 });
+
+
+test("independent measurement evidence must exactly match mapped backfills",()=>{
+  const mutations=[
+    f=>{f.evidence.backfillMeasurements=[];},
+    f=>{f.evidence.backfillMeasurements.push(structuredClone(f.evidence.backfillMeasurements[0]));},
+    f=>{f.evidence.backfillMeasurements[0].rowCount+=1;},
+    f=>{f.evidence.backfillMeasurements[0].sourceBlobSha1="0".repeat(40);},
+    f=>{f.evidence.backfillMeasurements[0].sourceRange={startLine:0,endLine:1};},
+  ];
+  for(const mutate of mutations){
+    const f=fixture();
+    try{
+      mutate(f);f.reapprove();const report=f.analyze();
+      assert.equal(report.trustVerified,false);
+      assert.equal(report.acceptance,"NOT_ACCEPTED");
+      assert.ok(report.trustProblems.some(reason=>reason.includes("backfill evidence")));
+    }finally{f.cleanup();}
+  }
+});
