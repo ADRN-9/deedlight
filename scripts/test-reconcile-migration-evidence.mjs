@@ -1631,6 +1631,78 @@ test("unsupported and unknown effect domains are explicit blockers, never silent
   }
 });
 
+test("a signed none disposition cannot substitute for PostgreSQL semantic verification", () => {
+  const f = fixture();
+  try {
+    const nonCatalog = ["dataTransformations", "backfills", "dependencies", "preconditions", "postconditions"];
+    for (const entry of f.mapping.migrations) {
+      for (const category of nonCatalog) {
+        entry.effects[category] = [];
+        entry.coverage[category].disposition = "none";
+        entry.coverage[category].rationale = "No PostgreSQL semantic verification artifact is available for this fixture.";
+      }
+    }
+    f.evidence.backfillMeasurements = [];
+    f.evidence.conditionVerifications = [];
+    f.reapprove();
+
+    const report = f.analyze();
+    assert.equal(report.trustVerified, true, report.trustProblems.join("; "));
+    assert.equal(report.acceptance, "NOT_ACCEPTED");
+    assert.equal(report.unresolvedLifecycleEvidence, 40);
+    assert.equal(report.semanticVerification.status, "UNKNOWN");
+    assert.deepEqual(report.semanticVerification.requiredCategories, nonCatalog);
+    for (const classification of report.classifications) {
+      assert.deepEqual(classification.semanticVerificationRequiredCategories, nonCatalog);
+      assert.deepEqual(classification.semanticVerificationBlockers.map(item => item.category), nonCatalog);
+      assert.ok(classification.semanticVerificationBlockers.every(item => item.reason.length > 20));
+    }
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("lexical transformation matches, digest-only backfill measurements and pinned prerequisites remain semantic blockers", () => {
+  const f = fixture();
+  try {
+    const item = sourceManifest.migrations[0];
+    const prerequisite = sourceManifest.migrations[1];
+    const firstLine = readFileSync(path.join(repoRoot, item.path), "utf8").split(/\\r?\\n/)[0];
+    const dependency = {
+      kind: "dependencies",
+      identity: "fixture.pinned-prerequisite-only",
+      fingerprint: hash("dependency-effect"),
+      description: "Synthetic dependency edge with a pinned prerequisite but no semantic verification.",
+      sourcePath: item.path,
+      contract: {
+        dependencyType: "foreign_key",
+        fromRelation: { schema: "fixture", relation: "child" },
+        toRelation: { schema: "fixture", relation: "parent" },
+        dependsOnMigrationPath: prerequisite.path,
+        dependsOnMigrationBlobSha1: prerequisite.blobSha1,
+        sourceRange: { startLine: 1, endLine: 1 },
+        sourceStatementSha256: hash(firstLine),
+      },
+    };
+    f.mapping.migrations[0].effects.dependencies = [dependency];
+    f.mapping.migrations[0].coverage.dependencies.disposition = "effects";
+    f.mapping.migrations[0].coverage.dependencies.rationale = "Pinned prerequisite identity is only a source observation, not semantic dependency proof.";
+    f.reapprove();
+
+    const report = f.analyze();
+    assert.equal(report.trustVerified, true, report.trustProblems.join("; "));
+    assert.equal(report.acceptance, "NOT_ACCEPTED");
+    assert.ok(report.classifications[0].semanticVerificationRequiredCategories.includes("dataTransformations"));
+    assert.ok(report.classifications[0].semanticVerificationRequiredCategories.includes("backfills"));
+    assert.ok(report.classifications[0].semanticVerificationRequiredCategories.includes("dependencies"));
+    assert.match(report.semanticVerification.blockersByCategory.dataTransformations, /lexical SQL matches and source digests do not prove/);
+    assert.match(report.semanticVerification.blockersByCategory.backfills, /row counts and query\/result digests alone do not prove/);
+    assert.match(report.semanticVerification.blockersByCategory.dependencies, /pinned prerequisite migration does not prove/);
+  } finally {
+    f.cleanup();
+  }
+});
+
 test("mapping rejects missing categories, malformed fingerprints and incomplete or overlapping source ranges",()=>{
   const mutations=[
     mapping=>{delete mapping.migrations[0].coverage.postconditions;},
