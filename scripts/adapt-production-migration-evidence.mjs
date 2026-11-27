@@ -167,8 +167,15 @@ export function adaptCollectorEvidence({receipt,csv,inventoryBytes,schemaBytes,m
   verifyReceiptAndEvidence(receipt,csv);
   const validation=validateSqlOutput(csv),p=parseProjections(validation);validateProjectionRows(p);
   const structure=p.get("migration_history_structure_v1");
-  if(structure.length!==3||structure.map(row=>row[1]).join("\0")!=="version\0name\0statements"
-    ||structure.some((row,i)=>row[0]!==String(i+1)||!bool(row[3])))fail("MIGRATION_HISTORY_STRUCTURE_INCOMPLETE:"+JSON.stringify(structure));
+  const structureByName=new Map(structure.map(row=>[row[1],row]));
+  const structureValid=structure.length===3&&structureByName.size===3
+    &&["version","name","statements"].every(name=>structureByName.has(name))
+    &&new Set(structure.map(row=>row[0])).size===3
+    &&structure.every(row=>["1","2","3"].includes(row[0])&&bool(row[3]))
+    &&structureByName.get("version")[2]==="text"&&structureByName.get("version")[3]==="t"
+    &&structureByName.get("name")[2]==="text"&&structureByName.get("name")[3]==="f"
+    &&structureByName.get("statements")[2]==="text[]"&&structureByName.get("statements")[3]==="f";
+  if(!structureValid)fail("MIGRATION_HISTORY_STRUCTURE_INCOMPLETE");
   if(validation.migrationHistoryRows.length!==receipt.execution.migrationHistoryRowCount)fail("MIGRATION_HISTORY_CARDINALITY_MISMATCH");
   const normalizedMapping=validateMapping(mapping,inventory);
   const evidence={schemaVersion:2,

@@ -9,14 +9,14 @@ const schemaBytes=readFileSync(new URL("../schemas/production-migration-collecti
 const inventory=JSON.parse(inventoryBytes);
 const cell=v=>{const s=String(v??"");return /[",\r\n]/.test(s)?'"'+s.replaceAll('"','""')+'"':s;};
 const serialize=rows=>Buffer.from(rows.map(row=>row.map(cell).join(",")).join("\r\n")+"\r\n");
-function fixtureCsv(history=[["202607210001","NULL","12"],["202607210002","\\N","13"],["202607220003","","14"]]){
+function fixtureCsv(history=[["202607210001","NULL","12"],["202607210002","\\N","13"],["202607220003","","14"]],historyStructure=[["1","version","text","t"],["2","name","text","f"],["3","statements","text[]","f"]]){
   const data=new Map(SQL_PROJECTIONS.map(p=>[p.id,[]]));
   data.set("identity_v1",[[PROJECT_REF,"a".repeat(40),"postgres","deedlight_catalog_auditor","deedlight_catalog_auditor","16.0","127.0.0.1","5432","2026-11-26T00:00:00.000Z","on"]]);
   data.set("relations_v1",[["public","profiles","r","postgres","p","f","f","1","id","uuid","t","",""]]);
   data.set("schema_acl_v1",[["public","postgres","deedlight_catalog_auditor","postgres","USAGE","f"]]);
   data.set("roles_v1",[["deedlight_catalog_auditor","t","f","f","f","f","f","f","-1",""]]);
   data.set("rls_policies_v1",[["public","profiles","profiles_select","PERMISSIVE","{authenticated}","SELECT","",""]]);
-  data.set("migration_history_structure_v1",[["1","version","character varying(14)","t"],["2","name","text","f"],["3","statements","text[]","f"]]);
+  data.set("migration_history_structure_v1",historyStructure);
   data.set("migration_history_v1",history);
   data.set("database_acl_v1",[["database_acl_v1","1","1","postgres","t","f","10","postgres","t","built_in_default","[]"]]);
   const rows=[];for(const p of SQL_PROJECTIONS)rows.push([...p.columns],...data.get(p.id));
@@ -126,8 +126,9 @@ test("inventory preserves both Migration 007 sources and Migration 039",()=>{
   assert.ok(paths.includes("supabase/migrations/202611260039_delivery_kind_scoped_claims.sql"));
   assert.equal(inventory.migrations.filter(x=>x.version==="202607260007").length,2);
 });
-test("migration history structure must be complete and ordered",()=>{
-  const rows=fixtureCsv().toString("utf8").split("\r\n"),index=rows.findIndex(x=>x.startsWith("ordinal_position,column_name,"));
-  assert.ok(index>=0);rows[index+1]="2,version,character varying(14),t";
-  assert.throws(()=>adapt(Buffer.from(rows.join("\r\n"))),/MIGRATION_HISTORY_STRUCTURE_INCOMPLETE/);
+test("migration history structure validates exact columns without assuming physical column order",()=>{
+  const reordered=fixtureCsv(undefined,[["1","version","text","t"],["2","statements","text[]","f"],["3","name","text","f"]]);
+  assert.equal(adapt(reordered).candidate.evidence.history.complete,true);
+  const malformed=fixtureCsv(undefined,[["1","version","text","t"],["2","version","text","t"],["3","statements","text[]","f"]]);
+  assert.throws(()=>adapt(malformed),/MIGRATION_HISTORY_STRUCTURE_INCOMPLETE/);
 });
