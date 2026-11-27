@@ -366,7 +366,7 @@ BEGIN
     INSERT INTO deedlight_execution_ledger.executions
       (system_identifier, database_oid, database_name, record_id, execution_id,
        approval_id, source_identity, status, approver_identity)
-    VALUES ('forged', 1, current_database(), gen_random_uuid(), gen_random_uuid(),
+    VALUES ('forged', '1'::oid, current_database(), gen_random_uuid(), gen_random_uuid(),
       gen_random_uuid(), '{}'::jsonb, 'reserved', 'forged');
     RAISE EXCEPTION 'runner unexpectedly inserted directly into ledger';
   EXCEPTION WHEN insufficient_privilege THEN NULL;
