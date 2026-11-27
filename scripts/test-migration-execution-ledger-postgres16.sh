@@ -49,7 +49,7 @@ SELECT deedlight_execution_ledger.record_effect_commit_marker(
   'c5700000-0000-4000-8000-000000000027',
   '{"path":"supabase/migrations/test-crash.sql","sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}'::jsonb
 );
-SELECT pg_catalog.pg_sleep(30);
+SELECT pg_catalog.pg_sleep(5);
 COMMIT;
 SQL
 
@@ -81,7 +81,7 @@ for attempt in $(seq 1 200); do
       AND state = 'active'
       AND wait_event = 'PgSleep'
       AND backend_xid IS NOT NULL
-      AND query LIKE '%pg_sleep(30)%'
+      AND query LIKE '%pg_sleep(5)%'
   ")"
   [[ -n "$backend_row" ]] && break
   if ! kill -0 "$crash_client_pid" 2>/dev/null; then
@@ -116,8 +116,11 @@ if [[ "$crash_status" -ne 137 ]]; then
 fi
 printf 'C578_CRASH_CLIENT_SIGKILL status=%s backend_pid=%s\n' "$crash_status" "$crash_backend_pid"
 
+# PostgreSQL may not notice a disconnected client until the current statement returns.
+# The client is already dead; allow the bounded PgSleep statement to finish, then
+# require the server backend to observe EOF and roll back the open transaction.
 backend_gone=false
-for attempt in $(seq 1 100); do
+for attempt in $(seq 1 250); do
   backend_present="$(clean_psql --tuples-only --no-align --command \
     "SELECT count(*) FROM pg_catalog.pg_stat_activity WHERE pid = $crash_backend_pid")"
   if [[ "$backend_present" == "0" ]]; then
@@ -127,9 +130,10 @@ for attempt in $(seq 1 100); do
   sleep 0.1
 done
 [[ "$backend_gone" == "true" ]] || {
-  echo "FAIL: PostgreSQL backend $crash_backend_pid remained after client SIGKILL" >&2
+  echo "FAIL: PostgreSQL backend $crash_backend_pid remained after client SIGKILL and bounded statement completion" >&2
   exit 1
 }
+printf 'C578_CRASH_BACKEND_EXITED backend_pid=%s\n' "$crash_backend_pid"
 
 after_crash_effects="$(clean_psql --tuples-only --no-align --command \
   "SELECT count(*) FROM deedlight_execution_ledger.test_effects")"
