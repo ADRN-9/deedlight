@@ -501,13 +501,16 @@ BEGIN
   IF v_actor IS DISTINCT FROM 'deedlight_ledger_observer' THEN
     PERFORM deedlight_execution_ledger.raise_trust_failure('missing_trust','observer_authority_missing',jsonb_build_object('actor',v_actor));
   END IF;
-  IF p_phase NOT IN ('pre','post') THEN
+  IF p_phase IS NULL OR p_phase NOT IN ('pre','post') THEN
     PERFORM deedlight_execution_ledger.raise_trust_failure('incomplete_preconditions','snapshot_phase_invalid',jsonb_build_object('phase',p_phase));
   END IF;
   SELECT * INTO STRICT v_identity FROM deedlight_execution_ledger.database_identity WHERE singleton;
-  SELECT * INTO STRICT v_execution FROM deedlight_execution_ledger.executions
+  SELECT * INTO v_execution FROM deedlight_execution_ledger.executions
   WHERE system_identifier = v_identity.system_identifier AND database_oid = v_identity.database_oid
     AND execution_id = p_execution_id FOR SHARE;
+  IF NOT FOUND THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure('missing_execution_evidence','snapshot_execution_not_found',jsonb_build_object('executionId',p_execution_id));
+  END IF;
   IF v_actor IN (v_execution.approver_identity, v_execution.runner_identity) THEN
     RAISE EXCEPTION 'snapshot observer must be independent of approver and runner';
   END IF;
@@ -523,7 +526,7 @@ BEGIN
       AND source_identity = v_execution.source_identity
       AND runner_identity = v_execution.runner_identity
   ) THEN
-    RAISE EXCEPTION 'post-snapshot requires a committed effect marker from the active runner transaction';
+    PERFORM deedlight_execution_ledger.raise_trust_failure('missing_execution_evidence','post_snapshot_commit_marker_missing',jsonb_build_object('executionId',p_execution_id));
   END IF;
   SELECT * INTO v_query FROM deedlight_execution_ledger.observation_queries WHERE query_id = p_query_id;
   IF NOT FOUND THEN
@@ -578,7 +581,7 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM deedlight_execution_ledger.snapshots
     WHERE system_identifier = v_identity.system_identifier AND database_oid = v_identity.database_oid
       AND execution_id = p_execution_id AND phase = 'pre') THEN
-    RAISE EXCEPTION 'independently collected pre-execution snapshot required';
+    PERFORM deedlight_execution_ledger.raise_trust_failure('missing_execution_evidence','pre_execution_snapshot_missing',jsonb_build_object('executionId',p_execution_id));
   END IF;
   UPDATE deedlight_execution_ledger.executions
   SET status = 'running', runner_identity = v_actor,
