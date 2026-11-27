@@ -11784,7 +11784,7 @@ returns table (
 language plpgsql
 security invoker
 set search_path = pg_catalog, public, auth, pg_temp
-as $
+as $$
 begin
   if p_limit is null or p_limit < 1 or p_limit > 1000 then
     raise exception 'p_limit must be between 1 and 1000.' using errcode = '22023';
@@ -11862,7 +11862,7 @@ begin
     claimed.claim_token
   from claimed;
 end;
-$;
+$$;
 
 
 create or replace function public.claim_weekly_delivery_jobs(
@@ -11879,7 +11879,7 @@ returns table (
 language plpgsql
 security invoker
 set search_path = pg_catalog, public, auth, pg_temp
-as $
+as $$
 begin
   if p_limit is null or p_limit < 1 or p_limit > 1000 then
     raise exception 'p_limit must be between 1 and 1000.' using errcode = '22023';
@@ -11957,7 +11957,7 @@ begin
     claimed.claim_token
   from claimed;
 end;
-$;
+$$;
 
 
 -- The historical all-kind RPC remains for migration/test provenance only.
