@@ -16,7 +16,8 @@
     "test:delivery-webhook": "node --test scripts/test-delivery-webhook.mjs scripts/test-delivery-webhook-route.mjs",
     "verify:c574-source-map": "node scripts/verify-c574-source-semantic-map.mjs",
     "test:c574-source-map": "node --test scripts/test-c574-source-semantic-map.mjs",
-    "test:backfill-execution-evidence": "node --test scripts/test-backfill-execution-evidence.mjs"
+    "test:backfill-execution-evidence": "node --test scripts/test-backfill-execution-evidence.mjs",
+    "test:migration-pre-postconditions": "node --test scripts/test-backfill-execution-evidence.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "latest",
