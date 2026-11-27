@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { gitBlobSha1, validateInventory } from "./verify-migration-inventory-aggregate.mjs";
 
 const PROJECT_REF = "xaipiovflxomcbfwtwmu";
-const INVENTORY_BLOB_SHA1 = "a18cf2c65eb595ecd143fbaa16e2d81badf8d1f8";
+const INVENTORY_BLOB_SHA1 = "4e63f31368d446e905f4f44565be73337c7188fb";
 const MAX_EVIDENCE_AGE_MS = 24 * 60 * 60 * 1000;
 const PROVISIONED_TRUST_ROOTS_SHA256 = process.env.DEEDLIGHT_MIGRATION_TRUST_ROOTS_SHA256;
 const CATEGORIES = ["schema", "privileges", "ownership", "routines", "dataTransformations", "backfills", "dependencies", "preconditions", "postconditions"];
