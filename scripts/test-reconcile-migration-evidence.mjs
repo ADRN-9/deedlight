@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { analyzeMigrationEvidence, canonicalJson, evidencePayload, mappingDigest, normalizeMigrationHistoryRows, SQL_NULL_SENTINEL, strictTimestamp, validateMigrationHistoryRows } from "./reconcile-migration-evidence.mjs";
+import { analyzeMigrationEvidence, canonicalJson, evidencePayload, mappingDigest, normalizeMigrationHistoryRows, SQL_NULL_SENTINEL, strictTimestamp, validateCollectorPrivilegeEvidence, validateMigrationHistoryRows } from "./reconcile-migration-evidence.mjs";
 
 const repoRoot = process.cwd();
 const sourceManifest = JSON.parse(readFileSync(path.join(repoRoot, "supabase/migration-inventory.json"), "utf8"));
@@ -92,7 +92,11 @@ function fixture() {
   const catalog = [
     ...expected.map((effect) => ({ kind: effect.kind, identity: effect.identity, fingerprint: effect.fingerprint })),
     { kind: "schemas", identity: "public", fingerprint: hash("schema:public") },
+    { kind: "schemas", identity: "supabase_migrations", fingerprint: hash("schema:supabase_migrations") },
     { kind: "tables", identity: "public.profiles", fingerprint: hash("table:public.profiles") },
+    { kind: "tables", identity: "supabase_migrations.schema_migrations", fingerprint: hash("table:supabase_migrations.schema_migrations") },
+    { kind: "columns", identity: "public.profiles.id", fingerprint: hash("column:public.profiles.id") },
+    { kind: "columns", identity: "supabase_migrations.schema_migrations.version", fingerprint: hash("column:history.version") },
   ];
   const historyRows = [];
   const byVersion = new Map();
@@ -160,9 +164,10 @@ function fixture() {
         bypassRls: false,
         isReplication: false,
         ownsObjects: false,
-        effectivePrivileges: ["CONNECT", "USAGE", "SELECT"],
-        databasePrivilegesComplete: true,
+        privilegeContractVersion: "catalog_only_v1",
+        requiredAccessSummary: ["DATABASE_CONNECT", "SYSTEM_CATALOG_SELECT", "MIGRATION_HISTORY_SCHEMA_USAGE", "MIGRATION_HISTORY_SELECT"],
         databasePrivileges: ["CONNECT"],
+        catalogPrivileges: ["SELECT"],
         databaseAclV1: [{
           database_count: 1,
           database_oid: 100,
@@ -182,18 +187,26 @@ function fixture() {
             is_grantable: true,
           }],
         }],
-        schemaPrivilegesComplete: true,
         schemaPrivileges: evidence.catalog.objects.filter((entry) => entry.kind === "schemas")
-          .map((entry) => ({ schema: entry.identity, privileges: ["USAGE"] })),
-        objectPrivilegesComplete: true,
+          .map((entry) => ({
+            schema: entry.identity,
+            scope: entry.identity === "supabase_migrations" ? "migration_history" : "application_data",
+            privileges: entry.identity === "supabase_migrations" ? ["USAGE"] : [],
+          })),
         objectPrivileges: evidence.catalog.objects.filter((entry) => ["tables", "sequences", "routines"].includes(entry.kind))
           .map((entry) => ({
             kind: entry.kind,
             identity: entry.identity,
-            privileges: entry.kind === "routines" ? [] : ["SELECT"],
+            scope: entry.kind === "tables" && entry.identity === "supabase_migrations.schema_migrations"
+              ? "migration_history" : "application_data",
+            privileges: entry.kind === "tables" && entry.identity === "supabase_migrations.schema_migrations" ? ["SELECT"] : [],
           })),
-        catalogPrivilegesComplete: true,
-        catalogPrivileges: ["SELECT"],
+        columnPrivileges: evidence.catalog.objects.filter((entry) => entry.kind === "columns")
+          .map((entry) => ({
+            identity: entry.identity,
+            scope: entry.identity.startsWith("supabase_migrations.schema_migrations.") ? "migration_history" : "application_data",
+            privileges: entry.identity.startsWith("supabase_migrations.schema_migrations.") ? ["SELECT"] : [],
+          })),
         roleMemberships: [],
         ownedSchemas: [],
         proofQueryBundleSha256: evidence.provenance.queryBundleSha256,
