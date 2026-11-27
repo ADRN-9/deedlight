@@ -141,7 +141,7 @@ Accordingly, no record is classified as accepted or as successful Production exe
 
 **Local execution:** NOT EXECUTED. The session has GitHub repository tools but no local repository shell/Node runtime. No local test PASS is claimed.
 
-**CI:** A new PR-triggered run is required against the exact final C575 head. Until that run finishes, all C575 test results are NOT ESTABLISHED.
+**Executed CI:** GitHub Actions PR Validation run **46045915417** (run #2178) completed **SUCCESS** against exact C575 head `b0796ad1a7663683c1ed5927f8f723b3b92342e0`. All 12 jobs passed. In the `validate` job, the C575 Backfill execution evidence adversarial regressions (step 16) passed, along with C574 mapping verification, analyzer adversarial tests, collector/adapter/package-integrity tests, security assertions, TypeScript, Next.js build, Cloudflare package and dependency audit. All PostgreSQL 16 behavior jobs also completed successfully. This validates the code at that exact head; the documentation update containing this CI evidence requires a fresh PR run for its own final head.
 
 ## 9. Required follow-on work
 
