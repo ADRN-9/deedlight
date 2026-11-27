@@ -118,7 +118,8 @@ test("valid complete output includes the complete database_acl_v1 projection and
     { version: "202611240038", name: null, recordedStatementCount: null },
   ]);
   assert.equal(result.transactionClosed, true);
-  assert.equal(result.projections.length, SQL_PROJECTIONS.length);\n  assert.deepEqual(result.projections.map((projection) => projection.id), SQL_PROJECTIONS.map((projection) => projection.id));
+  assert.equal(result.projections.length, SQL_PROJECTIONS.length);
+  assert.deepEqual(result.projections.map((projection) => projection.id), SQL_PROJECTIONS.map((projection) => projection.id));
 });
 
 test("every mandatory SQL projection is present exactly once in the pinned order", () => {
