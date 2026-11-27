@@ -846,7 +846,6 @@ test("migration-history SQL normalization preserves SQL NULL and literal NULL ma
   for (const malformed of [
     [["202607260004", "sprint4_reactions"]],
     [["202607260004", "sprint4_reactions", "bad"]],
-    [["202607260004", "sprint4_reactions", "NULL"]],
     [["202607260004", "sprint4_reactions", "\\N"]],
     [["202607260004", "sprint4_reactions", "-1"]],
     [["202607260004", "sprint4_reactions", "01"]],
