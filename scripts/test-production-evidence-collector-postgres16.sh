@@ -127,7 +127,7 @@ DEEDLIGHT_COLLECTOR_ENDPOINT_PROFILE_SHA256="$profile_digest" \
     --profile "$work/collector-endpoint.json" --output "$work/evidence-success"
 
 validate_receipt_schema() {
-  npx --yes --package=ajv-cli@5.0.0 -- ajv validate --spec=draft2020 \
+  npx --yes --package=ajv-cli@5.0.0 --package=ajv-formats@3.0.1 -- ajv validate -c ajv-formats --spec=draft2020 \
     -s "$repo_root/schemas/production-migration-collection-receipt-v1.schema.json" -d "$1"
 }
 validate_receipt_schema "$work/evidence-success/receipt.json"
