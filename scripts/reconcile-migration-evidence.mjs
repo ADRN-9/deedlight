@@ -588,11 +588,13 @@ function validateMapping(mapping, manifest, source, problems) {
           coverageMalformed = true;
           break;
         }
-        const contractRange = effect.contract && effect.contract.sourceRange;
-        if (!contractRange || !ranges.some((range) => contractRange.startLine >= range.startLine && contractRange.endLine <= range.endLine)) {
-          problems.push("category-specific effect source range is not covered by reviewed mapping ranges for " + item.path);
-          coverageMalformed = true;
-          break;
+        if (categoryEffectKeys(category).includes("sourcePath")) {
+          const contractRange = effect.contract && effect.contract.sourceRange;
+          if (!contractRange || !ranges.some((range) => contractRange.startLine >= range.startLine && contractRange.endLine <= range.endLine)) {
+            problems.push("category-specific effect source range is not covered by reviewed mapping ranges for " + item.path);
+            coverageMalformed = true;
+            break;
+          }
         }
         const contractProblem = validateCategoryEffectContract(category, effect, inventoryPaths, { sourceText: source.get(item.path).content });
         if (contractProblem) {
