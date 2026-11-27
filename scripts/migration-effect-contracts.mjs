@@ -68,7 +68,7 @@ export function validateCategoryEffectContract(category, effect, inventoryPaths,
     return null;
   }
   if (category === "preconditions" || category === "postconditions") {
-    if (!exact(contract, ["predicateSql", "predicateSha256", "expectedOutcome", "verification", "sourceRange"])
+    if (!exact(contract, ["predicateSql", "predicateSha256", "expectedOutcome", "verification", "sourceRange", "sourceStatementSha256"])
       || typeof contract.predicateSql !== "string" || !contract.predicateSql.trim()
       || !HEX_256.test(contract.predicateSha256 || "")
       || !["true", "false", "zero_rows", "nonzero_rows"].includes(contract.expectedOutcome)) {
