@@ -246,8 +246,8 @@
     {
       "path": "supabase/migrations/202611260039_delivery_kind_scoped_claims.sql",
       "version": "202611260039",
-      "blobSha1": "ef64692e4b16f3d18314a36c7389bbf1c7c51b01",
-      "byteLength": 4963
+      "blobSha1": "39eba637aa9f93fa77855f82f3fcc27b580b25da",
+      "byteLength": 6177
     }
   ],
   "bootstrapSeed": {
