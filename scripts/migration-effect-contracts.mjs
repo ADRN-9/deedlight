@@ -9,7 +9,7 @@ const timestamp = value => typeof value === "string"
   && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(value)
   && Number.isFinite(Date.parse(value));
 
-export function validateCategoryEffectContract(category, effect, inventoryPaths) {
+export function validateCategoryEffectContract(category, effect, inventoryPaths, { requireEvidence = true } = {}) {
   if (!["dataTransformations", "backfills", "dependencies", "preconditions", "postconditions"].includes(category)) return null;
   const contract = effect && effect.contract;
   if (!contract || typeof contract !== "object" || Array.isArray(contract)) return category + " effect is missing its category-specific contract";
@@ -35,7 +35,7 @@ export function validateCategoryEffectContract(category, effect, inventoryPaths)
     const measurement = contract.measurement;
     if (exact(measurement, ["status", "reason"]) && measurement.status === "not_measured"
       && typeof measurement.reason === "string" && measurement.reason.trim().length >= 20) {
-      return "backfill measurement is unavailable; source SQL cannot establish affected-row counts";
+      return requireEvidence ? "backfill measurement is unavailable; source SQL cannot establish affected-row counts" : null;
     }
     if (!exact(measurement, ["status", "rowCount", "querySha256", "evidenceDigest", "capturedAt", "executionId", "sourceBlobSha1"])
       || measurement.status !== "independently_measured" || !Number.isSafeInteger(measurement.rowCount) || measurement.rowCount < 0
@@ -67,7 +67,7 @@ export function validateCategoryEffectContract(category, effect, inventoryPaths)
     const verification = contract.verification;
     if (exact(verification, ["status", "reason"]) && verification.status === "not_verified"
       && typeof verification.reason === "string" && verification.reason.trim().length >= 20) {
-      return category + " is source-declared but has no independently verified execution outcome";
+      return requireEvidence ? category + " is source-declared but has no independently verified execution outcome" : null;
     }
     if (!exact(verification, ["status", "evidenceDigest", "querySha256", "capturedAt", "executionId"])
       || verification.status !== "independently_verified" || !HEX_256.test(verification.evidenceDigest || "")
