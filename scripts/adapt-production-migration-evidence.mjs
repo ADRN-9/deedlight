@@ -8,6 +8,7 @@ import {
   sha256, validateSqlOutput, verifyReceiptAndEvidence,
 } from "./collect-production-migration-evidence.mjs";
 import { gitBlobSha1, validateInventory } from "./verify-migration-inventory-aggregate.mjs";
+import { categoryEffectKeys, validateCategoryEffectContract } from "./migration-effect-contracts.mjs";
 
 const CATALOG_KINDS = ["schemas","tables","sequences","columns","constraints","indexes","triggers","policies","routines","privileges","ownership"];
 const CATEGORIES = ["schema","privileges","ownership","routines","dataTransformations","backfills","dependencies","preconditions","postconditions"];
@@ -191,6 +192,7 @@ function validateMapping(mapping,inventory){
   if(mapping===undefined||mapping===null)return null;
   if(!exact(mapping,["schemaVersion","migrations"])||mapping.schemaVersion!==1||!Array.isArray(mapping.migrations)||mapping.migrations.length!==inventory.migrations.length)fail("MIGRATION_MAPPING_INCOMPLETE");
   const byPath=new Map(),allowedDispositions=new Set(["effects","none","unsupported","unknown"]);
+  const inventoryPaths=new Set(inventory.migrations.map(item=>item.path));
   for(const entry of mapping.migrations){
     if(!exact(entry,["path","blobSha1","coverage","effects"])||typeof entry.path!=="string"||byPath.has(entry.path)||!hex(entry.blobSha1,40))fail("MIGRATION_MAPPING_ENTRY_INVALID");
     if(!exact(entry.effects,CATEGORIES)||!exact(entry.coverage,CATEGORIES))fail("MIGRATION_MAPPING_CATEGORIES_INVALID");
@@ -208,8 +210,10 @@ function validateMapping(mapping,inventory){
       }
       for(const effect of effects){
         const allowedKinds=category==="schema"?SCHEMA_EFFECT_KINDS:category==="routines"?new Set(["routines"]):new Set([category]);
-        if(!exact(effect,["description","fingerprint","identity","kind"])||typeof effect.identity!=="string"||!effect.identity.trim()
-          ||!allowedKinds.has(effect.kind)||!hex(effect.fingerprint,64)||typeof effect.description!=="string"||!effect.description.trim())fail("MIGRATION_MAPPING_EFFECT_INVALID");
+        if(!exact(effect,categoryEffectKeys(category))||typeof effect.identity!=="string"||!effect.identity.trim()
+          ||!allowedKinds.has(effect.kind)||!hex(effect.fingerprint,64)||typeof effect.description!=="string"||!effect.description.trim()
+          ||(categoryEffectKeys(category).includes("sourcePath")&&effect.sourcePath!==entry.path))fail("MIGRATION_MAPPING_EFFECT_INVALID");
+        if(validateCategoryEffectContract(category,effect,inventoryPaths,{requireEvidence:false}))fail("MIGRATION_MAPPING_CATEGORY_CONTRACT_INVALID");
         const effectIdentity=effect.kind+"\\0"+effect.identity;
         if(seenEffects.has(effectIdentity))fail("MIGRATION_MAPPING_EFFECT_DUPLICATED");
         seenEffects.add(effectIdentity);
