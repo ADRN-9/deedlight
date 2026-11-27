@@ -193,6 +193,11 @@ function validateMapping(mapping,inventory){
   if(!exact(mapping,["schemaVersion","migrations"])||mapping.schemaVersion!==1||!Array.isArray(mapping.migrations)||mapping.migrations.length!==inventory.migrations.length)fail("MIGRATION_MAPPING_INCOMPLETE");
   const byPath=new Map(),allowedDispositions=new Set(["effects","none","unsupported","unknown"]);
   const inventoryPaths=new Set(inventory.migrations.map(item=>item.path));
+  const sourceTexts=new Map(inventory.migrations.map(item=>{
+    const bytes=readFileSync(path.join(process.cwd(),item.path));
+    if(gitBlobSha1(bytes)!==item.blobSha1||bytes.length!==item.byteLength)fail("MIGRATION_MAPPING_SOURCE_FINGERPRINT_MISMATCH");
+    return [item.path,bytes.toString("utf8")];
+  }));
   for(const entry of mapping.migrations){
     if(!exact(entry,["path","blobSha1","coverage","effects"])||typeof entry.path!=="string"||byPath.has(entry.path)||!hex(entry.blobSha1,40))fail("MIGRATION_MAPPING_ENTRY_INVALID");
     if(!exact(entry.effects,CATEGORIES)||!exact(entry.coverage,CATEGORIES))fail("MIGRATION_MAPPING_CATEGORIES_INVALID");
@@ -213,7 +218,9 @@ function validateMapping(mapping,inventory){
         if(!exact(effect,categoryEffectKeys(category))||typeof effect.identity!=="string"||!effect.identity.trim()
           ||!allowedKinds.has(effect.kind)||!hex(effect.fingerprint,64)||typeof effect.description!=="string"||!effect.description.trim()
           ||(categoryEffectKeys(category).includes("sourcePath")&&effect.sourcePath!==entry.path))fail("MIGRATION_MAPPING_EFFECT_INVALID");
-        if(validateCategoryEffectContract(category,effect,inventoryPaths,{requireEvidence:false}))fail("MIGRATION_MAPPING_CATEGORY_CONTRACT_INVALID");
+        const sourceRange=effect.contract&&effect.contract.sourceRange;
+        if(!sourceRange||!review.sourceRanges.some(range=>sourceRange.startLine>=range.startLine&&sourceRange.endLine<=range.endLine))fail("MIGRATION_MAPPING_SOURCE_RANGE_UNCOVERED");
+        if(validateCategoryEffectContract(category,effect,inventoryPaths,{requireEvidence:false,sourceText:sourceTexts.get(entry.path)}))fail("MIGRATION_MAPPING_CATEGORY_CONTRACT_INVALID");
         const effectIdentity=effect.kind+"\\0"+effect.identity;
         if(seenEffects.has(effectIdentity))fail("MIGRATION_MAPPING_EFFECT_DUPLICATED");
         seenEffects.add(effectIdentity);
