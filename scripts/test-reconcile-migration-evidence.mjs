@@ -142,6 +142,13 @@ function fixture() {
   }
   const evidence = {
     schemaVersion: 2,
+    backfillMeasurements: migrationEffects.map(entry => {
+      const effect = entry.effects.backfills[0], c = effect.contract, m = c.measurement;
+      return { sourcePath: entry.path, sourceBlobSha1: entry.blobSha1, sourceRange: c.sourceRange,
+        targetRelation: c.targetRelation, predicateSha256: c.predicate.sha256, querySha256: m.querySha256,
+        rowCount: m.rowCount, evidenceDigest: m.evidenceDigest, capturedAt: m.capturedAt, executionId: m.executionId };
+    }),
+    conditionVerifications: [],
     provenance: {
       environment: "production",
       projectRef: "xaipiovflxomcbfwtwmu",
