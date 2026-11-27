@@ -49,8 +49,17 @@ const rejects = (label, mutate) => {
 rejects("application-schema USAGE", (authority) => {
   authority.schemaPrivileges.find((row) => row.scope === "application_data").privileges.push("USAGE");
 });
+rejects("application-schema CREATE", (authority) => {
+  authority.schemaPrivileges.find((row) => row.scope === "application_data").privileges.push("CREATE");
+});
 rejects("application-table SELECT", (authority) => {
   authority.objectPrivileges.find((row) => row.scope === "application_data" && row.kind === "tables").privileges.push("SELECT");
+});
+rejects("application-sequence USAGE", (authority) => {
+  authority.objectPrivileges.find((row) => row.scope === "application_data" && row.kind === "sequences").privileges.push("USAGE");
+});
+rejects("application-routine EXECUTE", (authority) => {
+  authority.objectPrivileges.find((row) => row.scope === "application_data" && row.kind === "routines").privileges.push("EXECUTE");
 });
 rejects("application-column SELECT", (authority) => {
   authority.columnPrivileges.find((row) => row.scope === "application_data").privileges.push("SELECT");
