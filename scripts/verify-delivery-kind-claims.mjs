@@ -22,10 +22,10 @@ for (const [kind, rpc] of [["Daily","claim_daily_delivery_jobs"],["Weekly","clai
   const definition = migration.match(new RegExp(`create\\s+or\\s+replace\\s+function\\s+public\\.${rpc}\\s*\\(\\s*p_limit\\s+integer[\\s\\S]*?as\\s+\\$\\$([\\s\\S]*?)\\$\\$;`, "i"));
   expect(definition, `${kind} claim function body is statically extractable`);
   const body = definition[1];
-  expect(/claim_expires_at\\s*<=\\s*clock_timestamp\\(\\)/i.test(body), `${kind} lease expiry uses database wall-clock time`);
-  expect(/coalesce\\(dl\\.next_attempt_at,\\s*dl\\.scheduled_for\\)\\s*<=\\s*clock_timestamp\\(\\)/i.test(body), `${kind} due-job eligibility uses database wall-clock time`);
-  expect(/claim_expires_at\\s*=\\s*clock_timestamp\\(\\)\\s*\\+\\s*interval\\s+'5 minutes'/i.test(body), `${kind} claim lease duration uses database wall-clock time`);
-  expect(!/\\bnow\\s*\\(/i.test(body), `${kind} claim contains no transaction-start now() time decision`);
+  expect(/claim_expires_at\s*<=\s*clock_timestamp\(\)/i.test(body), `${kind} lease expiry uses database wall-clock time`);
+  expect(/coalesce\(dl\.next_attempt_at,\s*dl\.scheduled_for\)\s*<=\s*clock_timestamp\(\)/i.test(body), `${kind} due-job eligibility uses database wall-clock time`);
+  expect(/claim_expires_at\s*=\s*clock_timestamp\(\)\s*\+\s*interval\s+'5 minutes'/i.test(body), `${kind} claim lease duration uses database wall-clock time`);
+  expect(!/\bnow\s*\(/i.test(body), `${kind} claim contains no transaction-start now() time decision`);
 
   expect(!new RegExp(`create\s+or\s+replace\s+function\s+public\.${rpc}\s*\([^)]*timestamptz`, "i").test(migration), `${kind} claim has no caller-supplied timestamptz`);
   expect(!new RegExp(`create\s+or\s+replace\s+function\s+public\.${rpc}\s*\([^)]*timestamp\s+with\s+time\s+zone`, "i").test(migration), `${kind} claim has no caller-supplied timestamp with time zone`);
