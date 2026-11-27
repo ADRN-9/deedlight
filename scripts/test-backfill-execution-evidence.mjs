@@ -38,6 +38,7 @@ const trustRoots = {
 };
 process.env.DEEDLIGHT_BACKFILL_TRUST_ROOTS_SHA256 = hash(canonical(trustRoots));
 const { validateBackfillExecutionRecord } = await import("./backfill-execution-evidence.mjs");
+const { validateMigrationPrePostconditions } = await import("./migration-pre-postcondition-verifier.mjs");
 
 function signedArtifact(kind, signer, key, claims, id) {
   const issuedAt = kind.includes("authorization") ? iso(-30 * 60 * 1000) : iso(-5 * 60 * 1000);
@@ -255,4 +256,141 @@ test("unavailable atomic replay registry remains a hard blocker", () => {
   const result = validate(f);
   assert.ok(result.problems.includes("REPLAY:AUTHORITATIVE_DATABASE_SCOPED_REGISTRY_UNAVAILABLE"));
   assert.equal(result.acceptance, "NOT_ACCEPTED");
+});
+
+
+function conditionFixture() {
+  const f = fixture();
+  f.record.preExecutionState.rows[0].facts = { offering_count: 25, active_member_count: 8 };
+  f.record.postExecutionState.rows[0].facts = { offering_count: 25, active_member_count: 8 };
+  f.record.preExecutionState.rowsSha256 = hash(canonical(f.record.preExecutionState.rows));
+  f.record.postExecutionState.rowsSha256 = hash(canonical(f.record.postExecutionState.rows));
+  resign(f.record);
+  const contract = {
+    schemaVersion: 1, kind: "deedlight-migration-pre-postcondition-contract", contractId: "c576-moderation-backfill-v1",
+    sourceIdentity: f.record.sourceIdentity, databaseIdentity: db,
+    preconditions: [{ id: "initial-offering-count", observation: "offering_count", operator: "equals", expected: 25 }],
+    postconditions: [{ id: "final-offering-count", observation: "offering_count", operator: "equals", expected: 25 }],
+    relationships: [{ id: "offering-count-stable", observation: "offering_count", operator: "integer_delta_equals", expectedDelta: 0 }],
+  };
+  const preconditionResults = [{ id: "initial-offering-count", observation: "offering_count", operator: "equals",
+    expected: 25, observed: 25, result: "PASS" }];
+  const postconditionResults = [{ id: "final-offering-count", observation: "offering_count", operator: "equals",
+    expected: 25, observed: 25, result: "PASS" }];
+  const relationshipResults = [{ id: "offering-count-stable", observation: "offering_count",
+    expectedDelta: 0, observedDelta: 0, result: "PASS" }];
+  const verifierVersion = "deedlight-pre-postcondition-verifier/1.0.0";
+  const issuedAt = iso(-4 * 60 * 1000), expiresAt = iso(3 * 60 * 60 * 1000);
+  const claims = {
+    contractId: contract.contractId, contractSha256: hash(canonical(contract)), executionId: f.record.executionId,
+    sourceIdentity: f.record.sourceIdentity, databaseIdentity: db, executionOutcome: "success",
+    preExecutionEvidenceSha256: hash(canonical(f.record.preExecutionState)),
+    postExecutionEvidenceSha256: hash(canonical(f.record.postExecutionState)),
+    preconditionResults, postconditionResults, relationshipResults, result: "PASS",
+    verifierIdentity: "independent-backfill-verifier", verifierVersion,
+  };
+  const unsigned = {
+    schemaVersion: 1, kind: "deedlight-migration-pre-postcondition-verification",
+    signerId: "independent-backfill-verifier", keyId: "backfill-verifier-key", issuedAt, expiresAt,
+    claims,
+  };
+  const conditionVerification = { ...unsigned,
+    signature: sign(null, Buffer.from(canonical(unsigned)), verifier.privateKey).toString("base64") };
+  return { ...f, contract, conditionVerification };
+}
+const verifyConditions = f => validateMigrationPrePostconditions({
+  executionRecord: f.record, contract: f.contract, conditionVerification: f.conditionVerification,
+}, f.context);
+
+test("explicit preconditions, postconditions and supported relationships verify but remain non-accepted", () => {
+  const f = conditionFixture();
+  const result = verifyConditions(f);
+  assert.equal(result.verification, "PASS", result.problems.join(","));
+  assert.equal(result.acceptance, "NOT_ACCEPTED");
+  assert.equal(result.preconditionResults[0].result, "PASS");
+  assert.equal(result.postconditionResults[0].result, "PASS");
+  assert.equal(result.relationshipResults[0].result, "PASS");
+});
+
+test("missing preconditions fail closed", () => {
+  const f = conditionFixture();
+  f.contract.preconditions = [];
+  assert.ok(verifyConditions(f).problems.includes("PRECONDITIONS:EXPECTED_CONDITIONS_MISSING"));
+});
+
+test("incorrect independently observed initial state fails precondition verification", () => {
+  const f = conditionFixture();
+  f.record.preExecutionState.rows[0].facts.offering_count = 24;
+  f.record.preExecutionState.rowsSha256 = hash(canonical(f.record.preExecutionState.rows));
+  resign(f.record);
+  assert.equal(verifyConditions(f).verification, "FAIL");
+});
+
+test("failed migration execution is rejected", () => {
+  const f = conditionFixture();
+  f.record.execution.outcome = "failed";
+  f.record.executionEvidence.rows[0].outcome = "failed";
+  f.record.executionEvidence.rowsSha256 = hash(canonical(f.record.executionEvidence.rows));
+  resign(f.record);
+  assert.ok(verifyConditions(f).problems.includes("EXECUTION_RECORD:BASE_EVIDENCE_INVALID"));
+});
+
+test("partial migration execution is rejected", () => {
+  const f = conditionFixture();
+  f.record.execution.outcome = "partial";
+  f.record.executionEvidence.rows[0].outcome = "partial";
+  f.record.executionEvidence.rowsSha256 = hash(canonical(f.record.executionEvidence.rows));
+  resign(f.record);
+  assert.ok(verifyConditions(f).problems.includes("EXECUTION_RECORD:BASE_EVIDENCE_INVALID"));
+});
+
+test("unexpected postconditions fail even when observations are intact", () => {
+  const f = conditionFixture();
+  f.contract.postconditions[0].expected = 26;
+  assert.ok(verifyConditions(f).problems.includes("POSTCONDITIONS:PRECONDITION_OR_POSTCONDITION_MISMATCH:final-offering-count"));
+});
+
+test("repeated execution identity is rejected by the replay evidence boundary", () => {
+  const f = conditionFixture();
+  f.context.replayRegistry.executionIds.push(f.record.executionId);
+  assert.ok(verifyConditions(f).problems.includes("EXECUTION_RECORD:BASE_EVIDENCE_INVALID"));
+});
+
+test("interrupted execution without a completion timestamp is rejected", () => {
+  const f = conditionFixture();
+  f.record.execution.completedAt = null;
+  f.record.executionEvidence.rows[0].completedAt = null;
+  resign(f.record);
+  assert.ok(verifyConditions(f).problems.includes("EXECUTION_RECORD:BASE_EVIDENCE_INVALID"));
+});
+
+test("unsupported semantic relationships fail closed", () => {
+  const f = conditionFixture();
+  f.contract.relationships[0].operator = "foreign_key_consistency";
+  assert.ok(verifyConditions(f).problems.includes("RELATIONSHIPS:UNSUPPORTED_OR_INVALID_SEMANTIC_RELATIONSHIP"));
+});
+
+test("forged observation bytes fail state integrity verification", () => {
+  const f = conditionFixture();
+  f.record.postExecutionState.rows[0].facts.offering_count = 999;
+  assert.ok(verifyConditions(f).problems.includes("EXECUTION_RECORD:BASE_EVIDENCE_INVALID"));
+});
+
+test("missing condition verifier authority is rejected", () => {
+  const f = conditionFixture();
+  f.conditionVerification = null;
+  assert.ok(verifyConditions(f).problems.includes("VERIFIER:ATTESTATION_MISSING_OR_MALFORMED"));
+});
+
+test("altered condition verifier signature is rejected", () => {
+  const f = conditionFixture();
+  f.conditionVerification.signature = Buffer.alloc(64).toString("base64");
+  assert.ok(verifyConditions(f).problems.includes("VERIFIER:SIGNATURE_INVALID"));
+});
+
+test("condition verifier issued before post-state observation is rejected", () => {
+  const f = conditionFixture();
+  f.conditionVerification.issuedAt = iso(-30 * 60 * 1000);
+  assert.ok(verifyConditions(f).problems.includes("VERIFIER:AUTHORITY_EXPIRED_OR_TIME_INVALID")
+    || verifyConditions(f).problems.includes("VERIFIER:IDENTITY_VERSION_OR_POST_OBSERVATION_TIME_INVALID"));
 });
