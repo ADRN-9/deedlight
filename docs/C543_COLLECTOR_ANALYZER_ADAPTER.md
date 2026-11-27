@@ -126,3 +126,12 @@ The live changed-file lists overlap in five paths: `.github/workflows/pr-validat
 6. Run focused migration inventory, analyzer, adapter and PostgreSQL 16 integration suites on the final integration SHA; then require fresh exact-head CI and independent review before any merge decision.
 
 No PR base, history, migration SQL or Production migration state is changed by this plan.
+
+
+## C555 implementation boundary — mapping data is not yet approved
+
+C555 hardens the mapping contract and makes unsupported/unknown domains explicit; it does not manufacture a semantic mapping for the 40 historical SQL files. No production migration-effect mapping artifact is being asserted as complete or independently reviewed. The adapter's existing test mappings are synthetic fixtures only.
+
+The 19 collector projections describe current catalog and migration-history structure. They do not provide an authenticated historical statement-by-statement execution record, and they do not independently establish transformation/backfill row counts, dependency execution order, historical preconditions or postconditions. A future mapping must be reviewed against each exact pinned SQL blob and source range, and its effects must be independently checked against the appropriate authoritative evidence. Where that cannot be done, use `unsupported` or `unknown`, not a guessed effect or a `none` assertion.
+
+The `none` disposition is a reviewed semantic assertion, not an automatically inferred fact. It remains subject to independent mapping approval bound to the complete mapping digest. A valid schema shape, non-empty rationale and source range do not prove the semantic assertion is true.
