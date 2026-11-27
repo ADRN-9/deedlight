@@ -826,8 +826,14 @@ export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approval
   if (expectedInventoryBlobSha1 !== INVENTORY_BLOB_SHA1) problems.push("caller attempted to override the pinned inventory fingerprint");
   validateEvidence(evidence, now, manifest, problems);
   const mapping = evidence && evidence.mapping;
-  const mappedEffects = validateMapping(mapping, manifest, source, problems);
-  validateIndependentEffectEvidence(mapping, evidence, manifest, problems);
+  let mappedEffects = new Map();
+  try {
+    mappedEffects = validateMapping(mapping, manifest, source, problems);
+    validateIndependentEffectEvidence(mapping, evidence, manifest, problems);
+  } catch (error) {
+    problems.push("mapping or lifecycle evidence validation failed: " + (error instanceof Error ? error.message : "unrecognized validation failure"));
+    mappedEffects = new Map();
+  }
   const evidenceDigest = sha256(evidencePayload(evidence));
   const mapDigest = mappingDigest(mapping);
   const provenance = evidence && evidence.provenance || {};
@@ -870,7 +876,13 @@ export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approval
   validateCollectorAuthority(collectorClaims, provenance, evidenceDigest, evidence && evidence.collectorAuthority,
     evidence, now, problems);
   const reports = manifest.migrations.map((item) => {
-    if (problems.length) return { path: item.path, version: item.version, blobSha1: item.blobSha1, status: "Unknown", reasons: ["one or more evidence, approval, mapping or collector trust checks failed"] };
+    if (problems.length) return {
+      path: item.path, version: item.version, blobSha1: item.blobSha1, status: "Unknown",
+      reasons: ["one or more evidence, approval, mapping or collector trust checks failed"],
+      nonCatalogEvidenceCategories: [],
+      unsupportedNonCatalogCategories: [],
+      unknownNonCatalogCategories: [],
+    };
     return {
       path: item.path, version: item.version, blobSha1: item.blobSha1,
       ...classifyOne(item, manifest, evidence, source, mappedEffects),
