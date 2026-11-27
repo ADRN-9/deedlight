@@ -259,9 +259,9 @@ function fixture() {
         mappingApproval: artifact("migration-mapping-approval", "mapping-approver", {
           projectRef: "xaipiovflxomcbfwtwmu",
           mappingDigest: mapHash,
-          inventoryBlobSha1: "95d514a0bd97ff448c9507252eb1f5e69a507442",
-          migrationCount: 39,
-          versionCount: 38,
+          inventoryBlobSha1: "4e63f31368d446e905f4f44565be73337c7188fb",
+          migrationCount: 40,
+          versionCount: 39,
         }),
         collectorAttestation: artifact("read-only-collector-attestation", "collector", {
           ...common,
@@ -339,14 +339,14 @@ test("verifies signed approvals and collector authority; duplicate 007 remains e
   try {
     const report = f.analyze();
     assert.equal(report.trustVerified, true);
-    assert.equal(report.sourceInventory.migrationCount, 39);
-    assert.equal(report.sourceInventory.uniqueVersionCount, 38);
+    assert.equal(report.sourceInventory.migrationCount, 40);
+    assert.equal(report.sourceInventory.uniqueVersionCount, 39);
     const duplicate = report.classifications.filter((item) => item.version === "202607260007");
     assert.equal(duplicate.length, 2);
     assert.ok(duplicate.every((item) => item.status === "Schema represented but history ambiguous"));
     assert.ok(duplicate.every((item) => item.exactExecutionEstablished === false));
     assert.equal(report.counts["Applied and verified"], 0);
-    assert.equal(report.counts["Schema represented but history ambiguous"], 39);
+    assert.equal(report.counts["Schema represented but history ambiguous"], 40);
     assert.equal(report.acceptance, "NOT_ACCEPTED");
     assert.equal(report.mutationPerformed, false);
   } finally { f.cleanup(); }
@@ -363,7 +363,7 @@ test("signed artifacts with missing claims or unsigned extra approval references
     try {
       mutate(f);
       const report = f.analyze();
-      assert.equal(report.counts.Unknown, 39);
+      assert.equal(report.counts.Unknown, 40);
       assert.equal(report.acceptance, "NOT_ACCEPTED");
       assert.ok(report.trustProblems.some((reason) => reason.includes("missing claims") || reason.includes("unsupported envelope")));
     } finally { f.cleanup(); }
@@ -375,7 +375,7 @@ test("unsigned approval envelope is rejected before signature verification", () 
   try {
     delete f.approvals.evidenceApproval.signature;
     const report = f.analyze();
-    assert.equal(report.counts.Unknown, 39);
+    assert.equal(report.counts.Unknown, 40);
     assert.equal(report.acceptance, "NOT_ACCEPTED");
     assert.ok(report.trustProblems.some((reason) => reason.includes("missing claims or an unsupported envelope")));
   } finally { f.cleanup(); }
@@ -386,7 +386,7 @@ test("forged approval signature fails cryptographic verification", () => {
   try {
     f.approvals.evidenceApproval.signature = Buffer.alloc(64).toString("base64");
     const report = f.analyze();
-    assert.equal(report.counts.Unknown, 39);
+    assert.equal(report.counts.Unknown, 40);
     assert.equal(report.acceptance, "NOT_ACCEPTED");
     assert.ok(report.trustProblems.some((reason) => reason.includes("signature verification failed")));
   } finally { f.cleanup(); }
@@ -400,7 +400,7 @@ test("approval signature from an unauthorized Ed25519 key fails cryptographic ve
     delete unsigned.signature;
     approval.signature = sign(null, Buffer.from(canonicalJson(unsigned)), keys["mapping-approver"].privateKey).toString("base64");
     const report = f.analyze();
-    assert.equal(report.counts.Unknown, 39);
+    assert.equal(report.counts.Unknown, 40);
     assert.equal(report.acceptance, "NOT_ACCEPTED");
     assert.ok(report.trustProblems.some((reason) => reason.includes("signature verification failed")));
   } finally { f.cleanup(); }
@@ -423,7 +423,7 @@ test("active trust roots require explicit null revokedAt; malformed and revoked 
     try {
       mutate(f.trustRoots.keys.find((key) => key.role === "evidence-approver"));
       const report = f.analyze();
-      assert.equal(report.counts.Unknown, 39, label);
+      assert.equal(report.counts.Unknown, 40, label);
       assert.equal(report.acceptance, "NOT_ACCEPTED", label);
       assert.ok(report.trustProblems.some((reason) => expected.test(reason)), label + ": " + report.trustProblems.join("; "));
     } finally { f.cleanup(); }
@@ -465,7 +465,7 @@ test("every active trust root requires explicit null revokedAt, including unused
       f.trustRoots.keys.push(unusedRoot);
       const report = f.analyze();
       assert.equal(report.trustVerified, false, label);
-      assert.equal(report.counts.Unknown, 39, label);
+      assert.equal(report.counts.Unknown, 40, label);
       assert.equal(report.acceptance, "NOT_ACCEPTED", label);
       const expectedProblem = label === "absent"
         ? "trust-root bundle contains an unsupported key, role or private signing material"
@@ -509,7 +509,7 @@ test("expired approval, revoked signer key and revoked approval ID fail closed",
     try {
       change(f);
       const report = f.analyze();
-      assert.equal(report.counts.Unknown, 39);
+      assert.equal(report.counts.Unknown, 40);
       assert.equal(report.acceptance, "NOT_ACCEPTED");
     } finally { f.cleanup(); }
   }
@@ -521,7 +521,7 @@ test("approval claims are bound to exact project, evidence, mapping, query, coll
     const claims = f.approvals.evidenceApproval.claims;
     f.approvals.evidenceApproval = artifact("production-evidence-approval", "evidence-approver", { ...claims, collectorIdentity: "forged-collector" });
     const report = f.analyze();
-    assert.equal(report.counts.Unknown, 39);
+    assert.equal(report.counts.Unknown, 40);
     assert.ok(report.trustProblems.some((reason) => reason.includes("signed evidence approval does not bind the exact evidence")));
   } finally { f.cleanup(); }
 });
@@ -531,7 +531,7 @@ test("mapping digest alteration after signed mapping approval fails closed", () 
   try {
     f.mapping.migrations[0].effects.backfills[0].description = "altered backfill";
     const report = f.analyze();
-    assert.equal(report.counts.Unknown, 39);
+    assert.equal(report.counts.Unknown, 40);
     assert.ok(report.trustProblems.some((reason) => reason.includes("signed evidence approval")));
     assert.ok(report.trustProblems.some((reason) => reason.includes("signed mapping approval")));
   } finally { f.cleanup(); }
@@ -543,7 +543,7 @@ test("plausible mapping with missing effect domains cannot be approved into Appl
     delete f.mapping.migrations[0].effects.preconditions;
     f.reapprove();
     const report = f.analyze();
-    assert.equal(report.counts.Unknown, 39);
+    assert.equal(report.counts.Unknown, 40);
     assert.ok(report.trustProblems.some((reason) => reason.includes("omits, or adds unsupported, effect domains")));
   } finally { f.cleanup(); }
 });
@@ -560,7 +560,7 @@ test("mapping requires source-linked review disposition for every effect domain"
       mutate(f);
       f.reapprove();
       const report = f.analyze();
-      assert.equal(report.counts.Unknown, 39);
+      assert.equal(report.counts.Unknown, 40);
       assert.equal(report.acceptance, "NOT_ACCEPTED");
       assert.ok(report.trustProblems.some((reason) => reason.includes("reviewed coverage disposition") || reason.includes("source-linked coverage review")));
     } finally { f.cleanup(); }
@@ -578,7 +578,7 @@ test("collector authority must be present and cryptographically bound to the exa
     try {
       mutate(f);
       const report = f.analyze();
-      assert.equal(report.counts.Unknown, 39);
+      assert.equal(report.counts.Unknown, 40);
       assert.equal(report.acceptance, "NOT_ACCEPTED");
       assert.ok(report.trustProblems.some((reason) => reason.includes("collector") || reason.includes("privilege-query")));
     } finally { f.cleanup(); }
@@ -590,7 +590,7 @@ test("one Ed25519 public key cannot impersonate multiple independent approval au
   try {
     f.trustRoots.keys[1].publicKeyPem = f.trustRoots.keys[0].publicKeyPem;
     const report = f.analyze();
-    assert.equal(report.counts.Unknown, 39);
+    assert.equal(report.counts.Unknown, 40);
     assert.ok(report.trustProblems.some((reason) => reason.includes("reuses one public key")));
   } finally { f.cleanup(); }
 });
@@ -677,7 +677,7 @@ test("write-capable collector, inherited roles or unproven read-only privilege f
     try {
       mutate(f);
       const report = f.analyze();
-      assert.equal(report.counts.Unknown, 39);
+      assert.equal(report.counts.Unknown, 40);
       assert.equal(report.acceptance, "NOT_ACCEPTED");
     } finally { f.cleanup(); }
   }
@@ -712,7 +712,7 @@ test("catalog completeness dimensions reject omissions, duplicates and unsupport
       mutate(f);
       f.reapprove();
       const report = f.analyze();
-      assert.equal(report.counts.Unknown, 39);
+      assert.equal(report.counts.Unknown, 40);
       assert.ok(report.trustProblems.some((reason) => reason.includes("catalog completeness dimensions")));
     } finally { f.cleanup(); }
   }
@@ -758,7 +758,7 @@ test("collector schema and object privilege identity sets must exactly match cat
     try {
       f.reapprove(mutate);
       const report = f.analyze();
-      assert.equal(report.counts.Unknown, 39);
+      assert.equal(report.counts.Unknown, 40);
       assert.equal(report.acceptance, "NOT_ACCEPTED");
       assert.ok(report.trustProblems.some((reason) => reason.includes("least-privilege contract")));
     } finally { f.cleanup(); }
@@ -771,7 +771,7 @@ test("complete database_acl_v1 projection is mandatory and included in the signe
     delete missing.evidence.collectorAuthority;
     missing.reapprove((databaseAuthority) => { delete databaseAuthority.databaseAclV1; });
     const report = missing.analyze();
-    assert.equal(report.counts.Unknown, 39);
+    assert.equal(report.counts.Unknown, 40);
     assert.ok(report.trustProblems.some((reason) => reason.includes("complete database_acl_v1 projection is missing")));
   } finally { missing.cleanup(); }
 
@@ -781,7 +781,7 @@ test("complete database_acl_v1 projection is mandatory and included in the signe
       databaseAuthority.databaseAclV1[0].expanded_acl_edges[0].grantee_name = "PUBLIC";
     });
     const report = malformed.analyze();
-    assert.equal(report.counts.Unknown, 39);
+    assert.equal(report.counts.Unknown, 40);
     assert.ok(report.trustProblems.some((reason) => reason.includes("malformed ACL edge")));
   } finally { malformed.cleanup(); }
 
@@ -793,7 +793,7 @@ test("complete database_acl_v1 projection is mandatory and included in the signe
       });
     });
     const report = duplicated.analyze();
-    assert.equal(report.counts.Unknown, 39);
+    assert.equal(report.counts.Unknown, 40);
     assert.ok(report.trustProblems.some((reason) => reason.includes("repeats an ACL edge")));
   } finally { duplicated.cleanup(); }
 
@@ -802,7 +802,7 @@ test("complete database_acl_v1 projection is mandatory and included in the signe
     tampered.reapprove();
     tampered.evidence.collectorAuthority.databaseAuthority.databaseAclV1[0].database_name = "tampered";
     const report = tampered.analyze();
-    assert.equal(report.counts.Unknown, 39);
+    assert.equal(report.counts.Unknown, 40);
     assert.ok(report.trustProblems.some((reason) => reason.includes("execution receipt")
       || reason.includes("signed collector authority differs")
       || reason.includes("signed evidence approval does not bind the exact evidence")));
@@ -818,7 +818,7 @@ test("complete database_acl_v1 projection is mandatory and included in the signe
       });
     });
     const report = truncated.analyze();
-    assert.equal(report.counts.Unknown, 39);
+    assert.equal(report.counts.Unknown, 40);
     assert.ok(report.trustProblems.some((reason) => reason.includes("incomplete, malformed or unordered database row")));
   } finally { truncated.cleanup(); }
 });
@@ -836,7 +836,7 @@ test("collector execution receipt binds project, collector, query digest, captur
     try {
       f.reapprove(undefined, mutate);
       const report = f.analyze();
-      assert.equal(report.counts.Unknown, 39);
+      assert.equal(report.counts.Unknown, 40);
       assert.equal(report.acceptance, "NOT_ACCEPTED");
       assert.ok(report.trustProblems.some((reason) => reason.includes("execution receipt")));
     } finally { f.cleanup(); }
@@ -853,7 +853,7 @@ test("candidate external migration execution timestamps remain untrusted", () =>
       }];
       f.reapprove();
       const report = f.analyze();
-      assert.equal(report.counts.Unknown, 39);
+      assert.equal(report.counts.Unknown, 40);
       assert.ok(report.trustProblems.some((reason) => reason.includes("no authenticated authoritative source is configured")));
     } finally { f.cleanup(); }
   }
@@ -870,7 +870,7 @@ test("malformed collector execution receipts fail closed", () => {
     try {
       f.reapprove(undefined, mutate);
       const report = f.analyze();
-      assert.equal(report.counts.Unknown, 39);
+      assert.equal(report.counts.Unknown, 40);
       assert.equal(report.acceptance, "NOT_ACCEPTED");
       assert.ok(report.trustProblems.some((reason) => reason.includes("execution receipt")));
     } finally { f.cleanup(); }
@@ -885,7 +885,7 @@ test("collector attestation must bind the exact project and query bundle", () =>
       ...claims, queryBundleSha256: hash("other-query"),
     });
     const report = f.analyze();
-    assert.equal(report.counts.Unknown, 39);
+    assert.equal(report.counts.Unknown, 40);
     assert.ok(report.trustProblems.some((reason) => reason.includes("collector attestation does not bind exact queryBundleSha256")));
   } finally { f.cleanup(); }
 });
@@ -947,7 +947,7 @@ test("migration-history facts never establish execution provenance; fabricated f
       forged.evidence.history.rows[0][field] = field === "executedAt" ? FIXTURE_HISTORY_EXECUTED_AT : "fabricated";
       forged.reapprove();
       const report = forged.analyze();
-      assert.equal(report.counts.Unknown, 39);
+      assert.equal(report.counts.Unknown, 40);
       assert.ok(report.trustProblems.some((reason) => reason.includes("only recognized version, name and recorded statement-count database facts")));
     } finally { forged.cleanup(); }
   }
@@ -961,7 +961,7 @@ test("migration-history facts never establish execution provenance; fabricated f
     }];
     fabricated.reapprove();
     const report = fabricated.analyze();
-    assert.equal(report.counts.Unknown, 39);
+    assert.equal(report.counts.Unknown, 40);
     assert.ok(report.trustProblems.some((reason) => reason.includes("no authenticated authoritative source is configured")));
   } finally { fabricated.cleanup(); }
 });
@@ -971,7 +971,7 @@ test("tampered evidence after signed approval fails closed", () => {
   try {
     f.evidence.catalog.objects[0].fingerprint = hash("tampered");
     const report = f.analyze();
-    assert.equal(report.counts.Unknown, 39);
+    assert.equal(report.counts.Unknown, 40);
     assert.ok(report.trustProblems.some((reason) => reason.includes("signature verification failed") || reason.includes("does not bind the exact evidence")));
   } finally { f.cleanup(); }
 });
@@ -1037,7 +1037,7 @@ test("malformed history names and unrecognized versions fail closed", () => {
     f.evidence.history.rows[0].version = "999999999999";
     f.reapprove();
     const report = f.analyze();
-    assert.equal(report.counts.Unknown, 39);
+    assert.equal(report.counts.Unknown, 40);
     assert.ok(report.trustProblems.some((reason) => reason.includes("only recognized version, name and recorded statement-count database facts")));
   } finally { f.cleanup(); }
 });
@@ -1109,7 +1109,7 @@ test("all timestamp-bearing evidence fields reject non-string and noncanonical v
       try {
         mutate(f, value);
         const report = f.analyze();
-        assert.equal(report.counts.Unknown, 39, label + " accepted " + JSON.stringify(value));
+        assert.equal(report.counts.Unknown, 40, label + " accepted " + JSON.stringify(value));
         assert.ok(assertReason(report), label + " did not report invalid timestamp " + JSON.stringify(value));
       } finally { f.cleanup(); }
     }
@@ -1121,7 +1121,7 @@ test("collector completion after evidence capture fails closed", () => {
   try {
     f.reapprove(undefined, (receipt) => { receipt.completedAt = fixtureTime(-20 * 60 * 1000); });
     const report = f.analyze();
-    assert.equal(report.counts.Unknown, 39);
+    assert.equal(report.counts.Unknown, 40);
     assert.ok(report.trustProblems.some((reason) => reason.includes("execution receipt")));
   } finally { f.cleanup(); }
 });
@@ -1132,7 +1132,7 @@ test("evidence capture after the current time fails closed", () => {
     f.evidence.provenance.capturedAt = new Date(Date.now() + 60_000).toISOString();
     f.reapprove();
     const report = f.analyze();
-    assert.equal(report.counts.Unknown, 39);
+    assert.equal(report.counts.Unknown, 40);
     assert.ok(report.trustProblems.some((reason) => reason.includes("future")));
   } finally { f.cleanup(); }
 });
@@ -1143,7 +1143,7 @@ test("strict timestamp parsing rejects non-string and noncanonical execution tim
     try {
       f.reapprove(undefined, (receipt) => { receipt.startedAt = value; });
       const report = f.analyze();
-      assert.equal(report.counts.Unknown, 39);
+      assert.equal(report.counts.Unknown, 40);
       assert.ok(report.trustProblems.some((reason) => reason.includes("collector execution startedAt")));
     } finally { f.cleanup(); }
   }
@@ -1160,7 +1160,7 @@ test("fabricated migration execution timestamp candidates reject coercible non-s
       }];
       f.reapprove();
       const report = f.analyze();
-      assert.equal(report.counts.Unknown, 39);
+      assert.equal(report.counts.Unknown, 40);
       assert.ok(report.trustProblems.some((reason) => reason.includes("external migration execution timestamp")));
     } finally { f.cleanup(); }
   }
@@ -1179,7 +1179,7 @@ test("approval and trust-root validity intervals require canonical timestamps an
       const current = f.approvals.evidenceApproval;
       f.approvals.evidenceApproval = artifact(current.kind, "evidence-approver", current.claims, overrides);
       const report = f.analyze();
-      assert.equal(report.counts.Unknown, 39);
+      assert.equal(report.counts.Unknown, 40);
       assert.ok(report.trustProblems.some((reason) => reason.includes("approval issuedAt")
         || reason.includes("approval expiresAt") || reason.includes("invalid validity interval")));
     } finally { f.cleanup(); }
@@ -1195,7 +1195,7 @@ test("approval and trust-root validity intervals require canonical timestamps an
     try {
       mutate(f.trustRoots.keys.find((key) => key.role === "evidence-approver"));
       const report = f.analyze();
-      assert.equal(report.counts.Unknown, 39);
+      assert.equal(report.counts.Unknown, 40);
       assert.ok(report.trustProblems.some((reason) => reason.includes("trust-root notBefore")
         || reason.includes("trust-root notAfter") || reason.includes("outside its validity window")));
     } finally { f.cleanup(); }
@@ -1210,7 +1210,7 @@ test("collector execution rejects reversed start and completion timestamps", () 
       receipt.completedAt = fixtureTime(-35 * 60 * 1000);
     });
     const report = f.analyze();
-    assert.equal(report.counts.Unknown, 39);
+    assert.equal(report.counts.Unknown, 40);
     assert.ok(report.trustProblems.some((reason) => reason.includes("execution receipt")));
   } finally { f.cleanup(); }
 });
@@ -1228,7 +1228,7 @@ test("exported analyzer ignores caller-supplied trust-root digest", () => {
       trustRoots: f.trustRoots,
       trustedTrustRootsSha256: hash(Buffer.from(canonicalJson(f.trustRoots))),
     });
-    assert.equal(report.counts.Unknown, 39);
+    assert.equal(report.counts.Unknown, 40);
     assert.ok(report.trustProblems.some((reason) => reason.includes("independently provisioned trust-root digest")));
   } finally {
     if (previousDigest === undefined) delete process.env.DEEDLIGHT_MIGRATION_TRUST_ROOTS_SHA256;
@@ -1241,7 +1241,7 @@ test("trust roots must match an independently provisioned digest", () => {
   const f = fixture();
   try {
     const report = f.analyze({ trustedTrustRootsSha256: "0".repeat(64) });
-    assert.equal(report.counts.Unknown, 39);
+    assert.equal(report.counts.Unknown, 40);
     assert.ok(report.trustProblems.some((reason) => reason.includes("independently provisioned trust-root digest")));
   } finally { f.cleanup(); }
 });
@@ -1257,7 +1257,7 @@ test("fabricated external execution identifiers never become authenticated prove
     ];
     f.reapprove();
     const report = f.analyze();
-    assert.equal(report.counts.Unknown, 39);
+    assert.equal(report.counts.Unknown, 40);
     assert.ok(report.trustProblems.some((reason) => reason.includes("no authenticated authoritative source is configured")));
     assert.equal(report.acceptance, "NOT_ACCEPTED");
   } finally { f.cleanup(); }
@@ -1269,7 +1269,7 @@ test("history rows without exact names or execution metadata fail closed", () =>
     delete f.evidence.history.rows[0].name;
     f.reapprove();
     const report = f.analyze();
-    assert.equal(report.counts.Unknown, 39);
+    assert.equal(report.counts.Unknown, 40);
   } finally { f.cleanup(); }
 });
 
@@ -1303,7 +1303,7 @@ test("mapping rejects unreviewed effect domains and extra effect fields", () => 
       mutate(f.mapping);
       f.reapprove();
       const report = f.analyze();
-      assert.equal(report.counts.Unknown, 39);
+      assert.equal(report.counts.Unknown, 40);
       assert.ok(report.trustProblems.some((reason) => reason.includes("effect domains") || reason.includes("malformed or empty effects")));
     } finally { f.cleanup(); }
   }
@@ -1321,7 +1321,7 @@ test("evidence, mapping and collector approvals require distinct trusted signers
     };
     f.trustRoots.keys.find((key) => key.role === "mapping-approver").signerId = unsigned.signerId;
     const report = f.analyze();
-    assert.equal(report.counts.Unknown, 39);
+    assert.equal(report.counts.Unknown, 40);
     assert.ok(report.trustProblems.some((reason) => reason.includes("three distinct trusted signers")));
   } finally { f.cleanup(); }
 });
@@ -1378,7 +1378,7 @@ test("evidence and collector approvals must be issued after capture", () => {
       issuedAt: fixtureTime(-31 * 60 * 1000),
     });
     const report = f.analyze();
-    assert.equal(report.counts.Unknown, 39);
+    assert.equal(report.counts.Unknown, 40);
     assert.ok(report.trustProblems.some((reason) => reason.includes("issued after the exact evidence capture")));
   } finally { f.cleanup(); }
 });
@@ -1394,7 +1394,7 @@ test("trust-root bundle rejects private signing material and unsupported key rol
     try {
       mutate(f);
       const report = f.analyze();
-      assert.equal(report.counts.Unknown, 39);
+      assert.equal(report.counts.Unknown, 40);
       assert.ok(report.trustProblems.some((reason) => reason.includes("unsupported key, role or private signing material")));
     } finally { f.cleanup(); }
   }
@@ -1418,7 +1418,7 @@ test("trust-root bundle rejects unknown and private signing fields at bundle and
       mutate(f);
       const report = f.analyze();
       assert.equal(report.trustVerified, false, label);
-      assert.equal(report.counts.Unknown, 39, label);
+      assert.equal(report.counts.Unknown, 40, label);
       assert.equal(report.acceptance, "NOT_ACCEPTED", label);
       assert.ok(report.trustProblems.some((reason) => reason.includes("unsupported fields") || reason.includes("unsupported key, role or private signing material")), label);
     } finally { f.cleanup(); }
@@ -1471,7 +1471,7 @@ test("every timestamp-bearing evidence path rejects canonical year zero", () => 
     try {
       mutate(f);
       const report = f.analyze();
-      assert.equal(report.counts.Unknown, 39);
+      assert.equal(report.counts.Unknown, 40);
       assert.ok(report.trustProblems.some((reason) => /timestamp|notBefore|notAfter|issuedAt|expiresAt/i.test(reason)));
     } finally { f.cleanup(); }
   }

@@ -14,6 +14,7 @@ import {
   deliveryScheduleKind,
   enqueueWeeklyWithMonitoring,
   runScheduledDelivery,
+  weeklyDeliveryScheduleEnabled,
 } from "../lib/delivery/scheduler.ts";
 
 const job = {
@@ -154,17 +155,55 @@ test("delayed invocation keeps logical enqueue time but claims using database ti
   });
 
   assert.equal(await runtime.enqueueDaily(scheduledAt, 100), 3);
-  assert.deepEqual(await runtime.claim(deliveryClaimBatchSize(25)), []);
+  assert.deepEqual(await runtime.claim("daily_reminder", deliveryClaimBatchSize(25)), []);
   assert.deepEqual(calls, [
     {
       name: "enqueue_due_daily_reminders",
       params: { p_now: scheduledAt.toISOString(), p_limit: 100 },
     },
     {
-      name: "claim_delivery_jobs",
+      name: "claim_daily_delivery_jobs",
       params: { p_limit: 5 },
     },
   ]);
+});
+
+test("Daily and Weekly runtime claims use separate RPCs and reject cross-kind rows", async () => {
+  const calls = [];
+  let returnedKind = "daily_reminder";
+  const runtime = new SupabaseDeliveryRuntime({
+    async rpc(name, params) {
+      calls.push({ name, params });
+      return {
+        data: [{
+          job_id: job.jobId,
+          user_id: job.userId,
+          kind: returnedKind,
+          delivery_key: job.deliveryKey,
+          scheduled_for: job.scheduledFor,
+          claim_token: job.claimToken,
+        }],
+        error: null,
+      };
+    },
+  });
+
+  assert.equal((await runtime.claim("daily_reminder", 5))[0].kind, "daily_reminder");
+  returnedKind = "weekly_newsletter";
+  assert.equal((await runtime.claim("weekly_newsletter", 5))[0].kind, "weekly_newsletter");
+  assert.deepEqual(calls, [
+    { name: "claim_daily_delivery_jobs", params: { p_limit: 5 } },
+    { name: "claim_weekly_delivery_jobs", params: { p_limit: 5 } },
+  ]);
+
+  returnedKind = "weekly_newsletter";
+  await assert.rejects(runtime.claim("daily_reminder", 5), /invalid shape/);
+  returnedKind = "daily_reminder";
+  await assert.rejects(runtime.claim("weekly_newsletter", 5), /invalid shape/);
+
+  const callsBeforeMalformed = calls.length;
+  await assert.rejects(runtime.claim("all", 5), /Delivery database operation failed: claim jobs/);
+  assert.equal(calls.length, callsBeforeMalformed);
 });
 
 test("sequential claim batches stay within the five-job lease budget", () => {
@@ -657,4 +696,48 @@ test("daily and Weekly Goodness schedules have separate exact routing", () => {
   assert.equal(deliveryScheduleKind("0 16 * * 1"), "weekly");
   assert.equal(deliveryScheduleKind("0 16 * * *"), null);
   assert.equal(deliveryScheduleKind("*/5 * * * * "), null);
+});
+
+test("Weekly Goodness requires a separate exact opt-in even when a weekly Cron arrives", async () => {
+  assert.equal(weeklyDeliveryScheduleEnabled({}), false);
+  assert.equal(weeklyDeliveryScheduleEnabled({ WEEKLY_DELIVERY_ENABLED: "false" }), false);
+  assert.equal(weeklyDeliveryScheduleEnabled({ WEEKLY_DELIVERY_ENABLED: "TRUE" }), false);
+  assert.equal(weeklyDeliveryScheduleEnabled({ WEEKLY_DELIVERY_ENABLED: "true" }), true);
+
+  const logs = [];
+  const originalInfo = console.info;
+  console.info = (...args) => logs.push(args);
+  try {
+    const result = await runScheduledDelivery(runtimeEnv(), {
+      cron: "0 16 * * 1",
+      scheduledTime: fixedNow.getTime(),
+    });
+    assert.equal(result.enabled, true);
+    assert.equal(result.ignored, true);
+    assert.equal(result.enqueued, 0);
+    assert.equal(result.claimed, 0);
+    assert.equal(result.sent, 0);
+    assert.deepEqual(logs, [[
+      "Weekly Goodness scheduler held",
+      { reason: "weekly_delivery_not_approved" },
+    ]]);
+  } finally {
+    console.info = originalInfo;
+  }
+});
+
+test("delivery can be disabled and safely re-enabled without queue mutation", async () => {
+  const disabled = await runScheduledDelivery({ DELIVERY_ENABLED: "false" }, {
+    cron: "*/5 * * * *",
+    scheduledTime: fixedNow.getTime(),
+  });
+  assert.equal(disabled.enabled, false);
+  assert.equal(disabled.enqueued, 0);
+  assert.equal(disabled.claimed, 0);
+  assert.equal(disabled.sent, 0);
+
+  const stillDisabled = parseDeliveryRuntimeConfig({ DELIVERY_ENABLED: "false" });
+  const reenabled = parseDeliveryRuntimeConfig(runtimeEnv());
+  assert.deepEqual(stillDisabled, { enabled: false });
+  assert.equal(reenabled.enabled, true);
 });

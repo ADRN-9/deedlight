@@ -1,6 +1,6 @@
 -- DeedLight SQL Editor aggregate v1
 -- Deterministically generated from immutable Git-blob-pinned migration sources and the maintained bootstrap seed.
--- Inventory Git blob SHA-1: 95d514a0bd97ff448c9507252eb1f5e69a507442
+-- Inventory Git blob SHA-1: 4e63f31368d446e905f4f44565be73337c7188fb
 -- BEGIN SOURCE PROVENANCE
 -- SOURCE 202607210001 202607210001_initial_schema.sql blob=a244ab0df3e766b0f36e29a222b3160f9f74c502 bytes=13648
 -- SOURCE 202607210002 202607210002_rls_policies.sql blob=f96b482c0d1cf396baae5b91d7c96112f7e88284 bytes=5885
@@ -41,6 +41,7 @@
 -- SOURCE 202611230036 202611230036_private_daily_reflection_admin_isolation.sql blob=61a1fbf48b4557873ba6016e74fd3995bc62ba14 bytes=2042
 -- SOURCE 202611240037 202611240037_delivery_provider_integrity_conflict_evidence.sql blob=ac0449b50a881e3a895ef40a8eee28bea95a6ec0 bytes=44182
 -- SOURCE 202611240038 202611240038_delivery_provider_integrity_lock_order_pagination.sql blob=38951751fc5abeb79b75c4e37e55da01262a18b8 bytes=43748
+-- SOURCE 202611260039 202611260039_delivery_kind_scoped_claims.sql blob=39eba637aa9f93fa77855f82f3fcc27b580b25da bytes=6177
 -- BOOTSTRAP SEED supabase/seed.sql blob=e85554aed1553dec407e83966a1b0093f5d1e9a3 bytes=2574 upserts=3
 -- COMPATIBILITY supabase/bootstrap/migration_038_admin_compatibility.sql blob=92e93d88e23d3579f405de266cdf63cba0112472 bytes=15298 placement=after-202611240037-before-202611240038
 -- END SOURCE PROVENANCE
@@ -11759,6 +11760,232 @@ comment on function public.admin_list_delivery_provider_integrity_evidence_page(
   is 'Admin-only keyset page of append-only normalized provider evidence with exact total and continuation cursor.';
 comment on function public.admin_list_delivery_provider_integrity_history_page(bigint,integer,timestamptz,bigint)
   is 'Admin-only newest-first keyset page of append-only resolution/reopening history with exact total and continuation cursor.';
+
+notify pgrst, 'reload schema';
+commit;
+-- C525: database-enforced isolation between Daily and Weekly delivery claims.
+-- Each invoker RPC has a literal kind predicate in both lease cleanup and claim.
+-- service_role already owns the ledger grants and bypass-RLS authority; no new
+-- SECURITY DEFINER surface is introduced.
+
+begin;
+
+create or replace function public.claim_daily_delivery_jobs(
+  p_limit integer default 100
+)
+returns table (
+  job_id uuid,
+  user_id uuid,
+  kind text,
+  delivery_key text,
+  scheduled_for timestamptz,
+  claim_token uuid
+)
+language plpgsql
+security invoker
+set search_path = pg_catalog, public, auth, pg_temp
+as $$
+begin
+  if p_limit is null or p_limit < 1 or p_limit > 1000 then
+    raise exception 'p_limit must be between 1 and 1000.' using errcode = '22023';
+  end if;
+
+  -- Retry exhaustion is restricted to this function's immutable delivery kind.
+  update public.delivery_ledger dl
+  set
+    state = 'failed',
+    failed_at = clock_timestamp(),
+    claim_token = null,
+    claim_expires_at = null,
+    next_attempt_at = null,
+    error_code = 'retry_exhausted',
+    updated_at = clock_timestamp()
+  where dl.kind = 'daily_reminder'
+    and dl.state = 'claimed'
+    and dl.claim_expires_at is not null
+    and dl.claim_expires_at <= clock_timestamp()
+    and dl.attempt_count >= 5;
+
+  return query
+  with picked as (
+    select dl.id
+    from public.delivery_ledger dl
+    where dl.kind = 'daily_reminder'
+      and (
+        (
+          dl.state = 'queued'
+          and coalesce(dl.next_attempt_at, dl.scheduled_for) <= clock_timestamp()
+          and dl.attempt_count < 5
+        )
+        or (
+          dl.state = 'claimed'
+          and dl.claim_expires_at is not null
+          and dl.claim_expires_at <= clock_timestamp()
+          and dl.attempt_count < 5
+        )
+      )
+    order by
+      coalesce(dl.next_attempt_at, dl.scheduled_for),
+      dl.created_at,
+      dl.id
+    for update skip locked
+    limit p_limit
+  ), claimed as (
+    update public.delivery_ledger dl
+    set
+      state = 'claimed',
+      claim_token = gen_random_uuid(),
+      claimed_at = clock_timestamp(),
+      claim_expires_at = clock_timestamp() + interval '5 minutes',
+      attempt_count = dl.attempt_count + 1,
+      last_attempt_at = clock_timestamp(),
+      next_attempt_at = null,
+      error_code = null,
+      updated_at = clock_timestamp()
+    from picked
+    where dl.id = picked.id
+      and dl.kind = 'daily_reminder'
+    returning
+      dl.id,
+      dl.user_id,
+      dl.kind,
+      dl.delivery_key,
+      dl.scheduled_for,
+      dl.claim_token
+  )
+  select
+    claimed.id,
+    claimed.user_id,
+    claimed.kind,
+    claimed.delivery_key,
+    claimed.scheduled_for,
+    claimed.claim_token
+  from claimed;
+end;
+$$;
+
+
+create or replace function public.claim_weekly_delivery_jobs(
+  p_limit integer default 100
+)
+returns table (
+  job_id uuid,
+  user_id uuid,
+  kind text,
+  delivery_key text,
+  scheduled_for timestamptz,
+  claim_token uuid
+)
+language plpgsql
+security invoker
+set search_path = pg_catalog, public, auth, pg_temp
+as $$
+begin
+  if p_limit is null or p_limit < 1 or p_limit > 1000 then
+    raise exception 'p_limit must be between 1 and 1000.' using errcode = '22023';
+  end if;
+
+  -- Retry exhaustion is restricted to this function's immutable delivery kind.
+  update public.delivery_ledger dl
+  set
+    state = 'failed',
+    failed_at = clock_timestamp(),
+    claim_token = null,
+    claim_expires_at = null,
+    next_attempt_at = null,
+    error_code = 'retry_exhausted',
+    updated_at = clock_timestamp()
+  where dl.kind = 'weekly_newsletter'
+    and dl.state = 'claimed'
+    and dl.claim_expires_at is not null
+    and dl.claim_expires_at <= clock_timestamp()
+    and dl.attempt_count >= 5;
+
+  return query
+  with picked as (
+    select dl.id
+    from public.delivery_ledger dl
+    where dl.kind = 'weekly_newsletter'
+      and (
+        (
+          dl.state = 'queued'
+          and coalesce(dl.next_attempt_at, dl.scheduled_for) <= clock_timestamp()
+          and dl.attempt_count < 5
+        )
+        or (
+          dl.state = 'claimed'
+          and dl.claim_expires_at is not null
+          and dl.claim_expires_at <= clock_timestamp()
+          and dl.attempt_count < 5
+        )
+      )
+    order by
+      coalesce(dl.next_attempt_at, dl.scheduled_for),
+      dl.created_at,
+      dl.id
+    for update skip locked
+    limit p_limit
+  ), claimed as (
+    update public.delivery_ledger dl
+    set
+      state = 'claimed',
+      claim_token = gen_random_uuid(),
+      claimed_at = clock_timestamp(),
+      claim_expires_at = clock_timestamp() + interval '5 minutes',
+      attempt_count = dl.attempt_count + 1,
+      last_attempt_at = clock_timestamp(),
+      next_attempt_at = null,
+      error_code = null,
+      updated_at = clock_timestamp()
+    from picked
+    where dl.id = picked.id
+      and dl.kind = 'weekly_newsletter'
+    returning
+      dl.id,
+      dl.user_id,
+      dl.kind,
+      dl.delivery_key,
+      dl.scheduled_for,
+      dl.claim_token
+  )
+  select
+    claimed.id,
+    claimed.user_id,
+    claimed.kind,
+    claimed.delivery_key,
+    claimed.scheduled_for,
+    claimed.claim_token
+  from claimed;
+end;
+$$;
+
+
+-- The historical all-kind RPC remains for migration/test provenance only.
+-- No application role, including service_role, can execute it after this migration.
+revoke all privileges
+on function public.claim_delivery_jobs(timestamptz, integer)
+from public, anon, authenticated, service_role;
+
+revoke all privileges
+on function public.claim_daily_delivery_jobs(integer)
+from public, anon, authenticated, service_role;
+
+revoke all privileges
+on function public.claim_weekly_delivery_jobs(integer)
+from public, anon, authenticated, service_role;
+
+grant execute
+on function public.claim_daily_delivery_jobs(integer)
+to service_role;
+
+grant execute
+on function public.claim_weekly_delivery_jobs(integer)
+to service_role;
+
+comment on function public.claim_daily_delivery_jobs(integer)
+  is 'Service-role invoker RPC restricted to daily_reminder jobs.';
+comment on function public.claim_weekly_delivery_jobs(integer)
+  is 'Service-role invoker RPC restricted to weekly_newsletter jobs.';
 
 notify pgrst, 'reload schema';
 commit;

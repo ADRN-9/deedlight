@@ -1,6 +1,7 @@
 import { parseDeliveryRuntimeConfig } from "./config.ts";
 import { createResendTransport } from "./resend-transport.ts";
 import { processClaimedDelivery } from "./run-delivery.ts";
+import type { DeliveryKind } from "./types.ts";
 import {
   createSupabaseDeliveryRuntime,
   WeeklyDeliveryCapacityError,
@@ -22,6 +23,10 @@ export function deliveryScheduleKind(cron: string): "daily" | "weekly" | null {
   if (cron === DAILY_DELIVERY_CRON) return "daily";
   if (cron === WEEKLY_DELIVERY_CRON) return "weekly";
   return null;
+}
+
+export function weeklyDeliveryScheduleEnabled(env: Record<string, string | undefined>): boolean {
+  return env.WEEKLY_DELIVERY_ENABLED === "true";
 }
 
 export type DeliverySchedulerSummary = {
@@ -94,6 +99,12 @@ export async function runScheduledDelivery(
     return summary;
   }
 
+  if (scheduleKind === "weekly" && !weeklyDeliveryScheduleEnabled(env)) {
+    summary.ignored = true;
+    console.info("Weekly Goodness scheduler held", { reason: "weekly_delivery_not_approved" });
+    return summary;
+  }
+
   const scheduledAt = new Date(input.scheduledTime);
   if (Number.isNaN(scheduledAt.getTime())) {
     throw new Error("Scheduled delivery timestamp is invalid.");
@@ -119,7 +130,11 @@ export async function runScheduledDelivery(
     );
   }
 
-  const jobs = await runtime.claim(deliveryClaimBatchSize(config.batchSize));
+  const expectedKind: DeliveryKind = scheduleKind === "daily" ? "daily_reminder" : "weekly_newsletter";
+  const jobs = await runtime.claim(expectedKind, deliveryClaimBatchSize(config.batchSize));
+  if (jobs.some((job) => job.kind !== expectedKind)) {
+    throw new Error("Delivery claim returned a job outside the scheduled delivery kind.");
+  }
   summary.claimed = jobs.length;
 
   for (const job of jobs) {

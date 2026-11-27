@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { gitBlobSha1, validateInventory } from "./verify-migration-inventory-aggregate.mjs";
 
 const PROJECT_REF = "xaipiovflxomcbfwtwmu";
-const INVENTORY_BLOB_SHA1 = "95d514a0bd97ff448c9507252eb1f5e69a507442";
+const INVENTORY_BLOB_SHA1 = "4e63f31368d446e905f4f44565be73337c7188fb";
 const MAX_EVIDENCE_AGE_MS = 24 * 60 * 60 * 1000;
 const PROVISIONED_TRUST_ROOTS_SHA256 = process.env.DEEDLIGHT_MIGRATION_TRUST_ROOTS_SHA256;
 const CATEGORIES = ["schema", "privileges", "ownership", "routines", "dataTransformations", "backfills", "dependencies", "preconditions", "postconditions"];
@@ -494,7 +494,7 @@ function validateMapping(mapping, manifest, source, problems) {
     result.set(item.path, flattened);
   }
   if (byPath.size !== manifest.migrations.length || manifest.migrations.some((item) => !byPath.has(item.path))) {
-    problems.push("mapping path set does not exactly match the pinned 39-file inventory");
+    problems.push("mapping path set does not exactly match the pinned 40-file inventory");
   }
   return result;
 }

@@ -3,6 +3,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { EnabledDeliveryRuntimeConfig } from "./config.ts";
 import type {
   AuthorizedRecipient,
+  DeliveryKind,
   ClaimedDeliveryJob,
   DeliveryGateway,
   DeliveryRecipientResolver,
@@ -44,7 +45,7 @@ function isAuthorizedWeeklyCapacityError(error: unknown): boolean {
     && WEEKLY_CAPACITY_MESSAGES.has(candidate.message);
 }
 
-function parseClaimedJob(row: Record<string, unknown>): ClaimedDeliveryJob {
+function parseClaimedJob(row: Record<string, unknown>, expectedKind: DeliveryKind): ClaimedDeliveryJob {
   const jobId = typeof row.job_id === "string" ? row.job_id : "";
   const userId = typeof row.user_id === "string" ? row.user_id : "";
   const kind = row.kind;
@@ -56,6 +57,7 @@ function parseClaimedJob(row: Record<string, unknown>): ClaimedDeliveryJob {
     !jobId ||
     !userId ||
     (kind !== "daily_reminder" && kind !== "weekly_newsletter") ||
+    kind !== expectedKind ||
     !deliveryKey ||
     !scheduledFor ||
     !claimToken
@@ -112,12 +114,14 @@ export class SupabaseDeliveryRuntime implements DeliveryGateway, DeliveryRecipie
     return data;
   }
 
-  async claim(limit: number): Promise<ClaimedDeliveryJob[]> {
-    const { data, error } = await this.client.rpc("claim_delivery_jobs", {
-      p_limit: limit,
-    });
+  async claim(kind: DeliveryKind, limit: number): Promise<ClaimedDeliveryJob[]> {
+    if (kind !== "daily_reminder" && kind !== "weekly_newsletter") fail("claim jobs");
+    const rpc = kind === "daily_reminder"
+      ? "claim_daily_delivery_jobs"
+      : "claim_weekly_delivery_jobs";
+    const { data, error } = await this.client.rpc(rpc, { p_limit: limit });
     if (error || !Array.isArray(data)) fail("claim jobs");
-    return data.map((row) => parseClaimedJob(row as Record<string, unknown>));
+    return data.map((row) => parseClaimedJob(row as Record<string, unknown>, kind));
   }
 
   async authorize(job: ClaimedDeliveryJob): Promise<boolean> {

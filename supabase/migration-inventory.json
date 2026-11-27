@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "expectedMigrationCount": 39,
-  "expectedUniqueVersionCount": 38,
+  "expectedMigrationCount": 40,
+  "expectedUniqueVersionCount": 39,
   "intentionalDuplicateVersionGroups": {
     "202607260007": [
       "202607260007_sprint6_daily_deedlight.sql",
@@ -242,6 +242,12 @@
       "version": "202611240038",
       "blobSha1": "38951751fc5abeb79b75c4e37e55da01262a18b8",
       "byteLength": 43748
+    },
+    {
+      "path": "supabase/migrations/202611260039_delivery_kind_scoped_claims.sql",
+      "version": "202611260039",
+      "blobSha1": "39eba637aa9f93fa77855f82f3fcc27b580b25da",
+      "byteLength": 6177
     }
   ],
   "bootstrapSeed": {

@@ -66,6 +66,8 @@ expect(worker.includes("async scheduled"), "custom worker must expose only the s
 expect(!worker.includes("/api/"), "scheduler must not add a browser-accessible service-role route");
 expect(scheduler.includes("DAILY_DELIVERY_CRON"), "daily scheduler path is missing");
 expect(scheduler.includes("WEEKLY_DELIVERY_CRON"), "weekly scheduler path is missing");
+expect(scheduler.includes('env.WEEKLY_DELIVERY_ENABLED === "true"'), "Weekly scheduling must require its own explicit opt-in");
+expect(scheduler.includes('scheduleKind === "weekly" && !weeklyDeliveryScheduleEnabled(env)'), "Weekly schedule must stop before runtime creation unless explicitly enabled");
 
 const wranglerConfig = JSON.parse(wrangler);
 expect(wranglerConfig.main === "./custom-worker.ts", "Wrangler must use the custom worker entrypoint");

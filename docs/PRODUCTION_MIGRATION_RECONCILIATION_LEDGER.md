@@ -315,3 +315,16 @@ Before any future Production reconciliation mutation: (1) DBA records a supporte
 ## Classification rules
 
 Allowed states: Applied and verified; Schema represented but history ambiguous; Verified unapplied; Partial or drifted; Unknown. Every migration starts Unknown. A catalog fingerprint alone does not prove the SQL file executed; a history row alone does not prove every effect. Require exact source blob, signed read-only catalog snapshot, exact history identity, independently reviewed semantic map, execution identity/time where available, and migration-specific pre/postconditions. Migration 007 ambiguity is never auto-resolved; Migration 018 remains Unknown without contemporaneous prerequisite evidence.
+
+## C525 supplemental source delta — Migration 039 (not Production evidence)
+
+This section extends the historical C517 39-file baseline above without rewriting its original source fingerprints or classifications.
+
+- Current branch inventory: `supabase/migration-inventory.json`, blob SHA-1 `4e63f31368d446e905f4f44565be73337c7188fb`.
+- Current inventory size: 40 distinct SQL files, 39 unique version prefixes; the historical duplicate 007 pair remains unchanged.
+- New source: `supabase/migrations/202611260039_delivery_kind_scoped_claims.sql`.
+- Source blob SHA-1: `39eba637aa9f93fa77855f82f3fcc27b580b25da`; 6,177 bytes.
+- Semantics: introduces service-role invoker RPCs for Daily `daily_reminder` and Weekly `weekly_newsletter` claims. Each uses literal kind predicates in lease-expiry cleanup, candidate selection and final row update; the old unrestricted claim RPC is revoked from application roles.
+- The SQL Editor aggregate and pinned inventory are updated to include this exact source.
+
+**Production classification remains NOT COLLECTED / UNCLASSIFIED.** Migration 039 has not been applied to Production, no Production migration-history record has been changed, and no Production catalog/history evidence has been collected for this migration. Do not infer execution from source presence, CI execution or SQL aggregate inclusion. Future reconciliation requires the same signed read-only catalog/history evidence and independent semantic review as every other migration.
