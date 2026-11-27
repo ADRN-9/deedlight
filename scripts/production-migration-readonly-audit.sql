@@ -485,7 +485,7 @@ BEGIN
     SELECT 1 FROM supabase_migrations.schema_migrations h
     WHERE h.version !~ '^[0-9]{12}$'
       OR h.name = '__DEEDLIGHT_SQL_NULL_V1__'
-      OR (h.name IS NOT NULL AND h.name <> '' AND h.name <> (pg_catalog.chr(92) || 'N') AND h.name !~ '^[A-Za-z0-9_-]+$')
+      OR (h.name IS NOT NULL AND pg_catalog.length(h.name) > 0 AND h.name <> (pg_catalog.chr(92) || 'N') AND h.name !~ '^[A-Za-z0-9_-]+$')
   ) THEN
     RAISE EXCEPTION 'Migration-history contains invalid version or migration-name metadata.';
   END IF;

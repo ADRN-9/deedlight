@@ -88,7 +88,7 @@ function validateProjectionRows(p) {
   const roles=p.get("roles_v1"),roleNames=new Set();
   for (const row of roles) {
     if (!nonempty(row,[0,8]) || row.slice(1,8).some((v) => !bool(v)) || !/^-?(0|[1-9][0-9]*)$/.test(row[8])
-      || (row[9] !== "" && row[9] !== "infinity" && !/^\d{4}-\d{2}-\d{2}T/.test(row[9]))) fail("ROLES_PROJECTION_ROW_INVALID");
+      || (row[9] !== "" && row[9] !== "infinity" && row[9] !== "-infinity" && !/^\d{4}-\d{2}-\d{2}(?:T| )\d{2}:\d{2}:\d{2}/.test(row[9]))) fail("ROLES_PROJECTION_ROW_INVALID");
     if(roleNames.has(row[0]))fail("ROLE_IDENTITY_DUPLICATED");roleNames.add(row[0]);
   }
   const memberships=new Set();
