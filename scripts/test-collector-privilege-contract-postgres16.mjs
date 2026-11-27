@@ -1,0 +1,25 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { validateCollectorPrivilegeEvidence } from "./reconcile-migration-evidence.mjs";
+
+const evidence = JSON.parse(readFileSync(0, "utf8"));
+assert.ok(Array.isArray(evidence.inventoryObjects), "PostgreSQL privilege evidence lacks its inventory");
+assert.ok(evidence.databaseAuthority && typeof evidence.databaseAuthority === "object",
+  "PostgreSQL privilege evidence lacks database authority");
+const problems = validateCollectorPrivilegeEvidence(evidence.databaseAuthority, evidence.inventoryObjects);
+assert.deepEqual(problems, [], "actual PostgreSQL privileges violate the approved collector contract");
+
+const db = evidence.databaseAuthority;
+const appSchemas = db.schemaPrivileges.filter((row) => row.scope === "application_data");
+const historySchema = db.schemaPrivileges.find((row) => row.schema === "supabase_migrations");
+const appObjects = db.objectPrivileges.filter((row) => row.scope === "application_data");
+const historyTable = db.objectPrivileges.find((row) => row.identity === "supabase_migrations.schema_migrations");
+assert.ok(appSchemas.length > 0, "fixture must include an application schema");
+assert.ok(appSchemas.every((row) => row.privileges.length === 0),
+  "collector unexpectedly has effective application-schema privileges");
+assert.deepEqual(historySchema?.privileges, ["USAGE"]);
+assert.ok(appObjects.length > 0, "fixture must include application objects");
+assert.ok(appObjects.every((row) => row.privileges.length === 0),
+  "collector unexpectedly has effective application-object privileges");
+assert.deepEqual(historyTable?.privileges, ["SELECT"]);
+console.log("PASS: PostgreSQL-derived collector authority matches catalog_only_v1; application schemas/objects remain inaccessible");
