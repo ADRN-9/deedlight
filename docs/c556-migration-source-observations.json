@@ -2319,6 +2319,1133 @@
           "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
         }
       }
+    },
+    {
+      "path": "supabase/migrations/202608130015_sprint11_2_weekly_goodness.sql",
+      "blobSha1": "394c774032d8206c0b7a373640859c2a331667a9",
+      "byteLength": 8089,
+      "lineCount": 297,
+      "observations": {
+        "transformations": [
+          {
+            "line": 250,
+            "operation": "DELETE_FROM",
+            "targetCandidate": "public.weekly_goodness_features",
+            "sourceExcerpt": "delete from public.weekly_goodness_features"
+          },
+          {
+            "line": 266,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.weekly_goodness_features",
+            "sourceExcerpt": "insert into public.weekly_goodness_features ("
+          }
+        ],
+        "foreignKeyReferences": [
+          {
+            "line": 24,
+            "targetCandidate": "public.offerings",
+            "sourceExcerpt": "references public.offerings(id) on delete cascade,"
+          },
+          {
+            "line": 26,
+            "targetCandidate": "auth.users",
+            "sourceExcerpt": "references auth.users(id) on delete set null,"
+          }
+        ],
+        "guards": [
+          {
+            "line": 12,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create index if not exists reactions_created_offering_type_idx"
+          },
+          {
+            "line": 20,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create table if not exists public.weekly_goodness_features ("
+          },
+          {
+            "line": 22,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (extract(isodow from week_start) = 1),"
+          },
+          {
+            "line": 34,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop trigger if exists weekly_goodness_features_set_updated_at"
+          },
+          {
+            "line": 245,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Database-backed admin access is required.'"
+          },
+          {
+            "line": 256,
+            "kind": "existence_guard",
+            "sourceExcerpt": "if not exists ("
+          },
+          {
+            "line": 262,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Featured Light must be an approved public Offering.'"
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unsupported",
+          "reason": "Foreign-key reference candidates found, but prerequisite migration ownership and execution ordering are not established by the SQL line alone."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202608130016_sprint11_3_invitations_newsletter_foundation.sql",
+      "blobSha1": "8d68ed19859e1a820af52a43c110a38b6a460d48",
+      "byteLength": 12951,
+      "lineCount": 446,
+      "observations": {
+        "transformations": [
+          {
+            "line": 104,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.newsletter_preferences",
+            "sourceExcerpt": "insert into public.newsletter_preferences (user_id, weekly_enabled)"
+          },
+          {
+            "line": 192,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.invitation_links",
+            "sourceExcerpt": "insert into public.invitation_links (inviter_user_id, code)"
+          },
+          {
+            "line": 225,
+            "operation": "UPDATE",
+            "targetCandidate": "public.invitation_links",
+            "sourceExcerpt": "update public.invitation_links"
+          },
+          {
+            "line": 267,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.newsletter_preferences",
+            "sourceExcerpt": "insert into public.newsletter_preferences ("
+          },
+          {
+            "line": 339,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.invitation_acceptances",
+            "sourceExcerpt": "insert into public.invitation_acceptances ("
+          },
+          {
+            "line": 348,
+            "operation": "UPDATE",
+            "targetCandidate": "public.invitation_links",
+            "sourceExcerpt": "update public.invitation_links"
+          },
+          {
+            "line": 378,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.newsletter_preferences",
+            "sourceExcerpt": "insert into public.newsletter_preferences ("
+          }
+        ],
+        "foreignKeyReferences": [
+          {
+            "line": 13,
+            "targetCandidate": "auth.users",
+            "sourceExcerpt": "inviter_user_id uuid not null references auth.users(id) on delete cascade,"
+          },
+          {
+            "line": 54,
+            "targetCandidate": "public.invitation_links",
+            "sourceExcerpt": "invitation_id uuid not null references public.invitation_links(id) on delete cascade,"
+          },
+          {
+            "line": 55,
+            "targetCandidate": "auth.users",
+            "sourceExcerpt": "invited_user_id uuid not null unique references auth.users(id) on delete cascade,"
+          },
+          {
+            "line": 70,
+            "targetCandidate": "auth.users",
+            "sourceExcerpt": "user_id uuid primary key references auth.users(id) on delete cascade,"
+          }
+        ],
+        "guards": [
+          {
+            "line": 9,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create extension if not exists pgcrypto;"
+          },
+          {
+            "line": 11,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create table if not exists public.invitation_links ("
+          },
+          {
+            "line": 14,
+            "kind": "check_constraint",
+            "sourceExcerpt": "code text not null unique check (code ~ '^[a-f0-9]{36}$'),"
+          },
+          {
+            "line": 15,
+            "kind": "check_constraint",
+            "sourceExcerpt": "accepted_count integer not null default 0 check (accepted_count >= 0),"
+          },
+          {
+            "line": 20,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (expires_at > created_at)"
+          },
+          {
+            "line": 23,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create index if not exists invitation_links_inviter_created_idx"
+          },
+          {
+            "line": 26,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create index if not exists invitation_links_active_lookup_idx"
+          },
+          {
+            "line": 29,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop trigger if exists invitation_links_set_updated_at"
+          },
+          {
+            "line": 38,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"invitation_links_select_own\""
+          },
+          {
+            "line": 52,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create table if not exists public.invitation_acceptances ("
+          },
+          {
+            "line": 59,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create index if not exists invitation_acceptances_invitation_idx"
+          },
+          {
+            "line": 69,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create table if not exists public.newsletter_preferences ("
+          },
+          {
+            "line": 74,
+            "kind": "check_constraint",
+            "sourceExcerpt": "consent_source text check ("
+          },
+          {
+            "line": 81,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop trigger if exists newsletter_preferences_set_updated_at"
+          },
+          {
+            "line": 90,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"newsletter_preferences_select_own\""
+          },
+          {
+            "line": 150,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Authentication is required.' using errcode = '42501';"
+          },
+          {
+            "line": 153,
+            "kind": "existence_guard",
+            "sourceExcerpt": "if not exists ("
+          },
+          {
+            "line": 159,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'An active member account is required to create invitation links.'"
+          },
+          {
+            "line": 186,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Please wait before creating another invitation link.'"
+          },
+          {
+            "line": 222,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Authentication is required.' using errcode = '42501';"
+          },
+          {
+            "line": 254,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Authentication is required.' using errcode = '42501';"
+          },
+          {
+            "line": 263,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Newsletter consent cannot be enabled while community access is suspended.'"
+          },
+          {
+            "line": 433,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop trigger if exists on_auth_user_growth_insert on auth.users;"
+          },
+          {
+            "line": 438,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop trigger if exists on_auth_user_growth_email_confirmed on auth.users;"
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unsupported",
+          "reason": "Foreign-key reference candidates found, but prerequisite migration ownership and execution ordering are not established by the SQL line alone."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202608130017_sprint12_1_offering_ownership_engagement.sql",
+      "blobSha1": "bc23b12fe454c1f49b096fd2c7199e3a2aea5bb4",
+      "byteLength": 11901,
+      "lineCount": 452,
+      "observations": {
+        "transformations": [
+          {
+            "line": 293,
+            "operation": "UPDATE",
+            "targetCandidate": "public.offerings",
+            "sourceExcerpt": "update public.offerings"
+          },
+          {
+            "line": 366,
+            "operation": "UPDATE",
+            "targetCandidate": "public.offerings",
+            "sourceExcerpt": "update public.offerings"
+          },
+          {
+            "line": 429,
+            "operation": "UPDATE",
+            "targetCandidate": "public.offerings",
+            "sourceExcerpt": "update public.offerings"
+          }
+        ],
+        "foreignKeyReferences": [],
+        "guards": [
+          {
+            "line": 12,
+            "kind": "existence_guard",
+            "sourceExcerpt": "add column if not exists owner_removed_at timestamptz;"
+          },
+          {
+            "line": 14,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create index if not exists offerings_owner_removed_idx"
+          },
+          {
+            "line": 21,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"offerings_user_insert_pending\""
+          },
+          {
+            "line": 28,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check ("
+          },
+          {
+            "line": 40,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"offerings_update_own_or_admin\""
+          },
+          {
+            "line": 61,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check ("
+          },
+          {
+            "line": 76,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"offerings_user_update_safe_statuses\""
+          },
+          {
+            "line": 94,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check ("
+          },
+          {
+            "line": 111,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists"
+          },
+          {
+            "line": 115,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists"
+          },
+          {
+            "line": 124,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check ("
+          },
+          {
+            "line": 167,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"reactions_insert_own_on_approved\""
+          },
+          {
+            "line": 174,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check ("
+          },
+          {
+            "line": 221,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Authentication is required.' using errcode = '42501';"
+          },
+          {
+            "line": 224,
+            "kind": "existence_guard",
+            "sourceExcerpt": "if not exists ("
+          },
+          {
+            "line": 230,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'An active member profile is required.' using errcode = '42501';"
+          },
+          {
+            "line": 234,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Offering is required.' using errcode = '22023';"
+          },
+          {
+            "line": 245,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid Offering type.' using errcode = '22023';"
+          },
+          {
+            "line": 249,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Title must be between 4 and 120 characters.' using errcode = '22023';"
+          },
+          {
+            "line": 253,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Offering body must be between 20 and 5000 characters.' using errcode = '22023';"
+          },
+          {
+            "line": 257,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Small deed must be 500 characters or fewer.' using errcode = '22023';"
+          },
+          {
+            "line": 261,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Media URL is too long.' using errcode = '22023';"
+          },
+          {
+            "line": 265,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Media URL must use http or https.' using errcode = '22023';"
+          },
+          {
+            "line": 271,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Media type is invalid.' using errcode = '22023';"
+          },
+          {
+            "line": 282,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Offering was not found.' using errcode = '42501';"
+          },
+          {
+            "line": 286,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Rejected Offerings cannot be resubmitted from the member editor.' using errcode = '42501';"
+          },
+          {
+            "line": 290,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Moderator-hidden Offerings cannot be changed from the member editor.' using errcode = '42501';"
+          },
+          {
+            "line": 344,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Authentication is required.' using errcode = '42501';"
+          },
+          {
+            "line": 355,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Offering was not found.' using errcode = '42501';"
+          },
+          {
+            "line": 359,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Moderator-hidden Offerings cannot be changed from the member controls.' using errcode = '42501';"
+          },
+          {
+            "line": 402,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Authentication is required.' using errcode = '42501';"
+          },
+          {
+            "line": 405,
+            "kind": "existence_guard",
+            "sourceExcerpt": "if not exists ("
+          },
+          {
+            "line": 411,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'An active member profile is required.' using errcode = '42501';"
+          },
+          {
+            "line": 422,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Offering was not found.' using errcode = '42501';"
+          },
+          {
+            "line": 426,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Only an Offering you removed can be restored.' using errcode = '42501';"
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unknown",
+          "reason": "No REFERENCES candidate found; view, routine and procedural dependencies remain unparsed."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202608140018_sprint12_1_owner_removal_guard_hotfix.sql",
+      "blobSha1": "0ea7eaf04d5c99e4c5a25893aae7694affdd44bc",
+      "byteLength": 2780,
+      "lineCount": 125,
+      "observations": {
+        "transformations": [
+          {
+            "line": 103,
+            "operation": "UPDATE",
+            "targetCandidate": "public.offerings",
+            "sourceExcerpt": "update public.offerings"
+          }
+        ],
+        "foreignKeyReferences": [],
+        "guards": [
+          {
+            "line": 12,
+            "kind": "existence_guard",
+            "sourceExcerpt": "if not exists ("
+          },
+          {
+            "line": 19,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception"
+          },
+          {
+            "line": 26,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception"
+          },
+          {
+            "line": 36,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception"
+          },
+          {
+            "line": 44,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop constraint if exists offerings_owner_removed_hidden;"
+          },
+          {
+            "line": 48,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check ("
+          },
+          {
+            "line": 66,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception"
+          },
+          {
+            "line": 79,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception"
+          },
+          {
+            "line": 85,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception"
+          },
+          {
+            "line": 94,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception"
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unknown",
+          "reason": "No REFERENCES candidate found; view, routine and procedural dependencies remain unparsed."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202609230019_sprint12_2_gentle_delivery_foundation.sql",
+      "blobSha1": "1403b9324e786a2b724176875a70ffce92961d9b",
+      "byteLength": 15845,
+      "lineCount": 580,
+      "observations": {
+        "transformations": [
+          {
+            "line": 54,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.daily_reminder_preferences",
+            "sourceExcerpt": "insert into public.daily_reminder_preferences ("
+          },
+          {
+            "line": 196,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "insert into public.delivery_ledger ("
+          },
+          {
+            "line": 282,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "insert into public.delivery_ledger ("
+          },
+          {
+            "line": 352,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger dl"
+          },
+          {
+            "line": 463,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger"
+          },
+          {
+            "line": 506,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger"
+          },
+          {
+            "line": 551,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger"
+          }
+        ],
+        "foreignKeyReferences": [
+          {
+            "line": 96,
+            "targetCandidate": "auth.users",
+            "sourceExcerpt": "user_id uuid not null references auth.users(id) on delete cascade,"
+          }
+        ],
+        "guards": [
+          {
+            "line": 27,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Authentication is required.' using errcode = '42501';"
+          },
+          {
+            "line": 31,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'A reminder time is required.' using errcode = '22023';"
+          },
+          {
+            "line": 41,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'A valid IANA timezone is required.' using errcode = '22023';"
+          },
+          {
+            "line": 50,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Reminder preferences cannot be enabled while community access is suspended.'"
+          },
+          {
+            "line": 94,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create table if not exists public.delivery_ledger ("
+          },
+          {
+            "line": 98,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (kind in ('daily_reminder', 'weekly_newsletter')),"
+          },
+          {
+            "line": 100,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (char_length(delivery_key) between 1 and 80),"
+          },
+          {
+            "line": 102,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (state in ('queued', 'claimed', 'cancelled', 'sent', 'failed')),"
+          },
+          {
+            "line": 110,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check ("
+          },
+          {
+            "line": 115,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check ("
+          },
+          {
+            "line": 124,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create index if not exists delivery_ledger_ready_idx"
+          },
+          {
+            "line": 127,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create index if not exists delivery_ledger_user_idx"
+          },
+          {
+            "line": 132,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop trigger if exists delivery_ledger_set_updated_at"
+          },
+          {
+            "line": 165,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'A scheduler timestamp is required.' using errcode = '22023';"
+          },
+          {
+            "line": 169,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'p_limit must be between 1 and 5000.' using errcode = '22023';"
+          },
+          {
+            "line": 247,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'p_week_start must be a Monday.' using errcode = '22023';"
+          },
+          {
+            "line": 251,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'A scheduled timestamp is required.' using errcode = '22023';"
+          },
+          {
+            "line": 255,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'p_limit must be between 1 and 10000.' using errcode = '22023';"
+          },
+          {
+            "line": 258,
+            "kind": "existence_guard",
+            "sourceExcerpt": "if not exists ("
+          },
+          {
+            "line": 263,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Weekly Goodness issue has not been explicitly curated.'"
+          },
+          {
+            "line": 335,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'A claim timestamp is required.' using errcode = '22023';"
+          },
+          {
+            "line": 339,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'p_limit must be between 1 and 1000.' using errcode = '22023';"
+          },
+          {
+            "line": 407,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'A job ID and claim token are required.' using errcode = '22023';"
+          },
+          {
+            "line": 418,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery claim is not authorized.' using errcode = '42501';"
+          },
+          {
+            "line": 459,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Unsupported delivery kind.' using errcode = '22023';"
+          },
+          {
+            "line": 503,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Provider result identifier is too long.' using errcode = '22023';"
+          },
+          {
+            "line": 518,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery claim is not authorized.' using errcode = '42501';"
+          },
+          {
+            "line": 548,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'A bounded error code is required.' using errcode = '22023';"
+          },
+          {
+            "line": 562,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery claim is not authorized.' using errcode = '42501';"
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unsupported",
+          "reason": "Foreign-key reference candidates found, but prerequisite migration ownership and execution ordering are not established by the SQL line alone."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202609230020_delivery_reliability_hardening.sql",
+      "blobSha1": "554615da3d15fc4c0d395691103d3be5676856fa",
+      "byteLength": 13642,
+      "lineCount": 492,
+      "observations": {
+        "transformations": [
+          {
+            "line": 62,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger"
+          },
+          {
+            "line": 125,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger dl"
+          },
+          {
+            "line": 161,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger dl"
+          },
+          {
+            "line": 278,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger"
+          },
+          {
+            "line": 352,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger"
+          },
+          {
+            "line": 366,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger"
+          },
+          {
+            "line": 408,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger"
+          },
+          {
+            "line": 458,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger"
+          }
+        ],
+        "foreignKeyReferences": [],
+        "guards": [
+          {
+            "line": 13,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery reliability hardening requires the Sprint 12.2 delivery ledger.';"
+          },
+          {
+            "line": 20,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery reliability hardening requires the complete Sprint 12.2 RPC baseline.';"
+          },
+          {
+            "line": 23,
+            "kind": "existence_guard",
+            "sourceExcerpt": "if exists ("
+          },
+          {
+            "line": 38,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery reliability hardening is already or partially applied.';"
+          },
+          {
+            "line": 41,
+            "kind": "existence_guard",
+            "sourceExcerpt": "if exists ("
+          },
+          {
+            "line": 46,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery reliability hardening refuses to migrate live claimed jobs.';"
+          },
+          {
+            "line": 70,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (attempt_count between 0 and 5),"
+          },
+          {
+            "line": 72,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check ("
+          },
+          {
+            "line": 118,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'A claim timestamp is required.' using errcode = '22023';"
+          },
+          {
+            "line": 122,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'p_limit must be between 1 and 1000.' using errcode = '22023';"
+          },
+          {
+            "line": 220,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'A job ID and claim token are required.' using errcode = '22023';"
+          },
+          {
+            "line": 233,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery claim is not authorized.' using errcode = '42501';"
+          },
+          {
+            "line": 274,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Unsupported delivery kind.' using errcode = '22023';"
+          },
+          {
+            "line": 325,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'A job ID, claim token, and retry time are required.' using errcode = '22023';"
+          },
+          {
+            "line": 330,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'A bounded error code is required.' using errcode = '22023';"
+          },
+          {
+            "line": 335,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Retry time must be within the next 24 hours.' using errcode = '22023';"
+          },
+          {
+            "line": 348,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery claim is not authorized.' using errcode = '42501';"
+          },
+          {
+            "line": 405,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Provider result identifier is too long.' using errcode = '22023';"
+          },
+          {
+            "line": 425,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery claim is not authorized.' using errcode = '42501';"
+          },
+          {
+            "line": 455,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'A bounded error code is required.' using errcode = '22023';"
+          },
+          {
+            "line": 474,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery claim is not authorized.' using errcode = '42501';"
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unknown",
+          "reason": "No REFERENCES candidate found; view, routine and procedural dependencies remain unparsed."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202609230021_gentle_delivery_transport.sql",
+      "blobSha1": "e50a06bd3a5ed386c54e789435c64b2bb4a54ab9",
+      "byteLength": 3417,
+      "lineCount": 123,
+      "observations": {
+        "transformations": [
+          {
+            "line": 49,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger"
+          }
+        ],
+        "foreignKeyReferences": [],
+        "guards": [
+          {
+            "line": 15,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery reliability migration 020 must be applied first.';"
+          },
+          {
+            "line": 18,
+            "kind": "existence_guard",
+            "sourceExcerpt": "if exists ("
+          },
+          {
+            "line": 25,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Gentle delivery transport migration appears partially applied.';"
+          },
+          {
+            "line": 46,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'A job ID and claim token are required.' using errcode = '22023';"
+          },
+          {
+            "line": 60,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery claim is not authorized.' using errcode = '42501';"
+          },
+          {
+            "line": 88,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'A scheduler timestamp is required.' using errcode = '22023';"
+          },
+          {
+            "line": 92,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'p_limit must be between 1 and 10000.' using errcode = '22023';"
+          },
+          {
+            "line": 100,
+            "kind": "existence_guard",
+            "sourceExcerpt": "if not exists ("
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unknown",
+          "reason": "No REFERENCES candidate found; view, routine and procedural dependencies remain unparsed."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
     }
   ]
 }
