@@ -20,6 +20,7 @@ import {
   collect,
   sha256,
   SQL_SHA256,
+  SQL_PROJECTIONS,
 } from "./collect-production-migration-evidence.mjs";
 
 function serializeCsvField(value) {
@@ -59,19 +60,37 @@ function completeReceipt(csv,validation=validateSqlOutput(csv)){
 
 function validCsv() {
   const rows = [];
-  for (let i = 0; i < 13; i += 1) {
-    rows.push(["projection_" + i, "value"], ["sample", String(i)]);
+  for (const projection of SQL_PROJECTIONS) {
+    rows.push(projection.columns);
+    if (projection.id === "identity_v1") {
+      rows.push(["xaipiovflxomcbfwtwmu", "c".repeat(40), "deedlight_migration_order_test",
+        "deedlight_catalog_auditor", "deedlight_catalog_auditor", "16.2", "127.0.0.1", "5432",
+        "2026-01-01T00:00:00.000Z", "on"]);
+    } else if (projection.id === "migration_history_v1") {
+      rows.push(["202611240037", "migration_037_fixture", "1"]);
+      rows.push(["202611240038", "", ""]);
+    } else if (projection.id === "database_acl_v1") {
+      rows.push(["database_acl_v1", "2", "1", "db_one", "t", "f", "10", "postgres", "t", "built_in_default", "[]"]);
+      rows.push(["database_acl_v1", "2", "2", "db_two", "t", "t", "10", "postgres", "f", "explicit", "[]"]);
+    }
   }
-  rows.push(
-    ["version","name","recordedStatementCount"],
-    ["202611240037","migration_037_fixture","1"],
-    ["202611240038","",""],
-    ["evidence_projection","database_count","database_oid","database_name","allows_connections","is_template","owner_oid","owner_name","datacl_was_null","acl_expansion_source","expanded_acl_edges"],
-    ["database_acl_v1","2","1","db_one","t","f","10","postgres","t","built_in_default","[]"],
-    ["database_acl_v1","2","2","db_two","t","t","10","postgres","f","explicit","[]"],
-    ["collector_transaction_closed"],
-    ["t"],
-  );
+  rows.push(["collector_transaction_closed"], ["t"]);
+  return serializeCsv(rows);
+}
+
+function removeProjection(csv, projectionId) {
+  const rows = parseCsv(csv);
+  const index = SQL_PROJECTIONS.findIndex((projection) => projection.id === projectionId);
+  const header = SQL_PROJECTIONS[index].columns;
+  const start = rows.findIndex((row) => row.length === header.length && row.every((cell, i) => cell === header[i]));
+  assert.notEqual(start, -1);
+  let end = rows.length;
+  for (let i = start + 1; i < rows.length; i += 1) {
+    if (SQL_PROJECTIONS.some((projection) => projection.columns.length === rows[i].length &&
+      projection.columns.every((cell, j) => cell === rows[i][j]))) { end = i; break; }
+    if (rows[i].length === 1 && rows[i][0] === "collector_transaction_closed") { end = i; break; }
+  }
+  rows.splice(start, end - start);
   return serializeCsv(rows);
 }
 
@@ -99,7 +118,78 @@ test("valid complete output includes the complete database_acl_v1 projection and
     { version: "202611240038", name: null, recordedStatementCount: null },
   ]);
   assert.equal(result.transactionClosed, true);
-  assert.ok(result.resultRows.length >= 15);
+  assert.equal(result.projections.length, SQL_PROJECTIONS.length);\n  assert.deepEqual(result.projections.map((projection) => projection.id), SQL_PROJECTIONS.map((projection) => projection.id));
+});
+
+test("every mandatory SQL projection is present exactly once in the pinned order", () => {
+  const result = validateSqlOutput(validCsv());
+  assert.deepEqual(result.projections.map(({ id }) => id), SQL_PROJECTIONS.map(({ id }) => id));
+  assert.equal(result.projections[1].rowCount, 0);
+  assert.equal(result.projections[7].rowCount, 0);
+  assert.equal(result.projections[17].rowCount, 2);
+  assert.equal(result.projections[18].rowCount, 2);
+});
+
+test("each mandatory SQL projection is independently required", () => {
+  for (const projection of SQL_PROJECTIONS) {
+    const csv = removeProjection(validCsv(), projection.id);
+    assert.throws(() => validateSqlOutput(csv), CollectorError, projection.id);
+  }
+});
+
+test("duplicate and unexpected SQL projections fail closed", () => {
+  const duplicate = parseCsv(validCsv());
+  const firstHeader = SQL_PROJECTIONS[0].columns;
+  const firstIndex = duplicate.findIndex((row) => row.length === firstHeader.length &&
+    row.every((cell, index) => cell === firstHeader[index]));
+  duplicate.splice(firstIndex + 1, 0, firstHeader);
+  assert.throws(() => validateSqlOutput(serializeCsv(duplicate)),
+    (error) => error.code === "SQL_PROJECTION_DUPLICATED");
+
+  const unexpected = parseCsv(validCsv());
+  const aclIndex = unexpected.findIndex((row) => row[0] === "evidence_projection");
+  unexpected.splice(aclIndex, 0, ["schema_name", "table_name", "unexpected_column",
+    "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth", "eleventh"]);
+  assert.throws(() => validateSqlOutput(serializeCsv(unexpected)), CollectorError);
+});
+
+test("incorrect mandatory projection column structures fail closed", () => {
+  for (const projection of SQL_PROJECTIONS) {
+    const rows = parseCsv(validCsv());
+    const index = rows.findIndex((row) => row.length === projection.columns.length &&
+      row.every((cell, column) => cell === projection.columns[column]));
+    rows[index][0] = "unexpected_column_name";
+    assert.throws(() => validateSqlOutput(serializeCsv(rows)), CollectorError, projection.id);
+  }
+});
+
+test("all contract-permitted empty projections remain valid", () => {
+  const rows = [];
+  for (const projection of SQL_PROJECTIONS) {
+    rows.push(projection.columns);
+    if (projection.id === "identity_v1") rows.push(["xaipiovflxomcbfwtwmu", "c".repeat(40),
+      "deedlight_migration_order_test", "deedlight_catalog_auditor", "deedlight_catalog_auditor",
+      "16.2", "127.0.0.1", "5432", "2026-01-01T00:00:00.000Z", "on"]);
+    if (projection.id === "database_acl_v1") rows.push(["database_acl_v1", "1", "1", "db_one",
+      "t", "f", "10", "postgres", "t", "built_in_default", "[]"]);
+  }
+  rows.push(["collector_transaction_closed"], ["t"]);
+  const result = validateSqlOutput(serializeCsv(rows));
+  assert.equal(result.migrationHistoryRows.length, 0);
+  assert.ok(result.projections.filter((projection) =>
+    !["identity_v1", "database_acl_v1"].includes(projection.id)).every((projection) => projection.rowCount === 0));
+});
+
+test("truncated or malformed projection records fail closed", () => {
+  const rows = parseCsv(validCsv());
+  const relationHeader = SQL_PROJECTIONS.find((projection) => projection.id === "relations_v1").columns;
+  const relationIndex = rows.findIndex((row) => row.length === relationHeader.length &&
+    row.every((cell, index) => cell === relationHeader[index]));
+  rows.splice(relationIndex + 1, 0, ["short", "row"]);
+  assert.throws(() => validateSqlOutput(serializeCsv(rows)),
+    (error) => error.code === "SQL_PROJECTION_ROW_WIDTH_INVALID");
+  assert.throws(() => validateSqlOutput(validCsv().replace("database_acl_v1,2,1,", '"database_acl_v1,2,1,')),
+    CollectorError);
 });
 
 test("migration history projection uses the exact analyzer-native field contract", () => {
