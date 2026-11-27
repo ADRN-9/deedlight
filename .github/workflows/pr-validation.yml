@@ -394,8 +394,17 @@ jobs:
           [[ "$primary_addr" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]
           [[ "$redirect_addr" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]
           [[ "$primary_addr" != "$redirect_addr" ]]
-          echo "DEEDLIGHT_EXPECTED_SERVER_ADDR=$primary_addr" >> "$GITHUB_ENV"
-          echo "DEEDLIGHT_REDIRECT_SERVER_ADDR=$redirect_addr" >> "$GITHUB_ENV"
+          mapped_primary_addr="$(env -i PATH="$PATH" HOME="${HOME:-/tmp}" PGPASSWORD=postgres psql -X -h 127.0.0.1 -p 5432 -U postgres -d deedlight_migration_order_test -Atqc 'SELECT pg_catalog.host(pg_catalog.inet_server_addr())')"
+          mapped_redirect_addr="$(env -i PATH="$PATH" HOME="${HOME:-/tmp}" PGPASSWORD=postgres psql -X -h 127.0.0.1 -p 5433 -U postgres -d deedlight_migration_order_test -Atqc 'SELECT pg_catalog.host(pg_catalog.inet_server_addr())')"
+          [[ "$mapped_primary_addr" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]
+          [[ "$mapped_redirect_addr" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]
+          [[ "$mapped_primary_addr" != "$mapped_redirect_addr" ]]
+          if ! { [[ "$mapped_primary_addr" == "$primary_addr" && "$mapped_redirect_addr" == "$redirect_addr" ]] || [[ "$mapped_primary_addr" == "$redirect_addr" && "$mapped_redirect_addr" == "$primary_addr" ]]; }; then
+            echo "FAIL: mapped PostgreSQL listeners do not match the two authorized service containers" >&2
+            exit 1
+          fi
+          echo "DEEDLIGHT_EXPECTED_SERVER_ADDR=$mapped_primary_addr" >> "$GITHUB_ENV"
+          echo "DEEDLIGHT_REDIRECT_SERVER_ADDR=$mapped_redirect_addr" >> "$GITHUB_ENV"
 
       - name: Install pinned Supabase CLI for duplicate migration regression
         uses: supabase/setup-cli@v1
