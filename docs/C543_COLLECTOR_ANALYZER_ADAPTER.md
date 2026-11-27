@@ -24,21 +24,33 @@ The collector role must exist exactly once in `roles_v1`, satisfy the least-priv
 
 The `extensions_v1` projection is retained and validated, but the current analyzer catalog schema has no `extensions` kind. It is exposed as `PRESERVED_NOT_NORMALIZED`; catalog completeness remains false.
 
-## PR #23 versus PR #26 security contract
+## C545 — PR #23 catalog-only security contract compatibility
 
-The actual PR #23 analyzer requires:
+PR #26's reconciliation analyzer now enforces the same strict privilege contract used by PR #23. This is a compatibility correction to the analyzer, not a relaxation of the security policy.
+
+The executable `validateCollectorPrivilegeEvidence` contract requires:
+
 - `privilegeContractVersion: catalog_only_v1`.
 - Exact `requiredAccessSummary`: `DATABASE_CONNECT`, `SYSTEM_CATALOG_SELECT`, `MIGRATION_HISTORY_SCHEMA_USAGE`, `MIGRATION_HISTORY_SELECT`.
-- Database `CONNECT` only.
-- `USAGE` only on `supabase_migrations`; no application-schema `USAGE`.
-- `SELECT` only on `supabase_migrations.schema_migrations`; no application-data table or column `SELECT`.
-- Explicit `scope` on every schema, object and column privilege row.
-- Exact column-level privilege coverage, zero role memberships and zero owned application schemas.
+- Database privileges exactly `["CONNECT"]` and catalog privileges exactly `["SELECT"]`.
+- An exact schema identity set from the catalog inventory. Only `supabase_migrations` may have `scope: migration_history` and `["USAGE"]`; every application-data schema must have an empty privilege list.
+- An exact table/sequence/routine identity set. Only `supabase_migrations.schema_migrations` may have `scope: migration_history` and `["SELECT"]`; every application-data object must have an empty privilege list, and routines cannot receive execution privileges.
+- An exact column identity set, with one privilege row per inventoried column. Only columns belonging to `supabase_migrations.schema_migrations` may carry `["SELECT"]`; all application-data columns must have an empty privilege list.
+- Explicit scope on every schema, object and column privilege row. Missing, duplicated, unexpected, malformed, incomplete or broadened evidence is rejected. The legacy flattened `effectivePrivileges` representation is explicitly rejected.
 
-PR #23 is independently divergent from PR #26. Its pinned migration inventory SHA-1 is `95d514a0bd97ff448c9507252eb1f5e69a507442`, whereas PR #26 pins `4e63f31368d446e905f4f44565be73337c7188fb`. PR #23 also currently normalizes literal `NULL` and literal `\\N` migration names to SQL NULL and rejects empty names; that is incompatible with the C544 CSV-preservation contract and requires a separately controlled analyzer correction.\n\nThe PR #26 analyzer at the refreshed C543 base is not equivalent. It requires a flattened `effectivePrivileges` set, uses scope-less schema privilege rows, and its object-privilege expectation permits `SELECT` for every table object. Those assumptions do not preserve PR #23's application-data denial boundary. Do not treat PR #26 analyzer acceptance as PR #23 security acceptance or silently weaken PR #23.
+The adapter's `databaseAuthorityCandidate` now has this same scoped representation. The adapter test passes that candidate and its catalog inventory directly to the analyzer's exported validator. Separate signed-fixture tests exercise the analyzer's trust path and adversarially broaden database, schema, table and column privileges, alter the required-access summary or contract version, remove or duplicate column rows, and reintroduce the legacy flattened privilege field. These checks fail closed.
 
-The adapter emits a separately labelled, unauthenticated `databaseAuthorityCandidate` with the PR #23 scoped privilege shape. Executable tests assert the exact summary, database CONNECT, migration-schema USAGE, migration-history table/column SELECT, and application-data table/column denial. This candidate is not a signed `collectorAuthority`.
+### Inventory boundary — deliberately not copied from PR #23
 
+PR #23's source inventory is 39 entries with Git blob SHA-1 `95d514a0bd97ff448c9507252eb1f5e69a507442`. PR #26 retains its existing 40-entry inventory with Git blob SHA-1 `4e63f31368d446e905f4f44565be73337c7188fb`. The latter retains both distinct Migration 007 source files, includes Migration 039 (`202611260039_delivery_kind_scoped_claims.sql`), and preserves nondecreasing version ordering. Do not replace the PR #26 inventory with PR #23's older 39-entry manifest merely to align analyzer logic.
+
+### Authentication boundary
+
+The adapter emits `databaseAuthorityCandidate` as an unsigned, unauthenticated candidate. It does not emit `collectorAuthority`, signed query-execution provenance, or authenticated analyzer acceptance. A successful structural privilege-contract validation is not a signature, not an authorization decision, and not Production evidence acceptance. Independent evidence, migration-mapping and collector approvals with provisioned trust roots remain prerequisites.
+
+### Remaining limitations
+
+Data transformations, backfills, dependencies, preconditions and postconditions are not projected by the collector. Extensions remain preserved but unmapped because the analyzer catalog schema has no `extensions` kind. The candidate remains `UNSIGNED_NOT_ACCEPTED` / `NOT_ACCEPTED`; no evidence is signed and no Production reconciliation is authorized.
 ## Fingerprint boundaries
 
 | Input | Contract |
