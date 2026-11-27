@@ -177,6 +177,13 @@ crash_outcome="$(clean_psql --tuples-only --no-align --command \
   exit 1
 }
 printf 'C578_CRASH_RECOVERY execution_id=c5700000-0000-4000-8000-000000000027 status=%s\n' "$crash_outcome"
+crash_diagnostic="$(clean_psql --tuples-only --no-align --command \
+  "SELECT outcome_detail->>'category' || '|' || outcome_detail->>'diagnosticCode' FROM deedlight_execution_ledger.executions WHERE execution_id = 'c5700000-0000-4000-8000-000000000027'")"
+[[ "$crash_diagnostic" == "ambiguous_execution_outcome|D1008" ]] || {
+  echo "FAIL: interrupted execution lacks explicit ambiguous-outcome diagnostic ($crash_diagnostic)" >&2
+  exit 1
+}
+printf 'C585_AMBIGUOUS_OUTCOME_D1008 execution_id=c5700000-0000-4000-8000-000000000027\n'
 
 # The consumed approval and terminal UNKNOWN reservation must reject replay.
 clean_psql <<'SQL'
