@@ -166,29 +166,37 @@ CREATE TABLE IF NOT EXISTS deedlight_execution_ledger.test_effects (
   effect_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   effect_value text NOT NULL
 );
-WITH registered(query_id, query_sql, description) AS (
+WITH registered(query_id, query_sql, description, bundle_name) AS (
   VALUES
     ('test_effects_v1',
       'SELECT count(*)::bigint AS effect_count FROM deedlight_execution_ledger.test_effects',
-      'Disposable fixture effect count'),
+      'Disposable fixture effect count',
+      'test_effects_bundle_v1'),
     ('test_effects_nonempty_v1',
       'SELECT count(*)::bigint AS nonempty_effect_count FROM deedlight_execution_ledger.test_effects WHERE effect_value <> ''''',
-      'Disposable fixture non-empty effect count')
+      'Disposable fixture non-empty effect count',
+      'test_effects_bundle_v1'),
+    ('test_effects_v2',
+      'SELECT count(*)::bigint AS matching_effect_count FROM deedlight_execution_ledger.test_effects WHERE effect_value = ''snapshot mismatch fixture effect''',
+      'Disposable fixture independently versioned effect query',
+      'test_effects_bundle_v2')
 ), digested AS (
-  SELECT query_id, query_sql, description,
+  SELECT query_id, query_sql, description, bundle_name,
     pg_catalog.encode(deedlight_execution_ledger.digest(
       pg_catalog.convert_to(query_sql, 'UTF8'), 'sha256'), 'hex') AS query_sha256
   FROM registered
-), bundle AS (
-  SELECT pg_catalog.encode(deedlight_execution_ledger.digest(
-    pg_catalog.convert_to(pg_catalog.string_agg(query_id || ':' || query_sha256, E'\\n' ORDER BY query_id), 'UTF8'),
-    'sha256'), 'hex') AS query_bundle_digest
+), bundles AS (
+  SELECT bundle_name,
+    pg_catalog.encode(deedlight_execution_ledger.digest(
+      pg_catalog.convert_to(pg_catalog.string_agg(query_id || ':' || query_sha256, E'\\n' ORDER BY query_id), 'UTF8'),
+      'sha256'), 'hex') AS query_bundle_digest
   FROM digested
+  GROUP BY bundle_name
 )
 INSERT INTO deedlight_execution_ledger.observation_queries
   (query_id, query_sql, description, query_sha256, query_bundle_digest)
 SELECT d.query_id, d.query_sql, d.description, d.query_sha256, b.query_bundle_digest
-FROM digested d CROSS JOIN bundle b
+FROM digested d JOIN bundles b USING (bundle_name)
 ON CONFLICT (query_id) DO NOTHING;
 GRANT INSERT ON deedlight_execution_ledger.test_effects TO deedlight_ledger_runner;
 GRANT USAGE, SELECT ON SEQUENCE deedlight_execution_ledger.test_effects_effect_id_seq
