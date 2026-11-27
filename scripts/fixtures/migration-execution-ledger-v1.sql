@@ -777,6 +777,10 @@ CREATE TRIGGER query_bundle_manifests_append_only BEFORE UPDATE OR DELETE
 ON deedlight_execution_ledger.query_bundle_manifests
 FOR EACH ROW EXECUTE FUNCTION deedlight_execution_ledger.reject_ledger_mutation();
 
+DROP TRIGGER IF EXISTS query_bundle_manifests_append_only ON deedlight_execution_ledger.query_bundle_manifests;
+CREATE TRIGGER query_bundle_manifests_append_only BEFORE UPDATE OR DELETE
+ON deedlight_execution_ledger.query_bundle_manifests
+FOR EACH ROW EXECUTE FUNCTION deedlight_execution_ledger.reject_ledger_mutation();
 DROP TRIGGER IF EXISTS observation_queries_append_only ON deedlight_execution_ledger.observation_queries;
 CREATE TRIGGER observation_queries_append_only BEFORE UPDATE OR DELETE ON deedlight_execution_ledger.observation_queries
 FOR EACH ROW EXECUTE FUNCTION deedlight_execution_ledger.reject_ledger_mutation();
