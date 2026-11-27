@@ -353,7 +353,7 @@ $fn$;
 
 CREATE OR REPLACE FUNCTION deedlight_execution_ledger.current_database_identity()
 RETURNS jsonb
-LANGUAGE plpgsql STABLE SECURITY DEFINER
+LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, deedlight_execution_ledger
 AS $fn$
 DECLARE v_identity deedlight_execution_ledger.database_identity%ROWTYPE;
