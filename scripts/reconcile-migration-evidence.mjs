@@ -36,6 +36,9 @@ export function validateCollectorPrivilegeEvidence(db, inventoryObjects) {
   if (!db || db.privilegeContractVersion !== "catalog_only_v1") {
     problems.push("collector privilege evidence contract version is missing or unsupported");
   }
+  if (db && Object.hasOwn(db, "effectivePrivileges")) {
+    problems.push("legacy flattened effectivePrivileges is not accepted; scoped privilege evidence is required");
+  }
   if (!Array.isArray(db && db.requiredAccessSummary)
     || canonicalJson(db.requiredAccessSummary) !== canonicalJson(REQUIRED_ACCESS_SUMMARY)) {
     problems.push("collector required-access summary does not match the catalog-only privilege contract");
