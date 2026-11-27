@@ -49,7 +49,7 @@ function validateProjectionRows(p) {
     if (!bool(row.at(-1)) || !row.some((cell) => cell !== "")) fail("ACL_PROJECTION_ROW_INVALID");
     if (id === "relation_acl_v1" && !nonempty(row,[0,1,2,4,5,6])) fail("RELATION_ACL_ROW_INVALID");
     if (id === "schema_acl_v1" && !nonempty(row,[0,1,2,3,4])) fail("SCHEMA_ACL_ROW_INVALID");
-    if (id === "routine_acl_v1" && !nonempty(row,[0,1,2,3,4,5])) fail("ROUTINE_ACL_ROW_INVALID");
+    if (id === "routine_acl_v1" && !nonempty(row,[0,1,3,4,5])) fail("ROUTINE_ACL_ROW_INVALID");
     if (id === "sequence_acl_v1" && !nonempty(row,[0,1,2,3,4,5])) fail("SEQUENCE_ACL_ROW_INVALID");
     if (id === "default_privileges_v1" && !nonempty(row,[0,2,3,4,5])) fail("DEFAULT_PRIVILEGES_ROW_INVALID");
   }
