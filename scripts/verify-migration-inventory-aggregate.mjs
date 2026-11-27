@@ -13,7 +13,7 @@ const AGGREGATE_RELATIVE = "supabase/run_in_sql_editor_all.sql";
 const SEED_RELATIVE = "supabase/seed.sql";
 const COMPATIBILITY_RELATIVE = "supabase/bootstrap/migration_038_admin_compatibility.sql";
 const EXPECTED_COMPATIBILITY_BLOB_SHA1 = "92e93d88e23d3579f405de266cdf63cba0112472";
-const EXPECTED_INVENTORY_BLOB_SHA1 = "a18cf2c65eb595ecd143fbaa16e2d81badf8d1f8";
+const EXPECTED_INVENTORY_BLOB_SHA1 = "4e63f31368d446e905f4f44565be73337c7188fb";
 const EXPECTED_DUPLICATES = {
   "202607260007": [
     "202607260007_sprint6_daily_deedlight.sql",
