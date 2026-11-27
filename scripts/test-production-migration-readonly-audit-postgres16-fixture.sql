@@ -119,7 +119,7 @@ CREATE TABLE supabase_migrations.schema_migrations (
 INSERT INTO supabase_migrations.schema_migrations(version, statements, name)
 VALUES ('202611240038', ARRAY['SELECT 1'], 'fixture_migration');
 INSERT INTO supabase_migrations.schema_migrations(version, statements, name)
-VALUES ('202611240039', ARRAY['SELECT 2'], NULL);
+VALUES ('202611240037', ARRAY['SELECT 2'], NULL);
 
 CREATE TABLE public.audit_fixture_private (id bigint, private_value text);
 CREATE SEQUENCE public.audit_fixture_sequence OWNED BY public.audit_fixture_private.id;
