@@ -128,8 +128,12 @@ export function validateSqlOutput(csv) {
       expectedIndex += 1;
       continue;
     }
-    if (isUnexpectedHeader(row)) {
-      const expected = SQL_PROJECTIONS[expectedIndex];
+    const nextProjection = SQL_PROJECTIONS[expectedIndex];
+    const identifierRow = row.length >= 2 && row.every((value) => /^[a-z][A-Za-z0-9_]*$/.test(value));
+    const unexpectedProjection = isUnexpectedHeader(row) ||
+      (expectedIndex === currentIndex + 1 && nextProjection && row.length === nextProjection.columns.length && identifierRow);
+    if (unexpectedProjection) {
+      const expected = nextProjection;
       if (expected?.id === "database_acl_v1") throw new CollectorError("DATABASE_ACL_PROJECTION_SCHEMA_INVALID");
       if (expected?.id === "migration_history_v1") throw new CollectorError("MIGRATION_HISTORY_PROJECTION_MISSING");
       throw new CollectorError("SQL_PROJECTION_UNEXPECTED");
