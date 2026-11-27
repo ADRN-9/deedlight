@@ -1,0 +1,1572 @@
+{
+  "schemaVersion": 1,
+  "inventoryBlobSha1": "4e63f31368d446e905f4f44565be73337c7188fb",
+  "inventoryCount": 40,
+  "analysisMethod": "conservative-source-line-observation-v1",
+  "executionEvidenceIncluded": false,
+  "entries": [
+    {
+      "path": "supabase/migrations/202607210001_initial_schema.sql",
+      "blobSha1": "a244ab0df3e766b0f36e29a222b3160f9f74c502",
+      "byteLength": 13648,
+      "lineCount": 360,
+      "observations": {
+        "transformations": [
+          {
+            "line": 192,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.profiles",
+            "sourceExcerpt": "insert into public.profiles (user_id, display_name)"
+          },
+          {
+            "line": 215,
+            "operation": "UPDATE",
+            "targetCandidate": "public.offerings",
+            "sourceExcerpt": "update public.offerings set"
+          },
+          {
+            "line": 222,
+            "operation": "UPDATE",
+            "targetCandidate": "public.offerings",
+            "sourceExcerpt": "update public.offerings set"
+          },
+          {
+            "line": 254,
+            "operation": "UPDATE",
+            "targetCandidate": "public.offerings",
+            "sourceExcerpt": "update public.offerings set reflection_count = reflection_count + 1 where id = new.offering_id;"
+          },
+          {
+            "line": 259,
+            "operation": "UPDATE",
+            "targetCandidate": "public.offerings",
+            "sourceExcerpt": "update public.offerings set reflection_count = greatest(0, reflection_count - 1) where id = old.offering_id;"
+          },
+          {
+            "line": 264,
+            "operation": "UPDATE",
+            "targetCandidate": "public.offerings",
+            "sourceExcerpt": "update public.offerings set reflection_count = reflection_count + 1 where id = new.offering_id;"
+          },
+          {
+            "line": 266,
+            "operation": "UPDATE",
+            "targetCandidate": "public.offerings",
+            "sourceExcerpt": "update public.offerings set reflection_count = greatest(0, reflection_count - 1) where id = old.offering_id;"
+          },
+          {
+            "line": 298,
+            "operation": "UPDATE",
+            "targetCandidate": "public.offerings",
+            "sourceExcerpt": "update public.offerings set open_report_count = open_report_count + 1 where id = new.offering_id;"
+          },
+          {
+            "line": 303,
+            "operation": "UPDATE",
+            "targetCandidate": "public.offerings",
+            "sourceExcerpt": "update public.offerings set open_report_count = greatest(0, open_report_count - 1) where id = old.offering_id;"
+          },
+          {
+            "line": 309,
+            "operation": "UPDATE",
+            "targetCandidate": "public.offerings",
+            "sourceExcerpt": "update public.offerings set open_report_count = open_report_count + 1 where id = new.offering_id;"
+          },
+          {
+            "line": 311,
+            "operation": "UPDATE",
+            "targetCandidate": "public.offerings",
+            "sourceExcerpt": "update public.offerings set open_report_count = greatest(0, open_report_count - 1) where id = new.offering_id;"
+          }
+        ],
+        "foreignKeyReferences": [
+          {
+            "line": 15,
+            "targetCandidate": "auth.users",
+            "sourceExcerpt": "user_id uuid not null unique references auth.users(id) on delete cascade,"
+          },
+          {
+            "line": 47,
+            "targetCandidate": "public.themes",
+            "sourceExcerpt": "theme_id uuid references public.themes(id),"
+          },
+          {
+            "line": 54,
+            "targetCandidate": "auth.users",
+            "sourceExcerpt": "created_by uuid references auth.users(id),"
+          },
+          {
+            "line": 66,
+            "targetCandidate": "auth.users",
+            "sourceExcerpt": "user_id uuid not null references auth.users(id) on delete cascade,"
+          },
+          {
+            "line": 67,
+            "targetCandidate": "public.themes",
+            "sourceExcerpt": "theme_id uuid references public.themes(id),"
+          },
+          {
+            "line": 102,
+            "targetCandidate": "public.offerings",
+            "sourceExcerpt": "offering_id uuid not null references public.offerings(id) on delete cascade,"
+          },
+          {
+            "line": 103,
+            "targetCandidate": "auth.users",
+            "sourceExcerpt": "user_id uuid not null references auth.users(id) on delete cascade,"
+          },
+          {
+            "line": 114,
+            "targetCandidate": "public.offerings",
+            "sourceExcerpt": "offering_id uuid not null references public.offerings(id) on delete cascade,"
+          },
+          {
+            "line": 115,
+            "targetCandidate": "auth.users",
+            "sourceExcerpt": "user_id uuid not null references auth.users(id) on delete cascade,"
+          },
+          {
+            "line": 128,
+            "targetCandidate": "public.offerings",
+            "sourceExcerpt": "offering_id uuid references public.offerings(id) on delete cascade,"
+          },
+          {
+            "line": 129,
+            "targetCandidate": "public.reflections",
+            "sourceExcerpt": "reflection_id uuid references public.reflections(id) on delete cascade,"
+          },
+          {
+            "line": 130,
+            "targetCandidate": "auth.users",
+            "sourceExcerpt": "reported_by uuid references auth.users(id) on delete set null,"
+          },
+          {
+            "line": 135,
+            "targetCandidate": "auth.users",
+            "sourceExcerpt": "resolved_by uuid references auth.users(id),"
+          },
+          {
+            "line": 153,
+            "targetCandidate": "auth.users",
+            "sourceExcerpt": "user_id uuid not null references auth.users(id) on delete cascade,"
+          },
+          {
+            "line": 154,
+            "targetCandidate": "public.badges",
+            "sourceExcerpt": "badge_id uuid not null references public.badges(id) on delete cascade,"
+          },
+          {
+            "line": 161,
+            "targetCandidate": "auth.users",
+            "sourceExcerpt": "user_id uuid not null references auth.users(id) on delete cascade,"
+          },
+          {
+            "line": 162,
+            "targetCandidate": "public.offerings",
+            "sourceExcerpt": "offering_id uuid references public.offerings(id) on delete cascade,"
+          },
+          {
+            "line": 163,
+            "targetCandidate": "public.daily_posts",
+            "sourceExcerpt": "daily_post_id uuid references public.daily_posts(id) on delete cascade,"
+          },
+          {
+            "line": 178,
+            "targetCandidate": "auth.users",
+            "sourceExcerpt": "user_id uuid not null references auth.users(id) on delete cascade,"
+          },
+          {
+            "line": 179,
+            "targetCandidate": "public.daily_posts",
+            "sourceExcerpt": "daily_post_id uuid not null references public.daily_posts(id) on delete cascade,"
+          }
+        ],
+        "guards": [
+          {
+            "line": 1,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create extension if not exists pgcrypto;"
+          },
+          {
+            "line": 13,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create table if not exists public.profiles ("
+          },
+          {
+            "line": 21,
+            "kind": "check_constraint",
+            "sourceExcerpt": "role text not null default 'member' check (role in ('member','trusted_member','moderator','admin')),"
+          },
+          {
+            "line": 32,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create table if not exists public.themes ("
+          },
+          {
+            "line": 42,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create table if not exists public.daily_posts ("
+          },
+          {
+            "line": 53,
+            "kind": "check_constraint",
+            "sourceExcerpt": "status text not null default 'draft' check (status in ('draft','scheduled','published','archived')),"
+          },
+          {
+            "line": 64,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create table if not exists public.offerings ("
+          },
+          {
+            "line": 68,
+            "kind": "check_constraint",
+            "sourceExcerpt": "offering_type text not null check (offering_type in ('good_deed','goodness_invitation','gratitude','beauty_reminder','quiet_goodness','community_need')),"
+          },
+          {
+            "line": 69,
+            "kind": "check_constraint",
+            "sourceExcerpt": "title text not null check (char_length(title) between 4 and 120),"
+          },
+          {
+            "line": 70,
+            "kind": "check_constraint",
+            "sourceExcerpt": "body text not null check (char_length(body) between 20 and 5000),"
+          },
+          {
+            "line": 73,
+            "kind": "check_constraint",
+            "sourceExcerpt": "media_type text check (media_type is null or media_type in ('image','video')),"
+          },
+          {
+            "line": 77,
+            "kind": "check_constraint",
+            "sourceExcerpt": "status text not null default 'pending' check (status in ('draft','pending','approved','rejected','needs_edit','hidden')),"
+          },
+          {
+            "line": 79,
+            "kind": "check_constraint",
+            "sourceExcerpt": "bless_count integer not null default 0 check (bless_count >= 0),"
+          },
+          {
+            "line": 80,
+            "kind": "check_constraint",
+            "sourceExcerpt": "inspired_count integer not null default 0 check (inspired_count >= 0),"
+          },
+          {
+            "line": 81,
+            "kind": "check_constraint",
+            "sourceExcerpt": "carried_forward_count integer not null default 0 check (carried_forward_count >= 0),"
+          },
+          {
+            "line": 82,
+            "kind": "check_constraint",
+            "sourceExcerpt": "reflection_count integer not null default 0 check (reflection_count >= 0),"
+          },
+          {
+            "line": 83,
+            "kind": "check_constraint",
+            "sourceExcerpt": "open_report_count integer not null default 0 check (open_report_count >= 0),"
+          },
+          {
+            "line": 92,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create index if not exists offerings_status_published_idx on public.offerings(status, published_at desc);"
+          },
+          {
+            "line": 93,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create index if not exists offerings_bless_score_idx on public.offerings(bless_score desc);"
+          },
+          {
+            "line": 94,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create index if not exists offerings_user_id_idx on public.offerings(user_id);"
+          },
+          {
+            "line": 100,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create table if not exists public.reactions ("
+          },
+          {
+            "line": 104,
+            "kind": "check_constraint",
+            "sourceExcerpt": "reaction_type text not null check (reaction_type in ('bless','inspired_me','i_did_this_too')),"
+          },
+          {
+            "line": 109,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create index if not exists reactions_offering_id_idx on public.reactions(offering_id);"
+          },
+          {
+            "line": 110,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create index if not exists reactions_user_id_idx on public.reactions(user_id);"
+          },
+          {
+            "line": 112,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create table if not exists public.reflections ("
+          },
+          {
+            "line": 116,
+            "kind": "check_constraint",
+            "sourceExcerpt": "body text not null check (char_length(body) between 2 and 2000),"
+          },
+          {
+            "line": 117,
+            "kind": "check_constraint",
+            "sourceExcerpt": "status text not null default 'visible' check (status in ('visible','hidden','removed')),"
+          },
+          {
+            "line": 126,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create table if not exists public.reports ("
+          },
+          {
+            "line": 131,
+            "kind": "check_constraint",
+            "sourceExcerpt": "reason text not null check (reason in ('exposes_vulnerable_person','hate_or_prejudice','fake_charity_or_fraud','harassment','graphic_or_disturbing','self_promotion','privacy_concern','other')),"
+          },
+          {
+            "line": 133,
+            "kind": "check_constraint",
+            "sourceExcerpt": "status text not null default 'open' check (status in ('open','reviewing','resolved','dismissed')),"
+          },
+          {
+            "line": 138,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (offering_id is not null or reflection_id is not null)"
+          },
+          {
+            "line": 141,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create table if not exists public.badges ("
+          },
+          {
+            "line": 151,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create table if not exists public.user_badges ("
+          },
+          {
+            "line": 159,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create table if not exists public.saved_lights ("
+          },
+          {
+            "line": 165,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check ((offering_id is not null) <> (daily_post_id is not null))"
+          },
+          {
+            "line": 168,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create unique index if not exists saved_lights_unique_offering"
+          },
+          {
+            "line": 172,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create unique index if not exists saved_lights_unique_daily_post"
+          },
+          {
+            "line": 176,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create table if not exists public.daily_deed_completions ("
+          },
+          {
+            "line": 180,
+            "kind": "check_constraint",
+            "sourceExcerpt": "status text not null default 'completed' check (status in ('try','completed')),"
+          },
+          {
+            "line": 202,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop trigger if exists on_auth_user_created on auth.users;"
+          },
+          {
+            "line": 233,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop trigger if exists reactions_count_insert on public.reactions;"
+          },
+          {
+            "line": 238,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop trigger if exists reactions_count_delete on public.reactions;"
+          },
+          {
+            "line": 274,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop trigger if exists reflections_count_insert on public.reflections;"
+          },
+          {
+            "line": 279,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop trigger if exists reflections_count_update on public.reflections;"
+          },
+          {
+            "line": 284,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop trigger if exists reflections_count_delete on public.reflections;"
+          },
+          {
+            "line": 320,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop trigger if exists reports_count_insert on public.reports;"
+          },
+          {
+            "line": 325,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop trigger if exists reports_count_update on public.reports;"
+          },
+          {
+            "line": 330,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop trigger if exists reports_count_delete on public.reports;"
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unsupported",
+          "reason": "Foreign-key reference candidates found, but prerequisite migration ownership and execution ordering are not established by the SQL line alone."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202607210002_rls_policies.sql",
+      "blobSha1": "f96b482c0d1cf396baae5b91d7c96112f7e88284",
+      "byteLength": 5885,
+      "lineCount": 181,
+      "observations": {
+        "transformations": [
+          {
+            "line": 145,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "storage.buckets",
+            "sourceExcerpt": "insert into storage.buckets (id, name, public)"
+          }
+        ],
+        "foreignKeyReferences": [],
+        "guards": [
+          {
+            "line": 33,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check (user_id = auth.uid());"
+          },
+          {
+            "line": 37,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check (public.is_admin());"
+          },
+          {
+            "line": 44,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check (public.is_admin());"
+          },
+          {
+            "line": 51,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check (public.is_admin());"
+          },
+          {
+            "line": 60,
+            "kind": "check_constraint",
+            "sourceExcerpt": "for insert with check ("
+          },
+          {
+            "line": 73,
+            "kind": "check_constraint",
+            "sourceExcerpt": ") with check ("
+          },
+          {
+            "line": 80,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check (public.is_admin());"
+          },
+          {
+            "line": 83,
+            "kind": "check_constraint",
+            "sourceExcerpt": "for insert with check (user_id = auth.uid());"
+          },
+          {
+            "line": 93,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check (public.is_admin());"
+          },
+          {
+            "line": 102,
+            "kind": "check_constraint",
+            "sourceExcerpt": "for insert with check ("
+          },
+          {
+            "line": 109,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check (user_id = auth.uid());"
+          },
+          {
+            "line": 113,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check (public.is_admin());"
+          },
+          {
+            "line": 116,
+            "kind": "check_constraint",
+            "sourceExcerpt": "for insert with check (reported_by = auth.uid());"
+          },
+          {
+            "line": 120,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check (public.is_admin());"
+          },
+          {
+            "line": 127,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check (public.is_admin());"
+          },
+          {
+            "line": 134,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check (public.is_admin());"
+          },
+          {
+            "line": 138,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check (user_id = auth.uid());"
+          },
+          {
+            "line": 142,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check (user_id = auth.uid());"
+          },
+          {
+            "line": 158,
+            "kind": "check_constraint",
+            "sourceExcerpt": "for insert with check ("
+          },
+          {
+            "line": 167,
+            "kind": "check_constraint",
+            "sourceExcerpt": ") with check ("
+          },
+          {
+            "line": 173,
+            "kind": "check_constraint",
+            "sourceExcerpt": "for insert with check ("
+          },
+          {
+            "line": 180,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check (public.is_admin());"
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unknown",
+          "reason": "No REFERENCES candidate found; view, routine and procedural dependencies remain unparsed."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202607220003_sprint3_offerings_review.sql",
+      "blobSha1": "74e02f2e60b82cf07a6aac5f8cf57dcdb6fe1382",
+      "byteLength": 1064,
+      "lineCount": 39,
+      "observations": {
+        "transformations": [],
+        "foreignKeyReferences": [],
+        "guards": [
+          {
+            "line": 4,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create index if not exists offerings_status_created_idx"
+          },
+          {
+            "line": 7,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create index if not exists offerings_user_status_created_idx"
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unknown",
+          "reason": "No simple top-level DML candidate found; dynamic SQL and function bodies prevent a safe none assertion."
+        },
+        "backfills": {
+          "disposition": "unknown",
+          "reason": "No simple DML candidate found; absence of a source match is not proof of no backfill."
+        },
+        "dependencies": {
+          "disposition": "unknown",
+          "reason": "No REFERENCES candidate found; view, routine and procedural dependencies remain unparsed."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202607260004_sprint4_reactions.sql",
+      "blobSha1": "c25dce46ecf69d082fcdbea2bb931b6acd9180fc",
+      "byteLength": 4983,
+      "lineCount": 147,
+      "observations": {
+        "transformations": [
+          {
+            "line": 38,
+            "operation": "UPDATE",
+            "targetCandidate": "public.offerings",
+            "sourceExcerpt": "update public.offerings set"
+          },
+          {
+            "line": 45,
+            "operation": "UPDATE",
+            "targetCandidate": "public.offerings",
+            "sourceExcerpt": "update public.offerings set"
+          },
+          {
+            "line": 113,
+            "operation": "UPDATE",
+            "targetCandidate": "public.offerings",
+            "sourceExcerpt": "update public.offerings o"
+          }
+        ],
+        "foreignKeyReferences": [],
+        "guards": [
+          {
+            "line": 56,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop trigger if exists reactions_count_insert on public.reactions;"
+          },
+          {
+            "line": 61,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop trigger if exists reactions_count_delete on public.reactions;"
+          },
+          {
+            "line": 69,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"reactions_own_insert\" on public.reactions;"
+          },
+          {
+            "line": 70,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"reactions_own_delete\" on public.reactions;"
+          },
+          {
+            "line": 71,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"reactions_own_read\" on public.reactions;"
+          },
+          {
+            "line": 72,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"reactions_admin_all\" on public.reactions;"
+          },
+          {
+            "line": 73,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"reactions_select_own_or_admin\" on public.reactions;"
+          },
+          {
+            "line": 74,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"reactions_insert_own_on_approved\" on public.reactions;"
+          },
+          {
+            "line": 75,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"reactions_delete_own\" on public.reactions;"
+          },
+          {
+            "line": 85,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check ("
+          },
+          {
+            "line": 110,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check (public.is_admin());"
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unknown",
+          "reason": "No REFERENCES candidate found; view, routine and procedural dependencies remain unparsed."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202607260005_sprint5_moderation.sql",
+      "blobSha1": "b48b4b8b3eea9fb55b68068011fa1371559228c2",
+      "byteLength": 5775,
+      "lineCount": 191,
+      "observations": {
+        "transformations": [
+          {
+            "line": 143,
+            "operation": "UPDATE",
+            "targetCandidate": "public.offerings",
+            "sourceExcerpt": "update public.offerings set open_report_count = open_report_count + 1 where id = new.offering_id;"
+          },
+          {
+            "line": 148,
+            "operation": "UPDATE",
+            "targetCandidate": "public.offerings",
+            "sourceExcerpt": "update public.offerings set open_report_count = greatest(0, open_report_count - 1) where id = old.offering_id;"
+          },
+          {
+            "line": 154,
+            "operation": "UPDATE",
+            "targetCandidate": "public.offerings",
+            "sourceExcerpt": "update public.offerings set open_report_count = open_report_count + 1 where id = new.offering_id;"
+          },
+          {
+            "line": 156,
+            "operation": "UPDATE",
+            "targetCandidate": "public.offerings",
+            "sourceExcerpt": "update public.offerings set open_report_count = greatest(0, open_report_count - 1) where id = old.offering_id;"
+          },
+          {
+            "line": 180,
+            "operation": "UPDATE",
+            "targetCandidate": "public.offerings",
+            "sourceExcerpt": "update public.offerings o"
+          }
+        ],
+        "foreignKeyReferences": [],
+        "guards": [
+          {
+            "line": 14,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create index if not exists reports_status_created_idx"
+          },
+          {
+            "line": 17,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create index if not exists reports_offering_status_idx"
+          },
+          {
+            "line": 20,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create index if not exists offerings_open_report_count_idx"
+          },
+          {
+            "line": 44,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"offerings_select_public_or_own\" on public.offerings;"
+          },
+          {
+            "line": 54,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"offerings_insert_own_pending\" on public.offerings;"
+          },
+          {
+            "line": 58,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check ("
+          },
+          {
+            "line": 68,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"offerings_update_own_or_admin\" on public.offerings;"
+          },
+          {
+            "line": 79,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check ("
+          },
+          {
+            "line": 90,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"reports_own_insert\" on public.reports;"
+          },
+          {
+            "line": 91,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"reports_admin_all\" on public.reports;"
+          },
+          {
+            "line": 92,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"reports_select_own_or_admin\" on public.reports;"
+          },
+          {
+            "line": 93,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"reports_insert_own_approved_offering\" on public.reports;"
+          },
+          {
+            "line": 94,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"reports_admin_update\" on public.reports;"
+          },
+          {
+            "line": 104,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check ("
+          },
+          {
+            "line": 125,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check (public.is_admin());"
+          },
+          {
+            "line": 131,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check (public.is_admin());"
+          },
+          {
+            "line": 165,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop trigger if exists reports_count_insert on public.reports;"
+          },
+          {
+            "line": 170,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop trigger if exists reports_count_update on public.reports;"
+          },
+          {
+            "line": 175,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop trigger if exists reports_count_delete on public.reports;"
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unknown",
+          "reason": "No REFERENCES candidate found; view, routine and procedural dependencies remain unparsed."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202607260006_sprint5_admin_edit_hide_hotfix.sql",
+      "blobSha1": "9e163de5119c3813724341b7a9eabeba6fdc2970",
+      "byteLength": 2008,
+      "lineCount": 77,
+      "observations": {
+        "transformations": [],
+        "foreignKeyReferences": [],
+        "guards": [
+          {
+            "line": 16,
+            "kind": "existence_guard",
+            "sourceExcerpt": "execute format('alter table public.offerings drop constraint if exists %I', constraint_row.conname);"
+          },
+          {
+            "line": 22,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (status in ('draft','pending','approved','rejected','needs_edit','hidden'));"
+          },
+          {
+            "line": 28,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"offerings_update_own_or_admin\" on public.offerings;"
+          },
+          {
+            "line": 39,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check ("
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unknown",
+          "reason": "No simple top-level DML candidate found; dynamic SQL and function bodies prevent a safe none assertion."
+        },
+        "backfills": {
+          "disposition": "unknown",
+          "reason": "No simple DML candidate found; absence of a source match is not proof of no backfill."
+        },
+        "dependencies": {
+          "disposition": "unknown",
+          "reason": "No REFERENCES candidate found; view, routine and procedural dependencies remain unparsed."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202607260007_sprint6_daily_deedlight.sql",
+      "blobSha1": "e0c2379255003b8c7bc85a1fab781e23051f5e47",
+      "byteLength": 9545,
+      "lineCount": 238,
+      "observations": {
+        "transformations": [
+          {
+            "line": 202,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.daily_posts",
+            "sourceExcerpt": "insert into public.daily_posts ("
+          }
+        ],
+        "foreignKeyReferences": [
+          {
+            "line": 36,
+            "targetCandidate": "public.offerings",
+            "sourceExcerpt": "featured_offering_id uuid references public.offerings(id) on delete set null,"
+          },
+          {
+            "line": 46,
+            "targetCandidate": "auth.users",
+            "sourceExcerpt": "created_by uuid references auth.users(id) on delete set null,"
+          },
+          {
+            "line": 61,
+            "targetCandidate": "public.offerings",
+            "sourceExcerpt": "alter table public.daily_posts add column if not exists featured_offering_id uuid references public.offerings(id) on delete set null;"
+          },
+          {
+            "line": 71,
+            "targetCandidate": "auth.users",
+            "sourceExcerpt": "alter table public.daily_posts add column if not exists created_by uuid references auth.users(id) on delete set null;"
+          },
+          {
+            "line": 110,
+            "targetCandidate": "auth.users",
+            "sourceExcerpt": "user_id uuid not null references auth.users(id) on delete cascade,"
+          },
+          {
+            "line": 111,
+            "targetCandidate": "public.daily_posts",
+            "sourceExcerpt": "daily_post_id uuid not null references public.daily_posts(id) on delete cascade,"
+          }
+        ],
+        "guards": [
+          {
+            "line": 4,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create extension if not exists pgcrypto;"
+          },
+          {
+            "line": 24,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create table if not exists public.daily_posts ("
+          },
+          {
+            "line": 51,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_posts add column if not exists slug text;"
+          },
+          {
+            "line": 52,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_posts add column if not exists scheduled_for date not null default current_date;"
+          },
+          {
+            "line": 53,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_posts add column if not exists status text not null default 'draft';"
+          },
+          {
+            "line": 54,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_posts add column if not exists kicker text default 'TODAY’S DEEDLIGHT';"
+          },
+          {
+            "line": 55,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_posts add column if not exists title text not null default 'A new light can begin today.';"
+          },
+          {
+            "line": 56,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_posts add column if not exists theme text;"
+          },
+          {
+            "line": 57,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_posts add column if not exists summary text;"
+          },
+          {
+            "line": 58,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_posts add column if not exists body text;"
+          },
+          {
+            "line": 59,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_posts add column if not exists small_deed text;"
+          },
+          {
+            "line": 60,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_posts add column if not exists reflection_prompt text;"
+          },
+          {
+            "line": 61,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_posts add column if not exists featured_offering_id uuid references public.offerings(id) on delete set null;"
+          },
+          {
+            "line": 62,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_posts add column if not exists image_url text;"
+          },
+          {
+            "line": 63,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_posts add column if not exists video_title text;"
+          },
+          {
+            "line": 64,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_posts add column if not exists video_hook text;"
+          },
+          {
+            "line": 65,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_posts add column if not exists video_script text;"
+          },
+          {
+            "line": 66,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_posts add column if not exists video_caption text;"
+          },
+          {
+            "line": 67,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_posts add column if not exists youtube_url text;"
+          },
+          {
+            "line": 68,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_posts add column if not exists video_status text not null default 'idea';"
+          },
+          {
+            "line": 69,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_posts add column if not exists published_at timestamptz;"
+          },
+          {
+            "line": 70,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_posts add column if not exists archived_at timestamptz;"
+          },
+          {
+            "line": 71,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_posts add column if not exists created_by uuid references auth.users(id) on delete set null;"
+          },
+          {
+            "line": 72,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_posts add column if not exists created_at timestamptz not null default now();"
+          },
+          {
+            "line": 73,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_posts add column if not exists updated_at timestamptz not null default now();"
+          },
+          {
+            "line": 78,
+            "kind": "existence_guard",
+            "sourceExcerpt": "if not exists ("
+          },
+          {
+            "line": 83,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (status in ('draft', 'scheduled', 'published', 'archived'));"
+          },
+          {
+            "line": 86,
+            "kind": "existence_guard",
+            "sourceExcerpt": "if not exists ("
+          },
+          {
+            "line": 91,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (video_status in ('idea', 'scripted', 'recorded', 'published'));"
+          },
+          {
+            "line": 94,
+            "kind": "existence_guard",
+            "sourceExcerpt": "if not exists ("
+          },
+          {
+            "line": 102,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create index if not exists daily_posts_status_scheduled_idx"
+          },
+          {
+            "line": 105,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create index if not exists daily_posts_featured_offering_idx"
+          },
+          {
+            "line": 108,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create table if not exists public.daily_reflections ("
+          },
+          {
+            "line": 121,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_reflections add column if not exists reflection_text text;"
+          },
+          {
+            "line": 122,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_reflections add column if not exists did_today_deed boolean not null default false;"
+          },
+          {
+            "line": 123,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_reflections add column if not exists mood_label text;"
+          },
+          {
+            "line": 124,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_reflections add column if not exists is_private boolean not null default true;"
+          },
+          {
+            "line": 125,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_reflections add column if not exists created_at timestamptz not null default now();"
+          },
+          {
+            "line": 126,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_reflections add column if not exists updated_at timestamptz not null default now();"
+          },
+          {
+            "line": 128,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create index if not exists daily_reflections_post_idx on public.daily_reflections (daily_post_id);"
+          },
+          {
+            "line": 129,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create index if not exists daily_reflections_user_idx on public.daily_reflections (user_id);"
+          },
+          {
+            "line": 141,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop trigger if exists set_daily_posts_updated_at on public.daily_posts;"
+          },
+          {
+            "line": 146,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop trigger if exists set_daily_reflections_updated_at on public.daily_reflections;"
+          },
+          {
+            "line": 163,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"daily_posts_public_read_published\" on public.daily_posts;"
+          },
+          {
+            "line": 169,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"daily_posts_admin_all\" on public.daily_posts;"
+          },
+          {
+            "line": 174,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check (public.is_admin());"
+          },
+          {
+            "line": 176,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"daily_reflections_select_own_or_admin\" on public.daily_reflections;"
+          },
+          {
+            "line": 182,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"daily_reflections_insert_own\" on public.daily_reflections;"
+          },
+          {
+            "line": 186,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check (user_id = auth.uid());"
+          },
+          {
+            "line": 188,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"daily_reflections_update_own\" on public.daily_reflections;"
+          },
+          {
+            "line": 193,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check (user_id = auth.uid() or public.is_admin());"
+          },
+          {
+            "line": 195,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"daily_reflections_delete_admin\" on public.daily_reflections;"
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unsupported",
+          "reason": "Foreign-key reference candidates found, but prerequisite migration ownership and execution ordering are not established by the SQL line alone."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202607260007_sprint7_pwa_daily_engagement.sql",
+      "blobSha1": "8b051cfce05ea75b1ee7a726864e2ad760f6fe5f",
+      "byteLength": 6279,
+      "lineCount": 156,
+      "observations": {
+        "transformations": [
+          {
+            "line": 45,
+            "operation": "UPDATE",
+            "targetCandidate": "public.daily_lights",
+            "sourceExcerpt": "update public.daily_lights"
+          }
+        ],
+        "foreignKeyReferences": [
+          {
+            "line": 15,
+            "targetCandidate": "public.offerings",
+            "sourceExcerpt": "featured_offering_id uuid references public.offerings(id) on delete set null,"
+          },
+          {
+            "line": 20,
+            "targetCandidate": "auth.users",
+            "sourceExcerpt": "created_by uuid references auth.users(id) on delete set null,"
+          },
+          {
+            "line": 33,
+            "targetCandidate": "public.offerings",
+            "sourceExcerpt": "alter table public.daily_lights add column if not exists featured_offering_id uuid references public.offerings(id) on delete set null;"
+          },
+          {
+            "line": 38,
+            "targetCandidate": "auth.users",
+            "sourceExcerpt": "alter table public.daily_lights add column if not exists created_by uuid references auth.users(id) on delete set null;"
+          },
+          {
+            "line": 67,
+            "targetCandidate": "public.daily_lights",
+            "sourceExcerpt": "daily_light_id uuid references public.daily_lights(id) on delete cascade,"
+          },
+          {
+            "line": 68,
+            "targetCandidate": "auth.users",
+            "sourceExcerpt": "user_id uuid references auth.users(id) on delete cascade,"
+          },
+          {
+            "line": 75,
+            "targetCandidate": "public.daily_lights",
+            "sourceExcerpt": "alter table public.daily_reflections add column if not exists daily_light_id uuid references public.daily_lights(id) on delete cascade;"
+          },
+          {
+            "line": 76,
+            "targetCandidate": "auth.users",
+            "sourceExcerpt": "alter table public.daily_reflections add column if not exists user_id uuid references auth.users(id) on delete cascade;"
+          }
+        ],
+        "guards": [
+          {
+            "line": 3,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create extension if not exists pgcrypto;"
+          },
+          {
+            "line": 5,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create table if not exists public.daily_lights ("
+          },
+          {
+            "line": 25,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_lights add column if not exists scheduled_date date;"
+          },
+          {
+            "line": 26,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_lights add column if not exists status text default 'draft';"
+          },
+          {
+            "line": 27,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_lights add column if not exists kicker text default 'TODAY’S DEEDLIGHT';"
+          },
+          {
+            "line": 28,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_lights add column if not exists title text;"
+          },
+          {
+            "line": 29,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_lights add column if not exists theme text;"
+          },
+          {
+            "line": 30,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_lights add column if not exists summary text;"
+          },
+          {
+            "line": 31,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_lights add column if not exists small_deed text;"
+          },
+          {
+            "line": 32,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_lights add column if not exists reflection_prompt text;"
+          },
+          {
+            "line": 33,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_lights add column if not exists featured_offering_id uuid references public.offerings(id) on delete set null;"
+          },
+          {
+            "line": 34,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_lights add column if not exists video_title text;"
+          },
+          {
+            "line": 35,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_lights add column if not exists video_hook text;"
+          },
+          {
+            "line": 36,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_lights add column if not exists video_script text;"
+          },
+          {
+            "line": 37,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_lights add column if not exists archived_at timestamptz;"
+          },
+          {
+            "line": 38,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_lights add column if not exists created_by uuid references auth.users(id) on delete set null;"
+          },
+          {
+            "line": 39,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_lights add column if not exists created_at timestamptz not null default now();"
+          },
+          {
+            "line": 40,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_lights add column if not exists updated_at timestamptz not null default now();"
+          },
+          {
+            "line": 54,
+            "kind": "existence_guard",
+            "sourceExcerpt": "if not exists ("
+          },
+          {
+            "line": 65,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create table if not exists public.daily_reflections ("
+          },
+          {
+            "line": 75,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_reflections add column if not exists daily_light_id uuid references public.daily_lights(id) on delete cascade;"
+          },
+          {
+            "line": 76,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_reflections add column if not exists user_id uuid references auth.users(id) on delete cascade;"
+          },
+          {
+            "line": 77,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_reflections add column if not exists reflection text;"
+          },
+          {
+            "line": 78,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_reflections add column if not exists intention text;"
+          },
+          {
+            "line": 79,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_reflections add column if not exists created_at timestamptz not null default now();"
+          },
+          {
+            "line": 80,
+            "kind": "existence_guard",
+            "sourceExcerpt": "alter table public.daily_reflections add column if not exists updated_at timestamptz not null default now();"
+          },
+          {
+            "line": 84,
+            "kind": "existence_guard",
+            "sourceExcerpt": "if not exists ("
+          },
+          {
+            "line": 98,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"daily lights public read published\" on public.daily_lights;"
+          },
+          {
+            "line": 105,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"daily lights admin insert\" on public.daily_lights;"
+          },
+          {
+            "line": 110,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check (public.is_admin());"
+          },
+          {
+            "line": 112,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"daily lights admin update\" on public.daily_lights;"
+          },
+          {
+            "line": 118,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check (public.is_admin());"
+          },
+          {
+            "line": 120,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"daily lights admin delete\" on public.daily_lights;"
+          },
+          {
+            "line": 127,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"daily reflections select own or admin\" on public.daily_reflections;"
+          },
+          {
+            "line": 134,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"daily reflections insert own\" on public.daily_reflections;"
+          },
+          {
+            "line": 139,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check (user_id = auth.uid());"
+          },
+          {
+            "line": 141,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"daily reflections update own or admin\" on public.daily_reflections;"
+          },
+          {
+            "line": 147,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check (user_id = auth.uid() or public.is_admin());"
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unsupported",
+          "reason": "Foreign-key reference candidates found, but prerequisite migration ownership and execution ordering are not established by the SQL line alone."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    }
+  ]
+}
