@@ -22,6 +22,7 @@ export function validateCategoryEffectContract(category, effect, inventoryPaths,
   if (range.endLine > sourceLines.length) return category + " effect source range exceeds pinned SQL line count";
   const sourceStatement = sourceLines.slice(range.startLine - 1, range.endLine).join("\n");
   const sourceDigest = createHash("sha256").update(sourceStatement, "utf8").digest("hex");
+  const digestText = value => createHash("sha256").update(value, "utf8").digest("hex");
   if (sourceDigest !== contract.sourceStatementSha256) return category + " effect source-statement fingerprint does not match the pinned SQL range";
   if (category === "dataTransformations") {
     if (!exact(contract, ["operation", "sourceRelations", "targetRelation", "predicate", "sourceRange", "sourceStatementSha256"])
@@ -32,14 +33,14 @@ export function validateCategoryEffectContract(category, effect, inventoryPaths,
     }
     if (contract.predicate !== null && (!exact(contract.predicate, ["sql", "sha256"])
       || typeof contract.predicate.sql !== "string" || !contract.predicate.sql.trim()
-      || !HEX_256.test(contract.predicate.sha256 || ""))) return "transformation predicate is malformed or unbound";
+      || !HEX_256.test(contract.predicate.sha256 || "") || digestText(contract.predicate.sql) !== contract.predicate.sha256)) return "transformation predicate is malformed or unbound";
     return null;
   }
   if (category === "backfills") {
     if (!exact(contract, ["targetRelation", "predicate", "measurement", "sourceRange", "sourceStatementSha256"])
       || !relation(contract.targetRelation) || !exact(contract.predicate, ["sql", "sha256"])
       || typeof contract.predicate.sql !== "string" || !contract.predicate.sql.trim()
-      || !HEX_256.test(contract.predicate.sha256 || "") || !HEX_256.test(contract.sourceStatementSha256 || "")) {
+      || !HEX_256.test(contract.predicate.sha256 || "") || digestText(contract.predicate.sql) !== contract.predicate.sha256 || !HEX_256.test(contract.sourceStatementSha256 || "")) {
       return "backfill contract must bind target, predicate and source statement";
     }
     const measurement = contract.measurement;
@@ -51,17 +52,18 @@ export function validateCategoryEffectContract(category, effect, inventoryPaths,
       || measurement.status !== "independently_measured" || !Number.isSafeInteger(measurement.rowCount) || measurement.rowCount < 0
       || !HEX_256.test(measurement.querySha256 || "") || !HEX_256.test(measurement.evidenceDigest || "")
       || !timestamp(measurement.capturedAt) || typeof measurement.executionId !== "string" || !measurement.executionId.trim()
-      || !HEX_160.test(measurement.sourceBlobSha1 || "") || !inventoryPaths.has(effect.sourcePath)) {
+      || !HEX_160.test(measurement.sourceBlobSha1 || "") || measurement.sourceBlobSha1 !== inventoryPaths.get(effect.sourcePath)) {
       return "backfill requires an independently evidenced non-negative measurement bound to the exact migration source";
     }
     return null;
   }
   if (category === "dependencies") {
-    if (!exact(contract, ["dependencyType", "fromRelation", "toRelation", "dependsOnMigrationPath", "sourceRange", "sourceStatementSha256"])
+    if (!exact(contract, ["dependencyType", "fromRelation", "toRelation", "dependsOnMigrationPath", "dependsOnMigrationBlobSha1", "sourceRange", "sourceStatementSha256"])
       || !["foreign_key", "view_source", "routine_call", "data_order"].includes(contract.dependencyType)
       || !relation(contract.fromRelation) || !relation(contract.toRelation)
       || typeof contract.dependsOnMigrationPath !== "string" || !inventoryPaths.has(contract.dependsOnMigrationPath)
       || contract.dependsOnMigrationPath === effect.sourcePath
+      || contract.dependsOnMigrationBlobSha1 !== inventoryPaths.get(contract.dependsOnMigrationPath)
       || !HEX_256.test(contract.sourceStatementSha256 || "")) {
       return "dependency contract must bind a typed relation edge to a distinct pinned prerequisite migration";
     }
@@ -70,7 +72,7 @@ export function validateCategoryEffectContract(category, effect, inventoryPaths,
   if (category === "preconditions" || category === "postconditions") {
     if (!exact(contract, ["predicateSql", "predicateSha256", "expectedOutcome", "verification", "sourceRange", "sourceStatementSha256"])
       || typeof contract.predicateSql !== "string" || !contract.predicateSql.trim()
-      || !HEX_256.test(contract.predicateSha256 || "")
+      || !HEX_256.test(contract.predicateSha256 || "") || digestText(contract.predicateSql) !== contract.predicateSha256
       || !["true", "false", "zero_rows", "nonzero_rows"].includes(contract.expectedOutcome)) {
       return category + " contract must bind a predicate and explicit expected outcome";
     }
@@ -79,10 +81,11 @@ export function validateCategoryEffectContract(category, effect, inventoryPaths,
       && typeof verification.reason === "string" && verification.reason.trim().length >= 20) {
       return requireEvidence ? category + " is source-declared but has no independently verified execution outcome" : null;
     }
-    if (!exact(verification, ["status", "evidenceDigest", "querySha256", "capturedAt", "executionId"])
+    if (!exact(verification, ["status", "evidenceDigest", "querySha256", "capturedAt", "executionId", "sourceBlobSha1"])
       || verification.status !== "independently_verified" || !HEX_256.test(verification.evidenceDigest || "")
       || !HEX_256.test(verification.querySha256 || "") || !timestamp(verification.capturedAt)
-      || typeof verification.executionId !== "string" || !verification.executionId.trim()) {
+      || typeof verification.executionId !== "string" || !verification.executionId.trim()
+      || verification.sourceBlobSha1 !== inventoryPaths.get(effect.sourcePath)) {
       return category + " requires an independently evidenced predicate outcome";
     }
     return null;
