@@ -11763,7 +11763,6 @@ comment on function public.admin_list_delivery_provider_integrity_history_page(b
 
 notify pgrst, 'reload schema';
 commit;
-
 -- C525: database-enforced isolation between Daily and Weekly delivery claims.
 -- The generic historical claim RPC is retained for provenance but disabled for
 -- service roles. Only kind-bound entry points remain callable by the scheduler.
