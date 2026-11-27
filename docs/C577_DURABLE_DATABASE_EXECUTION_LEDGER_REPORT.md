@@ -151,7 +151,7 @@ Not delivered in C577:
 
 No Production migration execution, migration-history reconciliation, trust-root provisioning, credential exposure, PR merge or Production activation occurred.
 
-## 11. Exact implementation-head CI evidence
+## 10. Exact implementation-head CI evidence
 
 - Implementation HEAD: `e9a3513867e8e9824c3ea35c2d66b073c6eaa86a`.
 - PR #33: OPEN, unmerged; base C576 `74af17632cdf27d032058d6782d96f569ef92fca`.
@@ -164,7 +164,7 @@ The first C577 run #2212 exposed an incorrect test expectation for SQL-level ver
 
 The report-only update that records this evidence creates a later PR head; a separate exact-head run is still required for that final documentation-inclusive commit.
 
-## 10. Final classification
+## 11. Final classification
 
 | Area | Classification |
 |---|---|
