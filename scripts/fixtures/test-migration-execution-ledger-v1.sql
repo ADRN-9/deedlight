@@ -1,13 +1,19 @@
 \set ON_ERROR_STOP on
 
 -- Verify identity is derived from the connected PostgreSQL server, not request input.
-SELECT CASE WHEN
-  (deedlight_execution_ledger.current_database_identity()->>'databaseName') = current_database()
-  AND (deedlight_execution_ledger.current_database_identity()->>'databaseOid')::oid =
-    (SELECT oid FROM pg_catalog.pg_database WHERE datname = current_database())
-  AND (deedlight_execution_ledger.current_database_identity()->>'systemIdentifier') =
-    (SELECT system_identifier::text FROM pg_catalog.pg_control_system())
-THEN 'PASS' ELSE pg_catalog.set_config('deedlight.test.fail','identity mismatch',false) END;
+DO $identity_assert$
+DECLARE v_identity jsonb;
+BEGIN
+  v_identity := deedlight_execution_ledger.current_database_identity();
+  IF v_identity->>'databaseName' <> current_database()
+    OR (v_identity->>'databaseOid')::oid <>
+      (SELECT oid FROM pg_catalog.pg_database WHERE datname = current_database())
+    OR v_identity->>'systemIdentifier' <>
+      (SELECT system_identifier::text FROM pg_catalog.pg_control_system()) THEN
+    RAISE EXCEPTION 'database identity was not derived from the connected server';
+  END IF;
+END
+$identity_assert$;
 
 -- A reservation rolled back by its caller must leave neither a ledger row nor a consumed approval.
 SELECT deedlight_execution_ledger.approve_execution(
