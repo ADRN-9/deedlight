@@ -109,8 +109,11 @@ CREATE TABLE IF NOT EXISTS deedlight_execution_ledger.executions (
 
 CREATE TABLE IF NOT EXISTS deedlight_execution_ledger.observation_queries (
   query_id text PRIMARY KEY CHECK (query_id ~ '^[a-z][a-z0-9_]{0,63}$'),
-  query_sql text NOT NULL CHECK (pg_catalog.btrim(query_sql) ~* '^select\s'),
-  description text NOT NULL
+  query_sql text NOT NULL CHECK (pg_catalog.btrim(query_sql) ~* '^select\\s'),
+  description text NOT NULL,
+  query_sha256 text NOT NULL CHECK (query_sha256 ~ '^[a-f0-9]{64}$'),
+  query_bundle_digest text NOT NULL CHECK (query_bundle_digest ~ '^[a-f0-9]{64}$'),
+  UNIQUE (query_id, query_sha256, query_bundle_digest)
 );
 
 CREATE TABLE IF NOT EXISTS deedlight_execution_ledger.snapshots (
@@ -118,12 +121,16 @@ CREATE TABLE IF NOT EXISTS deedlight_execution_ledger.snapshots (
   database_oid oid NOT NULL,
   execution_id uuid NOT NULL,
   phase text NOT NULL CHECK (phase IN ('pre','post')),
-  query_id text NOT NULL REFERENCES deedlight_execution_ledger.observation_queries(query_id),
+  query_id text NOT NULL,
+  query_sha256 text NOT NULL CHECK (query_sha256 ~ '^[a-f0-9]{64}$'),
+  query_bundle_digest text NOT NULL CHECK (query_bundle_digest ~ '^[a-f0-9]{64}$'),
   observer_identity name NOT NULL,
   observed_at timestamptz NOT NULL,
   snapshot jsonb NOT NULL,
   snapshot_sha256 text NOT NULL CHECK (snapshot_sha256 ~ '^[a-f0-9]{64}$'),
   PRIMARY KEY (system_identifier, database_oid, execution_id, phase),
+  FOREIGN KEY (query_id, query_sha256, query_bundle_digest)
+    REFERENCES deedlight_execution_ledger.observation_queries(query_id, query_sha256, query_bundle_digest),
   FOREIGN KEY (system_identifier, database_oid, execution_id)
     REFERENCES deedlight_execution_ledger.executions(system_identifier, database_oid, execution_id)
 );
@@ -159,10 +166,29 @@ CREATE TABLE IF NOT EXISTS deedlight_execution_ledger.test_effects (
   effect_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   effect_value text NOT NULL
 );
-INSERT INTO deedlight_execution_ledger.observation_queries(query_id, query_sql, description)
-VALUES ('test_effects_v1',
-  'SELECT count(*)::bigint AS effect_count FROM deedlight_execution_ledger.test_effects',
-  'Disposable fixture effect count')
+WITH registered(query_id, query_sql, description) AS (
+  VALUES
+    ('test_effects_v1',
+      'SELECT count(*)::bigint AS effect_count FROM deedlight_execution_ledger.test_effects',
+      'Disposable fixture effect count'),
+    ('test_effects_nonempty_v1',
+      'SELECT count(*)::bigint AS nonempty_effect_count FROM deedlight_execution_ledger.test_effects WHERE effect_value <> ''''',
+      'Disposable fixture non-empty effect count')
+), digested AS (
+  SELECT query_id, query_sql, description,
+    pg_catalog.encode(deedlight_execution_ledger.digest(
+      pg_catalog.convert_to(query_sql, 'UTF8'), 'sha256'), 'hex') AS query_sha256
+  FROM registered
+), bundle AS (
+  SELECT pg_catalog.encode(deedlight_execution_ledger.digest(
+    pg_catalog.convert_to(pg_catalog.string_agg(query_id || ':' || query_sha256, E'\\n' ORDER BY query_id), 'UTF8'),
+    'sha256'), 'hex') AS query_bundle_digest
+  FROM digested
+)
+INSERT INTO deedlight_execution_ledger.observation_queries
+  (query_id, query_sql, description, query_sha256, query_bundle_digest)
+SELECT d.query_id, d.query_sql, d.description, d.query_sha256, b.query_bundle_digest
+FROM digested d CROSS JOIN bundle b
 ON CONFLICT (query_id) DO NOTHING;
 GRANT INSERT ON deedlight_execution_ledger.test_effects TO deedlight_ledger_runner;
 GRANT USAGE, SELECT ON SEQUENCE deedlight_execution_ledger.test_effects_effect_id_seq
@@ -339,13 +365,17 @@ BEGIN
   ) INTO v_rows;
   v_snapshot := pg_catalog.jsonb_build_object(
     'databaseIdentity', deedlight_execution_ledger.current_database_identity(),
-    'queryId', p_query_id, 'rows', v_rows, 'observedAt', v_observed_at
+    'queryId', p_query_id,
+    'querySha256', v_query.query_sha256,
+    'queryBundleDigest', v_query.query_bundle_digest,
+    'rows', v_rows, 'observedAt', v_observed_at
   );
   INSERT INTO deedlight_execution_ledger.snapshots
     (system_identifier, database_oid, execution_id, phase, query_id,
-     observer_identity, observed_at, snapshot, snapshot_sha256)
+     query_sha256, query_bundle_digest, observer_identity, observed_at, snapshot, snapshot_sha256)
   VALUES (v_identity.system_identifier, v_identity.database_oid, p_execution_id, p_phase,
-    p_query_id, v_actor, v_observed_at, v_snapshot,
+    p_query_id, v_query.query_sha256, v_query.query_bundle_digest,
+    v_actor, v_observed_at, v_snapshot,
     pg_catalog.encode(deedlight_execution_ledger.digest(
       pg_catalog.convert_to(v_snapshot::text, 'UTF8'), 'sha256'), 'hex'));
   RETURN v_snapshot;
@@ -411,13 +441,22 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM deedlight_execution_ledger.execution_commit_markers
     WHERE system_identifier = v_identity.system_identifier AND database_oid = v_identity.database_oid
       AND execution_id = p_execution_id)
-    OR NOT EXISTS (SELECT 1 FROM deedlight_execution_ledger.snapshots
-    WHERE system_identifier = v_identity.system_identifier AND database_oid = v_identity.database_oid
-      AND execution_id = p_execution_id AND phase = 'pre')
-    OR NOT EXISTS (SELECT 1 FROM deedlight_execution_ledger.snapshots
-    WHERE system_identifier = v_identity.system_identifier AND database_oid = v_identity.database_oid
-      AND execution_id = p_execution_id AND phase = 'post') THEN
-    RAISE EXCEPTION 'committed effect marker and independent pre/post snapshots required before finalization';
+    OR NOT EXISTS (
+      SELECT 1
+      FROM deedlight_execution_ledger.snapshots pre
+      JOIN deedlight_execution_ledger.snapshots post
+        ON post.system_identifier = pre.system_identifier
+       AND post.database_oid = pre.database_oid
+       AND post.execution_id = pre.execution_id
+      WHERE pre.system_identifier = v_identity.system_identifier
+        AND pre.database_oid = v_identity.database_oid
+        AND pre.execution_id = p_execution_id
+        AND pre.phase = 'pre' AND post.phase = 'post'
+        AND pre.query_id = post.query_id
+        AND pre.query_sha256 = post.query_sha256
+        AND pre.query_bundle_digest = post.query_bundle_digest
+    ) THEN
+    RAISE EXCEPTION 'committed effect marker and matching pre/post observation query identity required before finalization';
   END IF;
   UPDATE deedlight_execution_ledger.executions
   SET status = p_outcome, completed_at = pg_catalog.clock_timestamp(), outcome_detail = p_outcome_detail
