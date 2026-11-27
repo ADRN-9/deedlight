@@ -455,7 +455,7 @@ COMMIT;
 RESET ROLE;
 SET ROLE deedlight_ledger_observer;
 SELECT deedlight_execution_ledger.capture_snapshot(
-  'c5700000-0000-4000-8000-000000000028','post','test_effects_nonempty_v1'
+  'c5700000-0000-4000-8000-000000000028','post','test_effects_v2'
 );
 RESET ROLE;
 SET ROLE deedlight_ledger_runner;
@@ -482,8 +482,8 @@ BEGIN
   SELECT query_bundle_digest, query_sha256 INTO STRICT v_post_bundle, v_post_query
   FROM deedlight_execution_ledger.snapshots
   WHERE execution_id = 'c5700000-0000-4000-8000-000000000028' AND phase = 'post';
-  IF v_pre_bundle <> v_post_bundle OR v_pre_query = v_post_query THEN
-    RAISE EXCEPTION 'query mismatch fixture did not bind two distinct queries in one exact bundle';
+  IF v_pre_bundle = v_post_bundle OR v_pre_query = v_post_query THEN
+    RAISE EXCEPTION 'query mismatch fixture did not bind distinct registered queries and bundle digests';
   END IF;
 END
 $assert$;
