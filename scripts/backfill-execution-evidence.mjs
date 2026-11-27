@@ -29,7 +29,7 @@ function verifyArtifact(artifact, kind, role, roots, now, problems) {
     problems.push(kind + ":ARTIFACT_MISSING_OR_MALFORMED");
     return null;
   }
-  const key = roots.keys.find(candidate => candidate.keyId === artifact.keyId && candidate.signerId === artifact.signerId);
+  const key = (Array.isArray(roots?.keys) ? roots.keys : []).find(candidate => candidate && candidate.keyId === artifact.keyId && candidate.signerId === artifact.signerId);
   if (!key || key.role !== role || key.algorithm !== "Ed25519" || key.status !== "active") {
     problems.push(kind + ":AUTHORITY_MISSING_OR_INVALID");
     return null;
@@ -224,6 +224,15 @@ export function validateBackfillExecutionRecord(record, {
     problems.push("PROVENANCE:CAPTURE_OR_BUNDLE_BINDING_INVALID");
   }
 
+  if (Number.isFinite(timestamp(record.provenance?.capturedAt)) && postValid
+    && timestamp(record.provenance.capturedAt) < timestamp(record.postExecutionState.observedAt)) {
+    problems.push("PROVENANCE:CAPTURE_PRECEDES_POST_EXECUTION_OBSERVATION");
+  }
+  if (Number.isFinite(timestamp(audit?.observedAt)) && Number.isFinite(completedAt)
+    && timestamp(audit.observedAt) < completedAt) {
+    problems.push("EXECUTION_EVIDENCE:AUDIT_OBSERVATION_PRECEDES_EXECUTION_COMPLETION");
+  }
+
   const rootsKeys = ["schemaVersion", "keys", "revokedApprovalIds"];
   if (!exact(trustRoots, rootsKeys) || trustRoots.schemaVersion !== 1 || !Array.isArray(trustRoots.keys)
     || !Array.isArray(trustRoots.revokedApprovalIds) || trustRoots.keys.length !== 2
@@ -233,7 +242,7 @@ export function validateBackfillExecutionRecord(record, {
   }
   const roles = new Set(["backfill-approver", "backfill-verifier"]);
   const keyIds = new Set();
-  for (const key of trustRoots?.keys || []) {
+  for (const key of (Array.isArray(trustRoots?.keys) ? trustRoots.keys : [])) {
     if (!exact(key, ["algorithm", "keyId", "notAfter", "notBefore", "publicKeyPem", "revokedAt", "role", "signerId", "status"])
       || !roles.has(key.role) || key.algorithm !== "Ed25519" || key.status !== "active"
       || typeof key.keyId !== "string" || !key.keyId || typeof key.signerId !== "string" || !key.signerId
