@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { analyzeMigrationEvidence, canonicalJson, evidencePayload, mappingDigest, normalizeMigrationHistoryRows, strictTimestamp, validateMigrationHistoryRows } from "./reconcile-migration-evidence.mjs";
+import { analyzeMigrationEvidence, canonicalJson, evidencePayload, mappingDigest, normalizeMigrationHistoryRows, SQL_NULL_SENTINEL, strictTimestamp, validateMigrationHistoryRows } from "./reconcile-migration-evidence.mjs";
 
 const repoRoot = process.cwd();
 const sourceManifest = JSON.parse(readFileSync(path.join(repoRoot, "supabase/migration-inventory.json"), "utf8"));
@@ -829,17 +829,19 @@ test("nullable recorded statement count remains a database fact, not provenance"
 test("migration-history SQL normalization preserves SQL NULL and literal NULL markers", () => {
   const rows = normalizeMigrationHistoryRows([
     ["202607260004", "sprint4_reactions", "12"],
-    ["202607260005", "", ""],
+    ["202607260005", SQL_NULL_SENTINEL, "NULL"],
     ["202607260006", "NULL", "0"],
     ["202607270008", "\\N", "1"],
+    ["202607270009", "", "1"],
   ]);
   assert.deepEqual(rows, [
     { version: "202607260004", name: "sprint4_reactions", recordedStatementCount: 12 },
     { version: "202607260005", name: null, recordedStatementCount: null },
     { version: "202607260006", name: "NULL", recordedStatementCount: 0 },
     { version: "202607270008", name: "\\N", recordedStatementCount: 1 },
+    { version: "202607270009", name: "", recordedStatementCount: 1 },
   ]);
-  assert.deepEqual(validateMigrationHistoryRows(rows, sourceManifest), []);
+  assert.ok(validateMigrationHistoryRows(rows, sourceManifest).some((problem) => problem.includes("invalid migration name")));
   for (const malformed of [
     [["202607260004", "sprint4_reactions"]],
     [["202607260004", "sprint4_reactions", "bad"]],
