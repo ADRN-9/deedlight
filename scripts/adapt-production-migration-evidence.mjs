@@ -127,7 +127,7 @@ function validateProjectionRows(p) {
     if(role[2]!=="f"||role[3]!=="f"||role[4]!=="f"||role[5]!=="f"||role[6]!=="f"||role[7]!=="f")fail("COLLECTOR_ROLE_PRIVILEGE_INVALID");
     if(roleName===sessionRoleName&&role[1]!=="t")fail("COLLECTOR_ROLE_PRIVILEGE_INVALID");
   }
-  if(p.get("role_memberships_v1").length)fail("COLLECTOR_ROLE_MEMBERSHIP_PRESENT");
+  if(p.get("role_memberships_v1").some(row=>collectorRoleNames.has(row[1])))fail("COLLECTOR_ROLE_MEMBERSHIP_PRESENT");
 }
 function buildCatalog(p) {
   const objects=[],seen=new Set();
@@ -213,11 +213,14 @@ function validateMapping(mapping,inventory){
 function rawProjections(p){return SQL_PROJECTIONS.map(x=>({id:x.id,columns:[...x.columns],rows:p.get(x.id).map(row=>row.map(cell=>cell===CSV_QUOTED_EMPTY?"":cell))}));}
 function authorityCandidate(p,identity,catalogObjects,receipt){
   const roleName=identity.current_role;
+  const sessionRoleName=identity.session_role;
+  if(sessionRoleName!=="deedlight_catalog_auditor")fail("COLLECTOR_ROLE_IDENTITY_MISMATCH");
   const defaultAcl=projectionObjects(p,"default_privileges_v1");
   if(defaultAcl.some(row=>row[3]===roleName||row[3]==="PUBLIC"))fail("PRIVILEGE_DEFAULT_SCOPE_INVALID");
   const role=projectionObjects(p,"roles_v1").find(row=>row[0]===roleName);
-  if(!role||identity.session_role!==roleName)fail("COLLECTOR_ROLE_IDENTITY_MISMATCH");
-  const memberships=projectionObjects(p,"role_memberships_v1");
+  if(!role)fail("COLLECTOR_ROLE_MISSING_OR_DUPLICATED");
+  const membershipRoles=new Set([sessionRoleName,roleName]);
+  const memberships=projectionObjects(p,"role_memberships_v1").filter(row=>membershipRoles.has(row[1]));
   if(memberships.length)fail("COLLECTOR_ROLE_MEMBERSHIP_PRESENT");
   const schemas=catalogObjects.filter(x=>x.kind==="schemas").map(x=>x.identity).sort();
   const schemaAcl=projectionObjects(p,"schema_acl_v1");
