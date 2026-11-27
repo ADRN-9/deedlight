@@ -84,6 +84,9 @@ jobs:
       - name: Backfill execution evidence adversarial regressions
         run: npm run test:backfill-execution-evidence
 
+      - name: Migration precondition and postcondition adversarial regressions
+        run: npm run test:migration-pre-postconditions
+
       - name: Production evidence collector unit and adversarial tests
         run: node --test scripts/test-production-evidence-collector.mjs
 
