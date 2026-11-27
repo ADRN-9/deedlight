@@ -90,7 +90,8 @@ export function validateCollectorPrivilegeEvidence(db, inventoryObjects) {
   }
   const expectedColumns = inventory.filter((entry) => entry && entry.kind === "columns");
   const expectedColumnKeys = expectedColumns.map((entry) => {
-    if ([entry.schema, entry.relation, entry.column].some((value) => typeof value !== "string" || !value.length)) return null;
+    if ([entry.schema, entry.relation, entry.column].some((value) => typeof value !== "string" || !value.length)
+      || entry.identity !== [entry.schema, entry.relation, entry.column].join(".")) return null;
     return canonicalJson([entry.schema, entry.relation, entry.column]);
   });
   const columnKeys = columnRows.map((entry) => entry && canonicalJson([entry.schema, entry.relation, entry.column]));
@@ -543,7 +544,8 @@ function validateEvidence(evidence, now, manifest, problems) {
         ? ["kind", "identity", "fingerprint", "schema", "relation", "column"]
         : ["kind", "identity", "fingerprint"];
       if (!exactKeys(object, expectedObjectKeys)
-        || (object.kind === "columns" && [object.schema, object.relation, object.column].some((value) => typeof value !== "string" || !value.length))) {
+        || (object.kind === "columns" && ([object.schema, object.relation, object.column].some((value) => typeof value !== "string" || !value.length)
+          || object.identity !== [object.schema, object.relation, object.column].join(".")))) {
         problems.push("catalog object contains an unexpected or missing property, or an ambiguous structured column identity");
         break;
       }
@@ -577,7 +579,8 @@ function classifyOne(item, manifest, evidence, source, mappedEffects) {
       : "fingerprint,identity,kind";
     if (!object || Object.keys(object).sort().join(",") !== expectedObjectKeys || !CATALOG_KINDS.includes(object.kind)
       || typeof object.identity !== "string" || !/^[a-f0-9]{64}$/.test(object.fingerprint || "")
-      || (object.kind === "columns" && [object.schema, object.relation, object.column].some((value) => typeof value !== "string" || !value.length))) {
+      || (object.kind === "columns" && ([object.schema, object.relation, object.column].some((value) => typeof value !== "string" || !value.length)
+        || object.identity !== [object.schema, object.relation, object.column].join(".")))) {
       return { status: "Unknown", reasons: ["malformed live catalog object fingerprint or structured column identity"] };
     }
     const key = object.kind + "\0" + object.identity;
