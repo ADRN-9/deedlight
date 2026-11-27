@@ -174,7 +174,7 @@ export function adaptCollectorEvidence({receipt,csv,inventoryBytes,schemaBytes,m
   const validation=validateSqlOutput(csv),p=parseProjections(validation);validateProjectionRows(p);
   const identityRow=projectionObjects(p,"identity_v1")[0];
   const databaseCaptureTimestamp=identityRow.captured_at_utc;
-  if(typeof databaseCaptureTimestamp!=="string"||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$/.test(databaseCaptureTimestamp))fail("COLLECTOR_CAPTURE_TIMESTAMP_INVALID");
+  if(typeof databaseCaptureTimestamp!=="string"||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z$/.test(databaseCaptureTimestamp))fail("COLLECTOR_CAPTURE_TIMESTAMP_INVALID");
   const capturedAt=receipt.execution.completedAt;
   const structure=p.get("migration_history_structure_v1");
   const structureByName=new Map(structure.map(row=>[row[1],row]));
