@@ -1742,11 +1742,24 @@ test("condition evidence binds exact source, predicate and matching observed out
     assert.equal(valid.acceptance,"NOT_ACCEPTED");
     assert.ok(valid.unresolvedLifecycleEvidence>0);
 
-    f.evidence.conditionVerifications[0].observedOutcome="false";
-    f.reapprove();
-    const contradictory=f.analyze();
-    assert.equal(contradictory.trustVerified,false);
-    assert.equal(contradictory.acceptance,"NOT_ACCEPTED");
-    assert.ok(contradictory.trustProblems.some(reason=>reason.includes("condition evidence")));
+    const validRow=structuredClone(f.evidence.conditionVerifications[0]);
+    const adversarial=[
+      rows=>{rows.length=0;},
+      rows=>{rows.push(structuredClone(rows[0]));},
+      rows=>{rows[0].observedOutcome="false";},
+      rows=>{rows[0].predicateSha256="0".repeat(64);},
+      rows=>{rows[0].sourceBlobSha1="0".repeat(40);},
+      rows=>{rows[0].sourceRange={startLine:0,endLine:1};},
+      rows=>{delete rows[0].observedOutcome;},
+    ];
+    for(const mutate of adversarial){
+      f.evidence.conditionVerifications=[structuredClone(validRow)];
+      mutate(f.evidence.conditionVerifications);
+      f.reapprove();
+      const rejected=f.analyze();
+      assert.equal(rejected.trustVerified,false);
+      assert.equal(rejected.acceptance,"NOT_ACCEPTED");
+      assert.ok(rejected.trustProblems.some(reason=>reason.includes("condition evidence")||reason.includes("condition contract")));
+    }
   }finally{f.cleanup();}
 });
