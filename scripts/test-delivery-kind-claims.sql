@@ -282,7 +282,7 @@ insert into public.delivery_ledger (
 set role service_role;
 do $weekly_stale_reclaim$
 declare
-  v_stale_token uuid;
+  v_stale_token uuid := '92000000-0000-0000-0000-000000000110';
   v_new_token uuid;
   v_job_id uuid;
   v_claim_count integer;
@@ -312,7 +312,7 @@ begin
   where job_id = '91000000-0000-0000-0000-000000000110';
   v_claim_count := case when found then 1 else 0 end;
 
-  if v_claim_count <> 1 or v_new_token is null or v_new_token = v_old_token then
+  if v_claim_count <> 1 or v_new_token is null or v_new_token = v_stale_token then
     raise exception 'Weekly second reclaim did not retain a fresh token.';
   end if;
 
