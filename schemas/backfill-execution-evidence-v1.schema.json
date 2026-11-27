@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://deedlight.com/schemas/backfill-execution-evidence-v1.schema.json",
+  "title": "DeedLight Backfill Execution Evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "recordId", "executionId", "sourceIdentity", "databaseIdentity", "execution", "preExecutionState", "postExecutionState", "executionEvidence", "provenance", "authorization", "verification"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "deedlight-backfill-execution-evidence" },
+    "recordId": { "type": "string", "format": "uuid" },
+    "executionId": { "type": "string", "format": "uuid" },
+    "sourceIdentity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "version", "gitBlobSha1", "sha256", "sourceRange", "statementSha256"],
+      "properties": {
+        "path": { "type": "string", "pattern": "^supabase/migrations/.+\\.sql$" },
+        "version": { "type": "string", "pattern": "^[0-9]{12}$" },
+        "gitBlobSha1": { "$ref": "#/$defs/sha1" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "sourceRange": { "$ref": "#/$defs/sourceRange" },
+        "statementSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "databaseIdentity": { "$ref": "#/$defs/databaseIdentity" },
+    "execution": {
+      "type": "object", "additionalProperties": false,
+      "required": ["executionId", "startedAt", "completedAt", "outcome", "executorIdentity", "commandSha256", "transactionId", "attempt"],
+      "properties": {
+        "executionId": { "type": "string", "format": "uuid" },
+        "startedAt": { "$ref": "#/$defs/timestamp" },
+        "completedAt": { "$ref": "#/$defs/timestamp" },
+        "outcome": { "enum": ["success", "failed", "partial"] },
+        "executorIdentity": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "commandSha256": { "$ref": "#/$defs/sha256" },
+        "transactionId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "attempt": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "preExecutionState": { "$ref": "#/$defs/stateObservation" },
+    "postExecutionState": { "$ref": "#/$defs/stateObservation" },
+    "executionEvidence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["observedAt", "observerIdentity", "querySha256", "rows", "rowsSha256"],
+      "properties": {
+        "observedAt": { "$ref": "#/$defs/timestamp" },
+        "observerIdentity": { "type": "string", "minLength": 1 },
+        "querySha256": { "$ref": "#/$defs/sha256" },
+        "rows": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/executionAuditRow" } },
+        "rowsSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "provenance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["collectorIdentity", "collectorVersion", "capturedAt", "method", "evidenceBundleSha256"],
+      "properties": {
+        "collectorIdentity": { "type": "string", "minLength": 1 },
+        "collectorVersion": { "type": "string", "minLength": 1 },
+        "capturedAt": { "$ref": "#/$defs/timestamp" },
+        "method": { "const": "independent_read_only_database_observation" },
+        "evidenceBundleSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "authorization": { "$ref": "#/$defs/signedArtifact" },
+    "verification": { "$ref": "#/$defs/signedArtifact" }
+  },
+  "$defs": {
+    "sha1": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "timestamp": { "type": "string", "format": "date-time", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$" },
+    "sourceRange": {
+      "type": "object", "additionalProperties": false, "required": ["startLine", "endLine"],
+      "properties": { "startLine": { "type": "integer", "minimum": 1 }, "endLine": { "type": "integer", "minimum": 1 } }
+    },
+    "databaseIdentity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["projectRef", "environment", "databaseName", "serverIdentity", "serverVersion"],
+      "properties": {
+        "projectRef": { "type": "string", "minLength": 1 },
+        "environment": { "enum": ["production", "staging", "development", "test"] },
+        "databaseName": { "type": "string", "minLength": 1 },
+        "serverIdentity": { "type": "string", "minLength": 1 },
+        "serverVersion": { "type": "string", "minLength": 1 }
+      }
+    },
+    "stateObservation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["observedAt", "observerIdentity", "querySha256", "rows", "rowsSha256"],
+      "properties": {
+        "observedAt": { "$ref": "#/$defs/timestamp" },
+        "observerIdentity": { "type": "string", "minLength": 1 },
+        "querySha256": { "$ref": "#/$defs/sha256" },
+        "rows": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["databaseIdentity"], "properties": { "databaseIdentity": { "$ref": "#/$defs/databaseIdentity" } }, "additionalProperties": true } },
+        "rowsSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "executionAuditRow": {
+      "type": "object", "additionalProperties": false,
+      "required": ["executionId", "sourcePath", "sourceBlobSha1", "databaseIdentity", "outcome", "startedAt", "completedAt", "affectedRows", "transactionId", "executorIdentity", "commandSha256"],
+      "properties": {
+        "executionId": { "type": "string", "format": "uuid" },
+        "sourcePath": { "type": "string" },
+        "sourceBlobSha1": { "$ref": "#/$defs/sha1" },
+        "databaseIdentity": { "$ref": "#/$defs/databaseIdentity" },
+        "outcome": { "enum": ["success", "failed", "partial"] },
+        "startedAt": { "$ref": "#/$defs/timestamp" },
+        "completedAt": { "$ref": "#/$defs/timestamp" },
+        "affectedRows": { "type": "integer", "minimum": 0 },
+        "transactionId": { "type": "string", "minLength": 1 },
+        "executorIdentity": { "type": "string", "minLength": 1 },
+        "commandSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "signedArtifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schemaVersion", "kind", "signerId", "keyId", "approvalId", "issuedAt", "expiresAt", "claims", "signature"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "kind": { "type": "string", "minLength": 1 },
+        "signerId": { "type": "string", "minLength": 1 },
+        "keyId": { "type": "string", "minLength": 1 },
+        "approvalId": { "type": "string", "minLength": 1 },
+        "issuedAt": { "$ref": "#/$defs/timestamp" },
+        "expiresAt": { "$ref": "#/$defs/timestamp" },
+        "claims": { "type": "object" },
+        "signature": { "type": "string", "contentEncoding": "base64", "minLength": 80, "maxLength": 100 }
+      }
+    }
+  }
+}

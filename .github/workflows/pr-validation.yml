@@ -81,6 +81,9 @@ jobs:
       - name: Migration reconciliation analyzer adversarial security regressions
         run: node --test scripts/test-reconcile-migration-evidence.mjs
 
+      - name: Backfill execution evidence adversarial regressions
+        run: npm run test:backfill-execution-evidence
+
       - name: Production evidence collector unit and adversarial tests
         run: node --test scripts/test-production-evidence-collector.mjs
 
