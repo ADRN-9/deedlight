@@ -13,7 +13,7 @@ const AGGREGATE_RELATIVE = "supabase/run_in_sql_editor_all.sql";
 const SEED_RELATIVE = "supabase/seed.sql";
 const COMPATIBILITY_RELATIVE = "supabase/bootstrap/migration_038_admin_compatibility.sql";
 const EXPECTED_COMPATIBILITY_BLOB_SHA1 = "92e93d88e23d3579f405de266cdf63cba0112472";
-const EXPECTED_INVENTORY_BLOB_SHA1 = "95d514a0bd97ff448c9507252eb1f5e69a507442";
+const EXPECTED_INVENTORY_BLOB_SHA1 = "a18cf2c65eb595ecd143fbaa16e2d81badf8d1f8";
 const EXPECTED_DUPLICATES = {
   "202607260007": [
     "202607260007_sprint6_daily_deedlight.sql",
@@ -49,9 +49,9 @@ function safeFile(rootDir, relativePath, label) {
 export function validateInventory(manifest) {
   assert(manifest && typeof manifest === "object" && !Array.isArray(manifest), "inventory must be a JSON object");
   assert(manifest.schemaVersion === 1, "unsupported inventory schema version");
-  assert(manifest.expectedMigrationCount === 39, "inventory expectedMigrationCount must be 39");
-  assert(manifest.expectedUniqueVersionCount === 38, "inventory expectedUniqueVersionCount must be 38");
-  assert(Array.isArray(manifest.migrations) && manifest.migrations.length === 39, "inventory is truncated or has an unexpected migration count");
+  assert(manifest.expectedMigrationCount === 40, "inventory expectedMigrationCount must be 40");
+  assert(manifest.expectedUniqueVersionCount === 39, "inventory expectedUniqueVersionCount must be 39");
+  assert(Array.isArray(manifest.migrations) && manifest.migrations.length === 40, "inventory is truncated or has an unexpected migration count");
   assert(JSON.stringify(manifest.intentionalDuplicateVersionGroups) === JSON.stringify(EXPECTED_DUPLICATES), "intentional duplicate-version group differs from the approved 007 pair");
   const seenPaths = new Set();
   const versions = new Map();
@@ -72,7 +72,7 @@ export function validateInventory(manifest) {
     group.push(filename);
     versions.set(version, group);
   }
-  assert(versions.size === 38, "inventory does not contain exactly 38 unique version prefixes");
+  assert(versions.size === 39, "inventory does not contain exactly 39 unique version prefixes");
   for (const [version, names] of versions) {
     const approved = EXPECTED_DUPLICATES[version];
     assert(names.length === (approved ? 2 : 1), `unexpected duplicate migration version ${version}`);
@@ -143,9 +143,9 @@ export function verifyMigrationInventory(rootDir, manifest, expectedInventoryBlo
   if (renamed.length) problems.push(`renamed migrations: ${renamed.join(", ")}`);
   if (modified.length) problems.push(`modified migrations: ${modified.join("; ")}`);
   if (seedProblems.length) problems.push(...seedProblems);
-  if (actualSql.length !== 39) problems.push(`actual migration file count is ${actualSql.length}, expected 39`);
+  if (actualSql.length !== 40) problems.push(`actual migration file count is ${actualSql.length}, expected 40`);
   if (problems.length) throw new Error(problems.join("\n"));
-  return { migrationCount: actualSql.length, uniqueVersionCount: 38, seedUpsertCount: upsertCount };
+  return { migrationCount: actualSql.length, uniqueVersionCount: 39, seedUpsertCount: upsertCount };
 }
 
 export function buildAggregate(rootDir, manifest, expectedInventoryBlobSha1 = EXPECTED_INVENTORY_BLOB_SHA1) {
