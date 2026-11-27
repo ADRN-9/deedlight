@@ -627,12 +627,18 @@ test("write-capable collector, inherited roles or unproven read-only privilege f
         },
       });
     },
-    (f) => {
-      const claims = f.approvals.collectorAttestation.claims;
-      f.approvals.collectorAttestation = artifact("read-only-collector-attestation", "collector", {
-        ...claims, databaseAuthority: { ...claims.databaseAuthority, objectPrivilegesComplete: false },
-      });
-    },
+    (f) => f.reapprove((db) => { db.columnPrivileges.pop(); }),
+    (f) => f.reapprove((db) => { db.privilegeContractVersion = "legacy_flattened_v0"; }),
+    (f) => f.reapprove((db) => { db.requiredAccessSummary = [...db.requiredAccessSummary, "APPLICATION_DATA_SELECT"]; }),
+    (f) => f.reapprove((db) => { db.schemaPrivileges.find((row) => row.schema === "public").privileges.push("USAGE"); }),
+    (f) => f.reapprove((db) => { db.objectPrivileges.find((row) => row.identity === "public.profiles").privileges.push("SELECT"); }),
+    (f) => f.reapprove((db) => { db.columnPrivileges.find((row) => row.identity === "public.profiles.id").privileges.push("SELECT"); }),
+    (f) => f.reapprove((db) => { db.objectPrivileges.find((row) => row.identity === "supabase_migrations.schema_migrations").privileges.push("UPDATE"); }),
+    (f) => f.reapprove((db) => { db.columnPrivileges.pop(); }),
+    (f) => f.reapprove((db) => { db.columnPrivileges.push({ ...db.columnPrivileges[0] }); }),
+    (f) => f.reapprove((db) => { db.effectivePrivileges = ["CONNECT", "USAGE", "SELECT"]; }),
+    (f) => f.reapprove((db) => { db.schemaPrivileges.find((row) => row.schema === "supabase_migrations").privileges = []; }),
+    (f) => f.reapprove((db) => { db.objectPrivileges.find((row) => row.identity === "supabase_migrations.schema_migrations").privileges = []; }),
   ]) {
     const f = fixture();
     try {
@@ -642,6 +648,43 @@ test("write-capable collector, inherited roles or unproven read-only privilege f
       assert.equal(report.acceptance, "NOT_ACCEPTED");
     } finally { f.cleanup(); }
   }
+});
+
+test("PR23 catalog-only contract is exact, scoped and complete in PR26 analyzer", () => {
+  const f = fixture();
+  try {
+    f.reapprove();
+    const db = f.evidence.collectorAuthority.databaseAuthority;
+    assert.deepEqual(validateCollectorPrivilegeEvidence(db, f.evidence.catalog.objects), []);
+    assert.equal(db.privilegeContractVersion, "catalog_only_v1");
+    assert.deepEqual(db.requiredAccessSummary, [
+      "DATABASE_CONNECT", "SYSTEM_CATALOG_SELECT", "MIGRATION_HISTORY_SCHEMA_USAGE", "MIGRATION_HISTORY_SELECT",
+    ]);
+    assert.deepEqual(db.schemaPrivileges.find((row) => row.schema === "public"),
+      { schema: "public", scope: "application_data", privileges: [] });
+    assert.deepEqual(db.schemaPrivileges.find((row) => row.schema === "supabase_migrations"),
+      { schema: "supabase_migrations", scope: "migration_history", privileges: ["USAGE"] });
+    assert.deepEqual(db.objectPrivileges.find((row) => row.identity === "public.profiles"),
+      { kind: "tables", identity: "public.profiles", scope: "application_data", privileges: [] });
+    assert.deepEqual(db.objectPrivileges.find((row) => row.identity === "supabase_migrations.schema_migrations"),
+      { kind: "tables", identity: "supabase_migrations.schema_migrations", scope: "migration_history", privileges: ["SELECT"] });
+    assert.deepEqual(db.columnPrivileges.find((row) => row.identity === "supabase_migrations.schema_migrations.version"),
+      { identity: "supabase_migrations.schema_migrations.version", scope: "migration_history", privileges: ["SELECT"] });
+    assert.ok(db.columnPrivileges.filter((row) => row.scope === "application_data").every((row) => row.privileges.length === 0));
+  } finally { f.cleanup(); }
+});
+
+test("the pinned 40-entry migration inventory retains both 007 sources, Migration 039 and version order", () => {
+  const migrations = sourceManifest.migrations;
+  assert.equal(migrations.length, 40);
+  assert.deepEqual(migrations.filter((entry) => entry.version === "202607260007").map((entry) => entry.path), [
+    "supabase/migrations/202607260007_sprint6_daily_deedlight.sql",
+    "supabase/migrations/202607260007_sprint7_pwa_daily_engagement.sql",
+  ]);
+  assert.deepEqual(migrations.filter((entry) => entry.version === "202611260039").map((entry) => entry.path), [
+    "supabase/migrations/202611260039_delivery_kind_scoped_claims.sql",
+  ]);
+  assert.ok(migrations.every((entry, index) => index === 0 || migrations[index - 1].version <= entry.version));
 });
 
 test("self-declared completeness booleans do not replace signed catalog identity evidence", () => {
