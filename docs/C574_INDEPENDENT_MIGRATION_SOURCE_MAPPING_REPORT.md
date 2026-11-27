@@ -171,7 +171,7 @@ The verifier checks:
 - Catalog authorization remains `catalog_only_v1`.
 - SQL NULL, quoted backslash-N and quoted-empty fixture tokens remain distinct.
 
-**Execution status:** C574 did not have a local repository shell or Node runtime. The commands were added to CI, but were NOT EXECUTED in this session. No test PASS or Actions workflow run is claimed. CI must run against the exact final C574 head after a PR is opened.
+**Execution status:** C574 did not have a local repository shell or Node runtime; no local tests were executed. GitHub Actions PR Validation run **46043872285** (run #2152) was observed for PR #30 at head `56d6ceeb19bc7fe70044c2f60a6f73b180eb5ce3`. At evidence capture, both `Verify C574 exact-source semantic mapping inventory` and `C574 source mapping and literal distinction regressions` completed **SUCCESS**. The existing migration reconciliation analyzer adversarial test and TypeScript check also completed **SUCCESS**. The full workflow was still IN_PROGRESS: Next.js production build was running, Cloudflare packaging and dependency audit were pending, and several database jobs remained in progress. These are exact-head partial CI results, not a full workflow PASS. The report-update commit itself requires a fresh exact-head PR run.
 
 ## 11. Commit and CI evidence
 
@@ -186,7 +186,7 @@ Commits authored:
 - `401469b759728fa38b162018740fb19bed2bd37d` — stacked PR trigger and test steps.
 - `2f7b3ce86a808fbcec559a6a30ca71823123eb3d` — clarify backslash-N observation scope.
 
-GitHub file retrieval confirmed the artifact contains 40 entries, 39 unique versions, 372 qualified reference tokens, nonempty source construct observations for all entries, and UNKNOWN status for all five lifecycle domains. The branch compare from C573 showed the mapping, verifier, tests and CI/package changes as branch additions/changes. No local runtime or exact-head PR Actions result is available.
+GitHub file retrieval confirmed the artifact contains 40 entries, 39 unique versions, 372 qualified reference tokens, nonempty source construct observations for all entries, and UNKNOWN status for all five lifecycle domains. The branch compare from C573 showed the mapping, verifier, tests and CI/package changes as branch additions/changes. Local execution was unavailable. Partial exact-head PR Actions evidence is available: run 46043872285 / #2152 for commit 56d6ceeb19bc7fe70044c2f60a6f73b180eb5ce3; the two C574 steps, analyzer adversarial suite, and TypeScript check passed, while the overall run remained in progress at evidence capture.
 
 ## 12. Remaining blockers and next actions
 
