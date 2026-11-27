@@ -352,7 +352,7 @@ export function adaptCollectorEvidence({receipt,csv,inventoryBytes,schemaBytes,m
   const normalizedMapping=validateMapping(mapping,inventory);
   const catalogObjects=buildCatalog(p);
   const environment=receipt.endpoint.database==="postgres"?"production":"test";
-  const evidence={schemaVersion:2,
+  const evidence={schemaVersion:2,backfillMeasurements:[],conditionVerifications:[],
     provenance:{environment,projectRef:PROJECT_REF,capturedAt,collectorIdentity:receipt.execution.collectorId,queryBundleSha256:receipt.source.sqlBundleSha256},
     history:{complete:true,rows:validation.migrationHistoryRows},
     catalog:{complete:false,completeKinds:[...CATALOG_KINDS],objects:catalogObjects}};
