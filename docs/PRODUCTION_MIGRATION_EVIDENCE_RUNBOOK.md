@@ -12,7 +12,7 @@
 - Grant SELECT only on the explicitly enumerated PostgreSQL catalogs/views required by the audit (including `pg_catalog.pg_database`) and SELECT on `supabase_migrations.schema_migrations`. The collector must not own the history table or have table/column write privileges on it. The SQL enforces these effective privileges before collection; a failed check is a hard stop, not a prompt to use a stronger role.
 - Do not grant application table or sequence access to make catalog queries work. Catalog metadata is read through `pg_catalog`; the audit never needs to read application rows. The SQL transaction is a second control, not a substitute for the role contract.
 - Credentials must come from an approved secret manager or an external `PGSERVICEFILE`/`PGPASSFILE` with restrictive filesystem permissions. Never put credentials, connection URIs, tokens or passwords in repository files, command arguments, shell history, CI logs or evidence artifacts.
-- Record the exact repository SHA checked out at collection time and inventory blob SHA `a18cf2c65eb595ecd143fbaa16e2d81badf8d1f8` in the collector receipt. Never copy a historical commit SHA from this runbook; a controlled runner must verify the checked-out commit and migration inventory before collection.
+- Record the exact repository SHA checked out at collection time and inventory blob SHA `4e63f31368d446e905f4f44565be73337c7188fb` in the collector receipt. Never copy a historical commit SHA from this runbook; a controlled runner must verify the checked-out commit and migration inventory before collection.
 - Provide non-secret connection metadata through PostgreSQL custom settings:
   - `deedlight.expected_project_ref=xaipiovflxomcbfwtwmu`
   - `deedlight.repository_sha=<exact 40-character commit SHA>`
