@@ -151,6 +151,9 @@ VALUES ('test_effects_v1',
   'SELECT count(*)::bigint AS effect_count FROM deedlight_execution_ledger.test_effects',
   'Disposable fixture effect count')
 ON CONFLICT (query_id) DO NOTHING;
+GRANT INSERT ON deedlight_execution_ledger.test_effects TO deedlight_ledger_runner;
+GRANT USAGE, SELECT ON SEQUENCE deedlight_execution_ledger.test_effects_effect_id_seq
+  TO deedlight_ledger_runner;
 
 CREATE OR REPLACE FUNCTION deedlight_execution_ledger.actor_role()
 RETURNS name
