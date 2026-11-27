@@ -186,3 +186,8 @@ The report-only update that records this evidence created a later PR head; a sep
 | Production readiness | NO-GO |
 
 **Safety disposition:** no Production schema change, migration execution, migration-history reconciliation, credential or trust-root provisioning, PR merge or activation.
+
+
+## C593 historical evidence reconciliation
+
+C577's exact branch-head source candidate `7246312a93524e0bbde10f5d27acbe36db3e5a62` has a successful push workflow run #2229 / `46051417528` (13/13 jobs) and PR merge-context run #2230 / `46051424971` (13/13 jobs). PostgreSQL job `140683469339` passed the C577 fixture and ledger assertions. This does **not** restore the withdrawn C577 crash-recovery claim: the C578 report's actual-log audit found the C577 crash harness false positive. C578 is the authoritative corrected crash-recovery evidence. These are historical predecessor results, not validation of C593.
