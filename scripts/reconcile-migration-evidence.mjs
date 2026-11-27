@@ -92,6 +92,14 @@ export function validateCollectorPrivilegeEvidence(db, inventoryObjects) {
     || canonicalJson(db.requiredAccessSummary) !== canonicalJson(REQUIRED_ACCESS_SUMMARY)) {
     problems.push("collector required-access summary does not match the catalog-only privilege contract");
   }
+  if (!Array.isArray(db && db.databasePrivileges)
+    || db.databasePrivileges.length !== 1 || db.databasePrivileges[0] !== "CONNECT") {
+    problems.push("collector database-level privilege export is incomplete or not read-only");
+  }
+  if (!Array.isArray(db && db.catalogPrivileges)
+    || db.catalogPrivileges.length !== 1 || db.catalogPrivileges[0] !== "SELECT") {
+    problems.push("collector catalog read privileges are not completely attested");
+  }
   const inventory = Array.isArray(inventoryObjects) ? inventoryObjects : [];
   const expectedSchemas = inventory.filter((entry) => entry && entry.kind === "schemas").map((entry) => entry.identity).sort();
   const expectedObjects = inventory.filter((entry) => entry && PRIVILEGE_OBJECT_KINDS.has(entry.kind))
@@ -302,10 +310,6 @@ function validateCollectorAuthority(claims, provenance, evidenceDigest, authorit
   }
   for (const flag of ["isSuperuser", "canCreateRole", "canCreateDatabase", "bypassRls", "isReplication", "ownsObjects"]) {
     if (db[flag] !== false) problems.push("collector database role is elevated or its " + flag + " status is not proven false");
-  }
-  if (!Array.isArray(db.requiredAccessSummary)
-    || canonicalJson(db.requiredAccessSummary) !== canonicalJson(REQUIRED_ACCESS_SUMMARY)) {
-    problems.push("collector required-access summary does not match the catalog-only privilege contract");
   }
   if (!Array.isArray(db.databasePrivileges)
     || db.databasePrivileges.length !== 1 || db.databasePrivileges[0] !== "CONNECT") {
