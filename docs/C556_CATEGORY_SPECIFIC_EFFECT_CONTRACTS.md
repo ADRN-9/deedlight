@@ -112,3 +112,13 @@ The current trust-root roles and evidence pipeline do not provide a separately v
 A future acceptance path needs a PostgreSQL-aware parser and reviewed semantic mapping, plus a separately authorized semantic approval bound to exact source blobs and parser output. Backfills and condition outcomes additionally need a narrow read-only execution collector that retains verifiable query/result artifacts, binds the exact project, source, query, execution and capture, and is independently attested. These capabilities are not claimed to exist in C570. No regex-based AST substitute is introduced.
 
 The catalog-only authorization boundary and eleven catalog kinds are unchanged. Production database state and migration history are unchanged. Production acceptance remains **NO-GO**.
+
+### C570 implementation record
+
+- Analyzer hardening commit: `5748e38c4f32999ae9e73ae908a0c86611a73eb6`.
+- Adversarial analyzer tests: `83e839e470fb1f1803051dcb63fc92832e2b68a2`, with fixture correction `1467f515df2a82986a04b061a88677eb1f7e5e6d`.
+- This handover update: `9276a9b6f9ce3aaddcf7396b039ef84124d16e9c`; semantic status remains UNKNOWN on trust failures: `4b13c73e1cc532cded988c354b8fc8608aacb44a`.
+- Latest inspected branch head before this documentation update: `4b13c73e1cc532cded988c354b8fc8608aacb44a`; PR #29 remains open and unmerged.
+- Test execution was unavailable because this session has no local repository shell. No analyzer, adapter, collector, PostgreSQL integration, offline evidence, lint, TypeScript, Next build or Cloudflare package test is represented as passing.
+- Exact-head GitHub commit-workflow-run and combined-status lookups returned empty results for that code head. Workflow run ID and per-job conclusions are unavailable.
+- No Production database mutation, migration-history reconciliation, trust-root provisioning, evidence signing or PR merge was performed.
