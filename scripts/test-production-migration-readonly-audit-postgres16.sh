@@ -209,7 +209,6 @@ WITH schemas AS (
   WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
     AND n.nspname NOT LIKE 'pg_toast%'
     AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
-    AND NOT (n.nspname = 'supabase_migrations' AND c.relname = 'schema_migrations')
     AND a.attnum > 0 AND NOT a.attisdropped
 ), routines AS (
   SELECT p.oid, n.nspname, p.proname,
@@ -240,7 +239,8 @@ WITH schemas AS (
 ), column_privileges AS (
   SELECT jsonb_agg(jsonb_build_object(
     'identity', nspname || '.' || relname || '.' || attname,
-    'scope', 'application_data',
+    'scope', CASE WHEN nspname = 'supabase_migrations' AND relname = 'schema_migrations'
+      THEN 'migration_history' ELSE 'application_data' END,
     'privileges', to_jsonb(array_remove(ARRAY[
       CASE WHEN pg_catalog.has_column_privilege(current_user, relation_oid, attnum, 'SELECT') THEN 'SELECT' END,
       CASE WHEN pg_catalog.has_column_privilege(current_user, relation_oid, attnum, 'INSERT') THEN 'INSERT' END,
