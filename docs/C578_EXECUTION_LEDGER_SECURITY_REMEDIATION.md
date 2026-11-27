@@ -1,6 +1,6 @@
 # DeedLight C578 — Execution-ledger crash and snapshot identity remediation
 
-**Status:** Changes implemented on a stacked branch. Exact-head PostgreSQL 16 CI and PR-triggered validation are pending. No C578 test has yet been run in this session. Production remains NO-GO.
+**Status:** C578 implementation HEAD `f3e046b464e6fc004a1b0619e8daa83d410dbaa1` passed PR Validation run #2247 / `46054871375` with 13/13 jobs successful. The dedicated PostgreSQL 16 integration job passed and its actual decoded job log was inspected for every crash/snapshot evidence marker. Production remains NO-GO.
 
 ## 1. Baseline independently verified
 
@@ -9,6 +9,8 @@
 - Starting PR #33 head: `7246312a93524e0bbde10f5d27acbe36db3e5a62`.
 - PR #33 base: C576 `74af17632cdf27d032058d6782d96f569ef92fca`.
 - C578 branch: `feat/c578-ledger-crash-snapshot-remediation`, created from the exact PR #33 head.
+- PR #34: OPEN, unmerged; base `feat/c577-durable-execution-ledger`, exact base SHA `7246312a93524e0bbde10f5d27acbe36db3e5a62`.
+- PR #34 implementation head: `f3e046b464e6fc004a1b0619e8daa83d410dbaa1`.
 - C577 changes remain in the parent PR; C578 is stacked on its feature branch and does not merge or modify PR #33.
 
 ## 2. Confirmed C577 crash-harness false positive
@@ -51,7 +53,7 @@ The script emits explicit evidence lines:
 - `C578_CRASH_RECOVERY`
 - `C578_CRASH_REPLAY_REJECTED`
 
-These are test assertions to be proven by actual C578 PostgreSQL logs; source inspection alone is not a PASS.
+These are test assertions and have all been observed in the actual C578 PostgreSQL 16 job log for run #2247; source inspection alone was not used as the PASS basis.
 
 ## 4. Immutable snapshot query identity and bundle digest
 
@@ -113,17 +115,43 @@ Disposable PostgreSQL CI can establish fixture behavior only. It cannot establis
 ## 8. Validation and delivery status
 
 - Branch created from exact PR #33 head: PASS.
-- Crash harness source correction: IMPLEMENTED; runtime NOT ESTABLISHED.
-- Snapshot query and bundle identity enforcement: IMPLEMENTED; runtime NOT ESTABLISHED.
-- Crash rollback, marker rollback, reservation survival, UNKNOWN recovery and replay rejection: NOT ESTABLISHED pending C578 PostgreSQL run and actual log inspection.
-- Matching-query successful lifecycle: IMPLEMENTED; runtime NOT ESTABLISHED.
-- Mismatched-query rejection: IMPLEMENTED; runtime NOT ESTABLISHED.
-- C575/C576 regression suite on C578 head: NOT ESTABLISHED.
-- Exact C578 HEAD and PR-triggered CI: PENDING.
+- Crash harness source correction: PASS in PostgreSQL 16 integration run #2247.
+- Snapshot query and bundle identity enforcement: PASS in PostgreSQL 16 integration run #2247.
+- Crash rollback, marker rollback, reservation survival, UNKNOWN recovery and replay rejection: PASS; all explicit C578 evidence markers are present in the actual job log.
+- Matching-query successful lifecycle: PASS in PostgreSQL 16 integration run #2247.
+- Mismatched-query rejection across two registered queries and two distinct bundles: PASS in PostgreSQL 16 integration run #2247.
+- C575/C576 inherited regression suite: PASS in exact-head PR Validation.
+- Exact C578 HEAD and PR-triggered CI: PASS, 13/13 jobs.
 - PR #33: OPEN, unmerged.
-- C578 remediation PR: not yet opened at time of this report.
+- PR #34: OPEN, unmerged; mergeable at last check.
 
-No local PostgreSQL execution is claimed. The browser relay is not used to run commands. GitHub Actions is the intended validation machine.
+No local PostgreSQL execution is claimed. GitHub Actions was the validation machine.
+
+## 10. Exact-head CI and PostgreSQL log evidence
+
+PR #34 is stacked on PR #33 and remains OPEN/unmerged.
+
+- Exact tested HEAD: `f3e046b464e6fc004a1b0619e8daa83d410dbaa1`.
+- PR Validation run #2247: `46054871375`, completed SUCCESS.
+- All 13 workflow jobs completed SUCCESS, including `validate`, the inherited PostgreSQL behavior jobs and `migration_execution_ledger_postgres16`.
+- Dedicated PostgreSQL job ID: `140694881378`, completed SUCCESS.
+
+Actual decoded PostgreSQL job log evidence:
+- `C578_SNAPSHOT_MATCHING_QUERY_PASS`
+- `C578_SNAPSHOT_MISMATCH_REJECTED`
+- `C578_CRASH_BACKEND_READY backend_pid=88 state=active wait_event=PgSleep xid=830 client_pid=2867 client=psql`
+- `C578_CRASH_CLIENT_SIGKILL status=137 backend_pid=88`
+- `C578_CRASH_BACKEND_EXITED backend_pid=88`
+- `C578_CRASH_ROLLBACK effects_before=3 effects_after=3 marker_rows=0 reservation=running approval_consumed=true`
+- `C578_CRASH_RECOVERY execution_id=c5700000-0000-4000-8000-000000000027 status=unknown`
+- `C578_CRASH_REPLAY_REJECTED execution_id=c5700000-0000-4000-8000-000000000027`
+- `C578 disposable PostgreSQL 16 execution-ledger remediation tests: PASS`
+
+The PostgreSQL log contains one expected `approval is missing, consumed, or does not bind this execution scope` error from the replay-rejection assertion. It contains no malformed JSON error in the successful #2247 run. The earlier #2243 JSON-regex bootstrap failure and #2245 backend-wait timeout were corrected; neither is counted as a passing run.
+
+The validate job passed migration inventory and aggregate checks, C575/C576 source/evidence regression tests, security assertions, TypeScript, Next.js production build, Cloudflare packaging and dependency advisory checks. All 13 jobs are green on the exact tested implementation HEAD.
+
+A later documentation-only update changes the PR head; that later HEAD must receive a fresh exact-head CI run before this report's final text is considered validated.
 
 ## 9. Handover and safety disposition
 
