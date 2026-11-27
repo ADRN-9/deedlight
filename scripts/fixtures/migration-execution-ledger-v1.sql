@@ -478,6 +478,16 @@ DROP TRIGGER approvals_append_only ON deedlight_execution_ledger.approvals;
 CREATE TRIGGER approvals_append_only BEFORE UPDATE OR DELETE ON deedlight_execution_ledger.approvals
 FOR EACH ROW EXECUTE FUNCTION deedlight_execution_ledger.guard_approval_consumption();
 
+DROP TRIGGER IF EXISTS execution_delete_guard ON deedlight_execution_ledger.executions;
+CREATE TRIGGER execution_delete_guard BEFORE DELETE ON deedlight_execution_ledger.executions
+FOR EACH ROW EXECUTE FUNCTION deedlight_execution_ledger.reject_ledger_mutation();
+DROP TRIGGER IF EXISTS observation_queries_append_only ON deedlight_execution_ledger.observation_queries;
+CREATE TRIGGER observation_queries_append_only BEFORE UPDATE OR DELETE ON deedlight_execution_ledger.observation_queries
+FOR EACH ROW EXECUTE FUNCTION deedlight_execution_ledger.reject_ledger_mutation();
+DROP TRIGGER IF EXISTS database_identity_append_only ON deedlight_execution_ledger.database_identity;
+CREATE TRIGGER database_identity_append_only BEFORE UPDATE OR DELETE ON deedlight_execution_ledger.database_identity
+FOR EACH ROW EXECUTE FUNCTION deedlight_execution_ledger.reject_ledger_mutation();
+
 DROP TRIGGER IF EXISTS snapshots_append_only ON deedlight_execution_ledger.snapshots;
 CREATE TRIGGER snapshots_append_only BEFORE UPDATE OR DELETE ON deedlight_execution_ledger.snapshots
 FOR EACH ROW EXECUTE FUNCTION deedlight_execution_ledger.reject_ledger_mutation();
@@ -486,8 +496,8 @@ CREATE TRIGGER verification_events_append_only BEFORE UPDATE OR DELETE ON deedli
 FOR EACH ROW EXECUTE FUNCTION deedlight_execution_ledger.reject_ledger_mutation();
 
 REVOKE ALL ON SCHEMA deedlight_execution_ledger FROM PUBLIC;
-REVOKE ALL ON ALL TABLES IN SCHEMA deedlight_execution_ledger FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON ALL SEQUENCES IN SCHEMA deedlight_execution_ledger FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON ALL TABLES IN SCHEMA deedlight_execution_ledger FROM PUBLIC;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA deedlight_execution_ledger FROM PUBLIC;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA deedlight_execution_ledger FROM PUBLIC;
 GRANT USAGE ON SCHEMA deedlight_execution_ledger TO
   deedlight_ledger_approver, deedlight_ledger_runner, deedlight_ledger_observer,
