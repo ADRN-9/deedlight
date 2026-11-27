@@ -164,7 +164,7 @@ export function validateSqlOutput(csv) {
       !["postgres", "deedlight_migration_order_test"].includes(identityRow[2]) ||
       identityRow[3] !== "deedlight_catalog_auditor" || identityRow[4] !== "deedlight_catalog_auditor" ||
       !/^\d+\.\d+(?:[.\s]|$)/.test(identityRow[5]) || !identityRow[6] || identityRow[7] !== "5432" ||
-      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(identityRow[8]) || identityRow[9] !== "on") {
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(identityRow[8]) || identityRow[9] !== "on") {
     throw new CollectorError("SQL_IDENTITY_PROJECTION_INVALID");
   }
 
