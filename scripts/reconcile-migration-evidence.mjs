@@ -424,7 +424,8 @@ function validateCollectorAuthority(claims, provenance, evidenceDigest, authorit
   }
 }
 function validateMapping(mapping, manifest, source, problems) {
-  if (!mapping || mapping.schemaVersion !== 1 || !Array.isArray(mapping.migrations) || mapping.migrations.length !== manifest.migrations.length) {
+  if (!mapping || mapping.schemaVersion !== 1 || !Array.isArray(mapping.migrations)
+    || mapping.migrations.length !== manifest.migrations.length) {
     problems.push("migration mapping must contain exactly one reviewed entry for every source migration");
     return new Map();
   }
@@ -443,6 +444,7 @@ function validateMapping(mapping, manifest, source, problems) {
     byPath.set(entry.path, entry);
   }
   const result = new Map();
+  const allowedDispositions = new Set(["effects", "none", "unsupported", "unknown"]);
   for (const item of manifest.migrations) {
     const entry = byPath.get(item.path);
     if (!entry || entry.blobSha1 !== item.blobSha1 || !source.get(item.path)?.valid) {
@@ -460,50 +462,73 @@ function validateMapping(mapping, manifest, source, problems) {
       problems.push("mapping lacks an explicit reviewed coverage disposition for every effect domain: " + item.path);
       continue;
     }
+    const flattened = [];
+    const unsupportedCategories = [];
+    const unknownCategories = [];
+    const seenEffects = new Set();
     let coverageMalformed = false;
     for (const category of CATEGORIES) {
       const review = coverage[category];
-      const effectCount = entry.effects[category].length;
+      const effects = entry.effects[category];
+      const disposition = review && review.disposition;
+      const ranges = review && review.sourceRanges;
       if (!review || Object.keys(review).sort().join(",") !== ["disposition", "rationale", "sourceRanges"].sort().join(",")
-        || review.disposition !== (effectCount > 0 ? "effects" : "none")
+        || !allowedDispositions.has(disposition)
+        || (disposition === "effects" && effects.length === 0)
+        || (disposition !== "effects" && effects.length !== 0)
         || typeof review.rationale !== "string" || review.rationale.trim().length < 20
-        || !Array.isArray(review.sourceRanges) || review.sourceRanges.length === 0
-        || review.sourceRanges.some((range) => !range || Object.keys(range).sort().join(",") !== ["endLine", "startLine"].sort().join(",")
-          || !Number.isInteger(range.startLine) || !Number.isInteger(range.endLine)
-          || range.startLine < 1 || range.endLine < range.startLine || range.endLine > source.get(item.path).lineCount)) {
+        || !Array.isArray(ranges) || ranges.length === 0) {
         coverageMalformed = true;
         break;
       }
-    }
-    if (coverageMalformed) {
-      problems.push("mapping has incomplete or invalid source-linked coverage review for " + item.path);
-      continue;
-    }
-    const flattened = [];
-    let malformed = false;
-    for (const category of CATEGORIES) {
-      for (const effect of entry.effects[category]) {
-        const allowed = category === "schema" ? SCHEMA_KINDS : category === "routines" ? new Set(["routines"]) : new Set([category]);
-        if (!effect || Object.keys(effect).sort().join(",") !== ["description", "fingerprint", "identity", "kind"].sort().join(",")
-          || !allowed.has(effect.kind) || typeof effect.identity !== "string" || !effect.identity.trim()
-          || !/^[a-f0-9]{64}$/.test(effect.fingerprint || "") || typeof effect.description !== "string" || !effect.description.trim()) {
-          malformed = true;
+      let previousEnd = 0;
+      for (const range of ranges) {
+        if (!range || Object.keys(range).sort().join(",") !== ["endLine", "startLine"].sort().join(",")
+          || !Number.isSafeInteger(range.startLine) || !Number.isSafeInteger(range.endLine)
+          || range.startLine <= previousEnd || range.endLine < range.startLine
+          || range.endLine > source.get(item.path).lineCount) {
+          coverageMalformed = true;
           break;
         }
+        previousEnd = range.endLine;
+      }
+      if (coverageMalformed) break;
+      if (disposition === "unsupported") {
+        unsupportedCategories.push(category);
+        problems.push("mapping explicitly classifies " + category + " as unsupported for " + item.path + ": " + review.rationale);
+      } else if (disposition === "unknown") {
+        unknownCategories.push(category);
+        problems.push("mapping explicitly classifies " + category + " as unknown for " + item.path + ": " + review.rationale);
+      }
+      for (const effect of effects) {
+        const allowed = category === "schema" ? SCHEMA_KINDS
+          : category === "routines" ? new Set(["routines"]) : new Set([category]);
+        if (!effect || Object.keys(effect).sort().join(",") !== ["description", "fingerprint", "identity", "kind"].sort().join(",")
+          || !allowed.has(effect.kind) || typeof effect.identity !== "string" || !effect.identity.trim()
+          || !/^[a-f0-9]{64}$/.test(effect.fingerprint || "")
+          || typeof effect.description !== "string" || !effect.description.trim()) {
+          coverageMalformed = true;
+          break;
+        }
+        const key = effect.kind + "\0" + effect.identity;
+        if (seenEffects.has(key)) {
+          problems.push("mapping repeats an effect identity across effect domains for " + item.path);
+          coverageMalformed = true;
+          break;
+        }
+        seenEffects.add(key);
         flattened.push({ kind: effect.kind, identity: effect.identity, fingerprint: effect.fingerprint, category });
       }
+      if (coverageMalformed) break;
     }
-    if (malformed || flattened.length === 0) {
-      problems.push("mapping contains malformed or empty effects for " + item.path);
+    if (coverageMalformed) {
+      problems.push("mapping has incomplete, malformed, unordered or overlapping source-linked coverage/effects for " + item.path);
       continue;
     }
-    const keys = new Set();
-    for (const effect of flattened) {
-      const key = effect.kind + "\0" + effect.identity;
-      if (keys.has(key)) problems.push("mapping repeats an effect identity for " + item.path);
-      keys.add(key);
+    if (flattened.length === 0) {
+      problems.push("mapping contains no deterministic effects for " + item.path);
     }
-    result.set(item.path, flattened);
+    result.set(item.path, { effects: flattened, unsupportedCategories, unknownCategories });
   }
   if (byPath.size !== manifest.migrations.length || manifest.migrations.some((item) => !byPath.has(item.path))) {
     problems.push("mapping path set does not exactly match the pinned 40-file inventory");
@@ -569,8 +594,16 @@ function validateEvidence(evidence, now, manifest, problems) {
 }
 function classifyOne(item, manifest, evidence, source, mappedEffects) {
   if (!source.get(item.path)?.valid) return { status: "Unknown", reasons: ["migration source fingerprint is not verified"] };
-  const expected = mappedEffects.get(item.path);
-  if (!expected) return { status: "Unknown", reasons: ["migration has no complete authenticated effect mapping"] };
+  const mapping = mappedEffects.get(item.path);
+  if (!mapping) return { status: "Unknown", reasons: ["migration has no complete authenticated effect mapping"] };
+  if (mapping.unsupportedCategories.length || mapping.unknownCategories.length) {
+    return { status: "Unknown", reasons: [
+      ...mapping.unsupportedCategories.map((category) => "effect domain is explicitly unsupported: " + category),
+      ...mapping.unknownCategories.map((category) => "effect domain is explicitly unknown: " + category),
+    ], exactExecutionEstablished: false };
+  }
+  const expected = mapping.effects;
+  if (!expected.length) return { status: "Unknown", reasons: ["migration mapping contains no deterministic effects"] };
   const catalog = new Map();
   for (const object of evidence.catalog.objects) {
     const expectedObjectKeys = object && object.kind === "columns"
