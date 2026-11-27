@@ -58,3 +58,17 @@ These dispositions reflect lexical candidates and parser limitations, not an ind
 ## Historical execution and Migration 007
 
 No authenticated historical execution timestamps, execution IDs, receipts, row counts or trust roots are created. The two distinct `202607260007` source files remain separately identified; a migration-history row for that version cannot identify which source body executed. Migration 039 and the complete 40-entry inventory remain pinned. Production migration history is unchanged.
+
+## C558 remediation notes
+
+### Catalog boundary
+
+The live PostgreSQL catalog is exactly the 11 collector-supported kinds: schemas, tables, sequences, columns, constraints, indexes, triggers, policies, routines, privileges and ownership. Transformations, backfills, migration dependencies, preconditions and postconditions are not PostgreSQL catalog object kinds. They remain separate mapping/evidence domains and are never flattened into catalog object identities or fingerprints. Analyzer classification compares only catalog effects to live catalog rows; unresolved lifecycle evidence is counted separately and keeps final acceptance blocked.
+
+### Condition outcome evidence
+
+A verified precondition/postcondition now carries an explicit `observedOutcome`, the exact predicate SHA-256, the pinned migration blob SHA-1, query/result digests, execution ID and canonical UTC capture timestamp. The observed outcome must be one of the supported unambiguous values and must equal the declared expected outcome. The signed evidence envelope must contain exactly one matching condition record; missing, duplicate, extra, malformed or contradictory records fail closed. A structurally valid source mapping or adapter candidate is still not authenticated: the evidence approval and collector attestation must independently sign the complete evidence payload.
+
+### Why source-observation generation is not promoted to a semantic generator
+
+The C556 observations are deliberately lexical candidates. A safe semantic generator cannot be built from line-oriented regular expressions because PostgreSQL SQL includes nested dollar-quoted function bodies, procedural control flow, dynamic SQL, CTEs, quoted identifiers, overloaded routines, trigger context, search-path resolution and statements spanning multiple lines. Regex-derived target names or predicates can be syntactically plausible yet semantically wrong. C558 therefore validates every stored excerpt against exact source blob identity and source line, and tightens transformation contracts to require a non-empty source relation set, a recognized operation that matches the pinned SQL range, and source/target relations present in that range. It does not automatically convert lexical candidates into approved mappings. A PostgreSQL-aware parser plus human semantic review is required before such a generator can safely emit complete transformation/dependency/backfill/lifecycle mappings.
