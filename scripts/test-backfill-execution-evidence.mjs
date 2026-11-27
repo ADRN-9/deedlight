@@ -46,7 +46,8 @@ function signedArtifact(kind, signer, key, claims, id) {
   const unsigned = {
     schemaVersion: 1, kind, signerId: signer, keyId: kind.includes("authorization")
       ? "backfill-approver-key" : "backfill-verifier-key",
-    approvalId: id, issuedAt: iso(-5 * 60 * 1000), expiresAt: iso(3 * 60 * 60 * 1000), claims,
+    approvalId: id, issuedAt: kind.includes("authorization") ? iso(-30 * 60 * 1000) : iso(-5 * 60 * 1000),
+    expiresAt: iso(3 * 60 * 60 * 1000), claims,
   };
   return { ...unsigned, signature: sign(null, Buffer.from(canonical(unsigned)), key.privateKey).toString("base64") };
 }
@@ -61,7 +62,8 @@ function resign(record) {
   record.authorization = signedArtifact("deedlight-backfill-execution-authorization", "independent-backfill-approver", approver,
     { recordId: record.recordId, executionId: record.executionId, sourceIdentity: record.sourceIdentity,
       databaseIdentity: record.databaseIdentity, environment: record.databaseIdentity.environment, coreDigest,
-      authorizedBy: "independent-backfill-approver" }, "authorization-" + record.recordId);
+      authorizedBy: "independent-backfill-approver",
+      authorizedAt: iso(-30 * 60 * 1000), expiresAt: iso(3 * 60 * 60 * 1000) }, "authorization-" + record.recordId);
   record.verification = signedArtifact("deedlight-backfill-independent-verification", "independent-backfill-verifier", verifier,
     { recordId: record.recordId, executionId: record.executionId, sourceIdentity: record.sourceIdentity,
       databaseIdentity: record.databaseIdentity, coreDigest,
@@ -69,7 +71,8 @@ function resign(record) {
       preExecutionEvidenceSha256: hash(canonical(record.preExecutionState)),
       postExecutionEvidenceSha256: hash(canonical(record.postExecutionState)),
       outcome: record.execution.outcome, result: "PASS",
-      verifierIdentity: "independent-backfill-verifier", verifierVersion: "deedlight-backfill-verifier/1.0.0" },
+      verifierIdentity: "independent-backfill-verifier", verifierVersion: "deedlight-backfill-verifier/1.0.0",
+      verifiedAt: iso(-5 * 60 * 1000) },
     "verification-" + record.recordId);
 }
 function fixture() {
@@ -213,6 +216,7 @@ test("SQL NULL, quoted-empty and literal backslash-N observations remain distinc
   const rows = [{ databaseIdentity: db, sqlNull: null, quotedEmpty: "", literalBackslashN: String.raw`\\N` }];
   f.record.preExecutionState.rows = rows;
   f.record.preExecutionState.rowsSha256 = hash(canonical(rows));
+  resign(f.record);
   const result = validate(f);
   assert.equal(result.structuralValidation, "PASS", result.problems.join(","));
   assert.equal(rows[0].sqlNull, null);
