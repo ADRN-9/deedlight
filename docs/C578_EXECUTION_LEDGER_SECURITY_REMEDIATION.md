@@ -1,6 +1,6 @@
 # DeedLight C578 — Execution-ledger crash and snapshot identity remediation
 
-**Status:** C578 implementation HEAD `f3e046b464e6fc004a1b0619e8daa83d410dbaa1` passed PR Validation run #2247 / `46054871375` with 13/13 jobs successful. The dedicated PostgreSQL 16 integration job passed and its actual decoded job log was inspected for every crash/snapshot evidence marker. Production remains NO-GO.
+**Status:** Documentation-inclusive PR #34 HEAD `02642d9894ba291ae45c34d32881f0a261cd7ab9` passed PR Validation run #2249 / `46055268836` with 13/13 jobs successful. The dedicated PostgreSQL 16 integration job passed and its actual decoded job log was inspected for every crash/snapshot evidence marker. Production remains NO-GO.
 
 ## 1. Baseline independently verified
 
@@ -126,6 +126,10 @@ Disposable PostgreSQL CI can establish fixture behavior only. It cannot establis
 - PR #34: OPEN, unmerged; mergeable at last check.
 
 No local PostgreSQL execution is claimed. GitHub Actions was the validation machine.
+
+## 11. Documentation-inclusive exact-head verification
+
+The current PR #34 head `02642d9894ba291ae45c34d32881f0a261cd7ab9`, which includes this handover's CI evidence, passed PR Validation run #2249 / `46055268836` with 13/13 jobs successful. The dedicated PostgreSQL job ID `140696115895` also passed and its actual decoded log repeated all required `C578_CRASH_*` and snapshot identity evidence. PR #34 remains OPEN/unmerged and PR #33 remains OPEN/unmerged.
 
 ## 10. Exact-head CI and PostgreSQL log evidence
 
