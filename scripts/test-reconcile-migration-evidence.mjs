@@ -1604,6 +1604,8 @@ test("unsupported and unknown effect domains are explicit blockers, never silent
       assert.equal(report.counts.Unknown,0);
       assert.ok(report.unresolvedLifecycleEvidence>0);
       assert.ok(report.classifications[0].nonCatalogEvidenceCategories.includes("backfills"));
+      assert.equal(report.classifications[0].unsupportedNonCatalogCategories.includes("backfills"),disposition==="unsupported");
+      assert.equal(report.classifications[0].unknownNonCatalogCategories.includes("backfills"),disposition==="unknown");
     }finally{f.cleanup();}
   }
 });
