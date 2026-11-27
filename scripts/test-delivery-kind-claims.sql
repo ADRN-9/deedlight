@@ -375,6 +375,7 @@ select jsonb_build_object(
   'malformed_batch_rejection','pass',
   'legacy_generic_rpc_denied','pass',
   'no_generic_kind_helper','pass',
-  'stale_token_rejected','pass',\n  'weekly_stale_reclaim_token_rejected','pass',
+  'stale_token_rejected','pass',
+  'weekly_stale_reclaim_token_rejected','pass',
   'browser_role_denial','pass'
 ) as delivery_kind_claim_behavior;
