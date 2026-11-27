@@ -109,3 +109,34 @@ Human-controlled dependencies:
 - Independent review of the implementation and final CI evidence.
 
 No PR merge, Production migration, migration-history reconciliation, credential rotation, trust-root provisioning, or scheduler activation is performed or authorized here.
+
+
+## First exact-head PR validation evidence
+
+The implementation/test candidate `12879777503cfbb3bcbf854c2a836f3bff609bbf` completed PR Validation workflow ID `365241434`, run #2340 / `46078597255`, **SUCCESS (13/13 jobs)**. The workflow run's PR head SHA is the exact candidate above. The PostgreSQL job checked out merge context `e1f9d481887c607a597b13802040ff7d86b260a9`, containing that PR head and base `ba906e7c06e1efc52dc7185c9125277e08400220`.
+
+Dedicated PostgreSQL 16 job `migration_execution_ledger_postgres16` / job ID `140772050202` completed SUCCESS. I fetched and inspected its decoded log. It contains all C593 evidence markers:
+- `C593_BYTEWISE_CANONICAL_DIGEST_VECTOR_PASS`
+- `C593_FORGED_MANIFEST_NONMEMBER_QUERY_REJECTED`
+- `C593_FORGED_MANIFEST_DIGEST_REJECTED`
+- `C593_SOURCE_IDENTITY_IMMUTABILITY_PASS`
+- `C593_LIVE_DATABASE_IDENTITY_FAIL_CLOSED_PASS`
+
+The same actual log confirms inherited C578 crash rollback and C585 deterministic replay evidence. PostgreSQL was 16.16. The expected negative-case server log entries include the deliberately cancelled lock-holder statement and D1005 replay rejection; the PostgreSQL job and its test harness completed successfully.
+
+All 13 workflow jobs completed successfully:
+- `migration_execution_ledger_postgres16`: `140772050202`
+- `security_definer_ownership_audit_database_behavior`: `140772050210`
+- `migration_inventory_aggregate_database_behavior`: `140772050221`
+- `auth_pgcrypto_database_behavior`: `140772050230`
+- `privacy_authorization_database_behavior`: `140772050260`
+- `sprint12_2_database_behavior`: `140772050166`
+- `delivery_provider_webhook_database_behavior`: `140772050040`
+- `delivery_reliability_database_behavior`: `140772050232`
+- `production_evidence_collector_postgres16`: `140772050245`
+- `delivery_migration_order_database_behavior`: `140772050248`
+- `gentle_delivery_transport_database_behavior`: `140772050250`
+- `migration_037_backfill_database_behavior`: `140772050470`
+- `validate`: `140772050278`
+
+This is CI execution evidence, not a local test run and not Production environment-attestation evidence. A documentation-inclusive exact-head rerun is required after this evidence update.
