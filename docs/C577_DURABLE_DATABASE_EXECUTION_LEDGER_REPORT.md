@@ -58,11 +58,11 @@ The required protocol is:
 3. The runner commits reservation in its own short transaction.
 4. A separate observer connection calls `capture_snapshot(..., 'pre', ...)`. The observer can only see a committed reservation. The SQL query comes from an owner-installed allowlist; callers cannot supply SQL or observation values.
 5. The runner commits `start_execution` separately. It requires the pre-snapshot.
-6. The migration runs in its own transaction. It must not share the reservation/finalization transaction.
-7. After the migration transaction commits (or its failure/rollback is known), a separate observer connection captures the post-snapshot while the ledger remains RUNNING.
-8. The runner finalizes in a separate transaction. Finalization requires both independently collected snapshots and a supported explicit outcome.
+6. The migration runs in its own transaction. It must not share the reservation/finalization transaction. As the final ledger operation inside that same transaction, the runner calls `record_effect_commit_marker`, binding the active execution and exact stored source-identity JSON. The marker row and migration effects therefore commit or roll back together.
+7. A separate observer connection can capture the post-snapshot only after the marker is visible in a committed transaction while the ledger remains RUNNING. The function checks the marker's database, execution, runner and source binding; callers cannot submit snapshot rows or arbitrary SQL.
+8. The runner finalizes in a separate transaction. Finalization requires the committed effect marker and both independently collected snapshots, plus a supported explicit outcome.
 
-The separate-session visibility requirements are important: an uncommitted reservation cannot be observed by the observer; a post-snapshot cannot be collected until the running state and migration effects are committed; finalization cannot precede the committed post-snapshot. A caller that wraps the reservation in a transaction and rolls it back leaves no reservation or consumed approval. The runner protocol must commit reservation before any migration effects.
+The separate-session visibility requirements are important: an uncommitted reservation cannot be observed by the observer; a post-snapshot cannot be collected until the running state and same-transaction effect marker are committed; finalization cannot precede the committed post-snapshot. If the migration transaction rolls back, its effect marker rolls back too, so a post-snapshot and finalization are refused. A caller that wraps the reservation in a transaction and rolls it back leaves no reservation or consumed approval. The runner protocol must commit reservation before any migration effects.
 
 The SQL fixture contains a single preinstalled observation query for a disposable effect table. It proves server-side snapshot mechanics and phase binding; it is not a general production semantic query catalogue. Production query bundles need reviewed, versioned, migration-specific SQL and independent provenance.
 
@@ -111,6 +111,7 @@ Adversarial/integration scenarios:
 18. An actual disposable PostgreSQL client is SIGKILLed during an open effect transaction; the uncommitted effect rolls back while the separately committed RUNNING ledger entry survives and is recovered to unknown.
 19. Two simultaneous independent sessions contend for the same approval; exactly one reservation may commit.
 20. The same record/execution UUID pair can be reserved in a second disposable database in the same cluster, demonstrating database scoping.
+21. The post-snapshot API rejects an execution with no committed effect marker.
 
 The crash test checks that the uncommitted effect is absent after client termination and that the ledger remains UNKNOWN. The race test checks exactly one committed row. The tests do not use Production.
 
@@ -118,7 +119,7 @@ The crash test checks that the uncommitted effect is absent after client termina
 
 This ledger supplies database-enforced uniqueness, role-gated transitions, immutable terminal records and independently captured snapshots. It does not make a superuser untrusted: a database superuser can change schema, disable triggers, change role grants or replace functions. Production requires independent DBA controls, audit retention and alerting.
 
-Snapshot SHA-256 values are integrity checks over the server-generated JSON snapshot. They are not signatures, and they do not prove the migration executed. The ledger records a database-observed lifecycle and state; it does not prove source code was safe or that all semantic effects were correct.
+Snapshot SHA-256 values are integrity checks over the server-generated JSON snapshot. They are not signatures, and they do not prove the migration executed. The effect marker is a runner-controlled commit witness, not independent proof that the source file ran: a compromised or dishonest runner could call it without executing the migration. The ledger records a database-observed lifecycle and state; it does not prove source code was safe or that all semantic effects were correct.
 
 The current `record_verification` operation is an append-only role-gated event. Its caller-supplied verdict/evidence is not a cryptographic attestation. No verifier trust root is provisioned, and no C576 acceptance bypass is introduced.
 
@@ -162,6 +163,7 @@ No Production migration execution, migration-history reconciliation, trust-root 
 | Independent server-side pre/post snapshots | IMPLEMENTED for allowlisted disposable fixture query |
 | Separate role-gated approver/runner/observer/verifier/recovery operations | IMPLEMENTED; Production identity governance NOT ESTABLISHED |
 | Transaction rollback and concurrency race evidence | NOT ESTABLISHED until exact-head CI completes |
+| Same-transaction effect marker rollback coupling | NOT ESTABLISHED until exact-head CI completes |
 | Actual process kill and crash-recovery evidence | NOT ESTABLISHED until exact-head CI completes |
 | Production migration-runner integration | BLOCKED |
 | Production observation query bundles | BLOCKED |
