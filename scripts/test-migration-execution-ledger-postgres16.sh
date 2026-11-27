@@ -33,49 +33,168 @@ actual_addr="$(clean_psql --tuples-only --no-align --command \
 clean_psql --file scripts/fixtures/migration-execution-ledger-v1.sql
 clean_psql --file scripts/fixtures/test-migration-execution-ledger-v1.sql
 
-# Kill a live PostgreSQL client while its migration-effect transaction is open.
-# The database rolls back the uncommitted effect; the separately committed ledger
-# reservation survives and is conservatively recovered as UNKNOWN.
+# Exercise a real interrupted migration transaction with a deterministic backend handshake.
+# The SQL file is a single-quoted heredoc: JSON reaches PostgreSQL unchanged.
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
 before_crash_effects="$(clean_psql --tuples-only --no-align --command \
   "SELECT count(*) FROM deedlight_execution_ledger.test_effects")"
-set +e
-env -i PATH="$PATH" HOME="${HOME:-/tmp}" PGPASSWORD=postgres \
-  PGHOST=127.0.0.1 PGPORT=5432 PGUSER=postgres PGDATABASE=deedlight_ledger_test \
-  PGSSLMODE=disable psql --no-psqlrc --set ON_ERROR_STOP=1 --command "
-    BEGIN;
-    SET LOCAL ROLE deedlight_ledger_runner;
-    INSERT INTO deedlight_execution_ledger.test_effects(effect_value) VALUES ('uncommitted crash effect');
-    SELECT deedlight_execution_ledger.record_effect_commit_marker(
-      'c5700000-0000-4000-8000-000000000027',
-      '{"path":"supabase/migrations/test-crash.sql","sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}'::jsonb
-    );
-    SELECT pg_catalog.pg_sleep(30);
-    COMMIT;
-  " >"$tmp_dir/crash.log" 2>&1 &
-crash_pid=$!
-sleep 0.5
-kill -9 "$crash_pid" 2>/dev/null
-wait "$crash_pid"
-crash_status=$?
-set -e
-if [[ "$crash_status" -eq 0 ]]; then
-  echo "FAIL: migration client did not terminate during the open transaction" >&2
+
+cat >"$tmp_dir/crash.sql" <<'SQL'
+BEGIN;
+SET LOCAL ROLE deedlight_ledger_runner;
+INSERT INTO deedlight_execution_ledger.test_effects(effect_value)
+VALUES ('uncommitted crash effect');
+SELECT deedlight_execution_ledger.record_effect_commit_marker(
+  'c5700000-0000-4000-8000-000000000027',
+  '{"path":"supabase/migrations/test-crash.sql","sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}'::jsonb
+);
+SELECT pg_catalog.pg_sleep(30);
+COMMIT;
+SQL
+
+PGAPPNAME=deedlight_c578_crash_test \
+PGHOST=127.0.0.1 PGPORT=5432 PGUSER=postgres PGDATABASE=deedlight_ledger_test \
+PGPASSWORD=postgres PGSSLMODE=disable \
+psql --no-psqlrc --set ON_ERROR_STOP=1 --file "$tmp_dir/crash.sql" \
+  >"$tmp_dir/crash-client.log" 2>&1 &
+crash_client_pid=$!
+
+client_command="$(ps -p "$crash_client_pid" -o comm= | tr -d '[:space:]')"
+if [[ "$client_command" != "psql" ]]; then
+  echo "FAIL: expected psql client PID, got PID=$crash_client_pid command=$client_command" >&2
+  cat "$tmp_dir/crash-client.log"
   exit 1
 fi
-sleep 0.25
+
+# Wait for the marker statement to have returned and the backend to enter PgSleep.
+# Because statements run sequentially in one transaction, this proves both the
+# effect INSERT and marker INSERT have executed but neither has committed.
+backend_row=""
+for attempt in $(seq 1 200); do
+  backend_row="$(clean_psql --tuples-only --no-align --field-separator '|' --command "
+    SELECT pid::text || '|' || state || '|' || coalesce(wait_event,'') || '|' ||
+      coalesce(backend_xid::text,'')
+    FROM pg_catalog.pg_stat_activity
+    WHERE application_name = 'deedlight_c578_crash_test'
+      AND datname = current_database()
+      AND state = 'active'
+      AND wait_event = 'PgSleep'
+      AND backend_xid IS NOT NULL
+      AND query LIKE '%pg_sleep(30)%'
+  ")"
+  [[ -n "$backend_row" ]] && break
+  if ! kill -0 "$crash_client_pid" 2>/dev/null; then
+    echo "FAIL: psql client exited before the marker/backend handshake" >&2
+    cat "$tmp_dir/crash-client.log"
+    exit 1
+  fi
+  sleep 0.1
+done
+if [[ -z "$backend_row" ]]; then
+  echo "FAIL: timed out waiting for marker execution and backend PgSleep state" >&2
+  cat "$tmp_dir/crash-client.log"
+  exit 1
+fi
+IFS='|' read -r crash_backend_pid crash_backend_state crash_wait_event crash_backend_xid <<<"$backend_row"
+[[ "$crash_backend_state" == "active" && "$crash_wait_event" == "PgSleep" && -n "$crash_backend_xid" ]]
+printf 'C578_CRASH_BACKEND_READY backend_pid=%s state=%s wait_event=%s xid=%s client_pid=%s client=%s\n' \
+  "$crash_backend_pid" "$crash_backend_state" "$crash_wait_event" "$crash_backend_xid" \
+  "$crash_client_pid" "$client_command"
+
+# Terminate only the identified psql client. Its server backend must then disappear.
+kill -KILL "$crash_client_pid"
+if wait "$crash_client_pid"; then
+  crash_status=0
+else
+  crash_status=$?
+fi
+if [[ "$crash_status" -ne 137 ]]; then
+  echo "FAIL: expected SIGKILL wait status 137, got $crash_status" >&2
+  cat "$tmp_dir/crash-client.log"
+  exit 1
+fi
+printf 'C578_CRASH_CLIENT_SIGKILL status=%s backend_pid=%s\n' "$crash_status" "$crash_backend_pid"
+
+backend_gone=false
+for attempt in $(seq 1 100); do
+  backend_present="$(clean_psql --tuples-only --no-align --command \
+    "SELECT count(*) FROM pg_catalog.pg_stat_activity WHERE pid = $crash_backend_pid")"
+  if [[ "$backend_present" == "0" ]]; then
+    backend_gone=true
+    break
+  fi
+  sleep 0.1
+done
+[[ "$backend_gone" == "true" ]] || {
+  echo "FAIL: PostgreSQL backend $crash_backend_pid remained after client SIGKILL" >&2
+  exit 1
+}
+
+after_crash_effects="$(clean_psql --tuples-only --no-align --command \
+  "SELECT count(*) FROM deedlight_execution_ledger.test_effects")"
+crash_marker_count="$(clean_psql --tuples-only --no-align --command \
+  "SELECT count(*) FROM deedlight_execution_ledger.execution_commit_markers WHERE execution_id = 'c5700000-0000-4000-8000-000000000027'")"
+crash_reservation_status="$(clean_psql --tuples-only --no-align --command \
+  "SELECT status FROM deedlight_execution_ledger.executions WHERE execution_id = 'c5700000-0000-4000-8000-000000000027'")"
+crash_approval_consumed="$(clean_psql --tuples-only --no-align --command \
+  "SELECT (consumed_at IS NOT NULL)::text FROM deedlight_execution_ledger.approvals WHERE approval_id = 'c5700000-0000-4000-8000-000000000007'")"
+
+[[ "$after_crash_effects" == "$before_crash_effects" ]] || {
+  echo "FAIL: uncommitted migration effects survived client crash (before=$before_crash_effects after=$after_crash_effects)" >&2
+  exit 1
+}
+[[ "$crash_marker_count" == "0" ]] || {
+  echo "FAIL: same-transaction commit marker survived rollback (count=$crash_marker_count)" >&2
+  exit 1
+}
+[[ "$crash_reservation_status" == "running" ]] || {
+  echo "FAIL: separately committed reservation did not survive as running (status=$crash_reservation_status)" >&2
+  exit 1
+}
+[[ "$crash_approval_consumed" == "true" ]] || {
+  echo "FAIL: separately committed approval consumption did not survive" >&2
+  exit 1
+}
+printf 'C578_CRASH_ROLLBACK effects_before=%s effects_after=%s marker_rows=%s reservation=%s approval_consumed=%s\n' \
+  "$before_crash_effects" "$after_crash_effects" "$crash_marker_count" \
+  "$crash_reservation_status" "$crash_approval_consumed"
+
 clean_psql --command "
   SET ROLE deedlight_ledger_recovery;
   SELECT deedlight_execution_ledger.recover_stale_executions(interval '1 microsecond');
   RESET ROLE;
 "
-after_crash_effects="$(clean_psql --tuples-only --no-align --command \
-  "SELECT count(*) FROM deedlight_execution_ledger.test_effects")"
 crash_outcome="$(clean_psql --tuples-only --no-align --command \
   "SELECT status FROM deedlight_execution_ledger.executions WHERE execution_id = 'c5700000-0000-4000-8000-000000000027'")"
-[[ "$after_crash_effects" == "$before_crash_effects" ]]
-[[ "$crash_outcome" == "unknown" ]]
+[[ "$crash_outcome" == "unknown" ]] || {
+  echo "FAIL: interrupted running execution did not recover to unknown (status=$crash_outcome)" >&2
+  exit 1
+}
+printf 'C578_CRASH_RECOVERY execution_id=c5700000-0000-4000-8000-000000000027 status=%s\n' "$crash_outcome"
+
+# The consumed approval and terminal UNKNOWN reservation must reject replay.
+clean_psql --command "
+  SET ROLE deedlight_ledger_runner;
+  DO \\$assert\\$
+  BEGIN
+    BEGIN
+      PERFORM deedlight_execution_ledger.reserve_execution(
+        'c5700000-0000-4000-8000-000000000007',
+        'c5700000-0000-4000-8000-000000000017',
+        'c5700000-0000-4000-8000-000000000027',
+        '{\"path\":\"supabase/migrations/test-crash.sql\",\"sha256\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"}'::jsonb
+      );
+      RAISE EXCEPTION 'unknown execution replay unexpectedly accepted';
+    EXCEPTION WHEN raise_exception THEN
+      IF SQLERRM = 'unknown execution replay unexpectedly accepted' THEN RAISE; END IF;
+      IF SQLERRM NOT LIKE 'approval is missing, consumed, or does not bind%' THEN RAISE; END IF;
+    END;
+  END
+  \\$assert\\$;
+  RESET ROLE;
+"
+echo "C578_CRASH_REPLAY_REJECTED execution_id=c5700000-0000-4000-8000-000000000027"
 
 # Two independent sessions race for one approved execution. Row locking and the
 # one-time approval consumption must permit exactly one reservation.
