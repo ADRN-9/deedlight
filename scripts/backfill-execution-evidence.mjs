@@ -42,7 +42,7 @@ function verifyArtifact(artifact, kind, role, roots, now, problems) {
     return null;
   }
   const issuedAt = timestamp(artifact.issuedAt), expiresAt = timestamp(artifact.expiresAt);
-  if (!artifact.approvalId || roots.revokedApprovalIds.includes(artifact.approvalId)
+  if (!artifact.approvalId || !Array.isArray(roots.revokedApprovalIds) || roots.revokedApprovalIds.includes(artifact.approvalId)
     || !Number.isFinite(issuedAt) || !Number.isFinite(expiresAt) || issuedAt > now
     || expiresAt <= now || expiresAt <= issuedAt || issuedAt < notBefore || issuedAt > notAfter) {
     problems.push(kind + ":APPROVAL_EXPIRED_REVOKED_OR_INVALID");
@@ -138,7 +138,7 @@ export function validateBackfillExecutionRecord(record, {
     || source.sourceRange.startLine < 1 || source.sourceRange.endLine < source.sourceRange.startLine) {
     problems.push("SOURCE:IDENTITY_OR_RANGE_INVALID");
   } else {
-    const item = inventory?.migrations?.find(candidate => candidate.path === source.path);
+    const item = Array.isArray(inventory?.migrations) ? inventory.migrations.find(candidate => candidate.path === source.path) : null;
     const bytes = sourceBytesByPath instanceof Map ? sourceBytesByPath.get(source.path) : sourceBytesByPath?.[source.path];
     if (!item || item.version !== source.version || item.blobSha1 !== source.gitBlobSha1
       || !Buffer.isBuffer(bytes) || backfillGitBlobSha1(bytes) !== source.gitBlobSha1
