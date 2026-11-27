@@ -108,8 +108,7 @@ export function validateCollectorPrivilegeEvidence(db, inventoryObjects) {
         || !Array.isArray(entry.privileges)
         || canonicalJson(entry.privileges) !== canonicalJson(history ? ["SELECT"] : []);
     })) {
-    problems.push("collector column privilege evidence does not match the least-privilege contract: structured schema/relation/column identities must exactly match inventory and only migration-history SELECT is allowed: "
-      + canonicalJson({ expectedColumnKeys, columnKeys, rowKeys: columnRows.map((entry) => entry && Object.keys(entry).sort()), rowScopes: columnRows.map((entry) => entry && [entry.schema, entry.relation, entry.column, entry.scope, entry.privileges]) }));
+    problems.push("collector column privilege evidence does not match the least-privilege contract: structured schema/relation/column identities must exactly match inventory and only migration-history SELECT is allowed");
   }
   return problems;
 }
