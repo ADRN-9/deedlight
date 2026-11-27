@@ -12,13 +12,9 @@ These are consistency checks, not authentication or proof of execution authority
 
 ## CSV nullability
 
-The parser preserves the PostgreSQL CSV distinction:
-- Unquoted empty field: SQL NULL.
-- Literal `NULL`: ordinary string.
-- Literal `\\N`: ordinary string.
-- Quoted empty field `""`: empty string.
+Migration-history SQL encodes SQL NULL names as `__DEEDLIGHT_SQL_NULL_V1__`; the SQL preflight rejects a real migration name equal to that reserved marker. Literal `NULL`, literal `\\N`, and an empty string remain distinct values. The collector parser also retains a reserved internal sentinel for quoted-empty CSV cells during canonical result validation, then restores actual empty strings in candidate normalization.
 
-Quoted empty cells use a reserved internal sentinel for canonical result hashing. The sentinel is rejected if it appears in input data and is normalized back to an empty string in public candidate projections. The PostgreSQL 16 fixture emits all four cases through actual collector output and checks collector and adapter normalization.
+The PostgreSQL 16 fixture exercises the distinct migration-name values through the real collector and adapter.
 
 ## Projection validation
 
