@@ -1667,7 +1667,7 @@ test("lexical transformation matches, digest-only backfill measurements and pinn
   try {
     const item = sourceManifest.migrations[0];
     const prerequisite = sourceManifest.migrations[1];
-    const firstLine = readFileSync(path.join(repoRoot, item.path), "utf8").split(/\\r?\\n/)[0];
+    const firstLine = readFileSync(path.join(repoRoot, item.path), "utf8").split(/\r?\n/)[0];
     const dependency = {
       kind: "dependencies",
       identity: "fixture.pinned-prerequisite-only",
