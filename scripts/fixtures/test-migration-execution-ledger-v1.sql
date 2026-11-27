@@ -380,4 +380,30 @@ END
 $assert$;
 RESET ROLE;
 
+-- Leave a committed RUNNING reservation for the shell harness to crash during a migration transaction.
+SET ROLE deedlight_ledger_approver;
+SELECT deedlight_execution_ledger.approve_execution(
+  'c5700000-0000-4000-8000-000000000007',
+  'c5700000-0000-4000-8000-000000000017',
+  'c5700000-0000-4000-8000-000000000027',
+  '{"path":"supabase/migrations/test-crash.sql","sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}'::jsonb
+);
+RESET ROLE;
+SET ROLE deedlight_ledger_runner;
+SELECT deedlight_execution_ledger.reserve_execution(
+  'c5700000-0000-4000-8000-000000000007',
+  'c5700000-0000-4000-8000-000000000017',
+  'c5700000-0000-4000-8000-000000000027',
+  '{"path":"supabase/migrations/test-crash.sql","sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}'::jsonb
+);
+RESET ROLE;
+SET ROLE deedlight_ledger_observer;
+SELECT deedlight_execution_ledger.capture_snapshot(
+  'c5700000-0000-4000-8000-000000000027','pre','test_effects_v1'
+);
+RESET ROLE;
+SET ROLE deedlight_ledger_runner;
+SELECT deedlight_execution_ledger.start_execution('c5700000-0000-4000-8000-000000000027');
+RESET ROLE;
+
 SELECT 'C577 disposable PostgreSQL ledger integration: PASS' AS result;
