@@ -406,6 +406,8 @@ grep -Fq "\"grantee_name\": \"PUBLIC\"" "${tmp_dir}/approved.log"
 grep -Fq "\"grantor_oid\"" "${tmp_dir}/approved.log"
 grep -Fq "\"is_grantable\"" "${tmp_dir}/approved.log"
 echo "PASS: complete ordered database ACL projection includes defaults, PUBLIC and grantor evidence"
+# Limit analyzer validation to a migration version present in the pinned repository inventory.
+reset_history
 # Execute the exact section-13 SELECT from the production audit SQL and validate its real output.
 awk '
   /^-- 13[.] Migration-history database facts only/ { section = 1; next }
