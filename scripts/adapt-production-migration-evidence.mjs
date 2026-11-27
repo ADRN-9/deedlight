@@ -192,7 +192,7 @@ function validateMapping(mapping,inventory){
   if(mapping===undefined||mapping===null)return null;
   if(!exact(mapping,["schemaVersion","migrations"])||mapping.schemaVersion!==1||!Array.isArray(mapping.migrations)||mapping.migrations.length!==inventory.migrations.length)fail("MIGRATION_MAPPING_INCOMPLETE");
   const byPath=new Map(),allowedDispositions=new Set(["effects","none","unsupported","unknown"]);
-  const inventoryPaths=new Set(inventory.migrations.map(item=>item.path));
+  const inventoryPaths=new Map(inventory.migrations.map(item=>[item.path,item.blobSha1]));
   const sourceTexts=new Map(inventory.migrations.map(item=>{
     const bytes=readFileSync(path.join(process.cwd(),item.path));
     if(gitBlobSha1(bytes)!==item.blobSha1||bytes.length!==item.byteLength)fail("MIGRATION_MAPPING_SOURCE_FINGERPRINT_MISMATCH");
