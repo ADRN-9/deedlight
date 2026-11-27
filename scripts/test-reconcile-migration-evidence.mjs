@@ -648,7 +648,16 @@ test("write-capable collector, inherited roles or unproven read-only privilege f
       f.approvals.collectorAttestation = artifact("read-only-collector-attestation", "collector", {
         ...claims, databaseAuthority: {
           ...claims.databaseAuthority,
-          schemaPrivileges: [{ schema: "public", privileges: ["USAGE", "CREATE"] }],
+          schemaPrivileges: [{ schema: "public", scope: "application_data", privileges: ["USAGE", "CREATE"] }],
+        },
+      });
+    },
+    (f) => {
+      const claims = f.approvals.collectorAttestation.claims;
+      f.approvals.collectorAttestation = artifact("read-only-collector-attestation", "collector", {
+        ...claims, databaseAuthority: {
+          ...claims.databaseAuthority,
+          columnPrivileges: [{ identity: "public.profiles.id", scope: "application_data", privileges: ["SELECT"] }],
         },
       });
     },
