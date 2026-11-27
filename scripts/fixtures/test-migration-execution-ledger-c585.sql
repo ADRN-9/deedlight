@@ -206,8 +206,20 @@ SELECT 'C585_QUERY_MANIFEST_SNAPSHOT_IMMUTABILITY_PASS' AS evidence;
 SELECT 'C585_SOURCE_IDENTITY_SUBSTITUTION_REJECTED' AS evidence;
 SELECT 'C585_MISSING_PRE_POST_SNAPSHOT_REJECTED' AS evidence;
 
--- Missing observer trust and malformed source identity have distinct fail-closed outcomes.
-SET ROLE deedlight_ledger_runner;
+-- A fixture-only untrusted role has function EXECUTE but no observer authority.
+-- This reaches the function's fail-closed trust check without widening runner privileges.
+DO $roles$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='deedlight_ledger_untrusted') THEN
+    CREATE ROLE deedlight_ledger_untrusted NOLOGIN NOINHERIT;
+  END IF;
+END
+$roles$;
+GRANT deedlight_ledger_untrusted TO postgres;
+GRANT USAGE ON SCHEMA deedlight_execution_ledger TO deedlight_ledger_untrusted;
+GRANT EXECUTE ON FUNCTION deedlight_execution_ledger.capture_snapshot(uuid,text,text)
+  TO deedlight_ledger_untrusted;
+SET ROLE deedlight_ledger_untrusted;
 DO $assert$
 BEGIN
   BEGIN
