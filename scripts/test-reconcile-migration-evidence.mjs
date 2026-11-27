@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { analyzeMigrationEvidence, canonicalJson, evidencePayload, mappingDigest, normalizeMigrationHistoryRows, strictTimestamp, validateMigrationHistoryRows } from "./reconcile-migration-evidence.mjs";
+import { analyzeMigrationEvidence, canonicalJson, evidencePayload, mappingDigest, normalizeMigrationHistoryRows, strictTimestamp, validateCollectorPrivilegeEvidence, validateMigrationHistoryRows } from "./reconcile-migration-evidence.mjs";
 
 const repoRoot = process.cwd();
 const sourceManifest = JSON.parse(readFileSync(path.join(repoRoot, "supabase/migration-inventory.json"), "utf8"));
@@ -299,6 +299,31 @@ function fixture() {
   f.reapprove();
   return f;
 }
+
+test("nullable migration-history names normalize and validate without establishing execution", () => {
+  const rows = normalizeMigrationHistoryRows([
+    ["202607260004", "\\N", "12"],
+    ["202607260005", "sprint5_moderation", "NULL"],
+  ]);
+  assert.deepEqual(rows, [
+    { version: "202607260004", name: null, recordedStatementCount: 12 },
+    { version: "202607260005", name: "sprint5_moderation", recordedStatementCount: null },
+  ]);
+  assert.deepEqual(validateMigrationHistoryRows(rows, sourceManifest), []);
+  const f = fixture();
+  try {
+    const row = f.evidence.history.rows.find((entry) => entry.version === "202607260004");
+    row.name = null;
+    f.reapprove();
+    const report = f.analyze();
+    assert.equal(report.trustVerified, true);
+    assert.equal(report.acceptance, "NOT_ACCEPTED");
+    assert.equal(report.counts["Applied and verified"], 0);
+    const classification = report.classifications.find((entry) => entry.version === "202607260004");
+    assert.equal(classification.status, "Schema represented but history ambiguous");
+    assert.ok(classification.reasons.some((reason) => reason.includes("name is NULL")));
+  } finally { f.cleanup(); }
+});
 
 test("verifies signed approvals and collector authority; duplicate 007 remains explicitly ambiguous", () => {
   const f = fixture();
@@ -675,6 +700,25 @@ test("catalog completeness dimensions reject omissions, duplicates and unsupport
   }
 });
 
+test("collector privilege evidence follows the explicit catalog-only scope contract", () => {
+  const f = fixture();
+  try {
+    const db = f.evidence.collectorAuthority.databaseAuthority;
+    assert.deepEqual(validateCollectorPrivilegeEvidence(db, f.evidence.catalog.objects), []);
+    const applicationSchema = db.schemaPrivileges.find((row) => row.schema === "public");
+    const historySchema = db.schemaPrivileges.find((row) => row.schema === "supabase_migrations");
+    const applicationTable = db.objectPrivileges.find((row) => row.identity === "public.profiles");
+    const historyTable = db.objectPrivileges.find((row) => row.identity === "supabase_migrations.schema_migrations");
+    assert.deepEqual(applicationSchema, { schema: "public", scope: "application_data", privileges: [] });
+    assert.deepEqual(historySchema, { schema: "supabase_migrations", scope: "migration_history", privileges: ["USAGE"] });
+    assert.deepEqual(applicationTable.privileges, []);
+    assert.deepEqual(historyTable.privileges, ["SELECT"]);
+    assert.deepEqual(db.effectivePrivileges, [
+      "DATABASE_CONNECT", "SYSTEM_CATALOG_SELECT", "MIGRATION_HISTORY_SCHEMA_USAGE", "MIGRATION_HISTORY_SELECT",
+    ]);
+  } finally { f.cleanup(); }
+});
+
 test("collector schema and object privilege identity sets must exactly match catalog inventory", () => {
   const mutations = [
     (db) => { db.schemaPrivileges = []; },
@@ -692,7 +736,7 @@ test("collector schema and object privilege identity sets must exactly match cat
       const report = f.analyze();
       assert.equal(report.counts.Unknown, 39);
       assert.equal(report.acceptance, "NOT_ACCEPTED");
-      assert.ok(report.trustProblems.some((reason) => reason.includes("privilege identities do not exactly match")));
+      assert.ok(report.trustProblems.some((reason) => reason.includes("least-privilege contract")));
     } finally { f.cleanup(); }
   }
 });
