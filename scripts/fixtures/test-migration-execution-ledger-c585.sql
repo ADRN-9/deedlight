@@ -161,6 +161,32 @@ SET (system_identifier,database_oid,database_name,server_version_num) =
 SET LOCAL session_replication_role = origin;
 COMMIT;
 
+-- Database-OID substitution models a logical restore into another database on the same cluster.
+BEGIN;
+CREATE TEMP TABLE c593_oid_anchor AS
+SELECT database_oid FROM deedlight_execution_ledger.database_identity WHERE singleton;
+SET LOCAL session_replication_role = replica;
+UPDATE deedlight_execution_ledger.database_identity
+SET database_oid = (database_oid::bigint + 1)::oid
+WHERE singleton;
+SET LOCAL session_replication_role = origin;
+SET LOCAL ROLE deedlight_ledger_recovery;
+DO $oid$
+BEGIN
+  BEGIN
+    PERFORM deedlight_execution_ledger.recover_stale_executions(interval '1 microsecond');
+    RAISE EXCEPTION 'C593 recovery accepted logical-restore database OID substitution';
+  EXCEPTION WHEN SQLSTATE 'D1001' THEN NULL;
+  END;
+END
+$oid$;
+RESET ROLE;
+SET LOCAL session_replication_role = replica;
+UPDATE deedlight_execution_ledger.database_identity
+SET database_oid = (SELECT database_oid FROM c593_oid_anchor);
+SET LOCAL session_replication_role = origin;
+COMMIT;
+
 SELECT 'C593_BYTEWISE_CANONICAL_DIGEST_VECTOR_PASS' AS evidence;
 SELECT 'C593_FORGED_MANIFEST_NONMEMBER_QUERY_REJECTED' AS evidence;
 SELECT 'C593_SOURCE_IDENTITY_IMMUTABILITY_PASS' AS evidence;
@@ -289,6 +315,37 @@ BEGIN
   END;
 END
 $assert$;
+RESET ROLE;
+
+-- A manifest whose stored digest is forged must be rejected even when membership matches.
+INSERT INTO deedlight_execution_ledger.query_bundle_manifests
+  (bundle_id, manifest, member_count, manifest_sha256)
+SELECT 'c593_forged_digest_bundle',
+  pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object(
+    'queryId','c593_forged_digest_query','querySha256',q.query_sha256)),
+  1, repeat('e',64)
+FROM deedlight_execution_ledger.observation_queries q
+WHERE q.query_id='test_effects_v1';
+INSERT INTO deedlight_execution_ledger.observation_queries
+  (query_id,query_sql,description,query_sha256,query_bundle_id,query_bundle_digest)
+SELECT 'c593_forged_digest_query',q.query_sql,'C593 deliberately forged manifest digest',
+  q.query_sha256,'c593_forged_digest_bundle',repeat('e',64)
+FROM deedlight_execution_ledger.observation_queries q
+WHERE q.query_id='test_effects_v1';
+SET ROLE deedlight_ledger_observer;
+DO $forged$
+DECLARE v_detail text;
+BEGIN
+  BEGIN
+    PERFORM deedlight_execution_ledger.capture_snapshot(
+      'c5700000-0000-4000-8000-000000000028','post','c593_forged_digest_query');
+    RAISE EXCEPTION 'C593 forged manifest digest unexpectedly accepted';
+  EXCEPTION WHEN SQLSTATE 'D1004' THEN
+    GET STACKED DIAGNOSTICS v_detail=PG_EXCEPTION_DETAIL;
+    IF v_detail NOT LIKE '%query_bundle_manifest_integrity_or_membership_mismatch%' THEN RAISE; END IF;
+  END;
+END
+$forged$;
 RESET ROLE;
 
 -- Both absent pre and absent post are distinct machine-readable finalization failures.
