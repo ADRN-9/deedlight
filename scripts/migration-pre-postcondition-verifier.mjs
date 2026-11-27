@@ -170,8 +170,11 @@ export function validateMigrationPrePostconditions({
     timestamp(context.now ?? new Date().toISOString()), expectedClaims, problems);
   const verifierVersion = conditionVerification?.claims?.verifierVersion;
   if (typeof verifierVersion !== "string" || !verifierVersion.trim()
-    || conditionVerification?.issuedAt !== executionRecord?.verification?.issuedAt
-      && timestamp(conditionVerification?.issuedAt) < timestamp(executionRecord?.postExecutionState?.observedAt)) {
+    || !Number.isFinite(timestamp(conditionVerification?.issuedAt))
+    || timestamp(conditionVerification.issuedAt) < timestamp(executionRecord?.postExecutionState?.observedAt)
+    || conditionVerification?.signerId === executionRecord?.execution?.executorIdentity
+    || conditionVerification?.signerId === executionRecord?.authorization?.signerId
+    || conditionVerification?.signerId === executionRecord?.provenance?.collectorIdentity) {
     problems.push("VERIFIER:IDENTITY_VERSION_OR_POST_OBSERVATION_TIME_INVALID");
   }
   const accepted = problems.length === 0 && attestationValid
