@@ -20,10 +20,7 @@ function fixture() {
     }
   }
   rows.push(["collector_transaction_closed"], ["t"]);
-  const evidenceBytes = Buffer.from(rows.map((row) => row.map((value) => {
-    const text = String(value);
-    return /[,"\\r\\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
-  }).join(",")).join("\\r\\n") + "\\r\\n");
+  const evidenceBytes = Buffer.from(rows.map((row) => row.join(",")).join("\r\n") + "\r\n");
   const validation = validateSqlOutput(evidenceBytes);
   const digest = sha256(evidenceBytes);
   const receipt = {
