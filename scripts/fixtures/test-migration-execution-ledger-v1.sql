@@ -291,7 +291,7 @@ BEGIN
 END
 $assert$;
 
--- Runner and approver roles cannot invoke the independent verifier operation.
+-- Runner and approver roles cannot invoke the verifier function at the SQL privilege boundary.
 SET ROLE deedlight_ledger_runner;
 DO $assert$
 BEGIN
@@ -300,9 +300,7 @@ BEGIN
       'c5700000-0000-4000-8000-000000000021','verified','{}'::jsonb
     );
     RAISE EXCEPTION 'runner unexpectedly acquired verifier authority';
-  EXCEPTION WHEN raise_exception THEN
-    IF SQLERRM = 'runner unexpectedly acquired verifier authority' THEN RAISE; END IF;
-    IF SQLERRM <> 'independent verifier authority required' THEN RAISE; END IF;
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
 END
 $assert$;
@@ -315,9 +313,7 @@ BEGIN
       'c5700000-0000-4000-8000-000000000021','verified','{}'::jsonb
     );
     RAISE EXCEPTION 'approver unexpectedly acquired verifier authority';
-  EXCEPTION WHEN raise_exception THEN
-    IF SQLERRM = 'approver unexpectedly acquired verifier authority' THEN RAISE; END IF;
-    IF SQLERRM <> 'independent verifier authority required' THEN RAISE; END IF;
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
 END
 $assert$;
