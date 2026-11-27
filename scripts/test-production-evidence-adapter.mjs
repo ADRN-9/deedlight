@@ -146,10 +146,9 @@ test("missing, duplicated, reordered, unexpected and truncated projections fail 
   assert.throws(()=>adapt(Buffer.from(base.slice(0,-20))),/TRANSACTION_CLOSE_MARKER_MISSING|TRUNCATED/);
 });
 test("row-shape validators reject malformed relation, ACL and role values",()=>{
-  const base=fixtureCsv().toString("utf8");
-  assert.throws(()=>adapt(Buffer.from(base.replace("public,profiles,r,postgres,p,f,f,1,id,uuid,t,,","public,profiles,r,postgres,p,invalid,f,1,id,uuid,t,,"))),/RELATIONS_PROJECTION_ROW_INVALID/);
-  assert.throws(()=>adapt(Buffer.from(base.replace("public,postgres,deedlight_catalog_auditor,postgres,USAGE,f","public,postgres,deedlight_catalog_auditor,postgres,USAGE,maybe"))),/ACL_PROJECTION_ROW_INVALID/);
-  assert.throws(()=>adapt(Buffer.from(base.replace("deedlight_catalog_auditor,t,f,f,f,f,f,f,-1,","deedlight_catalog_auditor,t,f,f,f,f,f,x,-1,"))),/ROLES_PROJECTION_ROW_INVALID/);
+  assert.throws(()=>adapt(fixtureCsv(undefined,undefined,{relations_v1:[["public","profiles","r","postgres","p","invalid","f","1","id","uuid","t","",""]]})),/RELATIONS_PROJECTION_ROW_INVALID/);
+  assert.throws(()=>adapt(fixtureCsv(undefined,undefined,{schema_acl_v1:[["supabase_migrations","postgres","deedlight_catalog_auditor","postgres","USAGE","maybe"]]})),/ACL_PROJECTION_ROW_INVALID/);
+  assert.throws(()=>adapt(fixtureCsv(undefined,undefined,{roles_v1:[["deedlight_catalog_auditor","t","f","f","f","f","f","x","-1",""]]})),/ROLES_PROJECTION_ROW_INVALID/);
 });
 test("receipt endpoint database and repository SHA must bind to SQL identity",()=>{
   const bytes=fixtureCsv(),receipt=receiptFor(bytes);
