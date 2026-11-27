@@ -259,7 +259,7 @@ SELECT jsonb_build_object(
   'inventoryObjects', (SELECT jsonb_agg(jsonb_build_object('kind', kind, 'identity', identity) ORDER BY kind, identity) FROM inventory),
   'databaseAuthority', jsonb_build_object(
     'privilegeContractVersion', 'catalog_only_v1',
-    'effectivePrivileges', jsonb_build_array(
+    'requiredAccessSummary', jsonb_build_array(
       'DATABASE_CONNECT', 'SYSTEM_CATALOG_SELECT', 'MIGRATION_HISTORY_SCHEMA_USAGE', 'MIGRATION_HISTORY_SELECT'
     ),
     'schemaPrivileges', (SELECT rows FROM schema_privileges),
