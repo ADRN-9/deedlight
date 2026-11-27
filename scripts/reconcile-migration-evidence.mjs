@@ -540,16 +540,18 @@ function classifyOne(item, manifest, evidence, source, mappedEffects) {
   const rows = evidence.history.rows.filter((row) => row.version === item.version);
   const duplicateVersion = manifest.migrations.filter((entry) => entry.version === item.version).length > 1;
   const expectedName = path.basename(item.path).replace(/^\d{12}_/, "").replace(/\.sql$/, "");
-  const wrongName = rows.some((row) => row.name !== expectedName);
+  const nullableName = rows.some((row) => row.name === null);
+  const wrongName = rows.some((row) => row.name !== null && row.name !== expectedName);
   if (matches.length === expected.length) {
     return {
       status: "Schema represented but history ambiguous",
       schemaRepresented: true,
       historyRecorded: rows.length > 0,
       reasons: [duplicateVersion ? "duplicate migration version cannot establish exact source execution"
-        : wrongName ? "history version is associated with a different migration name"
-          : rows.length === 0 ? "schema effects exist without a migration-history row"
-            : "schema_migrations records version, name and statement count only; no authenticated external provenance binds the executed source blob, actor, timestamp or execution identity"],
+        : nullableName ? "migration-history name is NULL; version and statement count cannot identify the executed source file"
+          : wrongName ? "history version is associated with a different migration name"
+            : rows.length === 0 ? "schema effects exist without a migration-history row"
+              : "schema_migrations records version, name and statement count only; no authenticated external provenance binds the executed source blob, actor, timestamp or execution identity"],
       matchedObjects: matches.length,
       historyRows: rows.length,
       exactExecutionEstablished: false,
@@ -564,7 +566,9 @@ function classifyOne(item, manifest, evidence, source, mappedEffects) {
         ...(matches.length ? [matches.length + " of " + expected.length + " expected effects match"] : []),
         ...(mismatches.length ? [mismatches.length + " effects have conflicting fingerprints"] : []),
         ...(missing.length ? [missing.length + " expected effects are absent"] : []),
-        ...(rows.length ? ["migration history exists but mapped effects are incomplete or drifted"] : []),
+        ...(nullableName ? ["migration-history name is NULL; the incomplete record cannot identify the executed source file"] : []),
+        ...(wrongName ? ["migration-history name does not match the pinned source migration"] : []),
+        ...(rows.length && !nullableName && !wrongName ? ["migration history exists but mapped effects are incomplete or drifted"] : []),
       ],
       matchedObjects: matches.length,
       historyRows: rows.length,
