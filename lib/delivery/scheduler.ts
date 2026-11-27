@@ -1,6 +1,7 @@
 import { parseDeliveryRuntimeConfig } from "./config.ts";
 import { createResendTransport } from "./resend-transport.ts";
 import { processClaimedDelivery } from "./run-delivery.ts";
+import type { DeliveryKind } from "./types.ts";
 import {
   createSupabaseDeliveryRuntime,
   WeeklyDeliveryCapacityError,
@@ -129,7 +130,11 @@ export async function runScheduledDelivery(
     );
   }
 
-  const jobs = await runtime.claim(deliveryClaimBatchSize(config.batchSize));
+  const expectedKind: DeliveryKind = scheduleKind === "daily" ? "daily_reminder" : "weekly_newsletter";
+  const jobs = await runtime.claim(expectedKind, deliveryClaimBatchSize(config.batchSize));
+  if (jobs.some((job) => job.kind !== expectedKind)) {
+    throw new Error("Delivery claim returned a job outside the scheduled delivery kind.");
+  }
   summary.claimed = jobs.length;
 
   for (const job of jobs) {
