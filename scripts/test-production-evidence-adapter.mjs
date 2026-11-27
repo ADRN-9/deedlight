@@ -52,7 +52,7 @@ test("normalizes all 19 validated projections without crossing authentication bo
   const {candidate}=adapt();
   assert.equal(candidate.status,"UNSIGNED_NOT_ACCEPTED");assert.equal(candidate.acceptance,"NOT_ACCEPTED");
   assert.equal(candidate.evidence.schemaVersion,2);assert.equal(candidate.evidence.provenance.projectRef,PROJECT_REF);
-  assert.equal(candidate.evidence.provenance.queryBundleSha256,SQL_SHA256);assert.equal(candidate.evidence.history.complete,true);
+  assert.equal(candidate.evidence.provenance.queryBundleSha256,SQL_SHA256);assert.equal(candidate.evidence.provenance.capturedAt,"2026-11-26T00:00:00.000Z");assert.equal(candidate.evidence.history.complete,true);
   assert.deepEqual(candidate.evidence.history.rows.map(r=>r.name),["NULL","\\N",null]);
   assert.equal(candidate.evidence.catalog.complete,false);assert.equal(candidate.projections.length,19);
   assert.deepEqual(candidate.projections.map(p=>p.id),SQL_PROJECTIONS.map(p=>p.id));
@@ -60,7 +60,7 @@ test("normalizes all 19 validated projections without crossing authentication bo
   assert.equal(candidate.databaseAuthorityCandidate.authenticated,false);
   assert.equal(Object.hasOwn(candidate.evidence,"collectorAuthority"),false);
   assert.equal(Object.hasOwn(candidate.evidence,"externalExecutionProvenance"),false);
-  assert.equal(candidate.evidence.mapping.migrations.length,40);
+  assert.equal(candidate.evidence.mapping.migrations.length,40);assert.equal(candidate.receipt.status,"UNSIGNED_NOT_ACCEPTED");assert.equal(candidate.integrity.repositoryCommitSha,"a".repeat(40));
   assert.notEqual(candidate.integrity.csvSha256,candidate.integrity.canonicalResultSha256);
   assert.equal(candidate.integrity.receiptSchemaGitBlobSha1,RECEIPT_SCHEMA_GIT_BLOB_SHA1);
   assert.equal(candidate.integrity.receiptSchemaSha256,RECEIPT_SCHEMA_SHA256);
@@ -103,7 +103,7 @@ test("receipt, SQL, inventory and receipt-schema fingerprints are independently 
     const changed=structuredClone(receipt);mutate(changed);assert.throws(()=>adaptCollectorEvidence({receipt:changed,csv:bytes,inventoryBytes,schemaBytes,mapping:mappingFixture()}));
   }
   const changedSchema=Buffer.from(schemaBytes);changedSchema[0]^=1;
-  assert.throws(()=>adaptCollectorEvidence({receipt,csv:bytes,inventoryBytes,schemaBytes:changedSchema}),/RECEIPT_SCHEMA_FINGERPRINT_MISMATCH/);
+  assert.throws(()=>adaptCollectorEvidence({receipt,csv:bytes,inventoryBytes,schemaBytes:changedSchema}),/RECEIPT_SCHEMA_(GIT_BLOB_SHA1|RAW_SHA256)_MISMATCH/);
   const changedInventory=Buffer.from(inventoryBytes);changedInventory[0]^=1;
   assert.throws(()=>adaptCollectorEvidence({receipt,csv:bytes,inventoryBytes:changedInventory,schemaBytes}),/MIGRATION_INVENTORY/);
   assert.equal(gitBlobSha1(inventoryBytes),INVENTORY_GIT_BLOB_SHA1);
@@ -117,6 +117,8 @@ test("migration mapping must cover exact 40 inventory entries without duplicates
   assert.throws(()=>adaptCollectorEvidence({receipt,csv:bytes,inventoryBytes,schemaBytes,mapping:missing}),/MIGRATION_MAPPING/);
   const mismatch=structuredClone(mapping);mismatch.migrations[0].blobSha1="0".repeat(40);
   assert.throws(()=>adaptCollectorEvidence({receipt,csv:bytes,inventoryBytes,schemaBytes,mapping:mismatch}),/MIGRATION_MAPPING_SOURCE_MISMATCH/);
+  const badKind=structuredClone(mapping);badKind.migrations[0].effects.schema[0].kind="routines";
+  assert.throws(()=>adaptCollectorEvidence({receipt,csv:bytes,inventoryBytes,schemaBytes,mapping:badKind}),/MIGRATION_MAPPING_EFFECT_INVALID/);
 });
 test("inventory preserves both Migration 007 sources and Migration 039",()=>{
   const paths=inventory.migrations.map(x=>x.path);

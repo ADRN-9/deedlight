@@ -11,6 +11,7 @@ import { gitBlobSha1, validateInventory } from "./verify-migration-inventory-agg
 
 const CATALOG_KINDS = ["schemas","tables","sequences","columns","constraints","indexes","triggers","policies","routines","privileges","ownership"];
 const CATEGORIES = ["schema","privileges","ownership","routines","dataTransformations","backfills","dependencies","preconditions","postconditions"];
+const SCHEMA_EFFECT_KINDS = new Set(["tables","columns","constraints","indexes","triggers","policies"]);
 const ACL_IDS = ["relation_acl_v1","schema_acl_v1","routine_acl_v1","sequence_acl_v1","default_privileges_v1"];
 const exact = (v, keys) => v && typeof v === "object" && !Array.isArray(v)
   && Object.keys(v).sort().join("\0") === [...keys].sort().join("\0");
@@ -135,11 +136,16 @@ function validateMapping(mapping,inventory){
         ||typeof review.rationale!=="string"||review.rationale.trim().length<20||!Array.isArray(review.sourceRanges)||!review.sourceRanges.length
         ||review.sourceRanges.some((range)=>!exact(range,["startLine","endLine"])||!Number.isSafeInteger(range.startLine)||!Number.isSafeInteger(range.endLine)||range.startLine<1||range.endLine<range.startLine))fail("MIGRATION_MAPPING_COVERAGE_INVALID");
       for(const effect of effects){
+        const allowedKinds=category==="schema"?SCHEMA_EFFECT_KINDS:category==="routines"?new Set(["routines"]):new Set([category]);
         if(!exact(effect,["description","fingerprint","identity","kind"])||typeof effect.identity!=="string"||!effect.identity.trim()
-          ||!hex(effect.fingerprint,64)||typeof effect.description!=="string"||!effect.description.trim())fail("MIGRATION_MAPPING_EFFECT_INVALID");
+          ||!allowedKinds.has(effect.kind)||!hex(effect.fingerprint,64)||typeof effect.description!=="string"||!effect.description.trim())fail("MIGRATION_MAPPING_EFFECT_INVALID");
+        const effectIdentity=effect.kind+"\\0"+effect.identity;
+        if(entry._effectIdentities?.has(effectIdentity))fail("MIGRATION_MAPPING_EFFECT_DUPLICATED");
+        (entry._effectIdentities??=new Set()).add(effectIdentity);
         count++;
       }
     }
+    delete entry._effectIdentities;
     if(!count)fail("MIGRATION_MAPPING_EMPTY");byPath.set(entry.path,entry);
   }
   for(const item of inventory.migrations){const entry=byPath.get(item.path);if(!entry||entry.blobSha1!==item.blobSha1)fail("MIGRATION_MAPPING_SOURCE_MISMATCH");}
@@ -166,6 +172,10 @@ export function adaptCollectorEvidence({receipt,csv,inventoryBytes,schemaBytes,m
   if(receipt?.source?.receiptSchemaSha256!==RECEIPT_SCHEMA_SHA256)fail("RECEIPT_SCHEMA_RECEIPT_SHA256_MISMATCH:"+String(receipt?.source?.receiptSchemaSha256));
   verifyReceiptAndEvidence(receipt,csv);
   const validation=validateSqlOutput(csv),p=parseProjections(validation);validateProjectionRows(p);
+  const identityRow=projectionObjects(p,"identity_v1")[0];
+  const capturedAt=identityRow.captured_at_utc;
+  if(typeof capturedAt!=="string"||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$/.test(capturedAt)
+    ||Date.parse(capturedAt)<Date.parse(receipt.execution.startedAt)||Date.parse(capturedAt)>Date.parse(receipt.execution.completedAt))fail("COLLECTOR_CAPTURE_TIMESTAMP_INVALID");
   const structure=p.get("migration_history_structure_v1");
   const structureByName=new Map(structure.map(row=>[row[1],row]));
   const structureValid=structure.length===3&&structureByName.size===3
@@ -179,15 +189,15 @@ export function adaptCollectorEvidence({receipt,csv,inventoryBytes,schemaBytes,m
   if(validation.migrationHistoryRows.length!==receipt.execution.migrationHistoryRowCount)fail("MIGRATION_HISTORY_CARDINALITY_MISMATCH");
   const normalizedMapping=validateMapping(mapping,inventory);
   const evidence={schemaVersion:2,
-    provenance:{environment:"production",projectRef:PROJECT_REF,capturedAt:receipt.execution.completedAt,collectorIdentity:receipt.execution.collectorId,queryBundleSha256:receipt.source.sqlBundleSha256},
+    provenance:{environment:"production",projectRef:PROJECT_REF,capturedAt,collectorIdentity:receipt.execution.collectorId,queryBundleSha256:receipt.source.sqlBundleSha256},
     history:{complete:true,rows:validation.migrationHistoryRows},
     catalog:{complete:false,completeKinds:[...CATALOG_KINDS],objects:buildCatalog(p)}};
   if(normalizedMapping)evidence.mapping=normalizedMapping;
   return {schemaVersion:1,status:"UNSIGNED_NOT_ACCEPTED",acceptance:"NOT_ACCEPTED",adapter:"deedlight-collector-analyzer-adapter-v1",
-    evidence,databaseAuthorityCandidate:authorityCandidate(p),projections:rawProjections(p),
+    receipt,evidence,databaseAuthorityCandidate:authorityCandidate(p),projections:rawProjections(p),
     integrity:{receiptCanonicalSha256:sha256(Buffer.from(canonicalJson(receipt),"utf8")),
       receiptSchemaGitBlobSha1:RECEIPT_SCHEMA_GIT_BLOB_SHA1,receiptSchemaSha256:RECEIPT_SCHEMA_SHA256,
-      migrationInventoryGitBlobSha1:INVENTORY_GIT_BLOB_SHA1,sqlBundlePath:SQL_PATH,sqlBundleGitBlobSha1:SQL_GIT_BLOB_SHA1,
+      migrationInventoryGitBlobSha1:INVENTORY_GIT_BLOB_SHA1,repositoryCommitSha:receipt.source.repositoryCommitSha,sqlBundlePath:SQL_PATH,sqlBundleGitBlobSha1:SQL_GIT_BLOB_SHA1,
       sqlBundleSha256:SQL_SHA256,csvSha256:receipt.evidence.sha256,canonicalResultSha256:receipt.execution.canonicalResultSha256,
       normalizedEvidenceSha256:sha256(Buffer.from(canonicalJson(evidence),"utf8"))},
     signing:{state:"NOT_SIGNED",authenticated:false},
