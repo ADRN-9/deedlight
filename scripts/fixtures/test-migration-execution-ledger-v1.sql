@@ -215,16 +215,33 @@ BEGIN
 END
 $assert$;
 
--- Verifier cannot impersonate approver/runner; runner cannot collect its own snapshot.
-SET ROLE deedlight_ledger_verifier;
+-- Runner and approver roles cannot invoke the independent verifier operation.
+SET ROLE deedlight_ledger_runner;
 DO $assert$
 BEGIN
   BEGIN
     PERFORM deedlight_execution_ledger.record_verification(
-      'c5700000-0000-4000-8000-000000000025','verified','{}'::jsonb
+      'c5700000-0000-4000-8000-000000000021','verified','{}'::jsonb
     );
-    RAISE EXCEPTION 'unknown execution unexpectedly verified';
-  EXCEPTION WHEN no_data_found THEN NULL;
+    RAISE EXCEPTION 'runner unexpectedly acquired verifier authority';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM = 'runner unexpectedly acquired verifier authority' THEN RAISE; END IF;
+    IF SQLERRM <> 'independent verifier authority required' THEN RAISE; END IF;
+  END;
+END
+$assert$;
+RESET ROLE;
+SET ROLE deedlight_ledger_approver;
+DO $assert$
+BEGIN
+  BEGIN
+    PERFORM deedlight_execution_ledger.record_verification(
+      'c5700000-0000-4000-8000-000000000021','verified','{}'::jsonb
+    );
+    RAISE EXCEPTION 'approver unexpectedly acquired verifier authority';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM = 'approver unexpectedly acquired verifier authority' THEN RAISE; END IF;
+    IF SQLERRM <> 'independent verifier authority required' THEN RAISE; END IF;
   END;
 END
 $assert$;
