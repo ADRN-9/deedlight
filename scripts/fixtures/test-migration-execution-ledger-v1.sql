@@ -529,4 +529,6 @@ END
 $assert$;
 RESET ROLE;
 
-SELECT 'C578 disposable PostgreSQL ledger SQL setup: PASS; crash-recovery shell harness still pending' AS result;
+SELECT 'C578_SNAPSHOT_MATCHING_QUERY_PASS' AS evidence;
+SELECT 'C578_SNAPSHOT_MISMATCH_REJECTED' AS evidence;
+SELECT 'C578_SQL_FIXTURE_SETUP_PASS; crash-recovery shell harness still pending' AS result;
