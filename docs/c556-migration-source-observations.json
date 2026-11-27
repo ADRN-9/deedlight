@@ -3446,6 +3446,1028 @@
           "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
         }
       }
+    },
+    {
+      "path": "supabase/migrations/202609240022_auth_pgcrypto_schema_qualification.sql",
+      "blobSha1": "f42afb3474f80c7d95cf5b47023b82cf5a948d4d",
+      "byteLength": 1214,
+      "lineCount": 48,
+      "observations": {
+        "transformations": [
+          {
+            "line": 28,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.profiles",
+            "sourceExcerpt": "insert into public.profiles ("
+          }
+        ],
+        "foreignKeyReferences": [],
+        "guards": [
+          {
+            "line": 16,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Required extensions.gen_random_bytes(integer) is missing.';"
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unknown",
+          "reason": "No REFERENCES candidate found; view, routine and procedural dependencies remain unparsed."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202611120023_delivery_consent_linearization.sql",
+      "blobSha1": "75f5086feab2cbda381066cb9094390190c3332f",
+      "byteLength": 9411,
+      "lineCount": 297,
+      "observations": {
+        "transformations": [
+          {
+            "line": 76,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "insert into public.delivery_ledger ("
+          },
+          {
+            "line": 153,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "insert into public.delivery_ledger ("
+          },
+          {
+            "line": 255,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger"
+          },
+          {
+            "line": 268,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger"
+          }
+        ],
+        "foreignKeyReferences": [],
+        "guards": [
+          {
+            "line": 19,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 023 requires the verified delivery 019-021 baseline.';"
+          },
+          {
+            "line": 39,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'A scheduler timestamp is required.' using errcode = '22023';"
+          },
+          {
+            "line": 42,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'p_limit must be between 1 and 5000.' using errcode = '22023';"
+          },
+          {
+            "line": 116,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'p_week_start must be a Monday.' using errcode = '22023';"
+          },
+          {
+            "line": 119,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'A scheduled timestamp is required.' using errcode = '22023';"
+          },
+          {
+            "line": 122,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'p_limit must be between 1 and 10000.' using errcode = '22023';"
+          },
+          {
+            "line": 124,
+            "kind": "existence_guard",
+            "sourceExcerpt": "if not exists ("
+          },
+          {
+            "line": 128,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Weekly Goodness issue has not been explicitly curated.'"
+          },
+          {
+            "line": 197,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'A job ID and claim token are required.' using errcode = '22023';"
+          },
+          {
+            "line": 210,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery claim is not authorized.' using errcode = '42501';"
+          },
+          {
+            "line": 251,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Unsupported delivery kind.' using errcode = '22023';"
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unknown",
+          "reason": "No REFERENCES candidate found; view, routine and procedural dependencies remain unparsed."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202611120024_delivery_identity_lease_capacity.sql",
+      "blobSha1": "240271fd75081c062627cfc3d40bdc0c5feda049",
+      "byteLength": 12329,
+      "lineCount": 328,
+      "observations": {
+        "transformations": [
+          {
+            "line": 134,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger set"
+          },
+          {
+            "line": 142,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger set"
+          },
+          {
+            "line": 259,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "insert into public.delivery_ledger ("
+          }
+        ],
+        "foreignKeyReferences": [],
+        "guards": [
+          {
+            "line": 9,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 024 requires the reviewed delivery baseline through 023.';"
+          },
+          {
+            "line": 52,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 024 requires reviewed migration 023 functions and attestation.'"
+          },
+          {
+            "line": 56,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 024 recipient-bound RPC is already present.';"
+          },
+          {
+            "line": 82,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid delivery transport authorization arguments.'"
+          },
+          {
+            "line": 93,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery claim is not authorized.' using errcode = '42501';"
+          },
+          {
+            "line": 124,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Unsupported delivery kind.' using errcode = '22023';"
+          },
+          {
+            "line": 129,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Claim expired during transport authorization.'"
+          },
+          {
+            "line": 151,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Claim expired during transport authorization.'"
+          },
+          {
+            "line": 189,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Weekly scheduling requires READ COMMITTED isolation.'"
+          },
+          {
+            "line": 194,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'A curated Monday and timestamp are required.'"
+          },
+          {
+            "line": 198,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Weekly batch limit must be between 1 and 5000.'"
+          },
+          {
+            "line": 207,
+            "kind": "existence_guard",
+            "sourceExcerpt": "if not exists ("
+          },
+          {
+            "line": 211,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Weekly Goodness issue has not been explicitly curated.'"
+          },
+          {
+            "line": 220,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Weekly issue already exceeds the 5000-delivery ceiling.'"
+          },
+          {
+            "line": 252,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Weekly delivery capacity exceeded; no jobs enqueued.'"
+          },
+          {
+            "line": 268,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Concurrent weekly ledger write detected; transaction rolled back.'"
+          },
+          {
+            "line": 297,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'A scheduler timestamp is required.' using errcode = '22023';"
+          },
+          {
+            "line": 300,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Weekly batch limit must be between 1 and 5000.'"
+          },
+          {
+            "line": 306,
+            "kind": "existence_guard",
+            "sourceExcerpt": "if not exists ("
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unknown",
+          "reason": "No REFERENCES candidate found; view, routine and procedural dependencies remain unparsed."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202611190025_delivery_provider_webhooks.sql",
+      "blobSha1": "e97c5c0ad645dfe43f11a88f01b030fa23dd5822",
+      "byteLength": 17132,
+      "lineCount": 493,
+      "observations": {
+        "transformations": [
+          {
+            "line": 119,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_provider_events",
+            "sourceExcerpt": "insert into public.delivery_provider_events ("
+          },
+          {
+            "line": 132,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_provider_suppressions",
+            "sourceExcerpt": "insert into public.delivery_provider_suppressions ("
+          },
+          {
+            "line": 224,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "insert into public.delivery_ledger ("
+          },
+          {
+            "line": 337,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "insert into public.delivery_ledger ("
+          },
+          {
+            "line": 453,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger set"
+          },
+          {
+            "line": 465,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger set"
+          }
+        ],
+        "foreignKeyReferences": [
+          {
+            "line": 54,
+            "targetCandidate": "public.delivery_provider_events",
+            "sourceExcerpt": "references public.delivery_provider_events(event_id) on delete restrict,"
+          }
+        ],
+        "guards": [
+          {
+            "line": 13,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 025 requires the reviewed delivery baseline through 024.';"
+          },
+          {
+            "line": 20,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (char_length(event_id) between 1 and 255),"
+          },
+          {
+            "line": 22,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (event_type in ('email.bounced', 'email.complained', 'email.suppressed')),"
+          },
+          {
+            "line": 24,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (char_length(provider_email_id) between 1 and 255),"
+          },
+          {
+            "line": 26,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check ("
+          },
+          {
+            "line": 33,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (bounce_type is null or bounce_type in ('Permanent', 'Transient', 'Unknown')),"
+          },
+          {
+            "line": 36,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check ("
+          },
+          {
+            "line": 47,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check ("
+          },
+          {
+            "line": 52,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (reason in ('permanent_bounce', 'complaint', 'provider_suppressed')),"
+          },
+          {
+            "line": 92,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid delivery provider event.' using errcode = '22023';"
+          },
+          {
+            "line": 98,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid delivery provider recipient.' using errcode = '22023';"
+          },
+          {
+            "line": 103,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid delivery bounce classification.' using errcode = '22023';"
+          },
+          {
+            "line": 109,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Bounce classification is only valid for bounced events.' using errcode = '22023';"
+          },
+          {
+            "line": 183,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'A scheduler timestamp is required.' using errcode = '22023';"
+          },
+          {
+            "line": 186,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'p_limit must be between 1 and 5000.' using errcode = '22023';"
+          },
+          {
+            "line": 269,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Weekly scheduling requires READ COMMITTED isolation.'"
+          },
+          {
+            "line": 274,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'A curated Monday and timestamp are required.' using errcode = '22023';"
+          },
+          {
+            "line": 277,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Weekly batch limit must be between 1 and 5000.' using errcode = '22023';"
+          },
+          {
+            "line": 285,
+            "kind": "existence_guard",
+            "sourceExcerpt": "if not exists ("
+          },
+          {
+            "line": 289,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Weekly Goodness issue has not been explicitly curated.'"
+          },
+          {
+            "line": 298,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Weekly issue already exceeds the 5000-delivery ceiling.'"
+          },
+          {
+            "line": 332,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Weekly delivery capacity exceeded; no jobs enqueued.'"
+          },
+          {
+            "line": 346,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Concurrent weekly ledger write detected; transaction rolled back.'"
+          },
+          {
+            "line": 382,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid delivery transport authorization arguments.'"
+          },
+          {
+            "line": 395,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery claim is not authorized.' using errcode = '42501';"
+          },
+          {
+            "line": 445,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Unsupported delivery kind.' using errcode = '22023';"
+          },
+          {
+            "line": 449,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Claim expired during transport authorization.' using errcode = '42501';"
+          },
+          {
+            "line": 475,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Claim expired during transport authorization.' using errcode = '42501';"
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unsupported",
+          "reason": "Foreign-key reference candidates found, but prerequisite migration ownership and execution ordering are not established by the SQL line alone."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202611190026_delivery_provider_lifecycle.sql",
+      "blobSha1": "6a06d780ad65babf2293a2746c68913758313af8",
+      "byteLength": 13857,
+      "lineCount": 406,
+      "observations": {
+        "transformations": [
+          {
+            "line": 208,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_provider_events",
+            "sourceExcerpt": "insert into public.delivery_provider_events ("
+          },
+          {
+            "line": 234,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_provider_suppressions",
+            "sourceExcerpt": "insert into public.delivery_provider_suppressions ("
+          },
+          {
+            "line": 262,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_provider_lifecycle",
+            "sourceExcerpt": "insert into public.delivery_provider_lifecycle ("
+          }
+        ],
+        "foreignKeyReferences": [
+          {
+            "line": 66,
+            "targetCandidate": "public.delivery_provider_events",
+            "sourceExcerpt": "references public.delivery_provider_events(event_id) on delete restrict,"
+          }
+        ],
+        "guards": [
+          {
+            "line": 8,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 026 requires the reviewed provider webhook baseline from migration 025.';"
+          },
+          {
+            "line": 22,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (event_type in ("
+          },
+          {
+            "line": 32,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check ("
+          },
+          {
+            "line": 37,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check ("
+          },
+          {
+            "line": 51,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (char_length(provider_email_id) between 1 and 255),"
+          },
+          {
+            "line": 53,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (status in ("
+          },
+          {
+            "line": 68,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (failure_class is null or failure_class in ("
+          },
+          {
+            "line": 79,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (status_rank = case status"
+          },
+          {
+            "line": 90,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check ("
+          },
+          {
+            "line": 142,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid delivery provider lifecycle event.' using errcode = '22023';"
+          },
+          {
+            "line": 148,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid delivery provider recipient.' using errcode = '22023';"
+          },
+          {
+            "line": 153,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid delivery bounce classification.' using errcode = '22023';"
+          },
+          {
+            "line": 159,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Bounce classification is only valid for bounced events.' using errcode = '22023';"
+          },
+          {
+            "line": 171,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid normalized provider failure classification.' using errcode = '22023';"
+          },
+          {
+            "line": 174,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Failure classification is only valid for failed events.' using errcode = '22023';"
+          },
+          {
+            "line": 199,
+            "kind": "existence_guard",
+            "sourceExcerpt": "if exists ("
+          },
+          {
+            "line": 205,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Provider email correlation does not match.' using errcode = '22023';"
+          },
+          {
+            "line": 347,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Provider lifecycle persistence failed.' using errcode = '23505';"
+          },
+          {
+            "line": 382,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Unsupported legacy provider event type.' using errcode = '22023';"
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unsupported",
+          "reason": "Foreign-key reference candidates found, but prerequisite migration ownership and execution ordering are not established by the SQL line alone."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202611200027_delivery_provider_integrity.sql",
+      "blobSha1": "a1469938ea13b5cb9d7cd883772bc60e4a058026",
+      "byteLength": 20879,
+      "lineCount": 608,
+      "observations": {
+        "transformations": [
+          {
+            "line": 205,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_provider_events",
+            "sourceExcerpt": "insert into public.delivery_provider_events ("
+          },
+          {
+            "line": 264,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_provider_integrity_anomalies",
+            "sourceExcerpt": "insert into public.delivery_provider_integrity_anomalies ("
+          },
+          {
+            "line": 271,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_provider_lifecycle",
+            "sourceExcerpt": "update public.delivery_provider_lifecycle"
+          },
+          {
+            "line": 291,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_provider_suppressions",
+            "sourceExcerpt": "insert into public.delivery_provider_suppressions ("
+          },
+          {
+            "line": 340,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_provider_integrity_anomalies",
+            "sourceExcerpt": "insert into public.delivery_provider_integrity_anomalies ("
+          },
+          {
+            "line": 347,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_provider_lifecycle",
+            "sourceExcerpt": "insert into public.delivery_provider_lifecycle ("
+          },
+          {
+            "line": 381,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_provider_lifecycle",
+            "sourceExcerpt": "insert into public.delivery_provider_lifecycle ("
+          }
+        ],
+        "foreignKeyReferences": [
+          {
+            "line": 56,
+            "targetCandidate": "public.delivery_provider_events",
+            "sourceExcerpt": "references public.delivery_provider_events(event_id) on delete restrict,"
+          },
+          {
+            "line": 58,
+            "targetCandidate": "public.delivery_provider_events",
+            "sourceExcerpt": "references public.delivery_provider_events(event_id) on delete restrict,"
+          }
+        ],
+        "guards": [
+          {
+            "line": 9,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check ("
+          },
+          {
+            "line": 19,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (payload_fingerprint is null or payload_fingerprint ~ '^[0-9a-f]{64}$');"
+          },
+          {
+            "line": 26,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (status in ("
+          },
+          {
+            "line": 42,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (status_rank = case status"
+          },
+          {
+            "line": 60,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (anomaly_type in ("
+          },
+          {
+            "line": 66,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (related_event_id is null or related_event_id <> event_id)"
+          },
+          {
+            "line": 134,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid delivery provider lifecycle event.' using errcode = '22023';"
+          },
+          {
+            "line": 140,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid delivery provider recipient.' using errcode = '22023';"
+          },
+          {
+            "line": 145,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid delivery bounce classification.' using errcode = '22023';"
+          },
+          {
+            "line": 151,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Bounce classification is only valid for bounced events.' using errcode = '22023';"
+          },
+          {
+            "line": 163,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid normalized provider failure classification.' using errcode = '22023';"
+          },
+          {
+            "line": 166,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Failure classification is only valid for failed events.' using errcode = '22023';"
+          },
+          {
+            "line": 175,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid normalized provider suppression reason.' using errcode = '22023';"
+          },
+          {
+            "line": 183,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Suppression reason is only valid for suppressed events.' using errcode = '22023';"
+          },
+          {
+            "line": 237,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Conflicting provider event could not be inspected.' using errcode = 'XX000';"
+          },
+          {
+            "line": 281,
+            "kind": "existence_guard",
+            "sourceExcerpt": "if exists ("
+          },
+          {
+            "line": 287,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Provider email correlation does not match.' using errcode = '22023';"
+          },
+          {
+            "line": 375,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Provider lifecycle integrity state could not be persisted.' using errcode = '23505';"
+          },
+          {
+            "line": 466,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Provider lifecycle persistence failed.' using errcode = '23505';"
+          },
+          {
+            "line": 584,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Unsupported legacy provider event type.' using errcode = '22023';"
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unsupported",
+          "reason": "Foreign-key reference candidates found, but prerequisite migration ownership and execution ordering are not established by the SQL line alone."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202611210028_delivery_claim_lock_expiry.sql",
+      "blobSha1": "09d1927fba81d711bb37d214609931d2da2173a1",
+      "byteLength": 9643,
+      "lineCount": 216,
+      "observations": {
+        "transformations": [
+          {
+            "line": 69,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger set"
+          },
+          {
+            "line": 114,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger set"
+          },
+          {
+            "line": 125,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger set"
+          },
+          {
+            "line": 160,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger set"
+          },
+          {
+            "line": 198,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger set"
+          }
+        ],
+        "foreignKeyReferences": [],
+        "guards": [
+          {
+            "line": 11,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 028 requires the reviewed delivery reliability RPCs.';"
+          },
+          {
+            "line": 26,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'A job ID and claim token are required.' using errcode = '22023';"
+          },
+          {
+            "line": 34,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery claim is not authorized.' using errcode = '42501';"
+          },
+          {
+            "line": 60,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Unsupported delivery kind.' using errcode = '22023';"
+          },
+          {
+            "line": 66,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery claim is not authorized.' using errcode = '42501';"
+          },
+          {
+            "line": 76,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery claim is not authorized.' using errcode = '42501';"
+          },
+          {
+            "line": 98,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'A job ID, claim token, and retry time are required.' using errcode = '22023';"
+          },
+          {
+            "line": 101,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'A bounded error code is required.' using errcode = '22023';"
+          },
+          {
+            "line": 108,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery claim is not authorized.' using errcode = '42501';"
+          },
+          {
+            "line": 111,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Retry time must be within the next 24 hours.' using errcode = '22023';"
+          },
+          {
+            "line": 121,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery claim is not authorized.' using errcode = '42501';"
+          },
+          {
+            "line": 131,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery claim is not authorized.' using errcode = '42501';"
+          },
+          {
+            "line": 151,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Provider result identifier is too long.' using errcode = '22023';"
+          },
+          {
+            "line": 158,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery claim is not authorized.' using errcode = '42501';"
+          },
+          {
+            "line": 168,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery claim is not authorized.' using errcode = '42501';"
+          },
+          {
+            "line": 189,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'A bounded error code is required.' using errcode = '22023';"
+          },
+          {
+            "line": 196,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery claim is not authorized.' using errcode = '42501';"
+          },
+          {
+            "line": 205,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery claim is not authorized.' using errcode = '42501';"
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unknown",
+          "reason": "No REFERENCES candidate found; view, routine and procedural dependencies remain unparsed."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
     }
   ]
 }
