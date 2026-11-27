@@ -329,7 +329,8 @@ export function adaptCollectorEvidence({receipt,csv,inventoryBytes,schemaBytes,m
     catalog:{complete:false,completeKinds:[...CATALOG_KINDS],objects:catalogObjects}};
   if(normalizedMapping)evidence.mapping=normalizedMapping;
   return {schemaVersion:1,status:"UNSIGNED_NOT_ACCEPTED",acceptance:"NOT_ACCEPTED",adapter:"deedlight-collector-analyzer-adapter-v1",
-    receipt,databaseCaptureTimestamp,evidence,databaseAuthorityCandidate:authorityCandidate(p,identityRow,catalogObjects,receipt),\n    unmappedCatalogEvidence:{extensions_v1:{status:"PRESERVED_NOT_NORMALIZED",rows:projectionObjects(p,"extensions_v1")}},projections:rawProjections(p),
+    receipt,databaseCaptureTimestamp,evidence,databaseAuthorityCandidate:authorityCandidate(p,identityRow,catalogObjects,receipt),
+    unmappedCatalogEvidence:{extensions_v1:{status:"PRESERVED_NOT_NORMALIZED",rows:projectionObjects(p,"extensions_v1")}},projections:rawProjections(p),
     integrity:{receiptCanonicalSha256:sha256(Buffer.from(canonicalJson(receipt),"utf8")),
       receiptSchemaGitBlobSha1:RECEIPT_SCHEMA_GIT_BLOB_SHA1,receiptSchemaSha256:RECEIPT_SCHEMA_SHA256,
       migrationInventoryGitBlobSha1:INVENTORY_GIT_BLOB_SHA1,repositoryCommitSha:receipt.source.repositoryCommitSha,sqlBundlePath:SQL_PATH,sqlBundleGitBlobSha1:SQL_GIT_BLOB_SHA1,
