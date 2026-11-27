@@ -912,7 +912,7 @@ export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approval
     .map((status) => [status, reports.filter((entry) => entry.status === status).length]));
   const unresolvedLifecycleEvidence = reports.filter(entry => entry.semanticVerificationRequiredCategories.length > 0).length;
   const semanticVerification = {
-    status: unresolvedLifecycleEvidence === 0 ? "VERIFIED" : "UNKNOWN",
+    status: problems.length === 0 && unresolvedLifecycleEvidence === 0 ? "VERIFIED" : "UNKNOWN",
     requiredCategories: [...Object.keys(SEMANTIC_VERIFICATION_BLOCKERS)],
     unresolvedMigrationCount: unresolvedLifecycleEvidence,
     blockersByCategory: Object.fromEntries(Object.entries(SEMANTIC_VERIFICATION_BLOCKERS)),
