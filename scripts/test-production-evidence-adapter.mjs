@@ -271,7 +271,7 @@ test("explicit unsupported and unknown migration effect domains are retained wit
 
 test("mapping rejects disposition/effect contradictions, unordered ranges and category confusion",()=>{
   const mutations=[
-    mapping=>{mapping.migrations[0].coverage.backfills.disposition="unsupported";},
+    mapping=>{mapping.migrations[0].coverage.schema.disposition="unsupported";},
     mapping=>{mapping.migrations[0].coverage.dependencies.disposition="effects";},
     mapping=>{mapping.migrations[0].coverage.schema.sourceRanges=[{startLine:5,endLine:8},{startLine:4,endLine:9}];},
     mapping=>{mapping.migrations[0].coverage.schema.sourceRanges=[{startLine:1,endLine:4},{startLine:4,endLine:8}];},
