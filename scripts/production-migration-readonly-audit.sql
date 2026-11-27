@@ -920,7 +920,7 @@ SELECT
   h.name::text AS name,
   pg_catalog.cardinality(h.statements) AS "recordedStatementCount"
 FROM supabase_migrations.schema_migrations AS h
-ORDER BY h.version, h.name;
+ORDER BY h.name NULLS LAST, h.version;
 
 -- 14. Complete database ACL evidence. Emit every database, including templates,
 -- preserving the original NULL/non-NULL datacl state while expanding built-in defaults.
