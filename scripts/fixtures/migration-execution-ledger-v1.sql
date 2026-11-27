@@ -278,16 +278,49 @@ WITH registered(query_id, query_sql, description, bundle_name) AS (
   FROM registered
 ), bundles AS (
   SELECT bundle_name,
-    pg_catalog.encode(deedlight_execution_ledger.digest(
-      pg_catalog.convert_to(pg_catalog.string_agg(query_id || ':' || query_sha256, E'\\n' ORDER BY query_id), 'UTF8'),
-      'sha256'), 'hex') AS query_bundle_digest
+    pg_catalog.jsonb_agg(
+      pg_catalog.jsonb_build_object('queryId', query_id, 'querySha256', query_sha256)
+      ORDER BY query_id
+    ) AS manifest
   FROM digested
   GROUP BY bundle_name
+), manifests AS (
+  SELECT bundle_name, manifest,
+    deedlight_execution_ledger.canonical_query_bundle_digest(manifest) AS manifest_sha256
+  FROM bundles
+)
+INSERT INTO deedlight_execution_ledger.query_bundle_manifests
+  (bundle_id, manifest, member_count, manifest_sha256)
+SELECT bundle_name, manifest, pg_catalog.jsonb_array_length(manifest), manifest_sha256
+FROM manifests
+ON CONFLICT (bundle_id) DO NOTHING;
+
+WITH registered(query_id, query_sql, description, bundle_name) AS (
+  VALUES
+    ('test_effects_v1',
+      'SELECT count(*)::bigint AS effect_count FROM deedlight_execution_ledger.test_effects',
+      'Disposable fixture effect count',
+      'test_effects_bundle_v1'),
+    ('test_effects_nonempty_v1',
+      'SELECT count(*)::bigint AS nonempty_effect_count FROM deedlight_execution_ledger.test_effects WHERE effect_value <> ''''',
+      'Disposable fixture non-empty effect count',
+      'test_effects_bundle_v1'),
+    ('test_effects_v2',
+      'SELECT count(*)::bigint AS matching_effect_count FROM deedlight_execution_ledger.test_effects WHERE effect_value = ''snapshot mismatch fixture effect''',
+      'Disposable fixture independently versioned effect query',
+      'test_effects_bundle_v2')
+), digested AS (
+  SELECT query_id, query_sql, description, bundle_name,
+    pg_catalog.encode(deedlight_execution_ledger.digest(
+      pg_catalog.convert_to(query_sql, 'UTF8'), 'sha256'), 'hex') AS query_sha256
+  FROM registered
 )
 INSERT INTO deedlight_execution_ledger.observation_queries
-  (query_id, query_sql, description, query_sha256, query_bundle_digest)
-SELECT d.query_id, d.query_sql, d.description, d.query_sha256, b.query_bundle_digest
-FROM digested d JOIN bundles b USING (bundle_name)
+  (query_id, query_sql, description, query_sha256, query_bundle_id, query_bundle_digest)
+SELECT d.query_id, d.query_sql, d.description, d.query_sha256,
+  d.bundle_name, m.manifest_sha256
+FROM digested d
+JOIN deedlight_execution_ledger.query_bundle_manifests m ON m.bundle_id = d.bundle_name
 ON CONFLICT (query_id) DO NOTHING;
 GRANT INSERT ON deedlight_execution_ledger.test_effects TO deedlight_ledger_runner;
 GRANT USAGE, SELECT ON SEQUENCE deedlight_execution_ledger.test_effects_effect_id_seq
