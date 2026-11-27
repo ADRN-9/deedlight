@@ -160,7 +160,7 @@ function validateSourceInventory(rootDir, manifest) {
     const bytes = readRegularFile(rootDir, item.path);
     const actual = gitBlobSha1(bytes);
     source.set(item.path, actual === item.blobSha1 && bytes.length === item.byteLength
-      ? { valid: true, blobSha1: actual, lineCount: bytes.toString("utf8").split(/\r?\n/).length }
+      ? { valid: true, blobSha1: actual, lineCount: bytes.toString("utf8").split(/\r?\n/).length, content: bytes.toString("utf8") }
       : { valid: false, reason: "source fingerprint or byte length differs from pinned inventory", actualBlobSha1: actual });
   }
   return source;
@@ -513,7 +513,13 @@ function validateMapping(mapping, manifest, source, problems) {
           coverageMalformed = true;
           break;
         }
-        const contractProblem = validateCategoryEffectContract(category, effect, inventoryPaths);
+        const contractRange = effect.contract && effect.contract.sourceRange;
+        if (!contractRange || !ranges.some((range) => contractRange.startLine >= range.startLine && contractRange.endLine <= range.endLine)) {
+          problems.push("category-specific effect source range is not covered by reviewed mapping ranges for " + item.path);
+          coverageMalformed = true;
+          break;
+        }
+        const contractProblem = validateCategoryEffectContract(category, effect, inventoryPaths, { sourceText: source.get(item.path).content });
         if (contractProblem) {
           problems.push(contractProblem + " for " + item.path);
           coverageMalformed = true;
