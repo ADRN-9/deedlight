@@ -254,11 +254,6 @@ WITH schemas AS (
       THEN jsonb_build_array('EXECUTE') ELSE '[]'::jsonb END
   ) ORDER BY nspname, proname, identity_arguments) AS rows
   FROM routines
-), all_objects AS (
-  SELECT value FROM object_privileges, LATERAL jsonb_array_elements(COALESCE(rows, '[]'::jsonb))
-  UNION ALL
-  SELECT value FROM object_privileges, LATERAL jsonb_array_elements(COALESCE(rows, '[]'::jsonb))
-  OFFSET 0
 )
 SELECT jsonb_build_object(
   'inventoryObjects', (SELECT jsonb_agg(jsonb_build_object('kind', kind, 'identity', identity) ORDER BY kind, identity) FROM inventory),
