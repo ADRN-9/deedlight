@@ -53,16 +53,21 @@ Migration 039 is pinned in `supabase/migration-inventory.json`; `supabase/run_in
 
 The active inventory pin was refreshed in the aggregate verifier, Production evidence collector, receipt schema, collector/evidence-package fixtures, migration reconciliation analyzer/fixtures and Production migration evidence runbook. The older C517 assessment and original reconciliation ledger remain historical snapshots; their source fingerprints are not rewritten.
 
-## 6. CI status
+## 6. Final exact-HEAD CI
 
-Implementation HEAD at report preparation: `a9008193f65dc7a2723de0f4fea95b14b06082fd`.
+**Final code-and-report HEAD before this status refresh:** `ba128b91a3a47ecc646983751c88bd1bf19c795f`.
 
-- Earlier run `45916208693` exposed draft issues: the Weekly test counted a pre-existing same-kind fixture row, and the aggregate had one extra newline. Both were corrected.
-- Earlier run `45916602103` exposed stale 39/38 assumptions in the signed migration reconciliation fixtures after inventory growth. Analyzer, receipt pin and tests were updated to 40/39.
-- Run `45917143724` was created for exact HEAD `a9008193f65dc7a2723de0f4fea95b14b06082fd`; it was pending when this report was prepared. No final exact-HEAD CI pass is claimed.
+- [Full PR Validation run 45918122585](https://github.com/ADRN-9/deedlight/actions/runs/45918122585) — **SUCCESS**, exact checkout SHA `ba128b91a3a47ecc646983751c88bd1bf19c795f`.
+- All 12 workflow jobs passed.
+- The `delivery_migration_order_database_behavior` job passed, including the migration-order shell suite and the adversarial migration 039 Daily/Weekly SQL tests.
+- The `validate` job passed, including migration inventory and aggregate verification, migration reconciliation adversarial tests, collector and package integrity tests, the new claim-isolation verifier, existing security assertions, ESLint, TypeScript, Next.js production build, Cloudflare package and moderate-or-higher dependency audit gate.
+- Database behavior jobs passed for delivery migration order, migration 037, inventory/aggregate execution, delivery reliability, gentle delivery transport, provider webhook, privacy authorization, pgcrypto and Sprint 12.2.
+- Production evidence collector PostgreSQL 16 integration and security-definer ownership audit jobs also passed.
 
-Final validation must include migration-order PostgreSQL behavior with migration 039, aggregate/inventory verification, reconciliation adversarial tests, the new claim-isolation verifier, existing security assertions, TypeScript, Next.js build, Cloudflare package and dependency audit.
+Earlier development attempts are retained as audit history: run `45916208693` exposed the fixture-count and aggregate-newline draft defects; run `45916602103` exposed stale 39/38 reconciliation fixture expectations; run `45917884051` exposed a static-verifier false positive on an explanatory comment. These were corrected. Run `45918122585` is the successful exact-HEAD validation after those corrections.
 
+This status refresh is documentation-only; the resulting commit must receive its own exact-HEAD CI before the PR is considered fully validated.
+ 
 ## 7. Production boundary and remaining risks
 
 No Production migration was executed; no Production migration-history record, credential, database, provider, Cron, kill-switch or delivery configuration was changed. No email or provider request was sent. No PR was merged and no scheduler was activated.
@@ -71,4 +76,4 @@ The RPCs enforce kind isolation for application claim calls. The existing `servi
 
 PR #25's independent-review dependency remains outstanding. C524's successful CI is not independent security approval and is not treated as approval of C525.
 
-**Acceptance status:** implementation committed; final exact-HEAD CI and independent review remain required. No Production rollout is authorized by this work.
+**Acceptance status:** implementation and exact-HEAD CI PASS; independent security review remains outstanding. The documentation-only status refresh requires its own exact-HEAD CI. No Production rollout is authorized by this work.
