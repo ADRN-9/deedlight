@@ -6,8 +6,8 @@ const exact = (value, keys) => value && typeof value === "object" && !Array.isAr
   && Object.keys(value).sort().join(",") === [...keys].sort().join(",");
 const relation = value => exact(value, ["schema", "relation"])
   && RELATION.test(value.schema) && RELATION.test(value.relation);
-const timestamp = value => typeof value === "string"
-  && /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$/.test(value)
+export const strictCategoryTimestamp = value => typeof value === "string"
+  && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)
   && Number.isFinite(Date.parse(value)) && new Date(Date.parse(value)).toISOString() === value;
 
 export function validateCategoryEffectContract(category, effect, inventoryPaths, { requireEvidence = true, sourceText = null } = {}) {
