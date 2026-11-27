@@ -11,7 +11,8 @@ if (problems.length) {
   console.error(JSON.stringify({
     problems,
     schemaPrivileges: evidence.databaseAuthority.schemaPrivileges,
-    objectPrivileges: evidence.databaseAuthority.objectPrivileges.filter((row) => row.privileges.length > 0),
+    inventoryObjects: evidence.inventoryObjects,
+    objectPrivileges: evidence.databaseAuthority.objectPrivileges,
     columnPrivileges: evidence.databaseAuthority.columnPrivileges.filter((row) => row.privileges.length > 0),
   }, null, 2));
 }
