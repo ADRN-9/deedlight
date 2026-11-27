@@ -52,8 +52,8 @@ function fixture() {
     const sourceLines = readFileSync(path.join(repoRoot, item.path), "utf8").split(/\r?\n/);
     const sourceRange = { startLine: 1, endLine: 1 };
     const sourceStatementSha256 = hash(sourceLines[0]);
-    const updateLine = sourceLines.findIndex(line => /^\\s*update\\s+[A-Za-z_][A-Za-z0-9_$]*(?:\\.[A-Za-z_][A-Za-z0-9_$]*)?\\s+.*\\bset\\b/i.test(line));
-    const updateTarget = updateLine < 0 ? null : sourceLines[updateLine].match(/^\\s*update\\s+((?:[A-Za-z_][A-Za-z0-9_$]*\\.)?[A-Za-z_][A-Za-z0-9_$]*)/i)?.[1];
+    const updateLine = sourceLines.findIndex(line => /^\s*update\s+[A-Za-z_][A-Za-z0-9_$]*(?:\.[A-Za-z_][A-Za-z0-9_$]*)?\s+.*\bset\b/i.test(line));
+    const updateTarget = updateLine < 0 ? null : sourceLines[updateLine].match(/^\s*update\s+((?:[A-Za-z_][A-Za-z0-9_$]*\.)?[A-Za-z_][A-Za-z0-9_$]*)/i)?.[1];
     const relationParts = updateTarget ? updateTarget.split(".") : [];
     const transformationRelation = relationParts.length === 2
       ? { schema: relationParts[0], relation: relationParts[1] }
