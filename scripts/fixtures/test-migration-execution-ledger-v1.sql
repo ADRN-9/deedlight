@@ -181,6 +181,7 @@ $assert$;
 -- Completed execution and consumed approval are permanently replay-protected.
 SET ROLE deedlight_ledger_runner;
 DO $assert$
+DECLARE v_detail text;
 BEGIN
   BEGIN
     PERFORM deedlight_execution_ledger.reserve_execution(
@@ -190,8 +191,10 @@ BEGIN
       '{"path":"supabase/migrations/test.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb
     );
     RAISE EXCEPTION 'replay unexpectedly accepted';
-  EXCEPTION WHEN unique_violation OR raise_exception THEN
-    IF SQLERRM = 'replay unexpectedly accepted' THEN RAISE; END IF;
+  EXCEPTION WHEN SQLSTATE 'D1005' THEN
+    GET STACKED DIAGNOSTICS v_detail = PG_EXCEPTION_DETAIL;
+    IF SQLERRM = 'replay unexpectedly accepted'
+      OR v_detail NOT LIKE '%approval_missing_or_consumed%' THEN RAISE; END IF;
   END;
 END
 $assert$;
@@ -266,6 +269,7 @@ $assert$;
 -- An interrupted reservation remains non-replayable.
 SET ROLE deedlight_ledger_runner;
 DO $assert$
+DECLARE v_detail text;
 BEGIN
   BEGIN
     PERFORM deedlight_execution_ledger.reserve_execution(
@@ -275,9 +279,10 @@ BEGIN
       '{"path":"supabase/migrations/test.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb
     );
     RAISE EXCEPTION 'interrupted execution replay unexpectedly accepted';
-  EXCEPTION WHEN raise_exception THEN
-    IF SQLERRM = 'interrupted execution replay unexpectedly accepted' THEN RAISE; END IF;
-    IF SQLERRM NOT LIKE 'approval is missing, consumed, or does not bind%' THEN RAISE; END IF;
+  EXCEPTION WHEN SQLSTATE 'D1005' THEN
+    GET STACKED DIAGNOSTICS v_detail = PG_EXCEPTION_DETAIL;
+    IF SQLERRM = 'interrupted execution replay unexpectedly accepted'
+      OR v_detail NOT LIKE '%approval_missing_or_consumed%' THEN RAISE; END IF;
   END;
 END
 $assert$;
@@ -466,9 +471,9 @@ BEGIN
       'c5700000-0000-4000-8000-000000000028','succeeded','{"result":"must-not-finalize"}'::jsonb
     );
     RAISE EXCEPTION 'finalization accepted different pre/post observation queries';
-  EXCEPTION WHEN raise_exception THEN
+  EXCEPTION WHEN SQLSTATE 'D1004' THEN
     IF SQLERRM = 'finalization accepted different pre/post observation queries' THEN RAISE; END IF;
-    IF SQLERRM <> 'committed effect marker and matching pre/post observation query identity required before finalization' THEN RAISE; END IF;
+    
   END;
 END
 $assert$;
@@ -521,9 +526,8 @@ BEGIN
       'c5700000-0000-4000-8000-000000000027','post','test_effects_v1'
     );
     RAISE EXCEPTION 'post-snapshot accepted without committed migration marker';
-  EXCEPTION WHEN raise_exception THEN
+  EXCEPTION WHEN SQLSTATE 'D1003' THEN
     IF SQLERRM = 'post-snapshot accepted without committed migration marker' THEN RAISE; END IF;
-    IF SQLERRM <> 'post-snapshot requires a committed effect marker from the active runner transaction' THEN RAISE; END IF;
   END;
 END
 $assert$;
