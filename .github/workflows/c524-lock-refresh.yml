@@ -43,11 +43,29 @@ jobs:
             git commit -m "fix(deps): refresh lockfile for patched dependency paths"
             git push origin HEAD:refs/heads/security/resend-webhook-destination-identity-c507
           fi
+      - name: Install locked dependencies for isolation verification
+        run: npm ci --ignore-scripts
+      - name: Probe kernel network namespace and run webhook regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          if sudo unshare --net --mount-proc -- true 2> c524-netns-probe.err; then
+            echo "OS_NETWORK_NAMESPACE=available" | tee c524-isolation-result.txt
+            sudo unshare --net --mount-proc -- node --test scripts/test-c73-webhook-isolation.mjs scripts/test-c516-webhook-route-instrumentation.mjs
+            echo "OS_NETWORK_NAMESPACE_WEBHOOK_TESTS=pass" | tee -a c524-isolation-result.txt
+          else
+            echo "OS_NETWORK_NAMESPACE=unavailable" | tee c524-isolation-result.txt
+            cat c524-netns-probe.err | tee -a c524-isolation-result.txt
+            node --test scripts/test-c73-webhook-isolation.mjs scripts/test-c516-webhook-route-instrumentation.mjs
+            echo "PROCESS_LOCAL_INTERCEPTION_WEBHOOK_TESTS=pass" | tee -a c524-isolation-result.txt
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: c524-lock-refresh
           path: |
             package-lock.json
             c524-npm-audit.json
+            c524-isolation-result.txt
+            c524-netns-probe.err
           if-no-files-found: error
           retention-days: 3
