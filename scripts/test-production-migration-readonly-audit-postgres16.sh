@@ -259,9 +259,44 @@ SELECT jsonb_build_object(
   'inventoryObjects', (SELECT jsonb_agg(jsonb_build_object('kind', kind, 'identity', identity) ORDER BY kind, identity) FROM inventory),
   'databaseAuthority', jsonb_build_object(
     'privilegeContractVersion', 'catalog_only_v1',
-    'requiredAccessSummary', jsonb_build_array(
-      'DATABASE_CONNECT', 'SYSTEM_CATALOG_SELECT', 'MIGRATION_HISTORY_SCHEMA_USAGE', 'MIGRATION_HISTORY_SELECT'
-    ),
+    'requiredAccessSummary', CASE WHEN
+      pg_catalog.has_database_privilege(current_user, current_database(), 'CONNECT')
+      AND pg_catalog.has_schema_privilege(current_user, 'supabase_migrations', 'USAGE')
+      AND pg_catalog.has_table_privilege(current_user, 'supabase_migrations.schema_migrations', 'SELECT')
+      AND NOT EXISTS (
+        SELECT 1 FROM unnest(ARRAY[
+          'pg_catalog.pg_class', 'pg_catalog.pg_attribute', 'pg_catalog.pg_attrdef',
+          'pg_catalog.pg_proc', 'pg_catalog.pg_roles', 'pg_catalog.pg_auth_members',
+          'pg_catalog.pg_namespace', 'pg_catalog.pg_language', 'pg_catalog.pg_policies',
+          'pg_catalog.pg_constraint', 'pg_catalog.pg_indexes', 'pg_catalog.pg_trigger',
+          'pg_catalog.pg_default_acl', 'pg_catalog.pg_extension', 'pg_catalog.pg_sequence',
+          'pg_catalog.pg_index', 'pg_catalog.pg_depend', 'pg_catalog.pg_type', 'pg_catalog.pg_am',
+          'pg_catalog.pg_database'
+        ]) AS required_catalog(name)
+        WHERE pg_catalog.to_regclass(name) IS NULL
+          OR NOT pg_catalog.has_table_privilege(current_user, pg_catalog.to_regclass(name), 'SELECT')
+      )
+      THEN jsonb_build_array(
+        'DATABASE_CONNECT', 'SYSTEM_CATALOG_SELECT', 'MIGRATION_HISTORY_SCHEMA_USAGE', 'MIGRATION_HISTORY_SELECT'
+      )
+      ELSE '[]'::jsonb
+    END,
+    'databasePrivileges', CASE
+      WHEN pg_catalog.has_database_privilege(current_user, current_database(), 'CONNECT')
+        THEN jsonb_build_array('CONNECT') ELSE '[]'::jsonb END,
+    'catalogPrivileges', CASE WHEN NOT EXISTS (
+      SELECT 1 FROM unnest(ARRAY[
+        'pg_catalog.pg_class', 'pg_catalog.pg_attribute', 'pg_catalog.pg_attrdef',
+        'pg_catalog.pg_proc', 'pg_catalog.pg_roles', 'pg_catalog.pg_auth_members',
+        'pg_catalog.pg_namespace', 'pg_catalog.pg_language', 'pg_catalog.pg_policies',
+        'pg_catalog.pg_constraint', 'pg_catalog.pg_indexes', 'pg_catalog.pg_trigger',
+        'pg_catalog.pg_default_acl', 'pg_catalog.pg_extension', 'pg_catalog.pg_sequence',
+        'pg_catalog.pg_index', 'pg_catalog.pg_depend', 'pg_catalog.pg_type', 'pg_catalog.pg_am',
+        'pg_catalog.pg_database'
+      ]) AS required_catalog(name)
+      WHERE pg_catalog.to_regclass(name) IS NULL
+        OR NOT pg_catalog.has_table_privilege(current_user, pg_catalog.to_regclass(name), 'SELECT')
+    ) THEN jsonb_build_array('SELECT') ELSE '[]'::jsonb END,
     'schemaPrivileges', (SELECT rows FROM schema_privileges),
     'objectPrivileges', (
       SELECT COALESCE(jsonb_agg(value ORDER BY value->>'kind', value->>'identity'), '[]'::jsonb)
