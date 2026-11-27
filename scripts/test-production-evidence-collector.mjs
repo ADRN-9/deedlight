@@ -23,6 +23,7 @@ import {
   RECEIPT_SCHEMA_GIT_BLOB_SHA1,
   RECEIPT_SCHEMA_SHA256,
   SQL_PROJECTIONS,
+  SQL_NULL_SENTINEL,
 } from "./collect-production-migration-evidence.mjs";
 
 function serializeCsvField(value) {
@@ -71,7 +72,7 @@ function validCsv() {
         "2026-01-01T00:00:00.000Z", "on"]);
     } else if (projection.id === "migration_history_v1") {
       rows.push(["202611240037", "migration_037_fixture", "1"]);
-      rows.push(["202611240038", "", ""]);
+      rows.push(["202611240038", SQL_NULL_SENTINEL, ""]);
     } else if (projection.id === "database_acl_v1") {
       rows.push(["database_acl_v1", "2", "1", "db_one", "t", "f", "10", "postgres", "t", "built_in_default", "[]"]);
       rows.push(["database_acl_v1", "2", "2", "db_two", "t", "t", "10", "postgres", "f", "explicit", "[]"]);
