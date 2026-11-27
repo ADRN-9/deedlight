@@ -7,6 +7,14 @@ assert.ok(Array.isArray(evidence.inventoryObjects), "PostgreSQL privilege eviden
 assert.ok(evidence.databaseAuthority && typeof evidence.databaseAuthority === "object",
   "PostgreSQL privilege evidence lacks database authority");
 const problems = validateCollectorPrivilegeEvidence(evidence.databaseAuthority, evidence.inventoryObjects);
+if (problems.length) {
+  console.error(JSON.stringify({
+    problems,
+    schemaPrivileges: evidence.databaseAuthority.schemaPrivileges,
+    objectPrivileges: evidence.databaseAuthority.objectPrivileges.filter((row) => row.privileges.length > 0),
+    columnPrivileges: evidence.databaseAuthority.columnPrivileges.filter((row) => row.privileges.length > 0),
+  }, null, 2));
+}
 assert.deepEqual(problems, [], "actual PostgreSQL privileges violate the approved collector contract");
 
 const db = evidence.databaseAuthority;
