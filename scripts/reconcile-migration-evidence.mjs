@@ -568,7 +568,9 @@ function validateMapping(mapping, manifest, source, problems) {
         previousEnd = range.endLine;
       }
       if (coverageMalformed) break;
-      if (disposition === "unsupported") {
+      if (!CATALOG_CATEGORIES.has(category) && disposition !== "none") {
+        nonCatalogEvidenceCategories.push(category);
+      } else if (disposition === "unsupported") {
         unsupportedCategories.push(category);
         problems.push("mapping explicitly classifies " + category + " as unsupported for " + item.path + ": " + review.rationale);
       } else if (disposition === "unknown") {
@@ -606,7 +608,6 @@ function validateMapping(mapping, manifest, source, problems) {
         }
         seenEffects.add(key);
         if (CATALOG_CATEGORIES.has(category)) flattened.push({ kind: effect.kind, identity: effect.identity, fingerprint: effect.fingerprint, category });
-        else nonCatalogEvidenceCategories.push(category);
       }
       if (coverageMalformed) break;
     }
