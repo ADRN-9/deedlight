@@ -20,7 +20,7 @@ set -euo pipefail
 clean_psql() {
   env -i PATH="$PATH" HOME="${HOME:-/tmp}" PGPASSWORD=postgres \
     PGHOST=127.0.0.1 PGPORT=5432 PGUSER=postgres PGDATABASE=deedlight_ledger_test \
-    PGSSLMODE=disable psql --no-psqlrc --set ON_ERROR_STOP=1 "$@"
+    PGSSLMODE=disable exec psql --no-psqlrc --set ON_ERROR_STOP=1 "$@"
 }
 
 actual_addr="$(clean_psql --tuples-only --no-align --command \
@@ -32,6 +32,44 @@ actual_addr="$(clean_psql --tuples-only --no-align --command \
 
 clean_psql --file scripts/fixtures/migration-execution-ledger-v1.sql
 clean_psql --file scripts/fixtures/test-migration-execution-ledger-v1.sql
+
+# Kill a live PostgreSQL client while its migration-effect transaction is open.
+# The database rolls back the uncommitted effect; the separately committed ledger
+# reservation survives and is conservatively recovered as UNKNOWN.
+tmp_dir="$(mktemp -d)"
+trap 'rm -rf "$tmp_dir"' EXIT
+before_crash_effects="$(clean_psql --tuples-only --no-align --command \
+  "SELECT count(*) FROM deedlight_execution_ledger.test_effects")"
+set +e
+clean_psql --command "
+  BEGIN;
+  SET LOCAL ROLE deedlight_ledger_runner;
+  INSERT INTO deedlight_execution_ledger.test_effects(effect_value) VALUES ('uncommitted crash effect');
+  SELECT pg_catalog.pg_sleep(30);
+  COMMIT;
+" >"$tmp_dir/crash.log" 2>&1 &
+crash_pid=$!
+sleep 0.5
+kill -9 "$crash_pid" 2>/dev/null
+wait "$crash_pid"
+crash_status=$?
+set -e
+if [[ "$crash_status" -eq 0 ]]; then
+  echo "FAIL: migration client did not terminate during the open transaction" >&2
+  exit 1
+fi
+sleep 0.25
+clean_psql --command "
+  SET ROLE deedlight_ledger_recovery;
+  SELECT deedlight_execution_ledger.recover_stale_executions(interval '1 microsecond');
+  RESET ROLE;
+"
+after_crash_effects="$(clean_psql --tuples-only --no-align --command \
+  "SELECT count(*) FROM deedlight_execution_ledger.test_effects")"
+crash_outcome="$(clean_psql --tuples-only --no-align --command \
+  "SELECT status FROM deedlight_execution_ledger.executions WHERE execution_id = 'c5700000-0000-4000-8000-000000000027'")"
+[[ "$after_crash_effects" == "$before_crash_effects" ]]
+[[ "$crash_outcome" == "unknown" ]]
 
 # Two independent sessions race for one approved execution. Row locking and the
 # one-time approval consumption must permit exactly one reservation.
@@ -45,9 +83,6 @@ clean_psql --command "
   );
   RESET ROLE;
 "
-
-tmp_dir="$(mktemp -d)"
-trap 'rm -rf "$tmp_dir"' EXIT
 
 race_sql="
   BEGIN;
