@@ -634,7 +634,7 @@ test("write-capable collector, inherited roles or unproven read-only privilege f
     (f) => f.reapprove((db) => { db.requiredAccessSummary = [...db.requiredAccessSummary, "APPLICATION_DATA_SELECT"]; }),
     (f) => f.reapprove((db) => { db.schemaPrivileges.find((row) => row.schema === "public").privileges.push("USAGE"); }),
     (f) => f.reapprove((db) => { db.objectPrivileges.find((row) => row.identity === "public.profiles").privileges.push("SELECT"); }),
-    (f) => f.reapprove((db) => { db.columnPrivileges.find((row) => row.identity === "public.profiles.id").privileges.push("SELECT"); }),
+    (f) => f.reapprove((db) => { db.columnPrivileges.find((row) => row.schema === "public" && row.relation === "profiles" && row.column === "id").privileges.push("SELECT"); }),
     (f) => f.reapprove((db) => { db.objectPrivileges.find((row) => row.identity === "supabase_migrations.schema_migrations").privileges.push("UPDATE"); }),
     (f) => f.reapprove((db) => { db.columnPrivileges.pop(); }),
     (f) => f.reapprove((db) => { db.columnPrivileges.push({ ...db.columnPrivileges[0] }); }),
@@ -670,8 +670,8 @@ test("PR23 catalog-only contract is exact, scoped and complete in PR26 analyzer"
       { kind: "tables", identity: "public.profiles", scope: "application_data", privileges: [] });
     assert.deepEqual(db.objectPrivileges.find((row) => row.identity === "supabase_migrations.schema_migrations"),
       { kind: "tables", identity: "supabase_migrations.schema_migrations", scope: "migration_history", privileges: ["SELECT"] });
-    assert.deepEqual(db.columnPrivileges.find((row) => row.identity === "supabase_migrations.schema_migrations.version"),
-      { identity: "supabase_migrations.schema_migrations.version", scope: "migration_history", privileges: ["SELECT"] });
+    assert.deepEqual(db.columnPrivileges.find((row) => row.schema === "supabase_migrations" && row.relation === "schema_migrations" && row.column === "version"),
+      { schema: "supabase_migrations", relation: "schema_migrations", column: "version", scope: "migration_history", privileges: ["SELECT"] });
     assert.ok(db.columnPrivileges.filter((row) => row.scope === "application_data").every((row) => row.privileges.length === 0));
   } finally { f.cleanup(); }
 });
