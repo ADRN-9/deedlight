@@ -10,7 +10,7 @@ import { analyzeMigrationEvidence, canonicalJson, evidencePayload, mappingDigest
 const repoRoot = process.cwd();
 const sourceManifest = JSON.parse(readFileSync(path.join(repoRoot, "supabase/migration-inventory.json"), "utf8"));
 const sourceInventoryBytes = readFileSync(path.join(repoRoot, "supabase/migration-inventory.json"));
-const catalogKinds = ["schemas", "tables", "sequences", "columns", "constraints", "indexes", "triggers", "policies", "routines", "privileges", "ownership", "dataTransformations", "backfills", "dependencies", "preconditions", "postconditions"];
+const catalogKinds = ["schemas", "tables", "sequences", "columns", "constraints", "indexes", "triggers", "policies", "routines", "privileges", "ownership"];
 const categories = ["schema", "privileges", "ownership", "routines", "dataTransformations", "backfills", "dependencies", "preconditions", "postconditions"];
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const keys = Object.fromEntries(["evidence-approver", "mapping-approver", "collector"].map((role) => [role, generateKeyPairSync("ed25519")]));
@@ -52,6 +52,14 @@ function fixture() {
     const sourceLines = readFileSync(path.join(repoRoot, item.path), "utf8").split(/\r?\n/);
     const sourceRange = { startLine: 1, endLine: 1 };
     const sourceStatementSha256 = hash(sourceLines[0]);
+    const updateLine = sourceLines.findIndex(line => /^\s*update\s+[A-Za-z_][A-Za-z0-9_$]*\.[A-Za-z_][A-Za-z0-9_$]*\s+.*\bset\b/i.test(line));
+    const updateTarget = updateLine < 0 ? null : sourceLines[updateLine].match(/^\s*update\s+([A-Za-z_][A-Za-z0-9_$]*\.[A-Za-z_][A-Za-z0-9_$]*)/i)?.[1];
+    const relationParts = updateTarget ? updateTarget.split(".") : [];
+    const transformationRelation = relationParts.length === 2
+      ? { schema: relationParts[0], relation: relationParts[1] }
+      : relationParts.length === 1 ? { schema: "public", relation: relationParts[0] } : null;
+    const transformationRange = updateLine < 0 ? null : { startLine: updateLine + 1, endLine: updateLine + 1 };
+    const transformationStatement = updateLine < 0 ? null : sourceLines[updateLine];
     const schemaEffect = {
       kind: index % 2 ? "columns" : "tables",
       identity: "fixture.schema." + index,
@@ -85,21 +93,21 @@ function fixture() {
       privileges: [],
       ownership: [],
       routines: [],
-      dataTransformations: [{
+      dataTransformations: transformationRelation ? [{
         kind: "dataTransformations",
         identity: "fixture.transform." + index,
         fingerprint: hash("transform:" + index),
-        description: "Synthetic test-only transformation contract; never Production evidence.",
+        description: "Synthetic test-only transformation contract bound to a real pinned UPDATE line.",
         sourcePath: item.path,
         contract: {
           operation: "UPDATE",
-          sourceRelations: [{ schema: "fixture", relation: "transform_source" }],
-          targetRelation: { schema: "fixture", relation: "transform_target" },
+          sourceRelations: [transformationRelation],
+          targetRelation: transformationRelation,
           predicate: { sql: "id IS NOT NULL", sha256: hash("id IS NOT NULL") },
-          sourceRange,
-          sourceStatementSha256,
+          sourceRange: transformationRange,
+          sourceStatementSha256: hash(transformationStatement),
         },
-      }],
+      }] : [],
       backfills: [dataEffect],
       dependencies: [],
       preconditions: [],
@@ -107,16 +115,16 @@ function fixture() {
     };
     const lineCount = readFileSync(path.join(repoRoot, item.path), "utf8").split(String.fromCharCode(10)).length;
     const coverage = Object.fromEntries(categories.map((category) => [category, {
-      disposition: effects[category].length ? "effects" : "none",
+      disposition: effects[category].length ? "effects" : category === "dataTransformations" ? "unknown" : "none",
       rationale: effects[category].length
         ? "Synthetic fixture maps a representative " + category + " effect to the pinned migration source range."
-        : "Synthetic fixture explicitly records no " + category + " effect in the pinned migration source range.",
+        : category === "dataTransformations" ? "Synthetic fixture has no safely mapped UPDATE candidate in the pinned migration source range." : "Synthetic fixture explicitly records no " + category + " effect in the pinned migration source range.",
       sourceRanges: [{ startLine: 1, endLine: lineCount }],
     }]));
     return { path: item.path, blobSha1: item.blobSha1, effects, coverage };
   });
   const mapping = { schemaVersion: 1, migrations: migrationEffects };
-  const expected = migrationEffects.flatMap((entry) => categories.flatMap((category) => entry.effects[category]));
+  const expected = migrationEffects.flatMap((entry) => ["schema", "privileges", "ownership", "routines"].flatMap((category) => entry.effects[category]));
   const catalog = [
     ...expected.map((effect) => effect.kind === "columns"
       ? { kind: effect.kind, identity: effect.identity, schema: "fixture", relation: "schema", column: effect.identity.split(".").at(-1), fingerprint: effect.fingerprint }
@@ -571,7 +579,17 @@ test("mapping requires source-linked review disposition for every effect domain"
       const report = f.analyze();
       assert.equal(report.counts.Unknown, 40);
       assert.equal(report.acceptance, "NOT_ACCEPTED");
-      assert.ok(report.trustProblems.some((reason) => reason.includes("reviewed coverage disposition") || reason.includes("source-linked coverage review")));
+      assert.equal(report.classifications.length, 40);
+      for (const classification of report.classifications) {
+        assert.ok(Array.isArray(classification.nonCatalogEvidenceCategories));
+        assert.ok(Array.isArray(classification.unsupportedNonCatalogCategories));
+        assert.ok(Array.isArray(classification.unknownNonCatalogCategories));
+      }
+      assert.ok(report.trustProblems.some((reason) =>
+        reason.includes("reviewed coverage disposition")
+        || reason.includes("source-linked coverage review")
+        || reason.includes("incomplete, malformed, unordered or overlapping source-linked coverage/effects")
+      ));
     } finally { f.cleanup(); }
   }
 });
@@ -1387,7 +1405,18 @@ test("mapping rejects unreviewed effect domains and extra effect fields", () => 
       f.reapprove();
       const report = f.analyze();
       assert.equal(report.counts.Unknown, 40);
-      assert.ok(report.trustProblems.some((reason) => reason.includes("effect domains") || reason.includes("malformed or empty effects")));
+      assert.equal(report.acceptance, "NOT_ACCEPTED");
+      assert.equal(report.classifications.length, 40);
+      for (const classification of report.classifications) {
+        assert.ok(Array.isArray(classification.nonCatalogEvidenceCategories));
+        assert.ok(Array.isArray(classification.unsupportedNonCatalogCategories));
+        assert.ok(Array.isArray(classification.unknownNonCatalogCategories));
+      }
+      assert.ok(report.trustProblems.some((reason) =>
+        reason.includes("effect domains")
+        || reason.includes("malformed or empty effects")
+        || reason.includes("incomplete, malformed, unordered or overlapping source-linked coverage/effects")
+      ));
     } finally { f.cleanup(); }
   }
 });
@@ -1586,15 +1615,91 @@ test("unsupported and unknown effect domains are explicit blockers, never silent
     const f=fixture();
     try{
       f.mapping.migrations[0].effects.backfills=[];
+      f.evidence.backfillMeasurements=f.evidence.backfillMeasurements.filter(row=>row.sourcePath!==f.mapping.migrations[0].path);
       f.mapping.migrations[0].coverage.backfills.disposition=disposition;
       f.mapping.migrations[0].coverage.backfills.rationale="Fixture explicitly records an unresolved backfill review disposition.";
       f.reapprove();
       const report=f.analyze();
-      assert.equal(report.trustVerified,false);
+      assert.equal(report.trustVerified,true);
       assert.equal(report.acceptance,"NOT_ACCEPTED");
-      assert.equal(report.counts.Unknown,40);
-      assert.ok(report.trustProblems.some(reason=>reason.includes("backfills")&&reason.includes(disposition)));
+      assert.equal(report.counts.Unknown,0);
+      assert.ok(report.unresolvedLifecycleEvidence>0);
+      assert.ok(report.classifications[0].nonCatalogEvidenceCategories.includes("backfills"));
+      assert.equal(report.classifications[0].unsupportedNonCatalogCategories.includes("backfills"),disposition==="unsupported");
+      assert.equal(report.classifications[0].unknownNonCatalogCategories.includes("backfills"),disposition==="unknown");
     }finally{f.cleanup();}
+  }
+});
+
+test("a signed none disposition cannot substitute for PostgreSQL semantic verification", () => {
+  const f = fixture();
+  try {
+    const nonCatalog = ["dataTransformations", "backfills", "dependencies", "preconditions", "postconditions"];
+    for (const entry of f.mapping.migrations) {
+      for (const category of nonCatalog) {
+        entry.effects[category] = [];
+        entry.coverage[category].disposition = "none";
+        entry.coverage[category].rationale = "No PostgreSQL semantic verification artifact is available for this fixture.";
+      }
+    }
+    f.evidence.backfillMeasurements = [];
+    f.evidence.conditionVerifications = [];
+    f.reapprove();
+
+    const report = f.analyze();
+    assert.equal(report.trustVerified, true, report.trustProblems.join("; "));
+    assert.equal(report.acceptance, "NOT_ACCEPTED");
+    assert.equal(report.unresolvedLifecycleEvidence, 40);
+    assert.equal(report.semanticVerification.status, "UNKNOWN");
+    assert.deepEqual(report.semanticVerification.requiredCategories, nonCatalog);
+    for (const classification of report.classifications) {
+      assert.deepEqual(classification.semanticVerificationRequiredCategories, nonCatalog);
+      assert.deepEqual(classification.semanticVerificationBlockers.map(item => item.category), nonCatalog);
+      assert.ok(classification.semanticVerificationBlockers.every(item => item.reason.length > 20));
+    }
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("lexical transformation matches, digest-only backfill measurements and pinned prerequisites remain semantic blockers", () => {
+  const f = fixture();
+  try {
+    const item = sourceManifest.migrations[0];
+    const prerequisite = sourceManifest.migrations[1];
+    const firstLine = readFileSync(path.join(repoRoot, item.path), "utf8").split(/\r?\n/)[0];
+    const dependency = {
+      kind: "dependencies",
+      identity: "fixture.pinned-prerequisite-only",
+      fingerprint: hash("dependency-effect"),
+      description: "Synthetic dependency edge with a pinned prerequisite but no semantic verification.",
+      sourcePath: item.path,
+      contract: {
+        dependencyType: "foreign_key",
+        fromRelation: { schema: "fixture", relation: "child" },
+        toRelation: { schema: "fixture", relation: "parent" },
+        dependsOnMigrationPath: prerequisite.path,
+        dependsOnMigrationBlobSha1: prerequisite.blobSha1,
+        sourceRange: { startLine: 1, endLine: 1 },
+        sourceStatementSha256: hash(firstLine),
+      },
+    };
+    f.mapping.migrations[0].effects.dependencies = [dependency];
+    f.mapping.migrations[0].coverage.dependencies.disposition = "effects";
+    f.mapping.migrations[0].coverage.dependencies.rationale = "Pinned prerequisite identity is only a source observation, not semantic dependency proof.";
+    f.reapprove();
+
+    const report = f.analyze();
+    assert.equal(report.trustVerified, true, report.trustProblems.join("; "));
+    assert.equal(report.acceptance, "NOT_ACCEPTED");
+    assert.ok(report.classifications[0].semanticVerificationRequiredCategories.includes("dataTransformations"));
+    assert.ok(report.classifications[0].semanticVerificationRequiredCategories.includes("backfills"));
+    assert.ok(report.classifications[0].semanticVerificationRequiredCategories.includes("dependencies"));
+    assert.match(report.semanticVerification.blockersByCategory.dataTransformations, /lexical SQL matches and source digests do not prove/);
+    assert.match(report.semanticVerification.blockersByCategory.backfills, /row counts and query\/result digests alone do not prove/);
+    assert.match(report.semanticVerification.blockersByCategory.dependencies, /pinned prerequisite migration does not prove/);
+  } finally {
+    f.cleanup();
   }
 });
 
@@ -1658,7 +1763,7 @@ test("dependency, precondition and postcondition contracts cannot omit their sem
           ?{dependencyType:"foreign_key",fromRelation:{schema:"fixture",relation:"child"},toRelation:{schema:"fixture",relation:"parent"},
             dependsOnMigrationPath:sourceManifest.migrations[1].path,dependsOnMigrationBlobSha1:sourceManifest.migrations[1].blobSha1,sourceRange:{startLine:1,endLine:1},sourceStatementSha256:hash(readFileSync(path.join(repoRoot,item.path),"utf8").split(/\r?\n/)[0])}
           :{predicateSql:"SELECT true",predicateSha256:hash("SELECT true"),expectedOutcome:"true",
-            verification:{status:"independently_verified",evidenceDigest:hash("evidence"),querySha256:hash("query"),
+            verification:{status:"independently_verified",observedOutcome:"true",predicateSha256:hash("SELECT true"),evidenceDigest:hash("evidence"),querySha256:hash("query"),
               capturedAt:FIXTURE_CAPTURED_AT,executionId:"test-only-condition-execution",sourceBlobSha1:item.blobSha1},
             sourceRange:{startLine:1,endLine:1},sourceStatementSha256:hash(readFileSync(path.join(repoRoot,item.path),"utf8").split(/\r?\n/)[0])},
       };
@@ -1667,7 +1772,7 @@ test("dependency, precondition and postcondition contracts cannot omit their sem
       if(category==="preconditions"||category==="postconditions"){
         f.evidence.conditionVerifications.push({sourcePath:item.path,sourceBlobSha1:item.blobSha1,category,
           sourceRange:effect.contract.sourceRange,predicateSha256:effect.contract.predicateSha256,
-          expectedOutcome:effect.contract.expectedOutcome,querySha256:effect.contract.verification.querySha256,
+          expectedOutcome:effect.contract.expectedOutcome,observedOutcome:effect.contract.verification.observedOutcome,querySha256:effect.contract.verification.querySha256,
           evidenceDigest:effect.contract.verification.evidenceDigest,capturedAt:effect.contract.verification.capturedAt,
           executionId:effect.contract.verification.executionId});
       }
@@ -1696,5 +1801,87 @@ test("independent measurement evidence must exactly match mapped backfills",()=>
       assert.equal(report.acceptance,"NOT_ACCEPTED");
       assert.ok(report.trustProblems.some(reason=>reason.includes("backfill evidence")));
     }finally{f.cleanup();}
+  }
+});
+
+
+test("condition evidence binds exact source, predicate and matching observed outcome in authenticated payload",()=>{
+  const f=fixture();
+  try{
+    const item=sourceManifest.migrations[0];
+    const sourceLine=readFileSync(path.join(repoRoot,item.path),"utf8").split(/\r?\n/)[0];
+    const effect={
+      kind:"preconditions",identity:"fixture.precondition",fingerprint:hash("condition-effect"),
+      description:"Synthetic test-only condition with independently authenticated fixture outcome.",
+      sourcePath:item.path,
+      contract:{
+        predicateSql:"SELECT true",predicateSha256:hash("SELECT true"),expectedOutcome:"true",
+        verification:{
+          status:"independently_verified",observedOutcome:"true",predicateSha256:hash("SELECT true"),
+          evidenceDigest:hash("condition-result"),querySha256:hash("SELECT true"),
+          capturedAt:FIXTURE_CAPTURED_AT,executionId:"fixture-condition-run",sourceBlobSha1:item.blobSha1,
+        },
+        sourceRange:{startLine:1,endLine:1},sourceStatementSha256:hash(sourceLine),
+      },
+    };
+    f.mapping.migrations[0].effects.preconditions=[effect];
+    f.mapping.migrations[0].coverage.preconditions.disposition="effects";
+    f.evidence.conditionVerifications.push({
+      sourcePath:item.path,sourceBlobSha1:item.blobSha1,category:"preconditions",
+      sourceRange:effect.contract.sourceRange,predicateSha256:effect.contract.predicateSha256,
+      expectedOutcome:"true",observedOutcome:"true",querySha256:effect.contract.verification.querySha256,
+      evidenceDigest:effect.contract.verification.evidenceDigest,capturedAt:effect.contract.verification.capturedAt,
+      executionId:effect.contract.verification.executionId,
+    });
+    f.reapprove();
+    const valid=f.analyze();
+    assert.equal(valid.trustVerified,true,valid.trustProblems.join("; "));
+    assert.equal(valid.acceptance,"NOT_ACCEPTED");
+    assert.ok(valid.unresolvedLifecycleEvidence>0);
+
+    const validRow=structuredClone(f.evidence.conditionVerifications[0]);
+    const adversarial=[
+      rows=>{rows.length=0;},
+      rows=>{rows.push(structuredClone(rows[0]));},
+      rows=>{rows[0].observedOutcome="false";},
+      rows=>{rows[0].predicateSha256="0".repeat(64);},
+      rows=>{rows[0].sourceBlobSha1="0".repeat(40);},
+      rows=>{rows[0].sourceRange={startLine:0,endLine:1};},
+      rows=>{delete rows[0].observedOutcome;},
+    ];
+    for(const mutate of adversarial){
+      f.evidence.conditionVerifications=[structuredClone(validRow)];
+      mutate(f.evidence.conditionVerifications);
+      f.reapprove();
+      const rejected=f.analyze();
+      assert.equal(rejected.trustVerified,false);
+      assert.equal(rejected.acceptance,"NOT_ACCEPTED");
+      assert.ok(rejected.trustProblems.some(reason=>reason.includes("condition evidence")||reason.includes("condition contract")));
+    }
+  }finally{f.cleanup();}
+});
+
+test("malformed and untrusted evidence always yields complete structured lifecycle classifications", () => {
+  const mutations = [
+    (f) => { delete f.mapping.migrations[0].effects.dependencies; },
+    (f) => { f.approvals.evidenceApproval.signature = "not-a-valid-signature"; },
+    (f) => { f.mapping.migrations[0].coverage.backfills = null; },
+    (f) => { f.trustRoots.keys = []; },
+    (f) => { f.evidence.collectorAuthority = null; },
+  ];
+  for (const mutate of mutations) {
+    const f = fixture();
+    try {
+      mutate(f);
+      const report = f.analyze();
+      assert.equal(report.acceptance, "NOT_ACCEPTED");
+      assert.ok(Array.isArray(report.classifications));
+      assert.equal(report.classifications.length, 40);
+      for (const classification of report.classifications) {
+        assert.ok(Array.isArray(classification.nonCatalogEvidenceCategories));
+        assert.ok(Array.isArray(classification.unsupportedNonCatalogCategories));
+        assert.ok(Array.isArray(classification.unknownNonCatalogCategories));
+      }
+    } finally { f.cleanup(); }
   }
 });

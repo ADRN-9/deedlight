@@ -58,3 +58,67 @@ These dispositions reflect lexical candidates and parser limitations, not an ind
 ## Historical execution and Migration 007
 
 No authenticated historical execution timestamps, execution IDs, receipts, row counts or trust roots are created. The two distinct `202607260007` source files remain separately identified; a migration-history row for that version cannot identify which source body executed. Migration 039 and the complete 40-entry inventory remain pinned. Production migration history is unchanged.
+
+## C558 remediation notes
+
+### Catalog boundary
+
+The live PostgreSQL catalog is exactly the 11 collector-supported kinds: schemas, tables, sequences, columns, constraints, indexes, triggers, policies, routines, privileges and ownership. Transformations, backfills, migration dependencies, preconditions and postconditions are not PostgreSQL catalog object kinds. They remain separate mapping/evidence domains and are never flattened into catalog object identities or fingerprints. Analyzer classification compares only catalog effects to live catalog rows; unresolved lifecycle evidence is counted separately and keeps final acceptance blocked.
+
+### Condition outcome evidence
+
+A verified precondition/postcondition now carries an explicit `observedOutcome`, the exact predicate SHA-256, the pinned migration blob SHA-1, query/result digests, execution ID and canonical UTC capture timestamp. The observed outcome must be one of the supported unambiguous values and must equal the declared expected outcome. The signed evidence envelope must contain exactly one matching condition record; missing, duplicate, extra, malformed or contradictory records fail closed. A structurally valid source mapping or adapter candidate is still not authenticated: the evidence approval and collector attestation must independently sign the complete evidence payload.
+
+### Why source-observation generation is not promoted to a semantic generator
+
+The C556 observations are deliberately lexical candidates. A safe semantic generator cannot be built from line-oriented regular expressions because PostgreSQL SQL includes nested dollar-quoted function bodies, procedural control flow, dynamic SQL, CTEs, quoted identifiers, overloaded routines, trigger context, search-path resolution and statements spanning multiple lines. Regex-derived target names or predicates can be syntactically plausible yet semantically wrong. C558 therefore validates every stored excerpt against exact source blob identity and source line, and tightens transformation contracts to require a non-empty source relation set, a recognized operation that matches the pinned SQL range, and source/target relations present in that range. It does not automatically convert lexical candidates into approved mappings. A PostgreSQL-aware parser plus human semantic review is required before such a generator can safely emit complete transformation/dependency/backfill/lifecycle mappings.
+
+## C568 test-remediation handover
+
+- The category-confusion regression now constructs a valid, source-bound UPDATE transformation in the pinned Migration 004 source, verifies the adapter accepts that valid fixture, then changes only its category kind to `backfills` and asserts `MIGRATION_MAPPING_EFFECT_INVALID`. The adversarial input reaches the adapter.
+- The transformation negative suite again includes the injection-style relation identifier `bad-name;drop`; it must be rejected by the existing strict SQL identifier contract. Identifier validation was not weakened.
+- Database capture timestamps are checked at two distinct boundaries. The collector accepts only the SQL projection's canonical UTC millisecond lexical form (`YYYY-MM-DDTHH:mm:ss.SSSZ`), rejecting offsets, missing fractions and non-millisecond precision with `SQL_IDENTITY_PROJECTION_INVALID`. The adapter's calendar-semantic tests separately reject impossible dates and year zero with `COLLECTOR_CAPTURE_TIMESTAMP_INVALID`.
+- Receipt timestamps retain their separate RFC3339 contract, including valid offsets and arbitrary fractional precision; the collector's stricter database-projection rule does not change receipt timestamp parsing or ordering.
+- Analyzer negative cases continue to require `NOT_ACCEPTED`, all 40 structured lifecycle classifications and all required lifecycle arrays. Existing catalog-only authorization, `UNSIGNED_NOT_ACCEPTED`, SQL NULL distinctions, strict migration ordering and the 40-entry migration inventory (both Migration 007 sources and Migration 039) remain in scope.
+- Repository-only implementation commits for C568 are recorded on PR #29. No Production database mutation, migration-history reconciliation, trust-root provisioning, evidence signing or PR merge was performed.
+- Execution status at handover: no local repository checkout/shell is available in this session. GitHub's commit-workflow-run lookup and combined commit-status lookup returned no run/status for the latest checked head. Analyzer, adapter, collector, PostgreSQL 16 and offline evidence tests therefore remain **NOT EXECUTED / NOT VERIFIED**, not PASS. A fresh successful exact-head Actions run and per-job conclusions remain mandatory.
+- Rollback: revert the C568 commits on `fix/c558-pr28-security-remediation`; no database rollback is needed.
+
+## C570 — PostgreSQL semantic-verification acceptance boundary
+
+### What the current implementation proves
+
+- The inventory pins the exact 40 migration source files and their Git blob identities. Source-range SHA-256 values prove that a reviewed excerpt has not changed relative to those bytes.
+- The adapter validates the shape of category-specific declarations. Its transformation operation/relation checks are lexical consistency checks only; they are not a PostgreSQL parser, AST, name resolver or proof of statement semantics.
+- A dependency contract can prove that a prerequisite path and blob belong to the pinned inventory. That does not prove that the SQL creates or consumes the declared relation edge, nor that the prerequisite is the migration that semantically establishes it.
+- A backfill measurement record can be checked for structure and consistency with the signed evidence payload. A row count, query digest, result digest and execution ID without independently verifiable query/result evidence do not establish that the stated PostgreSQL operation ran or produced that count.
+- The live catalog collector remains restricted to the eleven catalog kinds. It does not attest transformations, backfills, dependencies, preconditions or postconditions.
+
+### Fail-closed acceptance behavior
+
+The analyzer now treats all five non-catalog domains as requiring independent semantic verification, even when a mapping marks a domain `none`. A signed `none` disposition is still a mapping assertion; it cannot prove the absence of an effect. The report exposes `semanticVerification.status = UNKNOWN`, the required categories, per-migration `semanticVerificationRequiredCategories`, and explicit blockers. These blockers contribute to `unresolvedLifecycleEvidence` and prevent final `ACCEPTED` status.
+
+The current trust-root roles and evidence pipeline do not provide a separately verifiable PostgreSQL semantic-analysis approval, AST artifact, or independently inspectable backfill/condition execution result. Therefore no transformation, backfill, dependency, precondition or postcondition declaration can currently clear this acceptance boundary. Matching source digests, regex/lexical checks, signed mapping assertions, pinned prerequisite identities, or self-consistent digest fields are not substitutes.
+
+### What remains UNKNOWN
+
+- Complete PostgreSQL parse trees and semantic resolution for all 40 migration files.
+- Dynamic SQL and PL/pgSQL control-flow effects, including statements constructed at runtime.
+- Independently reviewed source/target transformation meaning and actual dependency edges.
+- Whether a declared backfill ran, its exact predicate and affected-row count, and the independently verified result set.
+- Whether preconditions/postconditions were executed against the intended database snapshot and returned the declared outcome.
+- Semantic proof that a non-catalog domain has no effect when a mapping says `none`.
+
+A future acceptance path needs a PostgreSQL-aware parser and reviewed semantic mapping, plus a separately authorized semantic approval bound to exact source blobs and parser output. Backfills and condition outcomes additionally need a narrow read-only execution collector that retains verifiable query/result artifacts, binds the exact project, source, query, execution and capture, and is independently attested. These capabilities are not claimed to exist in C570. No regex-based AST substitute is introduced.
+
+The catalog-only authorization boundary and eleven catalog kinds are unchanged. Production database state and migration history are unchanged. Production acceptance remains **NO-GO**.
+
+### C570 implementation record
+
+- Analyzer hardening commit: `5748e38c4f32999ae9e73ae908a0c86611a73eb6`.
+- Adversarial analyzer tests: `83e839e470fb1f1803051dcb63fc92832e2b68a2`, with fixture correction `1467f515df2a82986a04b061a88677eb1f7e5e6d`.
+- This handover update: `9276a9b6f9ce3aaddcf7396b039ef84124d16e9c`; semantic status remains UNKNOWN on trust failures: `4b13c73e1cc532cded988c354b8fc8608aacb44a`.
+- Latest inspected branch head before this documentation update: `4b13c73e1cc532cded988c354b8fc8608aacb44a`; PR #29 remains open and unmerged.
+- Test execution was unavailable because this session has no local repository shell. No analyzer, adapter, collector, PostgreSQL integration, offline evidence, lint, TypeScript, Next build or Cloudflare package test is represented as passing.
+- Exact-head GitHub commit-workflow-run and combined-status lookups returned empty results for that code head. Workflow run ID and per-job conclusions are unavailable.
+- No Production database mutation, migration-history reconciliation, trust-root provisioning, evidence signing or PR merge was performed.

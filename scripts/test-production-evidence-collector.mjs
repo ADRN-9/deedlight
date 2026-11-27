@@ -144,6 +144,23 @@ test("valid complete output includes the complete database_acl_v1 projection and
   assert.deepEqual(result.projections.map((projection) => projection.id), SQL_PROJECTIONS.map((projection) => projection.id));
 });
 
+test("collector rejects noncanonical database capture timestamp lexical forms", () => {
+  for (const timestamp of [
+    "2026-11-26T00:00:00.000+00:00",
+    "2026-11-26T00:00:00.000-05:00",
+    "2026-11-26T00:00:00Z",
+    "2026-11-26T00:00:00.0Z",
+    "2026-11-26T00:00:00.0000Z",
+  ]) {
+    const rows = parseCsv(validCsv());
+    const identity = rows.find(row => row[0] === "xaipiovflxomcbfwtwmu");
+    assert.ok(identity);
+    identity[8] = timestamp;
+    assert.throws(() => validateSqlOutput(serializeCsv(rows)),
+      error => error.code === "SQL_IDENTITY_PROJECTION_INVALID");
+  }
+});
+
 test("every mandatory SQL projection is present exactly once in the pinned order", () => {
   const result = validateSqlOutput(validCsv());
   assert.deepEqual(result.projections.map(({ id }) => id), SQL_PROJECTIONS.map(({ id }) => id));

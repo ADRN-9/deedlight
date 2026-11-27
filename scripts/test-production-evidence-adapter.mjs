@@ -275,19 +275,22 @@ test("mapping rejects disposition/effect contradictions, unordered ranges and ca
     mapping=>{mapping.migrations[0].coverage.dependencies.disposition="effects";},
     mapping=>{mapping.migrations[0].coverage.schema.sourceRanges=[{startLine:5,endLine:8},{startLine:4,endLine:9}];},
     mapping=>{mapping.migrations[0].coverage.schema.sourceRanges=[{startLine:1,endLine:4},{startLine:4,endLine:8}];},
-    mapping=>{mapping.migrations[0].effects.dataTransformations[0].kind="backfills";},
     mapping=>{mapping.migrations[0].effects.preconditions=[{kind:"preconditions",identity:"x",fingerprint:"bad",description:"Malformed fingerprint fixture."}];mapping.migrations[0].coverage.preconditions.disposition="effects";},
   ];
   for(const mutate of mutations){const mapping=mappingFixture();mutate(mapping);assert.throws(()=>adapt(fixtureCsv(),mapping));}
 });
 
-test("adapter candidate cannot enter authenticated analyzer acceptance by structural validation alone",()=>{
+test("adapter output passes catalog-only analyzer structure without synthetic catalog substitutions",()=>{
   const {candidate}=adapt();
+  assert.deepEqual(candidate.evidence.catalog.completeKinds,["schemas","tables","sequences","columns","constraints","indexes","triggers","policies","routines","privileges","ownership"]);
+  assert.ok(candidate.evidence.catalog.objects.every(object=>!["dataTransformations","backfills","dependencies","preconditions","postconditions"].includes(object.kind)));
   assert.deepEqual(validateCollectorPrivilegeEvidence(candidate.databaseAuthorityCandidate,candidate.evidence.catalog.objects),[]);
   assert.equal(Object.hasOwn(candidate.evidence,"collectorAuthority"),false);
   const report=analyzeMigrationEvidence({rootDir:process.cwd(),manifest:inventory,evidence:candidate.evidence,approvals:{},trustRoots:{schemaVersion:1,keys:[]}});
   assert.equal(report.trustVerified,false);
   assert.equal(report.acceptance,"NOT_ACCEPTED");
+  assert.ok(!report.trustProblems.some(reason=>reason.includes("catalog completeness dimensions")));
+  assert.ok(!report.trustProblems.some(reason=>reason.includes("unexpected or missing property")));
   assert.ok(report.trustProblems.some(reason=>reason.includes("missing required property")));
   assert.ok(report.trustProblems.some(reason=>reason.includes("signed artifact is missing")));
 });
@@ -298,20 +301,62 @@ function sourceLineBinding(entry){
   return {sourceRange:{startLine:1,endLine:1},sourceStatementSha256:sha256(Buffer.from(line))};
 }
 
+test("adapter rejects category-confused effect after receiving a valid transformation contract", () => {
+  const mapping = mappingFixture();
+  const entry = mapping.migrations[3];
+  const sourceLines = readFileSync(new URL("../" + entry.path, import.meta.url), "utf8").split(/\r?\n/);
+  const updateLine = sourceLines.findIndex(line => /^\s*update\s+public\.offerings\s+set\b/i.test(line));
+  assert.ok(updateLine >= 0);
+  const sourceStatement = sourceLines[updateLine];
+  entry.effects.dataTransformations = [{
+    kind: "dataTransformations",
+    identity: "fixture.category-confusion",
+    fingerprint: "e".repeat(64),
+    description: "Valid transformation contract mutated only after construction.",
+    sourcePath: entry.path,
+    contract: {
+      operation: "UPDATE",
+      sourceRelations: [{ schema: "public", relation: "offerings" }],
+      targetRelation: { schema: "public", relation: "offerings" },
+      predicate: { sql: "id IS NOT NULL", sha256: sha256(Buffer.from("id IS NOT NULL")) },
+      sourceRange: { startLine: updateLine + 1, endLine: updateLine + 1 },
+      sourceStatementSha256: sha256(Buffer.from(sourceStatement)),
+    },
+  }];
+  entry.coverage.dataTransformations.disposition = "effects";
+  entry.coverage.dataTransformations.sourceRanges = [{ startLine: 1, endLine: sourceLines.length }];
+  assert.doesNotThrow(() => adapt(fixtureCsv(), mapping));
+
+  const adversarial = structuredClone(mapping);
+  adversarial.migrations[3].effects.dataTransformations[0].kind = "backfills";
+  assert.throws(
+    () => adapt(fixtureCsv(), adversarial),
+    error => error.code === "MIGRATION_MAPPING_EFFECT_INVALID",
+  );
+});
+
 test("category-specific transformation contract requires exact source and target relations",()=>{
-  const mapping=mappingFixture(),entry=mapping.migrations[0],binding=sourceLineBinding(entry);
+  const mapping=mappingFixture(),entry=mapping.migrations[3];
+  const sourceLines=readFileSync(new URL("../"+entry.path,import.meta.url),"utf8").split(/\r?\n/);
+  const updateLine=sourceLines.findIndex(line=>/^\s*update\s+public\.offerings\s+set\b/i.test(line));
+  assert.ok(updateLine>=0);
+  const sourceStatement=sourceLines[updateLine];
+  const binding={sourceRange:{startLine:updateLine+1,endLine:updateLine+1},sourceStatementSha256:sha256(Buffer.from(sourceStatement))};
   const effect={kind:"dataTransformations",identity:"fixture.transform",fingerprint:"e".repeat(64),
     description:"Synthetic test-only transformation contract.",sourcePath:entry.path,
-    contract:{operation:"UPDATE",sourceRelations:[{schema:"fixture",relation:"source"}],
-      targetRelation:{schema:"fixture",relation:"target"},predicate:{sql:"id IS NOT NULL",sha256:sha256(Buffer.from("id IS NOT NULL"))},...binding}};
+    contract:{operation:"UPDATE",sourceRelations:[{schema:"public",relation:"offerings"}],
+      targetRelation:{schema:"public",relation:"offerings"},predicate:{sql:"id IS NOT NULL",sha256:sha256(Buffer.from("id IS NOT NULL"))},...binding}};
   entry.effects.dataTransformations=[effect];entry.coverage.dataTransformations.disposition="effects";
+  entry.coverage.dataTransformations.sourceRanges=[{startLine:1,endLine:sourceLines.length}];
   assert.doesNotThrow(()=>adapt(fixtureCsv(),mapping));
   for(const mutate of [
     x=>{x.contract.targetRelation={schema:"fixture"};},
-    x=>{x.contract.sourceRelations=[{schema:"fixture",relation:"bad-name;drop"}];},
+    x=>{x.contract.sourceRelations=[];},
+    x=>{x.contract.sourceRelations=[{schema:"public",relation:"bad-name;drop"}];},
     x=>{x.contract.sourceStatementSha256="not-a-digest";},
+    x=>{x.contract.operation="DELETE";},
     x=>{x.sourcePath="supabase/migrations/not-in-inventory.sql";},
-  ]){const changed=structuredClone(mapping);mutate(changed.migrations[0].effects.dataTransformations[0]);assert.throws(()=>adapt(fixtureCsv(),changed));}
+  ]){const changed=structuredClone(mapping);mutate(changed.migrations[3].effects.dataTransformations[0]);assert.throws(()=>adapt(fixtureCsv(),changed));}
 });
 
 test("backfill contracts preserve unavailable measurement without asserting row counts",()=>{
@@ -355,5 +400,21 @@ test("precondition and postcondition contracts require explicit predicates and v
     const invalid=structuredClone(mapping);
     invalid.migrations[0].effects[category][0].contract.expectedOutcome="unknown";
     assert.throws(()=>adapt(fixtureCsv(),invalid));
+  }
+});
+
+test("database capture timestamp requires canonical UTC milliseconds and a valid calendar date", () => {
+  for (const timestamp of [
+    "2026-02-30T00:00:00.000Z",
+    "2026-13-01T00:00:00.000Z",
+    "0000-01-01T00:00:00.000Z",
+  ]) {
+    const bytes = fixtureCsv(undefined, undefined, {
+      identity_v1: [[PROJECT_REF, "a".repeat(40), "postgres", "deedlight_catalog_auditor",
+        "deedlight_catalog_auditor", "16.0", "127.0.0.1", "5432", timestamp, "on"]],
+    });
+    const receipt = receiptFor(bytes);
+    assert.throws(() => adaptCollectorEvidence({ receipt, csv: bytes, inventoryBytes, schemaBytes, mapping: mappingFixture() }),
+      error => error.code === "COLLECTOR_CAPTURE_TIMESTAMP_INVALID");
   }
 });

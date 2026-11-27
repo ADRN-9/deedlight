@@ -6,8 +6,9 @@ const exact = (value, keys) => value && typeof value === "object" && !Array.isAr
   && Object.keys(value).sort().join(",") === [...keys].sort().join(",");
 const relation = value => exact(value, ["schema", "relation"])
   && RELATION.test(value.schema) && RELATION.test(value.relation);
-const timestamp = value => typeof value === "string"
-  && /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$/.test(value)
+export const strictCategoryTimestamp = value => typeof value === "string"
+  && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)
+  && value.slice(0, 4) !== "0000"
   && Number.isFinite(Date.parse(value)) && new Date(Date.parse(value)).toISOString() === value;
 
 export function validateCategoryEffectContract(category, effect, inventoryPaths, { requireEvidence = true, sourceText = null } = {}) {
@@ -27,13 +28,28 @@ export function validateCategoryEffectContract(category, effect, inventoryPaths,
   if (category === "dataTransformations") {
     if (!exact(contract, ["operation", "sourceRelations", "targetRelation", "predicate", "sourceRange", "sourceStatementSha256"])
       || !["INSERT_SELECT", "UPDATE", "DELETE", "UPSERT", "MERGE"].includes(contract.operation)
-      || !Array.isArray(contract.sourceRelations) || !contract.sourceRelations.every(relation)
+      || !Array.isArray(contract.sourceRelations) || contract.sourceRelations.length === 0
+      || !contract.sourceRelations.every(relation)
+      || new Set(contract.sourceRelations.map(value => value.schema + "." + value.relation)).size !== contract.sourceRelations.length
       || !relation(contract.targetRelation) || !HEX_256.test(contract.sourceStatementSha256 || "")) {
       return "transformation contract is malformed or lacks source/target relation binding";
     }
     if (contract.predicate !== null && (!exact(contract.predicate, ["sql", "sha256"])
       || typeof contract.predicate.sql !== "string" || !contract.predicate.sql.trim()
       || !HEX_256.test(contract.predicate.sha256 || "") || digestText(contract.predicate.sql) !== contract.predicate.sha256)) return "transformation predicate is malformed or unbound";
+    const operationPattern = {
+      INSERT_SELECT: /^\s*insert\s+into\b[\s\S]*?\bselect\b/i,
+      UPDATE: /^\s*update\b[\s\S]*?\bset\b/i,
+      DELETE: /^\s*delete\s+from\b/i,
+      UPSERT: /^\s*insert\s+into\b[\s\S]*?\bon\s+conflict\b/i,
+      MERGE: /^\s*merge\s+into\b[\s\S]*?\bwhen\b/i,
+    }[contract.operation];
+    if (!operationPattern.test(sourceStatement)) return "transformation operation does not match its pinned SQL source range";
+    const escapeRegex = value => value.replace(/[.*+?^\${}()|[\]\\]/g, "\\$&");
+    const relationOccurs = value => new RegExp("(^|[^A-Za-z0-9_$])" + escapeRegex(value.schema) + "\\s*\\.\\s*" + escapeRegex(value.relation) + "([^A-Za-z0-9_$]|$)", "i").test(sourceStatement);
+    if (!relationOccurs(contract.targetRelation) || contract.sourceRelations.some(value => !relationOccurs(value))) {
+      return "transformation source/target relations do not occur in the pinned SQL source range";
+    }
     return null;
   }
   if (category === "backfills") {
@@ -51,7 +67,7 @@ export function validateCategoryEffectContract(category, effect, inventoryPaths,
     if (!exact(measurement, ["status", "rowCount", "querySha256", "evidenceDigest", "capturedAt", "executionId", "sourceBlobSha1"])
       || measurement.status !== "independently_measured" || !Number.isSafeInteger(measurement.rowCount) || measurement.rowCount < 0
       || !HEX_256.test(measurement.querySha256 || "") || !HEX_256.test(measurement.evidenceDigest || "")
-      || !timestamp(measurement.capturedAt) || typeof measurement.executionId !== "string" || !measurement.executionId.trim()
+      || !strictCategoryTimestamp(measurement.capturedAt) || typeof measurement.executionId !== "string" || !measurement.executionId.trim()
       || !HEX_160.test(measurement.sourceBlobSha1 || "") || measurement.sourceBlobSha1 !== inventoryPaths.get(effect.sourcePath)) {
       return "backfill requires an independently evidenced non-negative measurement bound to the exact migration source";
     }
@@ -81,9 +97,13 @@ export function validateCategoryEffectContract(category, effect, inventoryPaths,
       && typeof verification.reason === "string" && verification.reason.trim().length >= 20) {
       return requireEvidence ? category + " is source-declared but has no independently verified execution outcome" : null;
     }
-    if (!exact(verification, ["status", "evidenceDigest", "querySha256", "capturedAt", "executionId", "sourceBlobSha1"])
-      || verification.status !== "independently_verified" || !HEX_256.test(verification.evidenceDigest || "")
-      || !HEX_256.test(verification.querySha256 || "") || !timestamp(verification.capturedAt)
+    if (!exact(verification, ["status", "observedOutcome", "predicateSha256", "evidenceDigest", "querySha256", "capturedAt", "executionId", "sourceBlobSha1"])
+      || verification.status !== "independently_verified"
+      || !["true", "false", "zero_rows", "nonzero_rows"].includes(verification.observedOutcome)
+      || verification.observedOutcome !== contract.expectedOutcome
+      || verification.predicateSha256 !== contract.predicateSha256
+      || !HEX_256.test(verification.evidenceDigest || "")
+      || !HEX_256.test(verification.querySha256 || "") || !strictCategoryTimestamp(verification.capturedAt)
       || typeof verification.executionId !== "string" || !verification.executionId.trim()
       || verification.sourceBlobSha1 !== inventoryPaths.get(effect.sourcePath)) {
       return category + " requires an independently evidenced predicate outcome";
