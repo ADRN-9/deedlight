@@ -215,15 +215,15 @@ function authorityCandidate(p,identity,catalogObjects,receipt){
   const roleName=identity.current_role;
   const sessionRoleName=identity.session_role;
   if(sessionRoleName!=="deedlight_catalog_auditor")fail("COLLECTOR_ROLE_IDENTITY_MISMATCH");
-  const defaultAcl=projectionObjects(p,"default_privileges_v1");
+  const defaultAcl=p.get("default_privileges_v1");
   if(defaultAcl.some(row=>row[3]===roleName||row[3]==="PUBLIC"))fail("PRIVILEGE_DEFAULT_SCOPE_INVALID");
-  const role=projectionObjects(p,"roles_v1").find(row=>row[0]===roleName);
+  const role=p.get("roles_v1").find(row=>row[0]===roleName);
   if(!role)fail("COLLECTOR_ROLE_MISSING_OR_DUPLICATED");
   const membershipRoles=new Set([sessionRoleName,roleName]);
-  const memberships=projectionObjects(p,"role_memberships_v1").filter(row=>membershipRoles.has(row[1]));
+  const memberships=p.get("role_memberships_v1").filter(row=>membershipRoles.has(row[1]));
   if(memberships.length)fail("COLLECTOR_ROLE_MEMBERSHIP_PRESENT");
   const schemas=catalogObjects.filter(x=>x.kind==="schemas").map(x=>x.identity).sort();
-  const schemaAcl=projectionObjects(p,"schema_acl_v1");
+  const schemaAcl=p.get("schema_acl_v1");
   const schemaPrivileges=schemas.map(schema=>{
     const rows=schemaAcl.filter(row=>row[0]===schema&&(row[2]===roleName||row[2]==="PUBLIC"));
     if(rows.some(row=>row[5]!=="f"))fail("PRIVILEGE_SCHEMA_GRANT_OPTION_INVALID");
@@ -233,7 +233,7 @@ function authorityCandidate(p,identity,catalogObjects,receipt){
     return {schema,scope:schema==="supabase_migrations"?"migration_history":"application_data",privileges};
   });
   if(!schemas.includes("supabase_migrations"))fail("PRIVILEGE_MIGRATION_SCHEMA_MISSING");
-  const relationAcl=projectionObjects(p,"relation_acl_v1"),routineAcl=projectionObjects(p,"routine_acl_v1"),sequenceAcl=projectionObjects(p,"sequence_acl_v1");
+  const relationAcl=p.get("relation_acl_v1"),routineAcl=p.get("routine_acl_v1"),sequenceAcl=p.get("sequence_acl_v1");
   const tables=catalogObjects.filter(x=>x.kind==="tables");
   const sequences=catalogObjects.filter(x=>x.kind==="sequences");
   const routines=catalogObjects.filter(x=>x.kind==="routines");
@@ -243,7 +243,7 @@ function authorityCandidate(p,identity,catalogObjects,receipt){
     if(item.kind==="tables")rows=relationAcl.filter(r=>r[0]==="relation"&&r[1]+"."+r[2]===item.identity&&(r[4]===roleName||r[4]==="PUBLIC"));
     if(item.kind==="sequences")rows=sequenceAcl.filter(r=>r[0]+"."+r[1]===item.identity&&(r[3]===roleName||r[3]==="PUBLIC"));
     if(item.kind==="routines"){
-      const source=projectionObjects(p,"routines_v1").find(r=>r[0]+"."+r[1]+"("+r[3]+")"===item.identity);
+      const source=p.get("routines_v1").find(r=>r[0]+"."+r[1]+"("+r[3]+")"===item.identity);
       rows=source?routineAcl.filter(r=>r[0]===source[0]&&r[1]===source[1]&&r[2]===source[3]&&(r[3]===roleName||r[3]==="PUBLIC")):[];
     }
     if(rows.some(r=>r.at(-1)!=="f"))fail("PRIVILEGE_OBJECT_GRANT_OPTION_INVALID:"+item.identity);
@@ -257,7 +257,7 @@ function authorityCandidate(p,identity,catalogObjects,receipt){
   const columns=catalogObjects.filter(x=>x.kind==="columns");
   const columnPrivileges=[];
   for(const item of columns){
-    const source=projectionObjects(p,"relations_v1").find(r=>r[0]+"."+r[1]+"."+r[8]===item.identity);
+    const source=p.get("relations_v1").find(r=>r[0]+"."+r[1]+"."+r[8]===item.identity);
     if(!source)fail("PRIVILEGE_COLUMN_IDENTITY_INVALID:"+item.identity);
     const history=source[0]==="supabase_migrations"&&source[1]==="schema_migrations";
     const table=objectPrivileges.find(x=>x.kind==="tables"&&x.identity===source[0]+"."+source[1]);
@@ -268,7 +268,7 @@ function authorityCandidate(p,identity,catalogObjects,receipt){
     if(canonicalJson(privileges)!==canonicalJson(expected))fail("PRIVILEGE_COLUMN_SCOPE_INVALID:"+item.identity);
     columnPrivileges.push({identity:item.identity,scope:history?"migration_history":"application_data",privileges});
   }
-  const databaseRows=projectionObjects(p,"database_acl_v1");
+  const databaseRows=p.get("database_acl_v1");
   const currentDatabase=databaseRows.filter(row=>row[3]===identity.database_name);
   if(currentDatabase.length!==1)fail("PRIVILEGE_CURRENT_DATABASE_MISSING");
   const databaseEdges=JSON.parse(currentDatabase[0][10]);
@@ -277,9 +277,9 @@ function authorityCandidate(p,identity,catalogObjects,receipt){
   const databasePrivileges=[...new Set(effectiveDatabaseEdges.map(edge=>edge.privilege_type))].sort();
   if(canonicalJson(databasePrivileges)!==canonicalJson(["CONNECT"]))fail("PRIVILEGE_DATABASE_SCOPE_INVALID");
   const ownedSchemas=[...new Set(schemaAcl.filter(row=>row[1]===roleName).map(row=>row[0]))].sort();
-  const ownedRelations=projectionObjects(p,"relations_v1").some(row=>row[3]===roleName);
-  const ownedRoutines=projectionObjects(p,"routines_v1").some(row=>row[6]===roleName);
-  const ownedSequences=projectionObjects(p,"sequences_v1").some(row=>row[2]===roleName);
+  const ownedRelations=p.get("relations_v1").some(row=>row[3]===roleName);
+  const ownedRoutines=p.get("routines_v1").some(row=>row[6]===roleName);
+  const ownedSequences=p.get("sequences_v1").some(row=>row[2]===roleName);
   if(ownedSchemas.length||ownedRelations||ownedRoutines||ownedSequences)fail("COLLECTOR_OWNS_APPLICATION_OBJECTS");
   const databaseAclV1=databaseRows.map(row=>({
     acl_expansion_source:row[9],allows_connections:row[4]==="t",database_count:Number(row[1]),database_name:row[3],database_oid:Number(row[2]),
@@ -292,8 +292,8 @@ function authorityCandidate(p,identity,catalogObjects,receipt){
     isReplication:role[5]==="t",bypassRls:role[6]==="t",ownsObjects:false,
     databasePrivileges,catalogPrivileges:["SELECT"],schemaPrivileges,objectPrivileges,columnPrivileges,
     roleMemberships:memberships,ownedSchemas,proofQueryBundleSha256:receipt.source.sqlBundleSha256,databaseAclV1,
-    effectiveRole:identity.current_role,sessionRole:identity.session_role,roles:projectionObjects(p,"roles_v1"),
-    privilegeProjections:Object.fromEntries(ACL_IDS.map(id=>[id,projectionObjects(p,id)])),databaseAcl:projectionObjects(p,"database_acl_v1")};
+    effectiveRole:identity.current_role,sessionRole:identity.session_role,roles:p.get("roles_v1"),
+    privilegeProjections:Object.fromEntries(ACL_IDS.map(id=>[id,projectionObjects(p,id)])),databaseAcl:p.get("database_acl_v1")};
 }
 export function adaptCollectorEvidence({receipt,csv,inventoryBytes,schemaBytes,mapping}){
   if(!Buffer.isBuffer(csv)||!Buffer.isBuffer(inventoryBytes)||!Buffer.isBuffer(schemaBytes))fail("ADAPTER_INPUT_BYTES_REQUIRED");
