@@ -466,9 +466,9 @@ BEGIN
       'c5700000-0000-4000-8000-000000000028','succeeded','{"result":"must-not-finalize"}'::jsonb
     );
     RAISE EXCEPTION 'finalization accepted different pre/post observation queries';
-  EXCEPTION WHEN raise_exception THEN
+  EXCEPTION WHEN SQLSTATE 'D1004' THEN
     IF SQLERRM = 'finalization accepted different pre/post observation queries' THEN RAISE; END IF;
-    IF SQLSTATE <> 'D1004' THEN RAISE; END IF;
+    
   END;
 END
 $assert$;
