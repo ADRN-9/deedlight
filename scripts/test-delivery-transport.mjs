@@ -155,14 +155,14 @@ test("delayed invocation keeps logical enqueue time but claims using database ti
   });
 
   assert.equal(await runtime.enqueueDaily(scheduledAt, 100), 3);
-  assert.deepEqual(await runtime.claim(deliveryClaimBatchSize(25)), []);
+  assert.deepEqual(await runtime.claim("daily_reminder", deliveryClaimBatchSize(25)), []);
   assert.deepEqual(calls, [
     {
       name: "enqueue_due_daily_reminders",
       params: { p_now: scheduledAt.toISOString(), p_limit: 100 },
     },
     {
-      name: "claim_delivery_jobs",
+      name: "claim_daily_delivery_jobs",
       params: { p_limit: 5 },
     },
   ]);
