@@ -143,6 +143,9 @@ test("default privileges and duplicate membership identities fail closed",()=>{
   const membership=["auditor_parent","deedlight_catalog_auditor","postgres","f","f","f"];
   assert.throws(()=>adapt(fixtureCsv(undefined,undefined,{role_memberships_v1:[membership,membership]})),/ROLE_MEMBERSHIP_DUPLICATED/);
   assert.throws(()=>adapt(fixtureCsv(undefined,undefined,{default_privileges_v1:[["postgres","public","r","deedlight_catalog_auditor","postgres","SELECT","f"]]})),/PRIVILEGE_DEFAULT_SCOPE_INVALID/);
+  const unrelatedRoles=[["deedlight_catalog_auditor","t","f","f","f","f","f","f","-1",""],["deedlight_unrelated_parent","f","f","f","f","f","f","f","-1",""],["deedlight_unrelated_member","f","f","f","f","f","f","f","-1",""]];
+  const unrelatedMembership=[["deedlight_unrelated_parent","deedlight_unrelated_member","postgres","f","f","f"]];
+  assert.equal(adapt(fixtureCsv(undefined,undefined,{roles_v1:unrelatedRoles,role_memberships_v1:unrelatedMembership})).candidate.acceptance,"NOT_ACCEPTED");
 });
 test("missing, duplicated, reordered, unexpected and truncated projections fail closed",()=>{
   const base=fixtureCsv().toString("utf8"),lines=base.trimEnd().split("\r\n"),header=SQL_PROJECTIONS[4].columns.join(",");
