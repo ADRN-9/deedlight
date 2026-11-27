@@ -540,6 +540,8 @@ function validateMapping(mapping, manifest, source, problems) {
     const unsupportedCategories = [];
     const unknownCategories = [];
     const nonCatalogEvidenceCategories = [];
+    const unsupportedNonCatalogCategories = [];
+    const unknownNonCatalogCategories = [];
     const seenEffects = new Set();
     let coverageMalformed = false;
     for (const category of CATEGORIES) {
@@ -570,6 +572,8 @@ function validateMapping(mapping, manifest, source, problems) {
       if (coverageMalformed) break;
       if (!CATALOG_CATEGORIES.has(category) && disposition !== "none") {
         nonCatalogEvidenceCategories.push(category);
+        if (disposition === "unsupported") unsupportedNonCatalogCategories.push(category);
+        if (disposition === "unknown") unknownNonCatalogCategories.push(category);
       } else if (disposition === "unsupported") {
         unsupportedCategories.push(category);
         problems.push("mapping explicitly classifies " + category + " as unsupported for " + item.path + ": " + review.rationale);
@@ -620,7 +624,12 @@ function validateMapping(mapping, manifest, source, problems) {
     if (flattened.length === 0) {
       problems.push("mapping contains no deterministic effects for " + item.path);
     }
-    result.set(item.path, { effects: flattened, unsupportedCategories, unknownCategories, nonCatalogEvidenceCategories: [...new Set(nonCatalogEvidenceCategories)] });
+    result.set(item.path, {
+      effects: flattened, unsupportedCategories, unknownCategories,
+      nonCatalogEvidenceCategories: [...new Set(nonCatalogEvidenceCategories)],
+      unsupportedNonCatalogCategories: [...new Set(unsupportedNonCatalogCategories)],
+      unknownNonCatalogCategories: [...new Set(unknownNonCatalogCategories)],
+    });
   }
   if (byPath.size !== manifest.migrations.length || manifest.migrations.some((item) => !byPath.has(item.path))) {
     problems.push("mapping path set does not exactly match the pinned 40-file inventory");
@@ -866,6 +875,8 @@ export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approval
       path: item.path, version: item.version, blobSha1: item.blobSha1,
       ...classifyOne(item, manifest, evidence, source, mappedEffects),
       nonCatalogEvidenceCategories: mappedEffects.get(item.path)?.nonCatalogEvidenceCategories ?? [],
+      unsupportedNonCatalogCategories: mappedEffects.get(item.path)?.unsupportedNonCatalogCategories ?? [],
+      unknownNonCatalogCategories: mappedEffects.get(item.path)?.unknownNonCatalogCategories ?? [],
     };
   });
   const counts = Object.fromEntries(["Applied and verified", "Schema represented but history ambiguous", "Verified unapplied", "Partial or drifted", "Unknown"]
