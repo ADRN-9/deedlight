@@ -127,7 +127,7 @@ function validateProjectionRows(p) {
     if(role[2]!=="f"||role[3]!=="f"||role[4]!=="f"||role[5]!=="f"||role[6]!=="f"||role[7]!=="f")fail("COLLECTOR_ROLE_PRIVILEGE_INVALID");
     if(roleName===sessionRoleName&&role[1]!=="t")fail("COLLECTOR_ROLE_PRIVILEGE_INVALID");
   }
-  if(p.get("role_memberships_v1").some(row=>collectorRoleNames.has(row[1])))fail("COLLECTOR_ROLE_MEMBERSHIP_PRESENT");
+  if(p.get("role_memberships_v1").length)fail("COLLECTOR_ROLE_MEMBERSHIP_PRESENT");
 }
 function buildCatalog(p) {
   const objects=[],seen=new Set();
