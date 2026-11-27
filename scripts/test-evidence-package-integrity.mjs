@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { canonicalJson, validateSqlOutput, sha256, SQL_PROJECTIONS } from "./collect-production-migration-evidence.mjs";
+import { canonicalJson, validateSqlOutput, sha256, SQL_PROJECTIONS, RECEIPT_SCHEMA_GIT_BLOB_SHA1, RECEIPT_SCHEMA_SHA256 } from "./collect-production-migration-evidence.mjs";
 import { createEvidencePackageManifest, verifyEvidencePackageManifest } from "./evidence-package-integrity.mjs";
 
 function fixture() {
@@ -39,6 +39,7 @@ function fixture() {
       sqlBundlePath: "scripts/production-migration-readonly-audit.sql",
       sqlBundleGitBlobSha1: "8f8c38ba0c2a463ee25c6dae1dc1b15e24e3819f",
       sqlBundleSha256: "afda6bcfc9f7abc7765b8dfb54bf02d1cdb0d8062da2a9f953336b638d13af7d",
+      receiptSchemaGitBlobSha1: RECEIPT_SCHEMA_GIT_BLOB_SHA1, receiptSchemaSha256: RECEIPT_SCHEMA_SHA256,
     },
     execution: {
       collectorId: "deedlight-readonly-collector-v1", authenticatedPrincipal: "deedlight_catalog_auditor",
