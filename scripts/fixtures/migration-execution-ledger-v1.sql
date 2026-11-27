@@ -4,6 +4,94 @@
 CREATE SCHEMA IF NOT EXISTS deedlight_execution_ledger;
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA deedlight_execution_ledger;
 
+CREATE OR REPLACE FUNCTION deedlight_execution_ledger.raise_trust_failure(
+  p_category text, p_reason text, p_context jsonb DEFAULT '{}'::jsonb
+) RETURNS void
+LANGUAGE plpgsql
+SET search_path = pg_catalog, deedlight_execution_ledger
+AS $fn$
+DECLARE v_sqlstate text;
+BEGIN
+  v_sqlstate := CASE p_category
+    WHEN 'missing_trust' THEN 'D1001'
+    WHEN 'invalid_source_identity' THEN 'D1002'
+    WHEN 'missing_execution_evidence' THEN 'D1003'
+    WHEN 'snapshot_substitution' THEN 'D1004'
+    WHEN 'replay' THEN 'D1005'
+    WHEN 'incomplete_preconditions' THEN 'D1006'
+    WHEN 'failed_postconditions' THEN 'D1007'
+    WHEN 'ambiguous_execution_outcome' THEN 'D1008'
+    ELSE NULL
+  END;
+  IF v_sqlstate IS NULL OR p_reason IS NULL OR p_context IS NULL
+    OR pg_catalog.jsonb_typeof(p_context) <> 'object' THEN
+    RAISE EXCEPTION 'invalid trust-failure diagnostic request';
+  END IF;
+  RAISE EXCEPTION USING ERRCODE = v_sqlstate,
+    MESSAGE = 'DEEDLIGHT_TRUST_FAILURE:' || p_category,
+    DETAIL = pg_catalog.jsonb_build_object(
+      'category', p_category, 'reason', p_reason, 'context', p_context
+    )::text;
+END
+$fn$;
+
+CREATE OR REPLACE FUNCTION deedlight_execution_ledger.canonical_query_bundle_digest(p_manifest jsonb)
+RETURNS text
+LANGUAGE plpgsql IMMUTABLE SECURITY DEFINER
+SET search_path = pg_catalog, deedlight_execution_ledger
+AS $fn$
+DECLARE v_canonical text; v_count integer; v_unique_count integer; v_member jsonb;
+BEGIN
+  IF pg_catalog.jsonb_typeof(p_manifest) IS DISTINCT FROM 'array' THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust', 'query_bundle_manifest_not_array', '{}'::jsonb
+    );
+  END IF;
+  IF pg_catalog.jsonb_array_length(p_manifest) = 0 THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust', 'query_bundle_manifest_empty', '{}'::jsonb
+    );
+  END IF;
+  FOR v_member IN SELECT value FROM pg_catalog.jsonb_array_elements(p_manifest) AS e(value) LOOP
+    IF pg_catalog.jsonb_typeof(v_member) <> 'object'
+      OR pg_catalog.jsonb_object_length(v_member) <> 2
+      OR NOT (v_member ? 'queryId') OR NOT (v_member ? 'querySha256')
+      OR coalesce(v_member->>'queryId','') !~ '^[a-z][a-z0-9_]{0,63}$'
+      OR coalesce(v_member->>'querySha256','') !~ '^[a-f0-9]{64}$' THEN
+      PERFORM deedlight_execution_ledger.raise_trust_failure(
+        'missing_trust', 'query_bundle_manifest_member_invalid', '{}'::jsonb
+      );
+    END IF;
+  END LOOP;
+  SELECT pg_catalog.count(*), pg_catalog.count(DISTINCT value->>'queryId')
+    INTO v_count, v_unique_count
+    FROM pg_catalog.jsonb_array_elements(p_manifest) AS e(value);
+  IF v_count <> v_unique_count THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust', 'query_bundle_manifest_duplicate_member', '{}'::jsonb
+    );
+  END IF;
+  SELECT pg_catalog.string_agg(
+    value->>'queryId' || ':' || value->>'querySha256',
+    pg_catalog.chr(10) ORDER BY value->>'queryId'
+  ) INTO v_canonical
+  FROM pg_catalog.jsonb_array_elements(p_manifest) AS e(value);
+  RETURN pg_catalog.encode(
+    deedlight_execution_ledger.digest(pg_catalog.convert_to(v_canonical, 'UTF8'), 'sha256'),
+    'hex'
+  );
+END
+$fn$;
+
+CREATE TABLE IF NOT EXISTS deedlight_execution_ledger.query_bundle_manifests (
+  bundle_id text PRIMARY KEY CHECK (bundle_id ~ '^[a-z][a-z0-9_]{0,63}$'),
+  manifest jsonb NOT NULL CHECK (pg_catalog.jsonb_typeof(manifest) = 'array'),
+  member_count integer NOT NULL CHECK (member_count > 0),
+  manifest_sha256 text NOT NULL CHECK (manifest_sha256 ~ '^[a-f0-9]{64}$'),
+  UNIQUE (bundle_id, manifest_sha256)
+);
+
+
 DO $roles$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'deedlight_ledger_approver') THEN
@@ -109,11 +197,14 @@ CREATE TABLE IF NOT EXISTS deedlight_execution_ledger.executions (
 
 CREATE TABLE IF NOT EXISTS deedlight_execution_ledger.observation_queries (
   query_id text PRIMARY KEY CHECK (query_id ~ '^[a-z][a-z0-9_]{0,63}$'),
-  query_sql text NOT NULL CHECK (pg_catalog.btrim(query_sql) ~* '^select\s'),
+  query_sql text NOT NULL CHECK (pg_catalog.btrim(query_sql) ~* '^select\\s'),
   description text NOT NULL,
   query_sha256 text NOT NULL CHECK (query_sha256 ~ '^[a-f0-9]{64}$'),
+  query_bundle_id text NOT NULL,
   query_bundle_digest text NOT NULL CHECK (query_bundle_digest ~ '^[a-f0-9]{64}$'),
-  UNIQUE (query_id, query_sha256, query_bundle_digest)
+  UNIQUE (query_id, query_sha256, query_bundle_id, query_bundle_digest),
+  FOREIGN KEY (query_bundle_id, query_bundle_digest)
+    REFERENCES deedlight_execution_ledger.query_bundle_manifests(bundle_id, manifest_sha256)
 );
 
 CREATE TABLE IF NOT EXISTS deedlight_execution_ledger.snapshots (
