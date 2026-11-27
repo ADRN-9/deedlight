@@ -1,22 +1,29 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { canonicalJson, validateSqlOutput, sha256 } from "./collect-production-migration-evidence.mjs";
+import { canonicalJson, validateSqlOutput, sha256, SQL_PROJECTIONS } from "./collect-production-migration-evidence.mjs";
 import { createEvidencePackageManifest, verifyEvidencePackageManifest } from "./evidence-package-integrity.mjs";
 
 function fixture() {
   const rows = [];
-  for (let i = 0; i < 13; i += 1) rows.push(["projection_" + i, "value"], ["sample", String(i)]);
-  rows.push(
-    ["version", "name", "recordedStatementCount"],
-    ["202611240037", "migration_037_fixture", "1"],
-    ["202611240038", "", ""],
-    ["evidence_projection", "database_count", "database_oid", "database_name", "allows_connections", "is_template", "owner_oid", "owner_name", "datacl_was_null", "acl_expansion_source", "expanded_acl_edges"],
-    ["database_acl_v1", "2", "1", "db_one", "t", "f", "10", "postgres", "t", "built_in_default", "[]"],
-    ["database_acl_v1", "2", "2", "db_two", "t", "t", "10", "postgres", "t", "built_in_default", "[]"],
-    ["collector_transaction_closed"],
-    ["t"],
-  );
-  const evidenceBytes = Buffer.from(rows.map((row) => row.join(",")).join("\r\n") + "\r\n");
+  for (const projection of SQL_PROJECTIONS) {
+    rows.push(projection.columns);
+    if (projection.id === "identity_v1") {
+      rows.push(["xaipiovflxomcbfwtwmu", "c".repeat(40), "deedlight_migration_order_test",
+        "deedlight_catalog_auditor", "deedlight_catalog_auditor", "16.2", "127.0.0.1", "5432",
+        "2026-01-01T00:00:00.000Z", "on"]);
+    } else if (projection.id === "migration_history_v1") {
+      rows.push(["202611240037", "migration_037_fixture", "1"]);
+      rows.push(["202611240038", "", ""]);
+    } else if (projection.id === "database_acl_v1") {
+      rows.push(["database_acl_v1", "2", "1", "db_one", "t", "f", "10", "postgres", "t", "built_in_default", "[]"]);
+      rows.push(["database_acl_v1", "2", "2", "db_two", "t", "t", "10", "postgres", "f", "explicit", "[]"]);
+    }
+  }
+  rows.push(["collector_transaction_closed"], ["t"]);
+  const evidenceBytes = Buffer.from(rows.map((row) => row.map((value) => {
+    const text = String(value);
+    return /[,"\\r\\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+  }).join(",")).join("\\r\\n") + "\\r\\n");
   const validation = validateSqlOutput(evidenceBytes);
   const digest = sha256(evidenceBytes);
   const receipt = {
@@ -44,14 +51,11 @@ function fixture() {
       canonicalization: "UTF-8 canonical JSON with ordered records and sorted object keys",
       resultRecordCount: validation.resultRows.length, databaseAclV1RowCount: validation.databaseAclRows,
       migrationHistoryRowCount: validation.migrationHistoryRows.length,
-      canonicalResultSha256: sha256(Buffer.from(canonicalJson(validation.resultRows))),
-      evidenceFileSha256: digest,
+      canonicalResultSha256: sha256(Buffer.from(canonicalJson(validation.resultRows))), evidenceFileSha256: digest,
     },
     evidence: { file: "evidence.csv", mediaType: "text/csv", byteLength: evidenceBytes.length, sha256: digest },
-    signing: {
-      state: "NOT_SIGNED", keyId: null, signature: null,
-      acceptance: "PROHIBITED_PENDING_INDEPENDENT_SIGNING_AND_VERIFICATION",
-    },
+    signing: { state: "NOT_SIGNED", keyId: null, signature: null,
+      acceptance: "PROHIBITED_PENDING_INDEPENDENT_SIGNING_AND_VERIFICATION" },
   };
   return { receipt, evidenceBytes };
 }
