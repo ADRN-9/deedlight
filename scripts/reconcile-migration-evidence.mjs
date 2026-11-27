@@ -12,7 +12,6 @@ const CATEGORIES = ["schema", "privileges", "ownership", "routines", "dataTransf
 const CATALOG_KINDS = ["schemas", "tables", "sequences", "columns", "constraints", "indexes", "triggers", "policies", "routines", "privileges", "ownership", "dataTransformations", "backfills", "dependencies", "preconditions", "postconditions"];
 const PRIVILEGE_OBJECT_KINDS = new Set(["tables", "sequences", "routines"]);
 const SCHEMA_KINDS = new Set(["tables", "columns", "constraints", "indexes", "triggers", "policies"]);
-const READ_ONLY_PRIVILEGES = new Set(["CONNECT", "USAGE", "SELECT"]);
 export const SQL_NULL_SENTINEL = "__DEEDLIGHT_SQL_NULL_V1__";
 
 function assert(condition, message) {
@@ -32,6 +31,95 @@ export function canonicalJson(value) {
   const encoded = JSON.stringify(canonical(value));
   return encoded === undefined ? "null" : encoded;
 }
+export function validateCollectorPrivilegeEvidence(db, inventoryObjects) {
+  const problems = [];
+  if (!db || db.privilegeContractVersion !== "catalog_only_v1") {
+    problems.push("collector privilege evidence contract version is missing or unsupported");
+  }
+  if (!Array.isArray(db && db.requiredAccessSummary)
+    || canonicalJson(db.requiredAccessSummary) !== canonicalJson(REQUIRED_ACCESS_SUMMARY)) {
+    problems.push("collector required-access summary does not match the catalog-only privilege contract");
+  }
+  if (!Array.isArray(db && db.databasePrivileges)
+    || db.databasePrivileges.length !== 1 || db.databasePrivileges[0] !== "CONNECT") {
+    problems.push("collector database-level privilege export is incomplete or not read-only");
+  }
+  if (!Array.isArray(db && db.catalogPrivileges)
+    || db.catalogPrivileges.length !== 1 || db.catalogPrivileges[0] !== "SELECT") {
+    problems.push("collector catalog read privileges are not completely attested");
+  }
+  const inventory = Array.isArray(inventoryObjects) ? inventoryObjects : [];
+  const expectedSchemas = inventory.filter((entry) => entry && entry.kind === "schemas").map((entry) => entry.identity).sort();
+  const expectedObjects = inventory.filter((entry) => entry && PRIVILEGE_OBJECT_KINDS.has(entry.kind))
+    .map((entry) => ({ kind: entry.kind, identity: entry.identity }))
+    .sort((a, b) => String(a.kind).localeCompare(String(b.kind)) || String(a.identity).localeCompare(String(b.identity)));
+  const schemaRows = Array.isArray(db && db.schemaPrivileges) ? db.schemaPrivileges : [];
+  const objectRows = Array.isArray(db && db.objectPrivileges) ? db.objectPrivileges : [];
+  const columnRows = Array.isArray(db && db.columnPrivileges) ? db.columnPrivileges : [];
+  const schemaIds = schemaRows.map((entry) => entry && entry.schema).sort();
+  const objectKeys = objectRows.map((entry) => ({ kind: entry && entry.kind, identity: entry && entry.identity }))
+    .sort((a, b) => String(a.kind).localeCompare(String(b.kind)) || String(a.identity).localeCompare(String(b.identity)));
+  if (!expectedSchemas.length || schemaIds.some((value) => typeof value !== "string")
+    || new Set(schemaIds).size !== schemaIds.length || canonicalJson(schemaIds) !== canonicalJson(expectedSchemas)
+    || schemaRows.some((entry) => {
+      if (!entry) return true;
+      const history = entry.schema === "supabase_migrations";
+      return Object.keys(entry).sort().join(",") !== "privileges,schema,scope"
+        || entry.scope !== (history ? "migration_history" : "application_data")
+        || !Array.isArray(entry.privileges)
+        || canonicalJson(entry.privileges) !== canonicalJson(history ? ["USAGE"] : []);
+    })) {
+    problems.push("collector schema privilege evidence does not match the least-privilege contract: only supabase_migrations USAGE is allowed");
+  }
+  if (!expectedObjects.length || objectKeys.some((entry) => typeof entry.kind !== "string" || typeof entry.identity !== "string")
+    || new Set(objectKeys.map((entry) => entry.kind + "\\0" + entry.identity)).size !== objectKeys.length
+    || canonicalJson(objectKeys) !== canonicalJson(expectedObjects)
+    || objectRows.some((entry) => {
+      if (!entry) return true;
+      const history = entry.kind === "tables" && entry.identity === "supabase_migrations.schema_migrations";
+      return Object.keys(entry).sort().join(",") !== "identity,kind,privileges,scope"
+        || entry.scope !== (history ? "migration_history" : "application_data")
+        || !Array.isArray(entry.privileges)
+        || canonicalJson(entry.privileges) !== canonicalJson(history ? ["SELECT"] : []);
+    })) {
+    problems.push("collector object privilege evidence does not match the least-privilege contract: only migration-history SELECT is allowed");
+  }
+  const expectedColumns = inventory.filter((entry) => entry && entry.kind === "columns")
+    .map((entry) => entry.identity).sort();
+  const columnIds = columnRows.map((entry) => entry && entry.identity).sort();
+  if (!expectedColumns.length || columnIds.some((value) => typeof value !== "string")
+    || new Set(columnIds).size !== columnIds.length || canonicalJson(columnIds) !== canonicalJson(expectedColumns)
+    || columnRows.some((entry) => {
+      if (!entry) return true;
+      const history = entry.identity.startsWith("supabase_migrations.schema_migrations.");
+      return Object.keys(entry).sort().join(",") !== "identity,privileges,scope"
+        || entry.scope !== (history ? "migration_history" : "application_data")
+        || !Array.isArray(entry.privileges)
+        || canonicalJson(entry.privileges) !== canonicalJson(history ? ["SELECT"] : []);
+    })) {
+    problems.push("collector column privilege evidence does not match the least-privilege contract: only migration-history SELECT is allowed");
+  }
+  return problems;
+}
+export function normalizeMigrationHistoryRows(tuples) {
+  assert(Array.isArray(tuples), "migration-history SQL output must be an array of rows");
+  return tuples.map((tuple, index) => {
+    assert(Array.isArray(tuple) && tuple.length === 3,
+      "migration-history SQL row " + index + " must contain exactly version, name and recorded statement count");
+    const [version, name, rawCount] = tuple;
+    const normalizedName = name === "NULL" || name === "\\N" || name === null ? null : name;
+    assert(typeof version === "string" && (normalizedName === null || (typeof normalizedName === "string" && normalizedName.trim())),
+      "migration-history SQL row " + index + " is missing version or has an invalid name");
+    let recordedStatementCount = rawCount;
+    if (rawCount === "NULL" || rawCount === "\\N" || rawCount === null) recordedStatementCount = null;
+    else if (typeof rawCount === "string" && /^(0|[1-9][0-9]*)$/.test(rawCount)) recordedStatementCount = Number(rawCount);
+    assert(recordedStatementCount === null || (Number.isSafeInteger(recordedStatementCount) && recordedStatementCount >= 0),
+      "migration-history SQL row " + index + " has an invalid recorded statement count");
+    return { version, name: normalizedName, recordedStatementCount };
+  });
+}
+
+
 export function evidencePayload(evidence) {
   return Buffer.from(canonicalJson(evidence));
 }
@@ -261,16 +349,6 @@ function validateCollectorAuthority(claims, provenance, evidenceDigest, authorit
   for (const flag of ["isSuperuser", "canCreateRole", "canCreateDatabase", "bypassRls", "isReplication", "ownsObjects"]) {
     if (db[flag] !== false) problems.push("collector database role is elevated or its " + flag + " status is not proven false");
   }
-  if (!Array.isArray(db.effectivePrivileges)
-    || db.effectivePrivileges.length !== READ_ONLY_PRIVILEGES.size
-    || [...READ_ONLY_PRIVILEGES].some((privilege) => !db.effectivePrivileges.includes(privilege))
-    || db.effectivePrivileges.some((privilege) => !READ_ONLY_PRIVILEGES.has(privilege))) {
-    problems.push("collector effective privileges are not exactly CONNECT, USAGE and SELECT");
-  }
-  if (!Array.isArray(db.databasePrivileges)
-    || db.databasePrivileges.length !== 1 || db.databasePrivileges[0] !== "CONNECT") {
-    problems.push("collector database-level privilege export is incomplete or not read-only");
-  }
   // The complete database_acl_v1 projection is part of the signed result, not optional metadata.
   const databaseAclRows = db.databaseAclV1;
   if (!Array.isArray(databaseAclRows) || databaseAclRows.length === 0) {
@@ -337,37 +415,7 @@ function validateCollectorAuthority(claims, provenance, evidenceDigest, authorit
     }
   }
   const inventoryObjects = evidence && evidence.catalog && Array.isArray(evidence.catalog.objects) ? evidence.catalog.objects : [];
-  const expectedSchemas = inventoryObjects.filter((entry) => entry && entry.kind === "schemas").map((entry) => entry.identity).sort();
-  const expectedObjects = inventoryObjects.filter((entry) => entry && PRIVILEGE_OBJECT_KINDS.has(entry.kind))
-    .map((entry) => ({ kind: entry.kind, identity: entry.identity })).sort((a, b) => String(a.kind).localeCompare(String(b.kind)) || String(a.identity).localeCompare(String(b.identity)));
-  const schemaRows = Array.isArray(db.schemaPrivileges) ? db.schemaPrivileges : [];
-  const objectRows = Array.isArray(db.objectPrivileges) ? db.objectPrivileges : [];
-  const schemaIds = schemaRows.map((entry) => entry && entry.schema).sort();
-  const objectKeys = objectRows.map((entry) => ({ kind: entry && entry.kind, identity: entry && entry.identity }))
-    .sort((a, b) => String(a.kind).localeCompare(String(b.kind)) || String(a.identity).localeCompare(String(b.identity)));
-  if (!expectedSchemas.length
-    || schemaIds.some((value) => typeof value !== "string") || new Set(schemaIds).size !== schemaIds.length
-    || canonicalJson(schemaIds) !== canonicalJson(expectedSchemas)
-    || schemaRows.some((entry) => !entry || Object.keys(entry).sort().join(",") !== "privileges,schema"
-      || !Array.isArray(entry.privileges) || entry.privileges.length !== 1 || entry.privileges[0] !== "USAGE")) {
-    problems.push("collector schema privilege identities do not exactly match the complete schema catalog inventory");
-  }
-  if (!expectedObjects.length
-    || objectKeys.some((entry) => typeof entry.kind !== "string" || typeof entry.identity !== "string")
-    || new Set(objectKeys.map((entry) => entry.kind + "\0" + entry.identity)).size !== objectKeys.length
-    || canonicalJson(objectKeys) !== canonicalJson(expectedObjects)
-    || objectRows.some((entry) => {
-      if (!entry) return true;
-      const expectedPrivileges = entry.kind === "routines" ? [] : ["SELECT"];
-      return Object.keys(entry).sort().join(",") !== "identity,kind,privileges"
-        || !Array.isArray(entry.privileges) || canonicalJson(entry.privileges) !== canonicalJson(expectedPrivileges);
-    })) {
-    problems.push("collector object privilege identities do not exactly match the complete table, sequence and routine catalog inventory, or routines have execution privileges");
-  }
-  if (!Array.isArray(db.catalogPrivileges)
-    || db.catalogPrivileges.length !== 1 || db.catalogPrivileges[0] !== "SELECT") {
-    problems.push("collector catalog read privileges are not completely attested");
-  }
+  for (const problem of validateCollectorPrivilegeEvidence(db, inventoryObjects)) problems.push(problem);
   if (!Array.isArray(db.roleMemberships) || db.roleMemberships.length !== 0) {
     problems.push("collector has inherited role memberships or membership evidence is missing");
   }
