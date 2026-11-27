@@ -211,6 +211,31 @@ All 39 migrations remain **UNKNOWN** for Production application. This repository
 
 > This C421 section is the authoritative source inventory for the synchronization tree above. Historical C404/C240/C245/C247/C410 sections retained below describe earlier evidence snapshots. Do not use their older HEAD/tree references as current branch state.
 
+## C491 — SQL migration-history contract and trust-root revocation semantics
+
+Section 13 now emits analyzer-native aliases: `version`, `name`, and quoted `recordedStatementCount`. The PostgreSQL 16 integration test extracts and executes that exact SELECT from `production-migration-readonly-audit.sql`, captures its actual tabular result, normalizes the three values, and validates the resulting `history.rows` against the same validator used by the reconciliation analyzer. The adapter rejects missing columns, extra columns, malformed counts, unsafe numeric values and duplicate version rows (the audited history table requires a primary key on version); SQL NULL statement counts remain explicit JSON nulls. It adds no execution ID, actor, timestamp, source hash or other provenance.
+
+An active Ed25519 trust-root entry must explicitly contain `revokedAt: null`. An absent property is invalid. Any non-null value must be a canonical UTC timestamp in years 0001–9999 and is treated as revoked; malformed strings, empty strings, booleans, numbers, objects, arrays and year-zero timestamps are rejected. This is intentionally strict: null means active; a valid timestamp means revoked; every other representation means untrusted. A revoked key remains unusable regardless of timestamp age.
+
+These checks are enforced in analyzer code, adversarial unit tests and the PostgreSQL 16 actual-query integration path. They do not change Production migration state or establish Production execution provenance.
+
+## C489 — migration-history facts versus independent execution provenance
+
+The read-only audit section 13 exports exactly three database facts per supabase_migrations.schema_migrations row using analyzer-native fields: version, name, and recordedStatementCount (a quoted SQL identifier). These values describe the history table. They do not prove which SQL bytes executed, who executed them, the execution timestamp, a unique execution identifier, or whether a matching source file was run manually outside Supabase CLI.
+
+The repository and supplied evidence currently identify no authenticated authoritative external Production execution-provenance source. No verified Production SQL Editor audit record, deployment execution receipt, platform audit event, or immutable runner receipt is available and cryptographically bound to the project, migration version, exact source blob SHA-1, actor, timestamp and execution identity. CI logs and disposable PostgreSQL runs are not Production execution records. Migration filenames, version prefixes, statement counts, catalog effects, Git commit history and migration-history rows must never be used to synthesize missing execution IDs, actors, timestamps or source hashes.
+
+The reconciliation contract is therefore deliberately fail-closed:
+
+- Accept section 13 fields only as version, name, and recordedStatementCount. Extra executedAt, executedBy, executionId, or sourceBlobSha1 fields in a purported database-history row are rejected as fabricated/unsupported provenance.
+- Candidate externalExecutionProvenance records are untrusted input. Their timestamps are validated, including year-zero rejection, but any supplied candidate records remain unverified because no authenticated authoritative source is configured.
+- A matching catalog plus a migration-history row is classified Schema represented but history ambiguous, never Applied and verified.
+- Absence of both a history row and current catalog effects remains UNKNOWN, not Verified unapplied: it cannot exclude manual, partial, reverted or historical execution without authoritative external evidence.
+- Duplicate version 202607260007 remains ambiguous for both distinct SQL bodies even if a matching history row exists.
+- Only a future independently authenticated, project-bound external execution record that binds the exact source blob, actor, timestamp and execution identity may justify stronger execution-provenance claims. No such source is configured by this change.
+
+The existing Production access limitation remains unchanged. Obtain authorized read-only Production evidence and an independently verifiable external execution record before changing any classification. Do not repair or mutate Production migration history to compensate for missing provenance.
+
 ## C421 synchronization addendum
 
 PR #22 was synchronized with the latest PR #10 branch using a normal two-parent merge commit. The merge commit is `c5bf9d205934e089d310fbc6677ddc5014314689` (tree `ed49efef679ae00b28f22e458256ae26671ada96`); parents are prior PR #22 HEAD `ff53e43e9cee7da4189d0d06b576934589f6bfcb` and PR #10 HEAD `6a3660bbe2fd6beb2ddada43d5e77ff5ac9f3793`. PR #10's single commit beyond the shared base adds only `docs/DELIVERY_RELIABILITY_AUDIT_CYCLE_344.md` (blob `cd02f4ed6548faf84057e1e7c7406ab597778ee2`). No conflicting paths were found; migration 036 and its blob `61a1fbf48b4557873ba6016e74fd3995bc62ba14` are unchanged.

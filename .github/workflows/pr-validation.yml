@@ -63,8 +63,13 @@ jobs:
       - name: Migration inventory and aggregate negative fixtures
         run: node --test scripts/test-migration-inventory-aggregate.mjs
 
+      - name: Production migration audit SQL static safety regressions
+        run: node --test scripts/test-production-migration-readonly-audit.mjs
+
       - name: Migration reconciliation analyzer adversarial security regressions
         run: node --test scripts/test-reconcile-migration-evidence.mjs
+
+
 
       - name: Sprint 12.1 security assertions
         run: node scripts/verify-sprint12-1-security.mjs
@@ -330,8 +335,21 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      postgres_redirect:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: deedlight_migration_order_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d deedlight_migration_order_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       PGPASSWORD: postgres
+      DEEDLIGHT_DISPOSABLE_FIXTURE_AUTHORIZATION: deedlight-postgres16-ci-disposable-v1
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -353,6 +371,19 @@ jobs:
 
       - name: Run migration ordering positive and negative behavior
         run: bash scripts/test-delivery-migration-order.sh
+      - name: Verify PostgreSQL service endpoint identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          primary_service_id="${{ job.services.postgres.id }}"
+          redirect_service_id="${{ job.services.postgres_redirect.id }}"
+          primary_addr="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$primary_service_id")"
+          redirect_addr="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$redirect_service_id")"
+          [[ "$primary_addr" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]
+          [[ "$redirect_addr" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]
+          [[ "$primary_addr" != "$redirect_addr" ]]
+          echo "DEEDLIGHT_EXPECTED_SERVER_ADDR=$primary_addr" >> "$GITHUB_ENV"
+          echo "DEEDLIGHT_REDIRECT_SERVER_ADDR=$redirect_addr" >> "$GITHUB_ENV"
 
       - name: Install pinned Supabase CLI for duplicate migration regression
         uses: supabase/setup-cli@v1
@@ -361,6 +392,17 @@ jobs:
 
       - name: Verify duplicate 007 order and CLI migration semantics
         run: bash scripts/test-duplicate-migration-007.sh
+
+      - name: Production migration audit PostgreSQL 16 behavior and interruption tests
+        run: bash scripts/test-production-migration-readonly-audit-postgres16.sh
+      - name: Preserve PostgreSQL 16 migration-audit diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: migration-audit-postgres16-diagnostics
+          path: ${{ runner.temp }}/deedlight-migration-audit-*
+          if-no-files-found: ignore
+          retention-days: 7
 
   delivery_provider_webhook_database_behavior:
     runs-on: ubuntu-latest
@@ -563,3 +605,64 @@ jobs:
 
       - name: Execute complete SQL Editor aggregate and prove Migration 038 compatibility guards
         run: bash scripts/test-migration-aggregate-postgres.sh
+
+  migration_037_backfill_database_behavior:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: deedlight_migration037_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d deedlight_migration037_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: deedlight_migration037_test
+      DEEDLIGHT_DISPOSABLE_FIXTURE_AUTHORIZATION: deedlight-postgres16-ci-disposable-v1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Fail closed on Production configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PGHOST" = "127.0.0.1"
+          test "$PGDATABASE" = "deedlight_migration037_test"
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}"
+          test -z "${SUPABASE_DB_PASSWORD:-}"
+          test -z "${SUPABASE_ACCESS_TOKEN:-}"
+          test -z "${RESEND_API_KEY:-}"
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Pin disposable PostgreSQL service endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          service_id="${{ job.services.postgres.id }}"
+          service_addr="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$service_id")"
+          [[ "$service_addr" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]
+          echo "DEEDLIGHT_EXPECTED_SERVER_ADDR=$service_addr" >> "$GITHUB_ENV"
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Migration 037 aggregate audit static regressions
+        run: node --test scripts/test-migration-037-backfill-audit.mjs
+
+      - name: Verify Migration 037 aggregate audit on disposable PostgreSQL 16
+        run: bash scripts/test-migration-037-backfill-audit-postgres16.sh

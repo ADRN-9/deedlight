@@ -12,7 +12,7 @@ const CATEGORIES = ["schema", "privileges", "ownership", "routines", "dataTransf
 const CATALOG_KINDS = ["schemas", "tables", "sequences", "columns", "constraints", "indexes", "triggers", "policies", "routines", "privileges", "ownership", "dataTransformations", "backfills", "dependencies", "preconditions", "postconditions"];
 const PRIVILEGE_OBJECT_KINDS = new Set(["tables", "sequences", "routines"]);
 const SCHEMA_KINDS = new Set(["tables", "columns", "constraints", "indexes", "triggers", "policies"]);
-const READ_ONLY_PRIVILEGES = new Set(["CONNECT", "USAGE", "SELECT"]);
+const REQUIRED_ACCESS_SUMMARY = ["DATABASE_CONNECT", "SYSTEM_CATALOG_SELECT", "MIGRATION_HISTORY_SCHEMA_USAGE", "MIGRATION_HISTORY_SELECT"];
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -38,8 +38,9 @@ export function mappingDigest(mapping) {
   return sha256(Buffer.from(canonicalJson(mapping)));
 }
 // Require canonical UTC RFC 3339 timestamps with millisecond precision; reject coercion and calendar normalization.
-function strictTimestamp(value) {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) return NaN;
+export function strictTimestamp(value) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)
+    || value.slice(0, 4) === "0000") return NaN;
   const time = Date.parse(value);
   if (!Number.isFinite(time)) return NaN;
   try {
@@ -50,7 +51,7 @@ function strictTimestamp(value) {
 }
 function parseTime(value, label, reasons) {
   const time = strictTimestamp(value);
-  if (!Number.isFinite(time)) reasons.push(label + " must be a canonical UTC timestamp (YYYY-MM-DDTHH:mm:ss.sssZ)");
+  if (!Number.isFinite(time)) reasons.push(label + " must be a canonical UTC timestamp in years 0001–9999 (YYYY-MM-DDTHH:mm:ss.sssZ)");
   return time;
 }
 function readRegularFile(rootDir, relativePath) {
@@ -82,6 +83,117 @@ function validateSourceInventory(rootDir, manifest) {
   }
   return source;
 }
+export function validateCollectorPrivilegeEvidence(db, inventoryObjects) {
+  const problems = [];
+  if (!db || db.privilegeContractVersion !== "catalog_only_v1") {
+    problems.push("collector privilege evidence contract version is missing or unsupported");
+  }
+  if (!Array.isArray(db && db.requiredAccessSummary)
+    || canonicalJson(db.requiredAccessSummary) !== canonicalJson(REQUIRED_ACCESS_SUMMARY)) {
+    problems.push("collector required-access summary does not match the catalog-only privilege contract");
+  }
+  if (!Array.isArray(db && db.databasePrivileges)
+    || db.databasePrivileges.length !== 1 || db.databasePrivileges[0] !== "CONNECT") {
+    problems.push("collector database-level privilege export is incomplete or not read-only");
+  }
+  if (!Array.isArray(db && db.catalogPrivileges)
+    || db.catalogPrivileges.length !== 1 || db.catalogPrivileges[0] !== "SELECT") {
+    problems.push("collector catalog read privileges are not completely attested");
+  }
+  const inventory = Array.isArray(inventoryObjects) ? inventoryObjects : [];
+  const expectedSchemas = inventory.filter((entry) => entry && entry.kind === "schemas").map((entry) => entry.identity).sort();
+  const expectedObjects = inventory.filter((entry) => entry && PRIVILEGE_OBJECT_KINDS.has(entry.kind))
+    .map((entry) => ({ kind: entry.kind, identity: entry.identity }))
+    .sort((a, b) => String(a.kind).localeCompare(String(b.kind)) || String(a.identity).localeCompare(String(b.identity)));
+  const schemaRows = Array.isArray(db && db.schemaPrivileges) ? db.schemaPrivileges : [];
+  const objectRows = Array.isArray(db && db.objectPrivileges) ? db.objectPrivileges : [];
+  const columnRows = Array.isArray(db && db.columnPrivileges) ? db.columnPrivileges : [];
+  const schemaIds = schemaRows.map((entry) => entry && entry.schema).sort();
+  const objectKeys = objectRows.map((entry) => ({ kind: entry && entry.kind, identity: entry && entry.identity }))
+    .sort((a, b) => String(a.kind).localeCompare(String(b.kind)) || String(a.identity).localeCompare(String(b.identity)));
+  if (!expectedSchemas.length || schemaIds.some((value) => typeof value !== "string")
+    || new Set(schemaIds).size !== schemaIds.length || canonicalJson(schemaIds) !== canonicalJson(expectedSchemas)
+    || schemaRows.some((entry) => {
+      if (!entry) return true;
+      const history = entry.schema === "supabase_migrations";
+      return Object.keys(entry).sort().join(",") !== "privileges,schema,scope"
+        || entry.scope !== (history ? "migration_history" : "application_data")
+        || !Array.isArray(entry.privileges)
+        || canonicalJson(entry.privileges) !== canonicalJson(history ? ["USAGE"] : []);
+    })) {
+    problems.push("collector schema privilege evidence does not match the least-privilege contract: only supabase_migrations USAGE is allowed");
+  }
+  if (!expectedObjects.length || objectKeys.some((entry) => typeof entry.kind !== "string" || typeof entry.identity !== "string")
+    || new Set(objectKeys.map((entry) => entry.kind + "\\0" + entry.identity)).size !== objectKeys.length
+    || canonicalJson(objectKeys) !== canonicalJson(expectedObjects)
+    || objectRows.some((entry) => {
+      if (!entry) return true;
+      const history = entry.kind === "tables" && entry.identity === "supabase_migrations.schema_migrations";
+      return Object.keys(entry).sort().join(",") !== "identity,kind,privileges,scope"
+        || entry.scope !== (history ? "migration_history" : "application_data")
+        || !Array.isArray(entry.privileges)
+        || canonicalJson(entry.privileges) !== canonicalJson(history ? ["SELECT"] : []);
+    })) {
+    problems.push("collector object privilege evidence does not match the least-privilege contract: only migration-history SELECT is allowed");
+  }
+  const expectedColumns = inventory.filter((entry) => entry && entry.kind === "columns")
+    .map((entry) => entry.identity).sort();
+  const columnIds = columnRows.map((entry) => entry && entry.identity).sort();
+  if (!expectedColumns.length || columnIds.some((value) => typeof value !== "string")
+    || new Set(columnIds).size !== columnIds.length || canonicalJson(columnIds) !== canonicalJson(expectedColumns)
+    || columnRows.some((entry) => {
+      if (!entry) return true;
+      const history = entry.identity.startsWith("supabase_migrations.schema_migrations.");
+      return Object.keys(entry).sort().join(",") !== "identity,privileges,scope"
+        || entry.scope !== (history ? "migration_history" : "application_data")
+        || !Array.isArray(entry.privileges)
+        || canonicalJson(entry.privileges) !== canonicalJson(history ? ["SELECT"] : []);
+    })) {
+    problems.push("collector column privilege evidence does not match the least-privilege contract: only migration-history SELECT is allowed");
+  }
+  return problems;
+}
+export function normalizeMigrationHistoryRows(tuples) {
+  assert(Array.isArray(tuples), "migration-history SQL output must be an array of rows");
+  return tuples.map((tuple, index) => {
+    assert(Array.isArray(tuple) && tuple.length === 3,
+      "migration-history SQL row " + index + " must contain exactly version, name and recorded statement count");
+    const [version, name, rawCount] = tuple;
+    const normalizedName = name === "NULL" || name === "\\N" || name === null ? null : name;
+    assert(typeof version === "string" && (normalizedName === null || (typeof normalizedName === "string" && normalizedName.trim())),
+      "migration-history SQL row " + index + " is missing version or has an invalid name");
+    let recordedStatementCount = rawCount;
+    if (rawCount === "NULL" || rawCount === "\\N" || rawCount === null) recordedStatementCount = null;
+    else if (typeof rawCount === "string" && /^(0|[1-9][0-9]*)$/.test(rawCount)) recordedStatementCount = Number(rawCount);
+    assert(recordedStatementCount === null || (Number.isSafeInteger(recordedStatementCount) && recordedStatementCount >= 0),
+      "migration-history SQL row " + index + " has an invalid recorded statement count");
+    return { version, name: normalizedName, recordedStatementCount };
+  });
+}
+
+export function validateMigrationHistoryRows(rows, manifest) {
+  const problems = [];
+  if (!Array.isArray(rows)) return ["migration history export is incomplete"];
+  const versions = new Set(manifest.migrations.map((item) => item.version));
+  const seenVersions = new Set();
+  for (const row of rows) {
+    if (!row || Object.keys(row).sort().join(",") !== "name,recordedStatementCount,version"
+      || typeof row.version !== "string" || !/^[0-9]{12}$/.test(row.version) || !versions.has(row.version)) {
+      problems.push("migration history row must contain only recognized version, name and recorded statement-count database facts");
+      continue;
+    }
+    if (seenVersions.has(row.version)) {
+      problems.push("migration history contains duplicate version rows despite the required version primary key");
+    } else {
+      seenVersions.add(row.version);
+    }
+    if ((row.name !== null && (typeof row.name !== "string" || !row.name.trim()))
+      || (row.recordedStatementCount !== null && (!Number.isSafeInteger(row.recordedStatementCount) || row.recordedStatementCount < 0))) {
+      problems.push("migration history row has an invalid migration name or recorded statement count");
+    }
+  }
+  return problems;
+}
 function verifySignedArtifact(artifact, requiredKind, requiredRole, trustRoots, now, problems) {
   if (!artifact || artifact.schemaVersion !== 1 || artifact.kind !== requiredKind) {
     problems.push(requiredKind + " signed artifact is missing or has an unsupported schema/kind");
@@ -101,8 +213,18 @@ function verifySignedArtifact(artifact, requiredKind, requiredRole, trustRoots, 
   }
   const keyStart = parseTime(key.notBefore, requiredKind + " trust-root notBefore", problems);
   const keyEnd = parseTime(key.notAfter, requiredKind + " trust-root notAfter", problems);
-  if (!Number.isFinite(keyStart) || !Number.isFinite(keyEnd) || keyEnd <= keyStart || now < keyStart || now > keyEnd || key.revokedAt) {
-    problems.push(requiredKind + " signing key is outside its validity window or revoked");
+  if (!Object.prototype.hasOwnProperty.call(key, "revokedAt")) {
+    problems.push(requiredKind + " trust-root revokedAt must be explicitly null for an active key");
+    return null;
+  }
+  if (key.revokedAt !== null) {
+    const revokedAt = parseTime(key.revokedAt, requiredKind + " trust-root revokedAt", problems);
+    if (Number.isFinite(revokedAt)) problems.push(requiredKind + " signing key is revoked");
+    else problems.push(requiredKind + " trust-root revokedAt must be null or a canonical UTC timestamp in years 0001–9999");
+    return null;
+  }
+  if (!Number.isFinite(keyStart) || !Number.isFinite(keyEnd) || keyEnd <= keyStart || now < keyStart || now > keyEnd) {
+    problems.push(requiredKind + " signing key is outside its validity window");
     return null;
   }
   if (!artifact.approvalId || (Array.isArray(trustRoots.revokedApprovalIds) && trustRoots.revokedApprovalIds.includes(artifact.approvalId))) {
@@ -205,46 +327,78 @@ function validateCollectorAuthority(claims, provenance, evidenceDigest, authorit
   for (const flag of ["isSuperuser", "canCreateRole", "canCreateDatabase", "bypassRls", "isReplication", "ownsObjects"]) {
     if (db[flag] !== false) problems.push("collector database role is elevated or its " + flag + " status is not proven false");
   }
-  if (!Array.isArray(db.effectivePrivileges)
-    || db.effectivePrivileges.length !== READ_ONLY_PRIVILEGES.size
-    || [...READ_ONLY_PRIVILEGES].some((privilege) => !db.effectivePrivileges.includes(privilege))
-    || db.effectivePrivileges.some((privilege) => !READ_ONLY_PRIVILEGES.has(privilege))) {
-    problems.push("collector effective privileges are not exactly CONNECT, USAGE and SELECT");
-  }
   if (!Array.isArray(db.databasePrivileges)
     || db.databasePrivileges.length !== 1 || db.databasePrivileges[0] !== "CONNECT") {
     problems.push("collector database-level privilege export is incomplete or not read-only");
   }
+  // The complete database_acl_v1 projection is part of the signed result, not optional metadata.
+  const databaseAclRows = db.databaseAclV1;
+  if (!Array.isArray(databaseAclRows) || databaseAclRows.length === 0) {
+    problems.push("collector complete database_acl_v1 projection is missing");
+  } else {
+    const rowKeys = ["acl_expansion_source", "allows_connections", "database_count", "database_name", "database_oid",
+      "datacl_was_null", "expanded_acl_edges", "is_template", "owner_name", "owner_oid"];
+    const edgeKeys = ["grantee_name", "grantee_oid", "grantor_name", "grantor_oid", "is_grantable", "privilege_type"];
+    const seenDatabases = new Set();
+    let previousDatabaseOid = -1;
+    for (const row of databaseAclRows) {
+      if (!row || Object.keys(row).sort().join(",") !== [...rowKeys].sort().join(",")
+        || !Number.isSafeInteger(row.database_oid) || row.database_oid <= 0
+        || !Number.isSafeInteger(row.database_count) || row.database_count !== databaseAclRows.length
+        || row.database_oid <= previousDatabaseOid
+        || typeof row.database_name !== "string" || !row.database_name.trim()
+        || !Number.isSafeInteger(row.owner_oid) || row.owner_oid <= 0
+        || typeof row.owner_name !== "string" || !row.owner_name.trim()
+        || typeof row.allows_connections !== "boolean" || typeof row.is_template !== "boolean"
+        || typeof row.datacl_was_null !== "boolean"
+        || row.acl_expansion_source !== (row.datacl_was_null ? "built_in_default" : "explicit")
+        || !Array.isArray(row.expanded_acl_edges)) {
+        problems.push("collector database_acl_v1 projection contains an incomplete, malformed or unordered database row");
+        break;
+      }
+      previousDatabaseOid = row.database_oid;
+      if (seenDatabases.has(row.database_oid)) {
+        problems.push("collector database_acl_v1 projection repeats a database identity");
+        break;
+      }
+      seenDatabases.add(row.database_oid);
+      let previousEdge = null;
+      const seenEdges = new Set();
+      for (const edge of row.expanded_acl_edges) {
+        if (!edge || Object.keys(edge).sort().join(",") !== [...edgeKeys].sort().join(",")
+          || !Number.isSafeInteger(edge.grantee_oid) || edge.grantee_oid < 0
+          || !Number.isSafeInteger(edge.grantor_oid) || edge.grantor_oid <= 0
+          || typeof edge.grantee_name !== "string" || !edge.grantee_name.trim()
+          || (edge.grantee_oid === 0 ? edge.grantee_name !== "PUBLIC" : edge.grantee_name === "PUBLIC")
+          || typeof edge.grantor_name !== "string" || !edge.grantor_name.trim()
+          || !["CONNECT", "CREATE", "TEMPORARY"].includes(edge.privilege_type)
+          || typeof edge.is_grantable !== "boolean") {
+          problems.push("collector database_acl_v1 projection contains a malformed ACL edge");
+          break;
+        }
+        const edgeIdentity = canonicalJson(edge);
+        if (seenEdges.has(edgeIdentity)) {
+          problems.push("collector database_acl_v1 projection repeats an ACL edge");
+          break;
+        }
+        seenEdges.add(edgeIdentity);
+        if (previousEdge && (previousEdge.grantee_oid > edge.grantee_oid
+          || (previousEdge.grantee_oid === edge.grantee_oid && previousEdge.grantor_oid > edge.grantor_oid)
+          || (previousEdge.grantee_oid === edge.grantee_oid && previousEdge.grantor_oid === edge.grantor_oid
+            && previousEdge.privilege_type > edge.privilege_type)
+          || (previousEdge.grantee_oid === edge.grantee_oid && previousEdge.grantor_oid === edge.grantor_oid
+            && previousEdge.privilege_type === edge.privilege_type
+            && Number(previousEdge.is_grantable) > Number(edge.is_grantable)))) {
+          problems.push("collector database_acl_v1 ACL edges are not in canonical order");
+          break;
+        }
+        previousEdge = edge;
+      }
+    }
+  }
   const inventoryObjects = evidence && evidence.catalog && Array.isArray(evidence.catalog.objects) ? evidence.catalog.objects : [];
-  const expectedSchemas = inventoryObjects.filter((entry) => entry && entry.kind === "schemas").map((entry) => entry.identity).sort();
-  const expectedObjects = inventoryObjects.filter((entry) => entry && PRIVILEGE_OBJECT_KINDS.has(entry.kind))
-    .map((entry) => ({ kind: entry.kind, identity: entry.identity })).sort((a, b) => String(a.kind).localeCompare(String(b.kind)) || String(a.identity).localeCompare(String(b.identity)));
-  const schemaRows = Array.isArray(db.schemaPrivileges) ? db.schemaPrivileges : [];
-  const objectRows = Array.isArray(db.objectPrivileges) ? db.objectPrivileges : [];
-  const schemaIds = schemaRows.map((entry) => entry && entry.schema).sort();
-  const objectKeys = objectRows.map((entry) => ({ kind: entry && entry.kind, identity: entry && entry.identity }))
-    .sort((a, b) => String(a.kind).localeCompare(String(b.kind)) || String(a.identity).localeCompare(String(b.identity)));
-  if (!expectedSchemas.length
-    || schemaIds.some((value) => typeof value !== "string") || new Set(schemaIds).size !== schemaIds.length
-    || canonicalJson(schemaIds) !== canonicalJson(expectedSchemas)
-    || schemaRows.some((entry) => !entry || Object.keys(entry).sort().join(",") !== "privileges,schema"
-      || !Array.isArray(entry.privileges) || entry.privileges.length !== 1 || entry.privileges[0] !== "USAGE")) {
-    problems.push("collector schema privilege identities do not exactly match the complete schema catalog inventory");
-  }
-  if (!expectedObjects.length
-    || objectKeys.some((entry) => typeof entry.kind !== "string" || typeof entry.identity !== "string")
-    || new Set(objectKeys.map((entry) => entry.kind + "\0" + entry.identity)).size !== objectKeys.length
-    || canonicalJson(objectKeys) !== canonicalJson(expectedObjects)
-    || objectRows.some((entry) => {
-      if (!entry) return true;
-      const expectedPrivileges = entry.kind === "routines" ? [] : ["SELECT"];
-      return Object.keys(entry).sort().join(",") !== "identity,kind,privileges"
-        || !Array.isArray(entry.privileges) || canonicalJson(entry.privileges) !== canonicalJson(expectedPrivileges);
-    })) {
-    problems.push("collector object privilege identities do not exactly match the complete table, sequence and routine catalog inventory, or routines have execution privileges");
-  }
-  if (!Array.isArray(db.catalogPrivileges)
-    || db.catalogPrivileges.length !== 1 || db.catalogPrivileges[0] !== "SELECT") {
+  problems.push(...validateCollectorPrivilegeEvidence(db, inventoryObjects));
+  if (!Array.isArray(db.catalogPrivileges) || db.catalogPrivileges.length !== 1 || db.catalogPrivileges[0] !== "SELECT") {
     problems.push("collector catalog read privileges are not completely attested");
   }
   if (!Array.isArray(db.roleMemberships) || db.roleMemberships.length !== 0) {
@@ -365,29 +519,19 @@ function validateEvidence(evidence, now, manifest, problems) {
     }
   }
   if (evidence && evidence.history && Array.isArray(evidence.history.rows)) {
-    const versions = new Set(manifest.migrations.map((item) => item.version));
-    const executionIds = new Set();
-    for (const row of evidence.history.rows) {
-      const executedAt = strictTimestamp(row && row.executedAt);
-      const capturedAt = strictTimestamp(evidence.provenance && evidence.provenance.capturedAt);
-      if (!row || typeof row.version !== "string" || !/^[0-9]{12}$/.test(row.version) || !versions.has(row.version)) {
-        problems.push("migration history contains malformed or unrecognized version");
-      } else if (typeof row.name !== "string" || !row.name.trim()
-        || !Number.isFinite(executedAt)
-        || typeof row.executedBy !== "string" || !row.executedBy.trim()
-        || typeof row.executionId !== "string" || !row.executionId.trim()) {
-        problems.push("migration history row lacks exact name or valid execution metadata");
-      } else if (executionIds.has(row.executionId)) {
-        problems.push("migration history reuses an execution ID and cannot establish exact execution identity");
-      } else {
-        executionIds.add(row.executionId);
+    problems.push(...validateMigrationHistoryRows(evidence.history.rows, manifest));
+  }
+  // Candidate external records are untrusted input. No authenticated Production execution-provenance
+  // authority is currently configured or present in the supplied evidence; never promote these records.
+  if (evidence && evidence.externalExecutionProvenance !== undefined) {
+    if (!Array.isArray(evidence.externalExecutionProvenance)) {
+      problems.push("external migration execution provenance must be an array of candidate records");
+    } else {
+      for (const record of evidence.externalExecutionProvenance) {
+        parseTime(record && record.executedAt, "external migration execution timestamp", problems);
       }
-      if (row?.sourceBlobSha1 !== undefined && !/^[a-f0-9]{40}$/.test(row.sourceBlobSha1)) {
-        problems.push("migration history source blob identity is malformed");
-      }
-      if (Number.isFinite(executedAt) && Number.isFinite(capturedAt)
-        && (executedAt > capturedAt || capturedAt > now)) {
-        problems.push("migration execution timestamp must satisfy executedAt <= evidence capturedAt <= current time");
+      if (evidence.externalExecutionProvenance.length > 0) {
+        problems.push("external migration execution provenance is unverified: no authenticated authoritative source is configured");
       }
     }
   }
@@ -412,25 +556,22 @@ function classifyOne(item, manifest, evidence, source, mappedEffects) {
   const rows = evidence.history.rows.filter((row) => row.version === item.version);
   const duplicateVersion = manifest.migrations.filter((entry) => entry.version === item.version).length > 1;
   const expectedName = path.basename(item.path).replace(/^\d{12}_/, "").replace(/\.sql$/, "");
-  const exactRows = rows.filter((row) => row.name === expectedName && row.sourceBlobSha1 === item.blobSha1
-    && Number.isFinite(strictTimestamp(row.executedAt)) && typeof row.executedBy === "string" && typeof row.executionId === "string");
-  const wrongName = rows.some((row) => row.name !== expectedName);
+  const nullableName = rows.some((row) => row.name === null);
+  const wrongName = rows.some((row) => row.name !== null && row.name !== expectedName);
   if (matches.length === expected.length) {
-    if (duplicateVersion || rows.length !== 1 || exactRows.length !== 1) {
-      return {
-        status: "Schema represented but history ambiguous",
-        schemaRepresented: true,
-        historyRecorded: rows.length > 0,
-        reasons: [duplicateVersion ? "duplicate migration version cannot establish exact source execution"
+    return {
+      status: "Schema represented but history ambiguous",
+      schemaRepresented: true,
+      historyRecorded: rows.length > 0,
+      reasons: [duplicateVersion ? "duplicate migration version cannot establish exact source execution"
+        : nullableName ? "migration-history name is NULL; version and statement count cannot identify the executed source file"
           : wrongName ? "history version is associated with a different migration name"
-            : rows.length === 0 ? "schema effects exist without a history record"
-              : "history does not bind the exact source blob and execution metadata"],
-        matchedObjects: matches.length,
-        historyRows: rows.length,
-        exactExecutionEstablished: false,
-      };
-    }
-    return { status: "Applied and verified", schemaRepresented: true, historyRecorded: true, reasons: [], matchedObjects: matches.length, historyRows: rows.length, exactExecutionEstablished: true };
+            : rows.length === 0 ? "schema effects exist without a migration-history row"
+              : "schema_migrations records version, name and statement count only; no authenticated external provenance binds the executed source blob, actor, timestamp or execution identity"],
+      matchedObjects: matches.length,
+      historyRows: rows.length,
+      exactExecutionEstablished: false,
+    };
   }
   if (matches.length > 0 || mismatches.length > 0 || rows.length > 0) {
     return {
@@ -441,22 +582,32 @@ function classifyOne(item, manifest, evidence, source, mappedEffects) {
         ...(matches.length ? [matches.length + " of " + expected.length + " expected effects match"] : []),
         ...(mismatches.length ? [mismatches.length + " effects have conflicting fingerprints"] : []),
         ...(missing.length ? [missing.length + " expected effects are absent"] : []),
-        ...(rows.length ? ["migration history exists but mapped effects are incomplete or drifted"] : []),
+        ...(nullableName ? ["migration-history name is NULL; the incomplete record cannot identify the executed source file"] : []),
+        ...(wrongName ? ["migration-history name does not match the pinned source migration"] : []),
+        ...(rows.length && !nullableName && !wrongName ? ["migration history exists but mapped effects are incomplete or drifted"] : []),
       ],
       matchedObjects: matches.length,
       historyRows: rows.length,
       exactExecutionEstablished: false,
     };
   }
-  return { status: "Verified unapplied", schemaRepresented: false, historyRecorded: false, reasons: ["complete authenticated history and effect exports show no execution or represented effects"], matchedObjects: 0, historyRows: 0, exactExecutionEstablished: false };
+  return { status: "Unknown", schemaRepresented: false, historyRecorded: false,
+    reasons: ["absence of a migration-history row and current catalog effects cannot prove no manual, partial or historical execution without authenticated external execution provenance"],
+    matchedObjects: 0, historyRows: 0, exactExecutionEstablished: false };
 }
 export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approvals, trustRoots, expectedInventoryBlobSha1 = INVENTORY_BLOB_SHA1 }) {
   const problems = [];
   const now = Date.now();
   // Captured at process startup: callers cannot replace the trusted digest through API arguments or later env mutation.
   const trustedTrustRootsSha256 = PROVISIONED_TRUST_ROOTS_SHA256;
-  if (!trustRoots || trustRoots.schemaVersion !== 1 || !Array.isArray(trustRoots.keys)) problems.push("external trust-root bundle is missing or malformed");
-  else {
+  const trustRootBundleKeys = ["keys", "revokedApprovalIds", "schemaVersion"];
+  const requiredTrustRootBundleKeys = ["keys", "schemaVersion"];
+  if (!trustRoots || typeof trustRoots !== "object" || Array.isArray(trustRoots)
+    || trustRoots.schemaVersion !== 1 || !Array.isArray(trustRoots.keys)
+    || requiredTrustRootBundleKeys.some((key) => !Object.prototype.hasOwnProperty.call(trustRoots, key))
+    || Object.keys(trustRoots).some((key) => !trustRootBundleKeys.includes(key))) {
+    problems.push("external trust-root bundle is missing, malformed or contains unsupported fields");
+  } else {
     const rootDigest = sha256(Buffer.from(canonicalJson(trustRoots)));
     if (!/^[a-f0-9]{64}$/.test(trustedTrustRootsSha256 || "") || trustedTrustRootsSha256 !== rootDigest) {
       problems.push("external trust roots do not match the independently provisioned trust-root digest");
@@ -465,8 +616,13 @@ export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approval
     if (new Set(keyIds).size !== keyIds.length) problems.push("trust-root bundle contains duplicate key IDs");
     const publicKeyFingerprints = new Set();
     const allowedRoles = new Set(["evidence-approver", "mapping-approver", "collector"]);
+    const allowedTrustRootKeyFields = ["algorithm", "keyId", "notAfter", "notBefore", "publicKeyPem", "revokedAt", "role", "signerId", "status"];
     for (const key of trustRoots.keys) {
-      if (!key || typeof key.keyId !== "string" || !key.keyId || typeof key.signerId !== "string" || !key.signerId
+      if (!key || typeof key !== "object" || Array.isArray(key)
+        || Object.keys(key).length !== allowedTrustRootKeyFields.length
+        || Object.keys(key).some((field) => !allowedTrustRootKeyFields.includes(field))
+        || allowedTrustRootKeyFields.some((field) => !Object.prototype.hasOwnProperty.call(key, field))
+        || typeof key.keyId !== "string" || !key.keyId || typeof key.signerId !== "string" || !key.signerId
         || key.algorithm !== "Ed25519" || !allowedRoles.has(key.role)
         || typeof key.publicKeyPem !== "string" || key.publicKeyPem.length > 4096 || key.publicKeyPem.includes("PRIVATE KEY")) {
         problems.push("trust-root bundle contains an unsupported key, role or private signing material");
@@ -485,6 +641,10 @@ export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approval
         problems.push("trust-root bundle contains an invalid public key");
       }
       if (!["active", "revoked"].includes(key.status)) problems.push("trust-root key status is unsupported");
+      if (key.status === "active"
+        && (!Object.prototype.hasOwnProperty.call(key, "revokedAt") || key.revokedAt !== null)) {
+        problems.push("every active trust-root key must explicitly provide revokedAt: null");
+      }
     }
     if (trustRoots.revokedApprovalIds !== undefined && !Array.isArray(trustRoots.revokedApprovalIds)) {
       problems.push("trust-root revoked approval registry is malformed");

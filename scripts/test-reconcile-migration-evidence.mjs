@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { analyzeMigrationEvidence, canonicalJson, evidencePayload, mappingDigest } from "./reconcile-migration-evidence.mjs";
+import { analyzeMigrationEvidence, canonicalJson, evidencePayload, mappingDigest, normalizeMigrationHistoryRows, strictTimestamp, validateCollectorPrivilegeEvidence, validateMigrationHistoryRows } from "./reconcile-migration-evidence.mjs";
 
 const repoRoot = process.cwd();
 const sourceManifest = JSON.parse(readFileSync(path.join(repoRoot, "supabase/migration-inventory.json"), "utf8"));
@@ -15,9 +15,16 @@ const categories = ["schema", "privileges", "ownership", "routines", "dataTransf
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const keys = Object.fromEntries(["evidence-approver", "mapping-approver", "collector"].map((role) => [role, generateKeyPairSync("ed25519")]));
 const signerIds = { "evidence-approver": "fixture-evidence-authority", "mapping-approver": "fixture-mapping-authority", collector: "fixture-collector-authority" };
+const fixtureTime = (offsetMs = 0) => new Date(Date.now() + offsetMs).toISOString();
+const FIXTURE_CAPTURED_AT = fixtureTime(-30 * 60 * 1000);
+const FIXTURE_APPROVED_AT = fixtureTime(-29 * 60 * 1000);
+const FIXTURE_EXPIRES_AT = fixtureTime(6 * 60 * 60 * 1000);
+const FIXTURE_EXECUTION_STARTED_AT = fixtureTime(-40 * 60 * 1000);
+const FIXTURE_EXECUTION_COMPLETED_AT = fixtureTime(-35 * 60 * 1000);
+const FIXTURE_HISTORY_EXECUTED_AT = fixtureTime(-90 * 60 * 1000);
 
 function artifact(kind, role, claims, overrides = {}) {
-  const now = "2026-11-25T01:00:00.000Z";
+  const now = FIXTURE_APPROVED_AT;
   const unsigned = {
     schemaVersion: 1,
     kind,
@@ -25,7 +32,7 @@ function artifact(kind, role, claims, overrides = {}) {
     keyId: role + "-key-1",
     approvalId: role + "-approval-1",
     issuedAt: now,
-    expiresAt: "2026-11-25T12:00:00.000Z",
+    expiresAt: FIXTURE_EXPIRES_AT,
     claims,
     ...overrides,
   };
@@ -85,7 +92,11 @@ function fixture() {
   const catalog = [
     ...expected.map((effect) => ({ kind: effect.kind, identity: effect.identity, fingerprint: effect.fingerprint })),
     { kind: "schemas", identity: "public", fingerprint: hash("schema:public") },
+    { kind: "schemas", identity: "supabase_migrations", fingerprint: hash("schema:supabase_migrations") },
     { kind: "tables", identity: "public.profiles", fingerprint: hash("table:public.profiles") },
+    { kind: "tables", identity: "supabase_migrations.schema_migrations", fingerprint: hash("table:supabase_migrations.schema_migrations") },
+    { kind: "columns", identity: "public.profiles.id", fingerprint: hash("column:public.profiles.id") },
+    { kind: "columns", identity: "supabase_migrations.schema_migrations.version", fingerprint: hash("column:history.version") },
   ];
   const historyRows = [];
   const byVersion = new Map();
@@ -96,10 +107,7 @@ function fixture() {
     historyRows.push({
       version,
       name: path.basename(item.path).replace(/^\d{12}_/, "").replace(/\.sql$/, ""),
-      sourceBlobSha1: item.blobSha1,
-      executedAt: "2026-11-24T23:00:00.000Z",
-      executedBy: "supabase_migration_runner",
-      executionId: "fixture-execution-" + version,
+      recordedStatementCount: 12,
     });
   }
   const evidence = {
@@ -107,7 +115,7 @@ function fixture() {
     provenance: {
       environment: "production",
       projectRef: "xaipiovflxomcbfwtwmu",
-      capturedAt: "2026-11-25T00:30:00.000Z",
+      capturedAt: FIXTURE_CAPTURED_AT,
       collectorIdentity: "fixture-read-only-exporter",
       queryBundleSha256: hash("reviewed-read-only-query-bundle"),
     },
@@ -156,18 +164,51 @@ function fixture() {
         bypassRls: false,
         isReplication: false,
         ownsObjects: false,
-        effectivePrivileges: ["CONNECT", "USAGE", "SELECT"],
+        privilegeContractVersion: "catalog_only_v1",
+        requiredAccessSummary: ["DATABASE_CONNECT", "SYSTEM_CATALOG_SELECT", "MIGRATION_HISTORY_SCHEMA_USAGE", "MIGRATION_HISTORY_SELECT"],
         databasePrivilegesComplete: true,
         databasePrivileges: ["CONNECT"],
+        databaseAclV1: [{
+          database_count: 1,
+          database_oid: 100,
+          database_name: "deedlight_fixture",
+          allows_connections: true,
+          is_template: false,
+          owner_oid: 10,
+          owner_name: "postgres",
+          datacl_was_null: false,
+          acl_expansion_source: "explicit",
+          expanded_acl_edges: [{
+            grantee_oid: 10,
+            grantee_name: "postgres",
+            grantor_oid: 10,
+            grantor_name: "postgres",
+            privilege_type: "CONNECT",
+            is_grantable: true,
+          }],
+        }],
         schemaPrivilegesComplete: true,
         schemaPrivileges: evidence.catalog.objects.filter((entry) => entry.kind === "schemas")
-          .map((entry) => ({ schema: entry.identity, privileges: ["USAGE"] })),
+          .map((entry) => ({
+            schema: entry.identity,
+            scope: entry.identity === "supabase_migrations" ? "migration_history" : "application_data",
+            privileges: entry.identity === "supabase_migrations" ? ["USAGE"] : [],
+          })),
         objectPrivilegesComplete: true,
         objectPrivileges: evidence.catalog.objects.filter((entry) => ["tables", "sequences", "routines"].includes(entry.kind))
           .map((entry) => ({
             kind: entry.kind,
             identity: entry.identity,
-            privileges: entry.kind === "routines" ? [] : ["SELECT"],
+            scope: entry.kind === "tables" && entry.identity === "supabase_migrations.schema_migrations"
+              ? "migration_history" : "application_data",
+            privileges: entry.kind === "tables" && entry.identity === "supabase_migrations.schema_migrations" ? ["SELECT"] : [],
+          })),
+        columnPrivilegesComplete: true,
+        columnPrivileges: evidence.catalog.objects.filter((entry) => entry.kind === "columns")
+          .map((entry) => ({
+            identity: entry.identity,
+            scope: entry.identity.startsWith("supabase_migrations.schema_migrations.") ? "migration_history" : "application_data",
+            privileges: entry.identity.startsWith("supabase_migrations.schema_migrations.") ? ["SELECT"] : [],
           })),
         catalogPrivilegesComplete: true,
         catalogPrivileges: ["SELECT"],
@@ -183,8 +224,8 @@ function fixture() {
         capturedAt: common.capturedAt,
         queryBundleSha256: common.queryBundleSha256,
         executionId,
-        startedAt: "2026-11-25T00:20:00.000Z",
-        completedAt: "2026-11-25T00:25:00.000Z",
+        startedAt: FIXTURE_EXECUTION_STARTED_AT,
+        completedAt: FIXTURE_EXECUTION_COMPLETED_AT,
         completed: true,
         readOnlyTransaction: true,
         statementCount: 4,
@@ -268,6 +309,31 @@ function fixture() {
   return f;
 }
 
+test("nullable migration-history names normalize and validate without establishing execution", () => {
+  const rows = normalizeMigrationHistoryRows([
+    ["202607260004", "\\N", "12"],
+    ["202607260005", "sprint5_moderation", "NULL"],
+  ]);
+  assert.deepEqual(rows, [
+    { version: "202607260004", name: null, recordedStatementCount: 12 },
+    { version: "202607260005", name: "sprint5_moderation", recordedStatementCount: null },
+  ]);
+  assert.deepEqual(validateMigrationHistoryRows(rows, sourceManifest), []);
+  const f = fixture();
+  try {
+    const row = f.evidence.history.rows.find((entry) => entry.version === "202607260004");
+    row.name = null;
+    f.reapprove();
+    const report = f.analyze();
+    assert.equal(report.trustVerified, true);
+    assert.equal(report.acceptance, "NOT_ACCEPTED");
+    assert.equal(report.counts["Applied and verified"], 0);
+    const classification = report.classifications.find((entry) => entry.version === "202607260004");
+    assert.equal(classification.status, "Schema represented but history ambiguous");
+    assert.ok(classification.reasons.some((reason) => reason.includes("name is NULL")));
+  } finally { f.cleanup(); }
+});
+
 test("verifies signed approvals and collector authority; duplicate 007 remains explicitly ambiguous", () => {
   const f = fixture();
   try {
@@ -279,7 +345,8 @@ test("verifies signed approvals and collector authority; duplicate 007 remains e
     assert.equal(duplicate.length, 2);
     assert.ok(duplicate.every((item) => item.status === "Schema represented but history ambiguous"));
     assert.ok(duplicate.every((item) => item.exactExecutionEstablished === false));
-    assert.equal(report.counts["Applied and verified"], 37);
+    assert.equal(report.counts["Applied and verified"], 0);
+    assert.equal(report.counts["Schema represented but history ambiguous"], 39);
     assert.equal(report.acceptance, "NOT_ACCEPTED");
     assert.equal(report.mutationPerformed, false);
   } finally { f.cleanup(); }
@@ -325,13 +392,115 @@ test("forged approval signature fails cryptographic verification", () => {
   } finally { f.cleanup(); }
 });
 
+test("approval signature from an unauthorized Ed25519 key fails cryptographic verification", () => {
+  const f = fixture();
+  try {
+    const approval = f.approvals.evidenceApproval;
+    const unsigned = { ...approval };
+    delete unsigned.signature;
+    approval.signature = sign(null, Buffer.from(canonicalJson(unsigned)), keys["mapping-approver"].privateKey).toString("base64");
+    const report = f.analyze();
+    assert.equal(report.counts.Unknown, 39);
+    assert.equal(report.acceptance, "NOT_ACCEPTED");
+    assert.ok(report.trustProblems.some((reason) => reason.includes("signature verification failed")));
+  } finally { f.cleanup(); }
+});
+
+test("active trust roots require explicit null revokedAt; malformed and revoked values fail closed", () => {
+  const mutations = [
+    ["empty string", (key) => { key.revokedAt = ""; }, /revokedAt.*canonical UTC timestamp/],
+    ["false", (key) => { key.revokedAt = false; }, /revokedAt.*canonical UTC timestamp/],
+    ["zero", (key) => { key.revokedAt = 0; }, /revokedAt.*canonical UTC timestamp/],
+    ["object", (key) => { key.revokedAt = {}; }, /revokedAt.*canonical UTC timestamp/],
+    ["array", (key) => { key.revokedAt = []; }, /revokedAt.*canonical UTC timestamp/],
+    ["year zero", (key) => { key.revokedAt = "0000-01-01T00:00:00.000Z"; }, /revokedAt.*canonical UTC timestamp/],
+    ["malformed timestamp", (key) => { key.revokedAt = "not-a-timestamp"; }, /revokedAt.*canonical UTC timestamp/],
+    ["valid timestamp", (key) => { key.revokedAt = fixtureTime(-60000); }, /signing key is revoked/],
+    ["absent", (key) => { delete key.revokedAt; }, /revokedAt must be explicitly null/],
+  ];
+  for (const [label, mutate, expected] of mutations) {
+    const f = fixture();
+    try {
+      mutate(f.trustRoots.keys.find((key) => key.role === "evidence-approver"));
+      const report = f.analyze();
+      assert.equal(report.counts.Unknown, 39, label);
+      assert.equal(report.acceptance, "NOT_ACCEPTED", label);
+      assert.ok(report.trustProblems.some((reason) => expected.test(reason)), label + ": " + report.trustProblems.join("; "));
+    } finally { f.cleanup(); }
+  }
+  const active = fixture();
+  try {
+    const report = active.analyze();
+    assert.equal(report.trustVerified, true);
+    assert.equal(report.trustProblems.length, 0);
+  } finally { active.cleanup(); }
+});
+test("every active trust root requires explicit null revokedAt, including unused roots", () => {
+  const mutations = [
+    ["absent", (key) => { delete key.revokedAt; }],
+    ["empty string", (key) => { key.revokedAt = ""; }],
+    ["false", (key) => { key.revokedAt = false; }],
+    ["zero", (key) => { key.revokedAt = 0; }],
+    ["object", (key) => { key.revokedAt = {}; }],
+    ["array", (key) => { key.revokedAt = []; }],
+    ["malformed timestamp", (key) => { key.revokedAt = "not-a-timestamp"; }],
+    ["revocation timestamp on active key", (key) => { key.revokedAt = fixtureTime(-60000); }],
+  ];
+  for (const [label, mutate] of mutations) {
+    const f = fixture();
+    try {
+      const unusedPair = generateKeyPairSync("ed25519");
+      const unusedRoot = {
+        keyId: "unused-active-key",
+        signerId: "unused-active-authority",
+        role: "mapping-approver",
+        algorithm: "Ed25519",
+        status: "active",
+        publicKeyPem: unusedPair.publicKey.export({ type: "spki", format: "pem" }).toString(),
+        notBefore: "2026-01-01T00:00:00.000Z",
+        notAfter: "2027-01-01T00:00:00.000Z",
+        revokedAt: null,
+      };
+      mutate(unusedRoot);
+      f.trustRoots.keys.push(unusedRoot);
+      const report = f.analyze();
+      assert.equal(report.trustVerified, false, label);
+      assert.equal(report.counts.Unknown, 39, label);
+      assert.equal(report.acceptance, "NOT_ACCEPTED", label);
+      const expectedProblem = label === "absent"
+        ? "trust-root bundle contains an unsupported key, role or private signing material"
+        : "every active trust-root key must explicitly provide revokedAt: null";
+      assert.ok(report.trustProblems.some((reason) => reason.includes(expectedProblem)), label);
+    } finally { f.cleanup(); }
+  }
+
+  const valid = fixture();
+  try {
+    const unusedPair = generateKeyPairSync("ed25519");
+    valid.trustRoots.keys.push({
+      keyId: "unused-active-key",
+      signerId: "unused-active-authority",
+      role: "mapping-approver",
+      algorithm: "Ed25519",
+      status: "active",
+      publicKeyPem: unusedPair.publicKey.export({ type: "spki", format: "pem" }).toString(),
+      notBefore: "2026-01-01T00:00:00.000Z",
+      notAfter: "2027-01-01T00:00:00.000Z",
+      revokedAt: null,
+    });
+    const report = valid.analyze();
+    assert.equal(report.trustVerified, true);
+    assert.equal(report.trustProblems.length, 0);
+  } finally { valid.cleanup(); }
+});
+
 test("expired approval, revoked signer key and revoked approval ID fail closed", () => {
   const changes = [
     (f) => {
       const claims = f.approvals.evidenceApproval.claims;
-      f.approvals.evidenceApproval = artifact("production-evidence-approval", "evidence-approver", claims, { expiresAt: "2026-11-25T00:59:00.000Z" });
+      f.approvals.evidenceApproval = artifact("production-evidence-approval", "evidence-approver", claims, { expiresAt: fixtureTime(-60 * 1000) });
     },
-    (f) => { f.trustRoots.keys.find((key) => key.role === "evidence-approver").revokedAt = "2026-11-25T00:00:00.000Z"; },
+    (f) => { f.trustRoots.keys.find((key) => key.role === "evidence-approver").revokedAt = fixtureTime(-60 * 1000); },
     (f) => { f.trustRoots.revokedApprovalIds.push(f.approvals.evidenceApproval.approvalId); },
     (f) => { f.approvals.evidenceApproval.signerId = "untrusted-signer"; },
   ];
@@ -461,7 +630,7 @@ test("write-capable collector, inherited roles or unproven read-only privilege f
     (f) => {
       const claims = f.approvals.collectorAttestation.claims;
       f.approvals.collectorAttestation = artifact("read-only-collector-attestation", "collector", {
-        ...claims, databaseAuthority: { ...claims.databaseAuthority, effectivePrivileges: ["CONNECT", "USAGE", "SELECT", "UPDATE"] },
+        ...claims, databaseAuthority: { ...claims.databaseAuthority, requiredAccessSummary: ["CONNECT", "USAGE", "SELECT", "UPDATE"] },
       });
     },
     (f) => {
@@ -484,7 +653,16 @@ test("write-capable collector, inherited roles or unproven read-only privilege f
       f.approvals.collectorAttestation = artifact("read-only-collector-attestation", "collector", {
         ...claims, databaseAuthority: {
           ...claims.databaseAuthority,
-          schemaPrivileges: [{ schema: "public", privileges: ["USAGE", "CREATE"] }],
+          schemaPrivileges: [{ schema: "public", scope: "application_data", privileges: ["USAGE", "CREATE"] }],
+        },
+      });
+    },
+    (f) => {
+      const claims = f.approvals.collectorAttestation.claims;
+      f.approvals.collectorAttestation = artifact("read-only-collector-attestation", "collector", {
+        ...claims, databaseAuthority: {
+          ...claims.databaseAuthority,
+          columnPrivileges: [{ identity: "public.profiles.id", scope: "application_data", privileges: ["SELECT"] }],
         },
       });
     },
@@ -540,6 +718,31 @@ test("catalog completeness dimensions reject omissions, duplicates and unsupport
   }
 });
 
+test("collector privilege evidence follows the explicit catalog-only scope contract", () => {
+  const f = fixture();
+  try {
+    const db = f.evidence.collectorAuthority.databaseAuthority;
+    assert.deepEqual(validateCollectorPrivilegeEvidence(db, f.evidence.catalog.objects), []);
+    const applicationSchema = db.schemaPrivileges.find((row) => row.schema === "public");
+    const historySchema = db.schemaPrivileges.find((row) => row.schema === "supabase_migrations");
+    const applicationTable = db.objectPrivileges.find((row) => row.identity === "public.profiles");
+    const historyTable = db.objectPrivileges.find((row) => row.identity === "supabase_migrations.schema_migrations");
+    assert.deepEqual(applicationSchema, { schema: "public", scope: "application_data", privileges: [] });
+    assert.deepEqual(historySchema, { schema: "supabase_migrations", scope: "migration_history", privileges: ["USAGE"] });
+    assert.deepEqual(applicationTable.privileges, []);
+    assert.deepEqual(historyTable.privileges, ["SELECT"]);
+    const historyColumn = db.columnPrivileges.find((row) => row.identity === "supabase_migrations.schema_migrations.version");
+    assert.deepEqual(historyColumn, {
+      identity: "supabase_migrations.schema_migrations.version",
+      scope: "migration_history",
+      privileges: ["SELECT"],
+    });
+    assert.deepEqual(db.requiredAccessSummary, [
+      "DATABASE_CONNECT", "SYSTEM_CATALOG_SELECT", "MIGRATION_HISTORY_SCHEMA_USAGE", "MIGRATION_HISTORY_SELECT",
+    ]);
+  } finally { f.cleanup(); }
+});
+
 test("collector schema and object privilege identity sets must exactly match catalog inventory", () => {
   const mutations = [
     (db) => { db.schemaPrivileges = []; },
@@ -557,9 +760,67 @@ test("collector schema and object privilege identity sets must exactly match cat
       const report = f.analyze();
       assert.equal(report.counts.Unknown, 39);
       assert.equal(report.acceptance, "NOT_ACCEPTED");
-      assert.ok(report.trustProblems.some((reason) => reason.includes("privilege identities do not exactly match")));
+      assert.ok(report.trustProblems.some((reason) => reason.includes("least-privilege contract")));
     } finally { f.cleanup(); }
   }
+});
+
+test("complete database_acl_v1 projection is mandatory and included in the signed result digest", () => {
+  const missing = fixture();
+  try {
+    delete missing.evidence.collectorAuthority;
+    missing.reapprove((databaseAuthority) => { delete databaseAuthority.databaseAclV1; });
+    const report = missing.analyze();
+    assert.equal(report.counts.Unknown, 39);
+    assert.ok(report.trustProblems.some((reason) => reason.includes("complete database_acl_v1 projection is missing")));
+  } finally { missing.cleanup(); }
+
+  const malformed = fixture();
+  try {
+    malformed.reapprove((databaseAuthority) => {
+      databaseAuthority.databaseAclV1[0].expanded_acl_edges[0].grantee_name = "PUBLIC";
+    });
+    const report = malformed.analyze();
+    assert.equal(report.counts.Unknown, 39);
+    assert.ok(report.trustProblems.some((reason) => reason.includes("malformed ACL edge")));
+  } finally { malformed.cleanup(); }
+
+  const duplicated = fixture();
+  try {
+    duplicated.reapprove((databaseAuthority) => {
+      databaseAuthority.databaseAclV1[0].expanded_acl_edges.push({
+        ...databaseAuthority.databaseAclV1[0].expanded_acl_edges[0],
+      });
+    });
+    const report = duplicated.analyze();
+    assert.equal(report.counts.Unknown, 39);
+    assert.ok(report.trustProblems.some((reason) => reason.includes("repeats an ACL edge")));
+  } finally { duplicated.cleanup(); }
+
+  const tampered = fixture();
+  try {
+    tampered.reapprove();
+    tampered.evidence.collectorAuthority.databaseAuthority.databaseAclV1[0].database_name = "tampered";
+    const report = tampered.analyze();
+    assert.equal(report.counts.Unknown, 39);
+    assert.ok(report.trustProblems.some((reason) => reason.includes("execution receipt")
+      || reason.includes("signed collector authority differs")
+      || reason.includes("signed evidence approval does not bind the exact evidence")));
+  } finally { tampered.cleanup(); }
+
+  const truncated = fixture();
+  try {
+    truncated.reapprove((databaseAuthority) => {
+      databaseAuthority.databaseAclV1.push({
+        ...databaseAuthority.databaseAclV1[0],
+        database_oid: 101,
+        database_name: "omitted_database",
+      });
+    });
+    const report = truncated.analyze();
+    assert.equal(report.counts.Unknown, 39);
+    assert.ok(report.trustProblems.some((reason) => reason.includes("incomplete, malformed or unordered database row")));
+  } finally { truncated.cleanup(); }
 });
 
 test("collector execution receipt binds project, collector, query digest, capture and result", () => {
@@ -567,7 +828,7 @@ test("collector execution receipt binds project, collector, query digest, captur
     (e) => { e.queryBundleSha256 = hash("wrong-query"); },
     (e) => { e.projectRef = "other-project"; },
     (e) => { e.collectorIdentity = "other-collector"; },
-    (e) => { e.completedAt = "2026-11-25T00:40:00.000Z"; },
+    (e) => { e.completedAt = fixtureTime(-20 * 60 * 1000); },
     (e) => { e.resultDigest = hash("wrong-result"); },
     (e) => { e.statementCount = 0; },
   ]) {
@@ -582,15 +843,18 @@ test("collector execution receipt binds project, collector, query digest, captur
   }
 });
 
-test("migration execution timestamps cannot be later than capture or current time", () => {
-  for (const executedAt of ["2026-11-25T00:31:00.000Z", "2026-11-25T01:01:00.000Z"]) {
+test("candidate external migration execution timestamps remain untrusted", () => {
+  for (const executedAt of [fixtureTime(-29 * 60 * 1000), fixtureTime(60 * 1000)]) {
     const f = fixture();
     try {
-      f.evidence.history.rows[0].executedAt = executedAt;
+      f.evidence.externalExecutionProvenance = [{
+        version: "202607260004", executedAt, executedBy: "claimed-runner",
+        executionId: "claimed-execution", sourceBlobSha1: sourceManifest.migrations[0].blobSha1,
+      }];
       f.reapprove();
       const report = f.analyze();
       assert.equal(report.counts.Unknown, 39);
-      assert.ok(report.trustProblems.some((reason) => reason.includes("executedAt <= evidence capturedAt <= current time")));
+      assert.ok(report.trustProblems.some((reason) => reason.includes("no authenticated authoritative source is configured")));
     } finally { f.cleanup(); }
   }
 });
@@ -600,7 +864,7 @@ test("malformed collector execution receipts fail closed", () => {
     (receipt) => { delete receipt.resultDigest; },
     (receipt) => { receipt.statementCount = "4"; },
     (receipt) => { receipt.startedAt = "not-a-timestamp"; },
-    (receipt) => { receipt.completedAt = "2026-11-25T00:31:00.000Z"; },
+    (receipt) => { receipt.completedAt = fixtureTime(-20 * 60 * 1000); },
   ]) {
     const f = fixture();
     try {
@@ -626,7 +890,44 @@ test("collector attestation must bind the exact project and query bundle", () =>
   } finally { f.cleanup(); }
 });
 
-test("history names and exact source execution metadata are required for Applied and verified", () => {
+test("nullable recorded statement count remains a database fact, not provenance", () => {
+  const f = fixture();
+  try {
+    f.evidence.history.rows[0].recordedStatementCount = null;
+    f.reapprove();
+    const report = f.analyze();
+    assert.equal(report.trustVerified, true);
+    assert.equal(report.acceptance, "NOT_ACCEPTED");
+    assert.equal(report.counts["Applied and verified"], 0);
+    assert.equal(report.classifications[0].status, "Schema represented but history ambiguous");
+  } finally { f.cleanup(); }
+});
+
+test("migration-history SQL output normalization enforces exact row shape and nullable statement count", () => {
+  const rows = normalizeMigrationHistoryRows([
+    ["202607260004", "sprint4_reactions", "12"],
+    ["202607260005", "sprint5_moderation", "\\N"],
+  ]);
+  assert.deepEqual(rows, [
+    { version: "202607260004", name: "sprint4_reactions", recordedStatementCount: 12 },
+    { version: "202607260005", name: "sprint5_moderation", recordedStatementCount: null },
+  ]);
+  assert.deepEqual(validateMigrationHistoryRows(rows, sourceManifest), []);
+  for (const malformed of [
+    [["202607260004", "sprint4_reactions"]],
+    [["202607260004", "sprint4_reactions", "bad"]],
+    [["202607260004", "", "12"]],
+    [["202607260004", "sprint4_reactions", "-1"]],
+    [["202607260004", "sprint4_reactions", "9007199254740992"]],
+  ]) assert.throws(() => normalizeMigrationHistoryRows(malformed));
+  assert.ok(validateMigrationHistoryRows([{ version: "202607260004", migration_name: "sprint4_reactions", recorded_statement_count: 12 }], sourceManifest).length > 0);
+  assert.ok(validateMigrationHistoryRows([{ version: "202607260004", name: "sprint4_reactions" }], sourceManifest).length > 0);
+  assert.ok(validateMigrationHistoryRows([
+    { version: "202607260004", name: "sprint4_reactions", recordedStatementCount: 12 },
+    { version: "202607260004", name: "sprint4_reactions", recordedStatementCount: 12 },
+  ], sourceManifest).some((problem) => problem.includes("duplicate version")));
+});
+test("migration-history facts never establish execution provenance; fabricated fields fail closed", () => {
   const f = fixture();
   try {
     const row = f.evidence.history.rows.find((entry) => entry.version === "202607260004");
@@ -640,16 +941,29 @@ test("history names and exact source execution metadata are required for Applied
     assert.equal(result.historyRecorded, true);
     assert.equal(report.acceptance, "NOT_ACCEPTED");
   } finally { f.cleanup(); }
-  const second = fixture();
+  for (const field of ["executedAt", "executedBy", "executionId", "sourceBlobSha1"]) {
+    const forged = fixture();
+    try {
+      forged.evidence.history.rows[0][field] = field === "executedAt" ? FIXTURE_HISTORY_EXECUTED_AT : "fabricated";
+      forged.reapprove();
+      const report = forged.analyze();
+      assert.equal(report.counts.Unknown, 39);
+      assert.ok(report.trustProblems.some((reason) => reason.includes("only recognized version, name and recorded statement-count database facts")));
+    } finally { forged.cleanup(); }
+  }
+  const fabricated = fixture();
   try {
-    const row = second.evidence.history.rows.find((entry) => entry.version === "202607260004");
-    delete row.sourceBlobSha1;
-    second.reapprove();
-    const report = second.analyze();
-    const result = report.classifications.find((entry) => entry.version === "202607260004");
-    assert.equal(result.status, "Schema represented but history ambiguous");
-    assert.equal(result.exactExecutionEstablished, false);
-  } finally { second.cleanup(); }
+    fabricated.evidence.externalExecutionProvenance = [{
+      version: "202607260004", migrationName: "sprint4_reactions",
+      sourceBlobSha1: sourceManifest.migrations[0].blobSha1,
+      executedAt: FIXTURE_HISTORY_EXECUTED_AT, executedBy: "claimed-runner",
+      executionId: "fabricated-execution", authority: "claimed-platform-log",
+    }];
+    fabricated.reapprove();
+    const report = fabricated.analyze();
+    assert.equal(report.counts.Unknown, 39);
+    assert.ok(report.trustProblems.some((reason) => reason.includes("no authenticated authoritative source is configured")));
+  } finally { fabricated.cleanup(); }
 });
 
 test("tampered evidence after signed approval fails closed", () => {
@@ -672,7 +986,7 @@ test("altered source fingerprint is Unknown", () => {
   } finally { f.cleanup(); }
 });
 
-test("complete absence with no history is Verified unapplied", () => {
+test("absence of history and current effects remains Unknown without external execution provenance", () => {
   const f = fixture();
   try {
     const item = sourceManifest.migrations.find((entry) => entry.version === "202607260004");
@@ -682,7 +996,9 @@ test("complete absence with no history is Verified unapplied", () => {
     f.evidence.history.rows = f.evidence.history.rows.filter((row) => row.version !== item.version);
     f.reapprove();
     const report = f.analyze();
-    assert.equal(report.classifications.find((entry) => entry.path === item.path).status, "Verified unapplied");
+    const result = report.classifications.find((entry) => entry.path === item.path);
+    assert.equal(result.status, "Unknown");
+    assert.ok(result.reasons.some((reason) => reason.includes("cannot prove no manual, partial or historical execution")));
   } finally { f.cleanup(); }
 });
 
@@ -722,7 +1038,7 @@ test("malformed history names and unrecognized versions fail closed", () => {
     f.reapprove();
     const report = f.analyze();
     assert.equal(report.counts.Unknown, 39);
-    assert.ok(report.trustProblems.some((reason) => reason.includes("unrecognized version")));
+    assert.ok(report.trustProblems.some((reason) => reason.includes("only recognized version, name and recorded statement-count database facts")));
   } finally { f.cleanup(); }
 });
 
@@ -766,8 +1082,14 @@ test("all timestamp-bearing evidence fields reject non-string and noncanonical v
       (report) => report.trustProblems.some((reason) => reason.includes("collector execution startedAt"))],
     ["collector completion", (f, value) => f.reapprove(undefined, (receipt) => { receipt.completedAt = value; }),
       (report) => report.trustProblems.some((reason) => reason.includes("collector execution completedAt"))],
-    ["history execution", (f, value) => { f.evidence.history.rows[0].executedAt = value; f.reapprove(); },
-      (report) => report.trustProblems.some((reason) => reason.includes("history row lacks exact name or valid execution metadata"))],
+    ["external migration execution", (f, value) => {
+      f.evidence.externalExecutionProvenance = [{
+        version: "202607260004", migrationName: "sprint4_reactions",
+        sourceBlobSha1: sourceManifest.migrations[0].blobSha1,
+        executedAt: value, executedBy: "untrusted-runner", executionId: "untrusted-id",
+      }];
+      f.reapprove();
+    }, (report) => report.trustProblems.some((reason) => reason.includes("external migration execution timestamp"))],
     ["approval issuedAt", (f, value) => {
       const current = f.approvals.evidenceApproval;
       f.approvals.evidenceApproval = artifact(current.kind, "evidence-approver", current.claims, { issuedAt: value });
@@ -797,7 +1119,7 @@ test("all timestamp-bearing evidence fields reject non-string and noncanonical v
 test("collector completion after evidence capture fails closed", () => {
   const f = fixture();
   try {
-    f.reapprove(undefined, (receipt) => { receipt.completedAt = "2026-11-25T00:31:00.000Z"; });
+    f.reapprove(undefined, (receipt) => { receipt.completedAt = fixtureTime(-20 * 60 * 1000); });
     const report = f.analyze();
     assert.equal(report.counts.Unknown, 39);
     assert.ok(report.trustProblems.some((reason) => reason.includes("execution receipt")));
@@ -827,15 +1149,19 @@ test("strict timestamp parsing rejects non-string and noncanonical execution tim
   }
 });
 
-test("migration history execution timestamps reject coercible non-string values", () => {
+test("fabricated migration execution timestamp candidates reject coercible non-string values", () => {
   for (const value of [0, 1, null, false, [], {}]) {
     const f = fixture();
     try {
-      f.evidence.history.rows[0].executedAt = value;
+      f.evidence.externalExecutionProvenance = [{
+        version: "202607260004", migrationName: "sprint4_reactions",
+        sourceBlobSha1: sourceManifest.migrations[0].blobSha1,
+        executedAt: value, executedBy: "untrusted-runner", executionId: "untrusted-id",
+      }];
       f.reapprove();
       const report = f.analyze();
       assert.equal(report.counts.Unknown, 39);
-      assert.ok(report.trustProblems.some((reason) => reason.includes("history row lacks exact name or valid execution metadata")));
+      assert.ok(report.trustProblems.some((reason) => reason.includes("external migration execution timestamp")));
     } finally { f.cleanup(); }
   }
 });
@@ -845,7 +1171,7 @@ test("approval and trust-root validity intervals require canonical timestamps an
     { issuedAt: 0 },
     { expiresAt: null },
     { issuedAt: "2026-02-30T00:00:00.000Z" },
-    { issuedAt: "2026-11-25T02:00:00.000Z", expiresAt: "2026-11-25T01:00:00.000Z" },
+    { issuedAt: fixtureTime(-28 * 60 * 1000), expiresAt: fixtureTime(-29 * 60 * 1000) },
   ];
   for (const overrides of approvalCases) {
     const f = fixture();
@@ -862,7 +1188,7 @@ test("approval and trust-root validity intervals require canonical timestamps an
   const trustRootCases = [
     (key) => { key.notBefore = 0; },
     (key) => { key.notAfter = {}; },
-    (key) => { key.notBefore = "2026-11-25T02:00:00.000Z"; key.notAfter = "2026-11-25T01:00:00.000Z"; },
+    (key) => { key.notBefore = fixtureTime(-28 * 60 * 1000); key.notAfter = fixtureTime(-29 * 60 * 1000); },
   ];
   for (const mutate of trustRootCases) {
     const f = fixture();
@@ -880,8 +1206,8 @@ test("collector execution rejects reversed start and completion timestamps", () 
   const f = fixture();
   try {
     f.reapprove(undefined, (receipt) => {
-      receipt.startedAt = "2026-11-25T00:26:00.000Z";
-      receipt.completedAt = "2026-11-25T00:25:00.000Z";
+      receipt.startedAt = fixtureTime(-34 * 60 * 1000);
+      receipt.completedAt = fixtureTime(-35 * 60 * 1000);
     });
     const report = f.analyze();
     assert.equal(report.counts.Unknown, 39);
@@ -920,14 +1246,19 @@ test("trust roots must match an independently provisioned digest", () => {
   } finally { f.cleanup(); }
 });
 
-test("reused migration execution IDs cannot establish exact execution identity", () => {
+test("fabricated external execution identifiers never become authenticated provenance", () => {
   const f = fixture();
   try {
-    f.evidence.history.rows[1].executionId = f.evidence.history.rows[0].executionId;
+    f.evidence.externalExecutionProvenance = [
+      { version: "202607260004", migrationName: "sprint4_reactions", sourceBlobSha1: "a".repeat(40),
+        executedAt: FIXTURE_HISTORY_EXECUTED_AT, executedBy: "runner", executionId: "same-id" },
+      { version: "202607260005", migrationName: "sprint5_moderation", sourceBlobSha1: "b".repeat(40),
+        executedAt: FIXTURE_HISTORY_EXECUTED_AT, executedBy: "runner", executionId: "same-id" },
+    ];
     f.reapprove();
     const report = f.analyze();
     assert.equal(report.counts.Unknown, 39);
-    assert.ok(report.trustProblems.some((reason) => reason.includes("reuses an execution ID")));
+    assert.ok(report.trustProblems.some((reason) => reason.includes("no authenticated authoritative source is configured")));
     assert.equal(report.acceptance, "NOT_ACCEPTED");
   } finally { f.cleanup(); }
 });
@@ -997,9 +1328,9 @@ test("evidence, mapping and collector approvals require distinct trusted signers
 
 test("evidence approval must be issued strictly after capture", () => {
   const cases = [
-    { label: "earlier", issuedAt: "2026-11-25T00:29:00.000Z", accepted: false },
-    { label: "equal", issuedAt: "2026-11-25T00:30:00.000Z", accepted: false },
-    { label: "later", issuedAt: "2026-11-25T00:31:00.000Z", accepted: true },
+    { label: "earlier", issuedAt: fixtureTime(-31 * 60 * 1000), accepted: false },
+    { label: "equal", issuedAt: FIXTURE_CAPTURED_AT, accepted: false },
+    { label: "later", issuedAt: FIXTURE_APPROVED_AT, accepted: true },
   ];
   for (const scenario of cases) {
     const f = fixture();
@@ -1019,9 +1350,9 @@ test("evidence approval must be issued strictly after capture", () => {
 
 test("collector approval must be issued strictly after capture", () => {
   const cases = [
-    { label: "earlier", issuedAt: "2026-11-25T00:29:00.000Z", accepted: false },
-    { label: "equal", issuedAt: "2026-11-25T00:30:00.000Z", accepted: false },
-    { label: "later", issuedAt: "2026-11-25T00:31:00.000Z", accepted: true },
+    { label: "earlier", issuedAt: fixtureTime(-31 * 60 * 1000), accepted: false },
+    { label: "equal", issuedAt: FIXTURE_CAPTURED_AT, accepted: false },
+    { label: "later", issuedAt: FIXTURE_APPROVED_AT, accepted: true },
   ];
   for (const scenario of cases) {
     const f = fixture();
@@ -1044,7 +1375,7 @@ test("evidence and collector approvals must be issued after capture", () => {
   try {
     const claims = f.approvals.evidenceApproval.claims;
     f.approvals.evidenceApproval = artifact("production-evidence-approval", "evidence-approver", claims, {
-      issuedAt: "2026-11-25T00:00:00.000Z",
+      issuedAt: fixtureTime(-31 * 60 * 1000),
     });
     const report = f.analyze();
     assert.equal(report.counts.Unknown, 39);
@@ -1065,6 +1396,83 @@ test("trust-root bundle rejects private signing material and unsupported key rol
       const report = f.analyze();
       assert.equal(report.counts.Unknown, 39);
       assert.ok(report.trustProblems.some((reason) => reason.includes("unsupported key, role or private signing material")));
+    } finally { f.cleanup(); }
+  }
+});
+
+
+test("trust-root bundle rejects unknown and private signing fields at bundle and key levels", () => {
+  const mutations = [
+    ["key private signing material", (f) => {
+      f.trustRoots.keys[0].privateKeyPem = keys["evidence-approver"].privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+    }],
+    ["key unsupported field", (f) => { f.trustRoots.keys[0].unexpectedField = "unrecognized"; }],
+    ["bundle private signing material", (f) => {
+      f.trustRoots.privateKeyPem = keys["evidence-approver"].privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+    }],
+    ["bundle unsupported field", (f) => { f.trustRoots.unexpectedField = "unrecognized"; }],
+  ];
+  for (const [label, mutate] of mutations) {
+    const f = fixture();
+    try {
+      mutate(f);
+      const report = f.analyze();
+      assert.equal(report.trustVerified, false, label);
+      assert.equal(report.counts.Unknown, 39, label);
+      assert.equal(report.acceptance, "NOT_ACCEPTED", label);
+      assert.ok(report.trustProblems.some((reason) => reason.includes("unsupported fields") || reason.includes("unsupported key, role or private signing material")), label);
+    } finally { f.cleanup(); }
+  }
+});
+
+test("strict timestamps reject year zero and preserve supported leap-year boundaries", () => {
+  for (const value of ["0000-01-01T00:00:00.000Z", "0000-02-29T00:00:00.000Z"]) {
+    assert.ok(Number.isNaN(strictTimestamp(value)), "accepted year zero: " + value);
+  }
+  for (const value of [
+    "0001-01-01T00:00:00.000Z",
+    "0004-02-29T23:59:59.999Z",
+    "2000-02-29T12:34:56.789Z",
+    "9996-02-29T00:00:00.000Z",
+    "9999-12-31T23:59:59.999Z",
+  ]) {
+    assert.ok(Number.isFinite(strictTimestamp(value)), "rejected valid supported timestamp: " + value);
+  }
+  for (const value of ["0001-02-29T00:00:00.000Z", "1900-02-29T00:00:00.000Z", "9999-02-29T00:00:00.000Z"]) {
+    assert.ok(Number.isNaN(strictTimestamp(value)), "accepted invalid leap day: " + value);
+  }
+});
+
+test("every timestamp-bearing evidence path rejects canonical year zero", () => {
+  const cases = [
+    (f) => { f.trustRoots.keys[0].notBefore = "0000-01-01T00:00:00.000Z"; },
+    (f) => { f.trustRoots.keys[0].notAfter = "0000-01-01T00:00:00.000Z"; },
+    (f) => {
+      const current = f.approvals.evidenceApproval;
+      f.approvals.evidenceApproval = artifact(current.kind, "evidence-approver", current.claims, { issuedAt: "0000-01-01T00:00:00.000Z" });
+    },
+    (f) => {
+      const current = f.approvals.evidenceApproval;
+      f.approvals.evidenceApproval = artifact(current.kind, "evidence-approver", current.claims, { expiresAt: "0000-01-01T00:00:00.000Z" });
+    },
+    (f) => { f.evidence.provenance.capturedAt = "0000-01-01T00:00:00.000Z"; f.reapprove(); },
+    (f) => f.reapprove(undefined, (receipt) => { receipt.startedAt = "0000-01-01T00:00:00.000Z"; }),
+    (f) => f.reapprove(undefined, (receipt) => { receipt.completedAt = "0000-01-01T00:00:00.000Z"; }),
+    (f) => {
+      f.evidence.externalExecutionProvenance = [{
+        version: "202607260004", migrationName: "sprint4_reactions", sourceBlobSha1: "a".repeat(40),
+        executedAt: "0000-01-01T00:00:00.000Z", executedBy: "untrusted", executionId: "untrusted",
+      }];
+      f.reapprove();
+    },
+  ];
+  for (const mutate of cases) {
+    const f = fixture();
+    try {
+      mutate(f);
+      const report = f.analyze();
+      assert.equal(report.counts.Unknown, 39);
+      assert.ok(report.trustProblems.some((reason) => /timestamp|notBefore|notAfter|issuedAt|expiresAt/i.test(reason)));
     } finally { f.cleanup(); }
   }
 });
