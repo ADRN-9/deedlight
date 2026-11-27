@@ -306,6 +306,16 @@ export function validateBackfillExecutionRecord(record, {
     problems.push("AUTHORIZATION:APPROVER_AND_VERIFIER_MUST_BE_DISTINCT");
   }
 
+  const independentObservers = [
+    record.preExecutionState?.observerIdentity,
+    record.postExecutionState?.observerIdentity,
+    record.executionEvidence?.observerIdentity,
+    record.provenance?.collectorIdentity,
+  ];
+  if (independentObservers.some(identity => typeof identity !== "string" || !identity.trim()
+    || identity === record.execution?.executorIdentity)) {
+    problems.push("SEPARATION_OF_DUTIES:OBSERVERS_AND_COLLECTOR_MUST_BE_INDEPENDENT_OF_EXECUTOR");
+  }
   const uniqueActors = new Set([record.execution?.executorIdentity, record.authorization?.signerId, record.verification?.signerId]);
   if (uniqueActors.size !== 3) problems.push("SEPARATION_OF_DUTIES:EXECUTOR_APPROVER_VERIFIER_MUST_BE_DISTINCT");
   return {
