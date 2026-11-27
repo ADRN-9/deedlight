@@ -88,18 +88,20 @@ export function normalizeMigrationHistoryRows(tuples) {
   return tuples.map((tuple, index) => {
     assert(Array.isArray(tuple) && tuple.length === 3,
       "migration-history SQL row " + index + " must contain exactly version, name and recorded statement count");
-    const [version, name, rawCount] = tuple;
-    assert(typeof version === "string" && typeof name === "string" && name.trim(),
-      "migration-history SQL row " + index + " is missing version or name");
-    let recordedStatementCount = rawCount;
-    if (rawCount === "NULL" || rawCount === "\\N" || rawCount === null) recordedStatementCount = null;
+    const [version, rawName, rawCount] = tuple;
+    assert(typeof version === "string" && /^[0-9]{12}$/.test(version),
+      "migration-history SQL row " + index + " has an invalid version");
+    assert(rawName === null || typeof rawName === "string",
+      "migration-history SQL row " + index + " has an invalid name type");
+    const name = rawName === "" || rawName === null ? null : rawName;
+    let recordedStatementCount = null;
+    if (rawCount === "" || rawCount === null) recordedStatementCount = null;
     else if (typeof rawCount === "string" && /^(0|[1-9][0-9]*)$/.test(rawCount)) recordedStatementCount = Number(rawCount);
     assert(recordedStatementCount === null || (Number.isSafeInteger(recordedStatementCount) && recordedStatementCount >= 0),
       "migration-history SQL row " + index + " has an invalid recorded statement count");
     return { version, name, recordedStatementCount };
   });
 }
-
 export function validateMigrationHistoryRows(rows, manifest) {
   const problems = [];
   if (!Array.isArray(rows)) return ["migration history export is incomplete"];
@@ -116,7 +118,7 @@ export function validateMigrationHistoryRows(rows, manifest) {
     } else {
       seenVersions.add(row.version);
     }
-    if (typeof row.name !== "string" || !row.name.trim()
+    if ((row.name !== null && (typeof row.name !== "string" || !row.name.trim()))
       || (row.recordedStatementCount !== null && (!Number.isSafeInteger(row.recordedStatementCount) || row.recordedStatementCount < 0))) {
       problems.push("migration history row has an invalid migration name or recorded statement count");
     }
@@ -461,40 +463,46 @@ function validateMapping(mapping, manifest, source, problems) {
   return result;
 }
 function validateEvidence(evidence, now, manifest, problems) {
-  if (!evidence || evidence.schemaVersion !== 2) problems.push("unsupported or missing evidence schema version 2");
+  const exactKeys = (value, keys) => value && typeof value === "object" && !Array.isArray(value)
+    && Object.keys(value).sort().join(",") === [...keys].sort().join(",");
+  const required = ["catalog", "collectorAuthority", "history", "mapping", "provenance", "schemaVersion"];
+  const allowed = [...required, "externalExecutionProvenance"];
+  if (!evidence || evidence.schemaVersion !== 2
+    || required.some((key) => !Object.prototype.hasOwnProperty.call(evidence || {}, key))
+    || Object.keys(evidence || {}).some((key) => !allowed.includes(key))) {
+    problems.push("evidence has an unsupported schema version, missing required property or unexpected property");
+  }
   const p = evidence && evidence.provenance;
+  if (!exactKeys(p, ["environment", "projectRef", "capturedAt", "collectorIdentity", "queryBundleSha256"])) {
+    problems.push("evidence provenance schema is incomplete or contains unsupported properties");
+  }
   if (!p || p.environment !== "production" || p.projectRef !== PROJECT_REF) problems.push("evidence target is not the approved DeedLight Production project");
   if (!p || typeof p.collectorIdentity !== "string" || !p.collectorIdentity.trim()) problems.push("collector identity is missing");
   if (!p || !/^[a-f0-9]{64}$/.test(p.queryBundleSha256 || "")) problems.push("query-bundle fingerprint is missing");
   const captured = parseTime(p && p.capturedAt, "evidence capture timestamp", problems);
   if (Number.isFinite(captured) && (now - captured < 0 || now - captured > MAX_EVIDENCE_AGE_MS)) problems.push("evidence is stale or timestamp is in the future");
-  if (!evidence || !evidence.history || !Array.isArray(evidence.history.rows)) problems.push("migration history export is incomplete");
-  if (!evidence || !evidence.catalog || !Array.isArray(evidence.catalog.objects)) problems.push("live catalog export is incomplete");
-  const completeKinds = evidence && evidence.catalog && evidence.catalog.completeKinds;
+  const history = evidence && evidence.history;
+  if (!exactKeys(history, ["complete", "rows"]) || history.complete !== true || !Array.isArray(history.rows)) {
+    problems.push("migration history export is incomplete or contains unsupported properties");
+  }
+  const catalog = evidence && evidence.catalog;
+  if (!exactKeys(catalog, ["complete", "completeKinds", "objects"]) || catalog.complete !== true || !Array.isArray(catalog.objects)) {
+    problems.push("live catalog export is incomplete or contains unsupported properties");
+  }
+  const completeKinds = catalog && catalog.completeKinds;
   if (!Array.isArray(completeKinds) || new Set(completeKinds).size !== CATALOG_KINDS.length
     || canonicalJson([...completeKinds].sort()) !== canonicalJson([...CATALOG_KINDS].sort())) {
     problems.push("catalog completeness dimensions are missing, duplicated or unexpected");
   }
-  for (const kind of CATALOG_KINDS) {
-    if (!evidence || !evidence.catalog || !Array.isArray(evidence.catalog.completeKinds) || !evidence.catalog.completeKinds.includes(kind)) {
-      problems.push("catalog export does not attest complete " + kind);
-    }
+  for (const kind of CATALOG_KINDS) if (!Array.isArray(completeKinds) || !completeKinds.includes(kind)) {
+    problems.push("catalog export does not attest complete " + kind);
   }
-  if (evidence && evidence.history && Array.isArray(evidence.history.rows)) {
-    problems.push(...validateMigrationHistoryRows(evidence.history.rows, manifest));
-  }
-  // Candidate external records are untrusted input. No authenticated Production execution-provenance
-  // authority is currently configured or present in the supplied evidence; never promote these records.
+  if (history && Array.isArray(history.rows)) problems.push(...validateMigrationHistoryRows(history.rows, manifest));
   if (evidence && evidence.externalExecutionProvenance !== undefined) {
-    if (!Array.isArray(evidence.externalExecutionProvenance)) {
-      problems.push("external migration execution provenance must be an array of candidate records");
-    } else {
-      for (const record of evidence.externalExecutionProvenance) {
-        parseTime(record && record.executedAt, "external migration execution timestamp", problems);
-      }
-      if (evidence.externalExecutionProvenance.length > 0) {
-        problems.push("external migration execution provenance is unverified: no authenticated authoritative source is configured");
-      }
+    if (!Array.isArray(evidence.externalExecutionProvenance)) problems.push("external migration execution provenance must be an array of candidate records");
+    else {
+      for (const record of evidence.externalExecutionProvenance) parseTime(record && record.executedAt, "external migration execution timestamp", problems);
+      if (evidence.externalExecutionProvenance.length > 0) problems.push("external migration execution provenance is unverified: no authenticated authoritative source is configured");
     }
   }
 }
@@ -504,7 +512,7 @@ function classifyOne(item, manifest, evidence, source, mappedEffects) {
   if (!expected) return { status: "Unknown", reasons: ["migration has no complete authenticated effect mapping"] };
   const catalog = new Map();
   for (const object of evidence.catalog.objects) {
-    if (!object || !CATALOG_KINDS.includes(object.kind) || typeof object.identity !== "string" || !/^[a-f0-9]{64}$/.test(object.fingerprint || "")) {
+    if (!object || Object.keys(object).sort().join(",") !== "fingerprint,identity,kind" || !CATALOG_KINDS.includes(object.kind) || typeof object.identity !== "string" || !/^[a-f0-9]{64}$/.test(object.fingerprint || "")) {
       return { status: "Unknown", reasons: ["malformed live catalog object fingerprint"] };
     }
     const key = object.kind + "\0" + object.identity;

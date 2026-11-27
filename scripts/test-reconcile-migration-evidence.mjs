@@ -826,21 +826,27 @@ test("nullable recorded statement count remains a database fact, not provenance"
   } finally { f.cleanup(); }
 });
 
-test("migration-history SQL output normalization enforces exact row shape and nullable statement count", () => {
+test("migration-history SQL normalization preserves SQL NULL and literal NULL markers", () => {
   const rows = normalizeMigrationHistoryRows([
     ["202607260004", "sprint4_reactions", "12"],
-    ["202607260005", "sprint5_moderation", "\\N"],
+    ["202607260005", "", ""],
+    ["202607260006", "NULL", "0"],
+    ["202607270008", "\\N", "1"],
   ]);
   assert.deepEqual(rows, [
     { version: "202607260004", name: "sprint4_reactions", recordedStatementCount: 12 },
-    { version: "202607260005", name: "sprint5_moderation", recordedStatementCount: null },
+    { version: "202607260005", name: null, recordedStatementCount: null },
+    { version: "202607260006", name: "NULL", recordedStatementCount: 0 },
+    { version: "202607270008", name: "\\N", recordedStatementCount: 1 },
   ]);
   assert.deepEqual(validateMigrationHistoryRows(rows, sourceManifest), []);
   for (const malformed of [
     [["202607260004", "sprint4_reactions"]],
     [["202607260004", "sprint4_reactions", "bad"]],
-    [["202607260004", "", "12"]],
+    [["202607260004", "sprint4_reactions", "NULL"]],
+    [["202607260004", "sprint4_reactions", "\\N"]],
     [["202607260004", "sprint4_reactions", "-1"]],
+    [["202607260004", "sprint4_reactions", "01"]],
     [["202607260004", "sprint4_reactions", "9007199254740992"]],
   ]) assert.throws(() => normalizeMigrationHistoryRows(malformed));
   assert.ok(validateMigrationHistoryRows([{ version: "202607260004", migration_name: "sprint4_reactions", recorded_statement_count: 12 }], sourceManifest).length > 0);
@@ -849,6 +855,19 @@ test("migration-history SQL output normalization enforces exact row shape and nu
     { version: "202607260004", name: "sprint4_reactions", recordedStatementCount: 12 },
     { version: "202607260004", name: "sprint4_reactions", recordedStatementCount: 12 },
   ], sourceManifest).some((problem) => problem.includes("duplicate version")));
+});
+test("nullable migration name is a database fact and never proves exact execution", () => {
+  const f = fixture();
+  try {
+    f.evidence.history.rows[0].name = null;
+    f.reapprove();
+    const report = f.analyze();
+    assert.equal(report.trustVerified, true);
+    assert.equal(report.acceptance, "NOT_ACCEPTED");
+    assert.equal(report.counts["Applied and verified"], 0);
+    assert.equal(report.classifications[0].status, "Schema represented but history ambiguous");
+    assert.ok(report.classifications[0].reasons.some((reason) => reason.includes("history version is associated with a different migration name")));
+  } finally { f.cleanup(); }
 });
 test("migration-history facts never establish execution provenance; fabricated fields fail closed", () => {
   const f = fixture();
@@ -1396,6 +1415,26 @@ test("every timestamp-bearing evidence path rejects canonical year zero", () => 
       const report = f.analyze();
       assert.equal(report.counts.Unknown, 40);
       assert.ok(report.trustProblems.some((reason) => /timestamp|notBefore|notAfter|issuedAt|expiresAt/i.test(reason)));
+    } finally { f.cleanup(); }
+  }
+});
+
+test("analyzer rejects unexpected evidence and nested provenance/catalog properties", () => {
+  for (const mutate of [
+    (f) => { f.evidence.unexpected = true; },
+    (f) => { f.evidence.provenance.unexpected = true; },
+    (f) => { f.evidence.history.unexpected = true; },
+    (f) => { f.evidence.catalog.unexpected = true; },
+    (f) => { f.evidence.catalog.objects[0].unexpected = true; },
+  ]) {
+    const f = fixture();
+    try {
+      mutate(f);
+      f.reapprove();
+      const report = f.analyze();
+      assert.equal(report.counts.Unknown, 40);
+      assert.equal(report.acceptance, "NOT_ACCEPTED");
+      assert.ok(report.trustProblems.some((reason) => reason.includes("unexpected") || reason.includes("unsupported")));
     } finally { f.cleanup(); }
   }
 });

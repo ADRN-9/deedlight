@@ -12,6 +12,8 @@ export const SQL_PATH = "scripts/production-migration-readonly-audit.sql";
 export const SQL_SHA256 = "afda6bcfc9f7abc7765b8dfb54bf02d1cdb0d8062da2a9f953336b638d13af7d";
 export const SQL_GIT_BLOB_SHA1 = "8f8c38ba0c2a463ee25c6dae1dc1b15e24e3819f";
 export const INVENTORY_GIT_BLOB_SHA1 = "4e63f31368d446e905f4f44565be73337c7188fb";
+export const RECEIPT_SCHEMA_GIT_BLOB_SHA1 = "3fb1791a59b8ec8ba1ec77b2d9c5f25f849c7f59";
+export const RECEIPT_SCHEMA_SHA256 = "64a636404d6250947bd06c2bc07ff95e0d92a45680b9d7058c3708d732d7884a";
 const MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 const EXECUTION_TIMEOUT_MS = 90_000;
 const COLLECTOR_ID = "deedlight-readonly-collector-v1";
@@ -172,7 +174,7 @@ export function validateSqlOutput(csv) {
       throw new CollectorError("MIGRATION_HISTORY_VERSION_INVALID");
     }
     const name = rawName === "" ? null : rawName;
-    if (name !== null && !/^[A-Za-z0-9_-]+$/.test(name)) throw new CollectorError("MIGRATION_HISTORY_NAME_INVALID");
+    if (name !== null && name !== "\\N" && !/^[A-Za-z0-9_-]+$/.test(name)) throw new CollectorError("MIGRATION_HISTORY_NAME_INVALID");
     const recordedStatementCount = rawCount === "" ? null : Number(rawCount);
     if (recordedStatementCount !== null && (!/^(0|[1-9][0-9]*)$/.test(rawCount) ||
         !Number.isSafeInteger(recordedStatementCount) || recordedStatementCount < 0)) {
@@ -447,6 +449,7 @@ export function buildReceipt({ profile, profileDigest, commitSha, startedAt, com
     source: {
       repositoryCommitSha: commitSha, migrationInventoryGitBlobSha1: INVENTORY_GIT_BLOB_SHA1,
       sqlBundlePath: SQL_PATH, sqlBundleGitBlobSha1: SQL_GIT_BLOB_SHA1, sqlBundleSha256: SQL_SHA256,
+      receiptSchemaGitBlobSha1: RECEIPT_SCHEMA_GIT_BLOB_SHA1, receiptSchemaSha256: RECEIPT_SCHEMA_SHA256,
     },
     execution: {
       collectorId: COLLECTOR_ID, authenticatedPrincipal: profile.username, expectedEffectivePrincipal: profile.username,

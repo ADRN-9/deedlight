@@ -149,6 +149,30 @@ assert.equal(statSync(dir + "/receipt.json").mode & 0o777, 0o600);
 assert.equal(statSync(dir + "/evidence.csv").mode & 0o777, 0o600);
 NODE
 
+
+# Exercise the adapter against actual PostgreSQL 16 collector output. No mapping or
+# signing authority is fabricated; the result must remain an incomplete unsigned candidate.
+node scripts/adapt-production-migration-evidence.mjs \
+  --receipt "$work/evidence-success/receipt.json" \
+  --csv "$work/evidence-success/evidence.csv" \
+  --output "$work/normalized-candidate.json"
+node --input-type=module - "$work/normalized-candidate.json" <<'NODE'
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+const candidate = JSON.parse(readFileSync(process.argv[2], "utf8"));
+assert.equal(candidate.status, "UNSIGNED_NOT_ACCEPTED");
+assert.equal(candidate.acceptance, "NOT_ACCEPTED");
+assert.equal(candidate.evidence.schemaVersion, 2);
+assert.equal(candidate.evidence.provenance.projectRef, "xaipiovflxomcbfwtwmu");
+assert.equal(candidate.evidence.catalog.complete, false);
+assert.equal(candidate.projections.length, 19);
+assert.equal(candidate.databaseAuthorityCandidate.authenticated, false);
+assert.equal(candidate.databaseAuthorityCandidate.declaredContract, "catalog_only_v1");
+assert.equal(Object.hasOwn(candidate.evidence, "collectorAuthority"), false);
+assert.equal(Object.hasOwn(candidate.evidence, "externalExecutionProvenance"), false);
+assert.ok(candidate.blockers.length >= 4);
+NODE
+
 # Wrong trusted CA: TLS chain verification must fail before evidence is emitted.
 openssl req -x509 -newkey rsa:2048 -nodes -days 2 \
   -keyout "$tls/wrong-ca.key" -out "$tls/wrong-ca.crt" \

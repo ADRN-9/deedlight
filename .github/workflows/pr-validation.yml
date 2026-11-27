@@ -72,6 +72,9 @@ jobs:
       - name: Production evidence collector unit and adversarial tests
         run: node --test scripts/test-production-evidence-collector.mjs
 
+      - name: Collector-to-analyzer adapter adversarial tests
+        run: node --test scripts/test-production-evidence-adapter.mjs
+
       - name: Offline evidence package integrity and tamper tests
         run: node --test scripts/test-evidence-package-integrity.mjs
 
