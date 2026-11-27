@@ -158,11 +158,11 @@ The validate job passed migration inventory and aggregate checks, C575/C576 sour
 A later documentation-only update changes the PR head; that later HEAD must receive a fresh exact-head CI run before this report's final text is considered validated.
 
 
-## 10. Latest exact PR-head verification
+## 11. Latest exact PR-head verification
 
 The latest PR #34 HEAD `9fba2fbf43141771a2029c3bda4b9c683086c1fc` passed PR Validation run #2253 / `46055632225` with all 13/13 jobs successful. The dedicated PostgreSQL 16 job completed successfully and its actual decoded log again contained matching-query PASS, mismatched-query rejection, backend-ready handshake, SIGKILL status 137, backend exit, effect/marker rollback, reservation survival, UNKNOWN recovery and replay rejection. The current PR remains OPEN/unmerged; PR #33 remains OPEN/unmerged.
 
-## 11. Handover and safety disposition
+## 12. Handover and safety disposition
 
 After pushing the final C578 branch changes, inspect the dedicated PostgreSQL job's actual decoded log. A green workflow conclusion is insufficient. Require all five `C578_CRASH_*` evidence lines, the exact wait status 137, no PostgreSQL JSON syntax error, unchanged effects count, zero marker rows, surviving committed reservation, `unknown` recovery and rejected replay. Inspect the snapshot mismatch rejection and matching-query success evidence too.
 
