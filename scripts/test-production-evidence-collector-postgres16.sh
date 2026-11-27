@@ -167,7 +167,7 @@ assert.equal(candidate.evidence.provenance.projectRef, "xaipiovflxomcbfwtwmu");
 assert.equal(candidate.evidence.provenance.environment,"test");
 assert.equal(candidate.evidence.catalog.complete, false);
 assert.equal(candidate.projections.length, 19);
-assert.deepEqual(candidate.evidence.history.rows.map(row=>row.name),["fixture_migration",null,"NULL","\\\\N",""]);
+assert.deepEqual(candidate.evidence.history.rows.map(row=>row.name),["fixture_migration",null,"NULL","\\N",""]);
 assert.equal(candidate.databaseAuthorityCandidate.privilegeContractVersion,"catalog_only_v1");
 assert.equal(candidate.databaseAuthorityCandidate.authenticated, false);
 assert.equal(candidate.databaseAuthorityCandidate.declaredContract, "catalog_only_v1");
