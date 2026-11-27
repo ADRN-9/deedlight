@@ -1594,6 +1594,7 @@ test("unsupported and unknown effect domains are explicit blockers, never silent
     const f=fixture();
     try{
       f.mapping.migrations[0].effects.backfills=[];
+      f.evidence.backfillMeasurements=f.evidence.backfillMeasurements.filter(row=>row.sourcePath!==f.mapping.migrations[0].path);
       f.mapping.migrations[0].coverage.backfills.disposition=disposition;
       f.mapping.migrations[0].coverage.backfills.rationale="Fixture explicitly records an unresolved backfill review disposition.";
       f.reapprove();
