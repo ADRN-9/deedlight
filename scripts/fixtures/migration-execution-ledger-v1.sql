@@ -128,6 +128,19 @@ CREATE TABLE IF NOT EXISTS deedlight_execution_ledger.snapshots (
     REFERENCES deedlight_execution_ledger.executions(system_identifier, database_oid, execution_id)
 );
 
+CREATE TABLE IF NOT EXISTS deedlight_execution_ledger.execution_commit_markers (
+  system_identifier text NOT NULL,
+  database_oid oid NOT NULL,
+  execution_id uuid NOT NULL,
+  source_identity jsonb NOT NULL CHECK (jsonb_typeof(source_identity) = 'object'),
+  runner_identity name NOT NULL,
+  transaction_id text NOT NULL,
+  committed_marker_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
+  PRIMARY KEY (system_identifier, database_oid, execution_id),
+  FOREIGN KEY (system_identifier, database_oid, execution_id)
+    REFERENCES deedlight_execution_ledger.executions(system_identifier, database_oid, execution_id)
+);
+
 CREATE TABLE IF NOT EXISTS deedlight_execution_ledger.verification_events (
   system_identifier text NOT NULL,
   database_oid oid NOT NULL,
@@ -253,6 +266,34 @@ BEGIN
 END
 $fn$;
 
+CREATE OR REPLACE FUNCTION deedlight_execution_ledger.record_effect_commit_marker(
+  p_execution_id uuid, p_source_identity jsonb
+) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, deedlight_execution_ledger
+AS $fn$
+DECLARE v_actor name := deedlight_execution_ledger.actor_role();
+        v_identity deedlight_execution_ledger.database_identity%ROWTYPE;
+        v_execution deedlight_execution_ledger.executions%ROWTYPE;
+BEGIN
+  IF v_actor IS DISTINCT FROM 'deedlight_ledger_runner' THEN
+    RAISE EXCEPTION 'migration runner authority required';
+  END IF;
+  SELECT * INTO STRICT v_identity FROM deedlight_execution_ledger.database_identity WHERE singleton;
+  SELECT * INTO STRICT v_execution FROM deedlight_execution_ledger.executions
+  WHERE system_identifier = v_identity.system_identifier AND database_oid = v_identity.database_oid
+    AND execution_id = p_execution_id FOR UPDATE;
+  IF v_execution.status <> 'running' OR v_execution.runner_identity <> v_actor
+    OR v_execution.source_identity <> p_source_identity THEN
+    RAISE EXCEPTION 'commit marker does not bind the active runner and exact source identity';
+  END IF;
+  INSERT INTO deedlight_execution_ledger.execution_commit_markers
+    (system_identifier, database_oid, execution_id, source_identity, runner_identity, transaction_id)
+  VALUES (v_identity.system_identifier, v_identity.database_oid, p_execution_id,
+    p_source_identity, v_actor, pg_catalog.pg_current_xact_id()::text);
+END
+$fn$;
+
 CREATE OR REPLACE FUNCTION deedlight_execution_ledger.capture_snapshot(
   p_execution_id uuid, p_phase text, p_query_id text
 ) RETURNS jsonb
@@ -281,6 +322,16 @@ BEGIN
   IF (p_phase = 'pre' AND v_execution.status <> 'reserved')
     OR (p_phase = 'post' AND v_execution.status <> 'running') THEN
     RAISE EXCEPTION 'snapshot phase does not match execution state';
+  END IF;
+  IF p_phase = 'post' AND NOT EXISTS (
+    SELECT 1 FROM deedlight_execution_ledger.execution_commit_markers
+    WHERE system_identifier = v_identity.system_identifier
+      AND database_oid = v_identity.database_oid
+      AND execution_id = p_execution_id
+      AND source_identity = v_execution.source_identity
+      AND runner_identity = v_execution.runner_identity
+  ) THEN
+    RAISE EXCEPTION 'post-snapshot requires a committed effect marker from the active runner transaction';
   END IF;
   SELECT * INTO STRICT v_query FROM deedlight_execution_ledger.observation_queries WHERE query_id = p_query_id;
   EXECUTE pg_catalog.format(
@@ -357,13 +408,16 @@ BEGIN
     RAISE EXCEPTION 'terminal outcome must be explicit and supported';
   END IF;
   SELECT * INTO STRICT v_identity FROM deedlight_execution_ledger.database_identity WHERE singleton;
-  IF NOT EXISTS (SELECT 1 FROM deedlight_execution_ledger.snapshots
+  IF NOT EXISTS (SELECT 1 FROM deedlight_execution_ledger.execution_commit_markers
+    WHERE system_identifier = v_identity.system_identifier AND database_oid = v_identity.database_oid
+      AND execution_id = p_execution_id)
+    OR NOT EXISTS (SELECT 1 FROM deedlight_execution_ledger.snapshots
     WHERE system_identifier = v_identity.system_identifier AND database_oid = v_identity.database_oid
       AND execution_id = p_execution_id AND phase = 'pre')
     OR NOT EXISTS (SELECT 1 FROM deedlight_execution_ledger.snapshots
     WHERE system_identifier = v_identity.system_identifier AND database_oid = v_identity.database_oid
       AND execution_id = p_execution_id AND phase = 'post') THEN
-    RAISE EXCEPTION 'independently collected pre and post snapshots required before finalization';
+    RAISE EXCEPTION 'committed effect marker and independent pre/post snapshots required before finalization';
   END IF;
   UPDATE deedlight_execution_ledger.executions
   SET status = p_outcome, completed_at = pg_catalog.clock_timestamp(), outcome_detail = p_outcome_detail
@@ -500,6 +554,9 @@ FOR EACH ROW EXECUTE FUNCTION deedlight_execution_ledger.reject_ledger_mutation(
 DROP TRIGGER IF EXISTS snapshots_append_only ON deedlight_execution_ledger.snapshots;
 CREATE TRIGGER snapshots_append_only BEFORE UPDATE OR DELETE ON deedlight_execution_ledger.snapshots
 FOR EACH ROW EXECUTE FUNCTION deedlight_execution_ledger.reject_ledger_mutation();
+DROP TRIGGER IF EXISTS execution_commit_markers_append_only ON deedlight_execution_ledger.execution_commit_markers;
+CREATE TRIGGER execution_commit_markers_append_only BEFORE UPDATE OR DELETE ON deedlight_execution_ledger.execution_commit_markers
+FOR EACH ROW EXECUTE FUNCTION deedlight_execution_ledger.reject_ledger_mutation();
 DROP TRIGGER IF EXISTS verification_events_append_only ON deedlight_execution_ledger.verification_events;
 CREATE TRIGGER verification_events_append_only BEFORE UPDATE OR DELETE ON deedlight_execution_ledger.verification_events
 FOR EACH ROW EXECUTE FUNCTION deedlight_execution_ledger.reject_ledger_mutation();
@@ -515,6 +572,7 @@ GRANT EXECUTE ON FUNCTION deedlight_execution_ledger.approve_execution(uuid,uuid
   TO deedlight_ledger_approver;
 GRANT EXECUTE ON FUNCTION deedlight_execution_ledger.reserve_execution(uuid,uuid,uuid,jsonb),
   deedlight_execution_ledger.start_execution(uuid),
+  deedlight_execution_ledger.record_effect_commit_marker(uuid,jsonb),
   deedlight_execution_ledger.heartbeat_execution(uuid),
   deedlight_execution_ledger.finalize_execution(uuid,text,jsonb)
   TO deedlight_ledger_runner;
