@@ -87,7 +87,9 @@
         "migrationInventoryGitBlobSha1",
         "sqlBundlePath",
         "sqlBundleGitBlobSha1",
-        "sqlBundleSha256"
+        "sqlBundleSha256",
+        "receiptSchemaGitBlobSha1",
+        "receiptSchemaSha256"
       ],
       "properties": {
         "repositoryCommitSha": {
@@ -100,10 +102,16 @@
           "const": "scripts/production-migration-readonly-audit.sql"
         },
         "sqlBundleGitBlobSha1": {
-          "const": "e55ed9207e8540d03de51c79e56c75d0bed130d1"
+          "const": "41fa608f6275777a1fcc08f1520abe42c8b600dc"
         },
         "sqlBundleSha256": {
-          "const": "02f6db1822213453deb9fbe2588b893fbcd3ff312c4bb6b523238c7968db9d13"
+          "const": "e6be28a9336579d46de58ea31dcb2ceed7310dad1bcc1aebd8d6ce6e1c5206a9"
+        },
+        "receiptSchemaGitBlobSha1": {
+          "$ref": "#/$defs/sha1"
+        },
+        "receiptSchemaSha256": {
+          "$ref": "#/$defs/sha256"
         }
       }
     },

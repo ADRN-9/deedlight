@@ -20,7 +20,12 @@ import {
   collect,
   sha256,
   SQL_SHA256,
+  SQL_GIT_BLOB_SHA1,
+  SQL_PATH,
+  RECEIPT_SCHEMA_GIT_BLOB_SHA1,
+  RECEIPT_SCHEMA_SHA256,
   SQL_PROJECTIONS,
+  SQL_NULL_SENTINEL,
 } from "./collect-production-migration-evidence.mjs";
 
 function serializeCsvField(value) {
@@ -49,7 +54,8 @@ function completeReceipt(csv,validation=validateSqlOutput(csv)){
  endpoint:{hostname:"db.xaipiovflxomcbfwtwmu.supabase.co",port:5432,database:"postgres",tlsMode:"verify-full",tlsVerified:true,tlsHostnameVerified:true,tlsChainVerified:true,
  projectIdentityMethod:"independently-pinned-profile-and-project-specific-TLS-hostname",tlsRootCertificateSha256:"a".repeat(64),independentlyPinnedProfileSha256:"b".repeat(64)},
  source:{repositoryCommitSha:"c".repeat(40),migrationInventoryGitBlobSha1:"4e63f31368d446e905f4f44565be73337c7188fb",sqlBundlePath:"scripts/production-migration-readonly-audit.sql",
- sqlBundleGitBlobSha1:"8f8c38ba0c2a463ee25c6dae1dc1b15e24e3819f",sqlBundleSha256:"afda6bcfc9f7abc7765b8dfb54bf02d1cdb0d8062da2a9f953336b638d13af7d"},
+ sqlBundleGitBlobSha1:SQL_GIT_BLOB_SHA1,sqlBundleSha256:SQL_SHA256,
+  receiptSchemaGitBlobSha1:RECEIPT_SCHEMA_GIT_BLOB_SHA1,receiptSchemaSha256:RECEIPT_SCHEMA_SHA256},
  execution:{collectorId:"deedlight-readonly-collector-v1",authenticatedPrincipal:"deedlight_catalog_auditor",expectedEffectivePrincipal:"deedlight_catalog_auditor",transactionIsolation:"repeatable read",
  readOnly:true,transactionRollbackVerified:true,startedAt:"2026-01-01T00:00:00Z",completedAt:"2026-01-01T00:01:00Z",outputFormat:"PostgreSQL psql CSV",
  canonicalization:"UTF-8 canonical JSON with ordered records and sorted object keys",resultRecordCount:validation.resultRows.length,databaseAclV1RowCount:validation.databaseAclRows,migrationHistoryRowCount:validation.migrationHistoryRows.length,
@@ -68,7 +74,7 @@ function validCsv() {
         "2026-01-01T00:00:00.000Z", "on"]);
     } else if (projection.id === "migration_history_v1") {
       rows.push(["202611240037", "migration_037_fixture", "1"]);
-      rows.push(["202611240038", "", ""]);
+      rows.push(["202611240038", SQL_NULL_SENTINEL, ""]);
     } else if (projection.id === "database_acl_v1") {
       rows.push(["database_acl_v1", "2", "1", "db_one", "t", "f", "10", "postgres", "t", "built_in_default", "[]"]);
       rows.push(["database_acl_v1", "2", "2", "db_two", "t", "t", "10", "postgres", "f", "explicit", "[]"]);
@@ -97,6 +103,22 @@ function removeProjection(csv, projectionId) {
 test("pinned approved SQL bundle matches its SHA-256", () => {
   const sql = readFileSync(new URL("./production-migration-readonly-audit.sql", import.meta.url));
   assert.equal(sha256(sql), SQL_SHA256);
+});
+
+test("published receipt schema SQL fingerprints match the collector and reject stale values", () => {
+  const schema = JSON.parse(readFileSync(new URL("../schemas/production-migration-collection-receipt-v1.schema.json", import.meta.url), "utf8"));
+  const source = schema.properties.source.properties;
+  assert.equal(source.sqlBundlePath.const, SQL_PATH);
+  assert.equal(source.sqlBundleGitBlobSha1.const, SQL_GIT_BLOB_SHA1);
+  assert.equal(source.sqlBundleSha256.const, SQL_SHA256);
+  const csv = Buffer.from(validCsv());
+  const receipt = completeReceipt(csv);
+  const staleBlob = structuredClone(receipt);
+  staleBlob.source.sqlBundleGitBlobSha1 = "8f8c38ba0c2a463ee25c6dae1dc1b15e24e3819f";
+  assert.throws(() => validateReceiptSchema(staleBlob), (error) => error.code === "RECEIPT_SCHEMA_INVALID");
+  const staleDigest = structuredClone(receipt);
+  staleDigest.source.sqlBundleSha256 = "afda6bcfc9f7abc7765b8dfb54bf02d1cdb0d8062da2a9f953336b638d13af7d";
+  assert.throws(() => validateReceiptSchema(staleDigest), (error) => error.code === "RECEIPT_SCHEMA_INVALID");
 });
 
 test("canonical JSON sorts object keys but preserves array order", () => {
@@ -220,7 +242,7 @@ test("migration history preserves literal NULL names and rejects nonnumeric stat
 test("migration history rejects malformed versions, duplicate versions, names and statement counts", () => {
   for (const [from, to, code] of [
     ["202611240037,migration_037_fixture,1", "bad-version,migration_037_fixture,1", "MIGRATION_HISTORY_VERSION_INVALID"],
-    ["202611240038,,", "202611240037,,", "MIGRATION_HISTORY_VERSION_INVALID"],
+    ["202611240038,__DEEDLIGHT_SQL_NULL_V1__,", "202611240037,__DEEDLIGHT_SQL_NULL_V1__,", "MIGRATION_HISTORY_VERSION_INVALID"],
     ["202611240037,migration_037_fixture,1", "202611240037,bad/name,1", "MIGRATION_HISTORY_NAME_INVALID"],
     ["202611240037,migration_037_fixture,1", "202611240037,migration_037_fixture,1.5", "MIGRATION_HISTORY_STATEMENT_COUNT_INVALID"],
   ]) {

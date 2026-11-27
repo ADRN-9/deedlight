@@ -479,7 +479,8 @@ test("sequence definitions, ownership, ACLs and index health are captured", () =
 
 test("migration history uses explicit version/name/array projections only", () => {
   assert.match(sql, /h\.version::text AS version/);
-  assert.match(sql, /h\.name::text AS name/);
+  assert.match(sql, /CASE WHEN h\.name IS NULL THEN '__DEEDLIGHT_SQL_NULL_V1__' ELSE h\.name::text END AS name/);
+  assert.match(sql, /h\.name = '__DEEDLIGHT_SQL_NULL_V1__'/);
   assert.match(sql, /cardinality\(h\.statements\) AS "recordedStatementCount"/);
   assert.doesNotMatch(sql, /AS migration_name|AS recorded_statement_count/);
   assert.doesNotMatch(sql, /to_jsonb\(h\)|row_to_json\(h\)/i);

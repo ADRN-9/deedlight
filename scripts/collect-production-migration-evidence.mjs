@@ -9,15 +9,19 @@ import process from "node:process";
 export const RECEIPT_SCHEMA_VERSION = 1;
 export const PROJECT_REF = "xaipiovflxomcbfwtwmu";
 export const SQL_PATH = "scripts/production-migration-readonly-audit.sql";
-export const SQL_SHA256 = "afda6bcfc9f7abc7765b8dfb54bf02d1cdb0d8062da2a9f953336b638d13af7d";
-export const SQL_GIT_BLOB_SHA1 = "8f8c38ba0c2a463ee25c6dae1dc1b15e24e3819f";
+export const SQL_SHA256 = "e6be28a9336579d46de58ea31dcb2ceed7310dad1bcc1aebd8d6ce6e1c5206a9";
+export const SQL_GIT_BLOB_SHA1 = "41fa608f6275777a1fcc08f1520abe42c8b600dc";
 export const INVENTORY_GIT_BLOB_SHA1 = "4e63f31368d446e905f4f44565be73337c7188fb";
+export const RECEIPT_SCHEMA_GIT_BLOB_SHA1 = "854b90a7d75d7b4a99a8a334aa9159f01008e542";
+export const RECEIPT_SCHEMA_SHA256 = "051fa46f670946a825aa5c64a43e97045667565b982770f6e3640898e76934f0";
 const MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 const EXECUTION_TIMEOUT_MS = 90_000;
 const COLLECTOR_ID = "deedlight-readonly-collector-v1";
 const PSQL_BINARY = "/usr/bin/psql";
 const GIT_BINARY = "/usr/bin/git";
 
+export const CSV_QUOTED_EMPTY = "\u0001DEEDLIGHT_CSV_QUOTED_EMPTY\u0001";
+export const SQL_NULL_SENTINEL = "__DEEDLIGHT_SQL_NULL_V1__";
 export class CollectorError extends Error {
   constructor(code) { super(code); this.name = "CollectorError"; this.code = code; }
 }
@@ -32,10 +36,11 @@ export function canonicalJson(value) {
   if (typeof value !== "object") throw new CollectorError("INVALID_CANONICAL_VALUE");
   return "{" + Object.keys(value).sort().map((key) => JSON.stringify(key) + ":" + canonicalJson(value[key])).join(",") + "}";
 }
-export function parseCsv(input) {
+export function parseCsv(input, { preserveQuotedEmpty = false } = {}) {
   const text = Buffer.isBuffer(input) ? input.toString("utf8") : String(input);
   if (Buffer.isBuffer(input) && !Buffer.from(text, "utf8").equals(input)) throw new CollectorError("INVALID_CSV_UTF8");
   if (text.includes("\u0000")) throw new CollectorError("INVALID_CSV_NUL");
+  if (text.includes(CSV_QUOTED_EMPTY)) throw new CollectorError("CSV_RESERVED_SENTINEL");
   const CR = String.fromCharCode(13), LF = String.fromCharCode(10);
   const rows = []; let row = []; let cell = ""; let quoted = false; let quoteClosed = false;
   for (let i = 0; i < text.length; i += 1) {
@@ -43,7 +48,7 @@ export function parseCsv(input) {
     if (quoted) {
       if (ch === '"') {
         if (text[i + 1] === '"') { cell += '"'; i += 1; }
-        else { quoted = false; quoteClosed = true; }
+        else { quoted = false; quoteClosed = true; if (preserveQuotedEmpty && cell === "") cell = CSV_QUOTED_EMPTY; }
       } else cell += ch;
       continue;
     }
@@ -105,7 +110,7 @@ function isUnexpectedHeader(row) {
     row.filter((value) => SQL_HEADER_TOKENS.has(value)).length >= 2;
 }
 export function validateSqlOutput(csv) {
-  const rows = parseCsv(csv);
+  const rows = parseCsv(csv, { preserveQuotedEmpty: true });
   const markerHeaderIndex = rows.findIndex((row) => row.length === 1 && row[0] === "collector_transaction_closed");
   if (markerHeaderIndex < 0 || markerHeaderIndex !== rows.length - 2 ||
       rows.slice(0, markerHeaderIndex).some((row) => row.length === 1 && row[0] === "collector_transaction_closed")) {
@@ -171,9 +176,9 @@ export function validateSqlOutput(csv) {
     if (!/^[0-9]{12}$/.test(version) || seenVersions.has(version) || version <= previousVersion) {
       throw new CollectorError("MIGRATION_HISTORY_VERSION_INVALID");
     }
-    const name = rawName === "" ? null : rawName;
-    if (name !== null && !/^[A-Za-z0-9_-]+$/.test(name)) throw new CollectorError("MIGRATION_HISTORY_NAME_INVALID");
-    const recordedStatementCount = rawCount === "" ? null : Number(rawCount);
+    const name = rawName === SQL_NULL_SENTINEL ? null : rawName === CSV_QUOTED_EMPTY ? "" : rawName;
+    if (name !== null && name !== "" && name !== "\\N" && !/^[A-Za-z0-9_-]+$/.test(name)) throw new CollectorError("MIGRATION_HISTORY_NAME_INVALID");
+    const recordedStatementCount = rawCount === "" || rawCount === SQL_NULL_SENTINEL ? null : Number(rawCount);
     if (recordedStatementCount !== null && (!/^(0|[1-9][0-9]*)$/.test(rawCount) ||
         !Number.isSafeInteger(recordedStatementCount) || recordedStatementCount < 0)) {
       throw new CollectorError("MIGRATION_HISTORY_STATEMENT_COUNT_INVALID");
@@ -447,12 +452,13 @@ export function buildReceipt({ profile, profileDigest, commitSha, startedAt, com
     source: {
       repositoryCommitSha: commitSha, migrationInventoryGitBlobSha1: INVENTORY_GIT_BLOB_SHA1,
       sqlBundlePath: SQL_PATH, sqlBundleGitBlobSha1: SQL_GIT_BLOB_SHA1, sqlBundleSha256: SQL_SHA256,
+      receiptSchemaGitBlobSha1: RECEIPT_SCHEMA_GIT_BLOB_SHA1, receiptSchemaSha256: RECEIPT_SCHEMA_SHA256,
     },
     execution: {
       collectorId: COLLECTOR_ID, authenticatedPrincipal: profile.username, expectedEffectivePrincipal: profile.username,
       transactionIsolation: "repeatable read", readOnly: true, transactionRollbackVerified: validation.transactionClosed,
       startedAt, completedAt, outputFormat: "PostgreSQL psql CSV",
-      canonicalization: "RFC4180 CSV parsed as ordered string-cell records; UTF-8 canonical JSON with lexicographically sorted object keys and preserved array order; SHA-256",
+      canonicalization: "RFC4180 CSV parsed as ordered string-cell records; unquoted empty cells preserve SQL NULL and quoted empty cells use a reserved internal sentinel; UTF-8 canonical JSON with lexicographically sorted object keys and preserved array order; SHA-256",
       resultRecordCount: validation.resultRows.length, databaseAclV1RowCount: validation.databaseAclRows, migrationHistoryRowCount: validation.migrationHistoryRows.length,
       canonicalResultSha256: sha256(Buffer.from(canonicalJson(validation.resultRows), "utf8")),
       evidenceFileSha256: sha256(csv),
@@ -509,8 +515,8 @@ export function validateReceiptSchema(r){
  e.hostname!=="db."+PROJECT_REF+".supabase.co"||e.port!==5432||!["postgres","deedlight_migration_order_test"].includes(e.database)||e.tlsMode!=="verify-full"||
  e.tlsVerified!==true||e.tlsHostnameVerified!==true||e.tlsChainVerified!==true||e.projectIdentityMethod!=="independently-pinned-profile-and-project-specific-TLS-hostname"||
  !hex(e.tlsRootCertificateSha256,64)||!hex(e.independentlyPinnedProfileSha256,64))invalid();
- const s=r.source;if(!exactKeys(s,["repositoryCommitSha","migrationInventoryGitBlobSha1","sqlBundlePath","sqlBundleGitBlobSha1","sqlBundleSha256"])||
- !hex(s.repositoryCommitSha,40)||s.migrationInventoryGitBlobSha1!==INVENTORY_GIT_BLOB_SHA1||s.sqlBundlePath!==SQL_PATH||s.sqlBundleGitBlobSha1!==SQL_GIT_BLOB_SHA1||s.sqlBundleSha256!==SQL_SHA256)invalid();
+ const s=r.source;if(!exactKeys(s,["repositoryCommitSha","migrationInventoryGitBlobSha1","sqlBundlePath","sqlBundleGitBlobSha1","sqlBundleSha256","receiptSchemaGitBlobSha1","receiptSchemaSha256"])||
+ !hex(s.repositoryCommitSha,40)||s.migrationInventoryGitBlobSha1!==INVENTORY_GIT_BLOB_SHA1||s.sqlBundlePath!==SQL_PATH||s.sqlBundleGitBlobSha1!==SQL_GIT_BLOB_SHA1||s.sqlBundleSha256!==SQL_SHA256||s.receiptSchemaGitBlobSha1!==RECEIPT_SCHEMA_GIT_BLOB_SHA1||s.receiptSchemaSha256!==RECEIPT_SCHEMA_SHA256)invalid();
  const x=r.execution;if(!exactKeys(x,["collectorId","authenticatedPrincipal","expectedEffectivePrincipal","transactionIsolation","readOnly","transactionRollbackVerified","startedAt","completedAt","outputFormat","canonicalization","resultRecordCount","databaseAclV1RowCount","migrationHistoryRowCount","canonicalResultSha256","evidenceFileSha256"])||
  x.collectorId!==COLLECTOR_ID||x.authenticatedPrincipal!=="deedlight_catalog_auditor"||x.expectedEffectivePrincipal!=="deedlight_catalog_auditor"||
  x.transactionIsolation!=="repeatable read"||x.readOnly!==true||x.transactionRollbackVerified!==true||!dateTime(x.startedAt)||!dateTime(x.completedAt)||compareStrictTimestamps(x.completedAt,x.startedAt)<0||

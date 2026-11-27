@@ -11,8 +11,9 @@ const PROVISIONED_TRUST_ROOTS_SHA256 = process.env.DEEDLIGHT_MIGRATION_TRUST_ROO
 const CATEGORIES = ["schema", "privileges", "ownership", "routines", "dataTransformations", "backfills", "dependencies", "preconditions", "postconditions"];
 const CATALOG_KINDS = ["schemas", "tables", "sequences", "columns", "constraints", "indexes", "triggers", "policies", "routines", "privileges", "ownership", "dataTransformations", "backfills", "dependencies", "preconditions", "postconditions"];
 const PRIVILEGE_OBJECT_KINDS = new Set(["tables", "sequences", "routines"]);
+const REQUIRED_ACCESS_SUMMARY = ["DATABASE_CONNECT", "SYSTEM_CATALOG_SELECT", "MIGRATION_HISTORY_SCHEMA_USAGE", "MIGRATION_HISTORY_SELECT"];
 const SCHEMA_KINDS = new Set(["tables", "columns", "constraints", "indexes", "triggers", "policies"]);
-const READ_ONLY_PRIVILEGES = new Set(["CONNECT", "USAGE", "SELECT"]);
+export const SQL_NULL_SENTINEL = "__DEEDLIGHT_SQL_NULL_V1__";
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -30,6 +31,86 @@ function canonical(value) {
 export function canonicalJson(value) {
   const encoded = JSON.stringify(canonical(value));
   return encoded === undefined ? "null" : encoded;
+}
+export function validateCollectorPrivilegeEvidence(db, inventoryObjects) {
+  const problems = [];
+  if (!db || db.privilegeContractVersion !== "catalog_only_v1") {
+    problems.push("collector privilege evidence contract version is missing or unsupported");
+  }
+  if (db && Object.hasOwn(db, "effectivePrivileges")) {
+    problems.push("legacy flattened effectivePrivileges is not accepted; scoped privilege evidence is required");
+  }
+  if (!Array.isArray(db && db.requiredAccessSummary)
+    || canonicalJson(db.requiredAccessSummary) !== canonicalJson(REQUIRED_ACCESS_SUMMARY)) {
+    problems.push("collector required-access summary does not match the catalog-only privilege contract");
+  }
+  if (!Array.isArray(db && db.databasePrivileges)
+    || db.databasePrivileges.length !== 1 || db.databasePrivileges[0] !== "CONNECT") {
+    problems.push("collector database-level privilege export is incomplete or not read-only");
+  }
+  if (!Array.isArray(db && db.catalogPrivileges)
+    || db.catalogPrivileges.length !== 1 || db.catalogPrivileges[0] !== "SELECT") {
+    problems.push("collector catalog read privileges are not completely attested");
+  }
+  const inventory = Array.isArray(inventoryObjects) ? inventoryObjects : [];
+  const expectedSchemas = inventory.filter((entry) => entry && entry.kind === "schemas").map((entry) => entry.identity).sort();
+  const expectedObjects = inventory.filter((entry) => entry && PRIVILEGE_OBJECT_KINDS.has(entry.kind))
+    .map((entry) => ({ kind: entry.kind, identity: entry.identity }))
+    .sort((a, b) => String(a.kind).localeCompare(String(b.kind)) || String(a.identity).localeCompare(String(b.identity)));
+  const schemaRows = Array.isArray(db && db.schemaPrivileges) ? db.schemaPrivileges : [];
+  const objectRows = Array.isArray(db && db.objectPrivileges) ? db.objectPrivileges : [];
+  const columnRows = Array.isArray(db && db.columnPrivileges) ? db.columnPrivileges : [];
+  const schemaIds = schemaRows.map((entry) => entry && entry.schema).sort();
+  const objectKeys = objectRows.map((entry) => ({ kind: entry && entry.kind, identity: entry && entry.identity }))
+    .sort((a, b) => String(a.kind).localeCompare(String(b.kind)) || String(a.identity).localeCompare(String(b.identity)));
+  if (!expectedSchemas.length || schemaIds.some((value) => typeof value !== "string")
+    || new Set(schemaIds).size !== schemaIds.length || canonicalJson(schemaIds) !== canonicalJson(expectedSchemas)
+    || schemaRows.some((entry) => {
+      if (!entry) return true;
+      const history = entry.schema === "supabase_migrations";
+      return Object.keys(entry).sort().join(",") !== "privileges,schema,scope"
+        || entry.scope !== (history ? "migration_history" : "application_data")
+        || !Array.isArray(entry.privileges)
+        || canonicalJson(entry.privileges) !== canonicalJson(history ? ["USAGE"] : []);
+    })) {
+    problems.push("collector schema privilege evidence does not match the least-privilege contract: only supabase_migrations USAGE is allowed");
+  }
+  if (!expectedObjects.length || objectKeys.some((entry) => typeof entry.kind !== "string" || typeof entry.identity !== "string")
+    || new Set(objectKeys.map((entry) => canonicalJson([entry.kind, entry.identity]))).size !== objectKeys.length
+    || canonicalJson(objectKeys) !== canonicalJson(expectedObjects)
+    || objectRows.some((entry) => {
+      if (!entry) return true;
+      const history = entry.kind === "tables" && entry.identity === "supabase_migrations.schema_migrations";
+      return Object.keys(entry).sort().join(",") !== "identity,kind,privileges,scope"
+        || entry.scope !== (history ? "migration_history" : "application_data")
+        || !Array.isArray(entry.privileges)
+        || canonicalJson(entry.privileges) !== canonicalJson(history ? ["SELECT"] : []);
+    })) {
+    problems.push("collector object privilege evidence does not match the least-privilege contract: only migration-history SELECT is allowed");
+  }
+  const expectedColumns = inventory.filter((entry) => entry && entry.kind === "columns");
+  const expectedColumnKeys = expectedColumns.map((entry) => {
+    if ([entry.schema, entry.relation, entry.column].some((value) => typeof value !== "string" || !value.length)
+      || entry.identity !== [entry.schema, entry.relation, entry.column].join(".")) return null;
+    return canonicalJson([entry.schema, entry.relation, entry.column]);
+  });
+  const columnKeys = columnRows.map((entry) => entry && canonicalJson([entry.schema, entry.relation, entry.column]));
+  if (!expectedColumns.length || expectedColumnKeys.some((value) => value === null)
+    || columnKeys.some((value) => typeof value !== "string")
+    || new Set(expectedColumnKeys).size !== expectedColumnKeys.length
+    || new Set(columnKeys).size !== columnKeys.length
+    || canonicalJson([...columnKeys].sort()) !== canonicalJson([...expectedColumnKeys].sort())
+    || columnRows.some((entry) => {
+      if (!entry || Object.keys(entry).sort().join(",") !== "column,privileges,relation,schema,scope"
+        || [entry.schema, entry.relation, entry.column].some((value) => typeof value !== "string" || !value.length)) return true;
+      const history = entry.schema === "supabase_migrations" && entry.relation === "schema_migrations";
+      return entry.scope !== (history ? "migration_history" : "application_data")
+        || !Array.isArray(entry.privileges)
+        || canonicalJson(entry.privileges) !== canonicalJson(history ? ["SELECT"] : []);
+    })) {
+    problems.push("collector column privilege evidence does not match the least-privilege contract: structured schema/relation/column identities must exactly match inventory and only migration-history SELECT is allowed");
+  }
+  return problems;
 }
 export function evidencePayload(evidence) {
   return Buffer.from(canonicalJson(evidence));
@@ -88,23 +169,28 @@ export function normalizeMigrationHistoryRows(tuples) {
   return tuples.map((tuple, index) => {
     assert(Array.isArray(tuple) && tuple.length === 3,
       "migration-history SQL row " + index + " must contain exactly version, name and recorded statement count");
-    const [version, name, rawCount] = tuple;
-    assert(typeof version === "string" && typeof name === "string" && name.trim(),
-      "migration-history SQL row " + index + " is missing version or name");
-    let recordedStatementCount = rawCount;
-    if (rawCount === "NULL" || rawCount === "\\N" || rawCount === null) recordedStatementCount = null;
+    const [version, rawName, rawCount] = tuple;
+    assert(typeof version === "string" && /^[0-9]{12}$/.test(version),
+      "migration-history SQL row " + index + " has an invalid version");
+    assert(rawName === null || typeof rawName === "string",
+      "migration-history SQL row " + index + " has an invalid name type");
+    const name = rawName === SQL_NULL_SENTINEL || rawName === null ? null : rawName;
+    let recordedStatementCount = null;
+    if (rawCount === "" || rawCount === null || rawCount === "NULL" || rawCount === SQL_NULL_SENTINEL) recordedStatementCount = null;
     else if (typeof rawCount === "string" && /^(0|[1-9][0-9]*)$/.test(rawCount)) recordedStatementCount = Number(rawCount);
+    assert(rawCount === "" || rawCount === null || rawCount === "NULL" || rawCount === SQL_NULL_SENTINEL || (typeof rawCount === "string" && /^(0|[1-9][0-9]*)$/.test(rawCount)),
+      "migration-history SQL row " + index + " has a noncanonical recorded statement count");
     assert(recordedStatementCount === null || (Number.isSafeInteger(recordedStatementCount) && recordedStatementCount >= 0),
       "migration-history SQL row " + index + " has an invalid recorded statement count");
     return { version, name, recordedStatementCount };
   });
 }
-
 export function validateMigrationHistoryRows(rows, manifest) {
   const problems = [];
   if (!Array.isArray(rows)) return ["migration history export is incomplete"];
   const versions = new Set(manifest.migrations.map((item) => item.version));
   const seenVersions = new Set();
+  let previousVersion = null;
   for (const row of rows) {
     if (!row || Object.keys(row).sort().join(",") !== "name,recordedStatementCount,version"
       || typeof row.version !== "string" || !/^[0-9]{12}$/.test(row.version) || !versions.has(row.version)) {
@@ -116,7 +202,11 @@ export function validateMigrationHistoryRows(rows, manifest) {
     } else {
       seenVersions.add(row.version);
     }
-    if (typeof row.name !== "string" || !row.name.trim()
+    if (previousVersion !== null && row.version <= previousVersion) {
+      problems.push("migration history rows are not strictly ascending by version");
+    }
+    previousVersion = row.version;
+    if ((row.name !== null && (typeof row.name !== "string" || !row.name.trim()))
       || (row.recordedStatementCount !== null && (!Number.isSafeInteger(row.recordedStatementCount) || row.recordedStatementCount < 0))) {
       problems.push("migration history row has an invalid migration name or recorded statement count");
     }
@@ -256,16 +346,6 @@ function validateCollectorAuthority(claims, provenance, evidenceDigest, authorit
   for (const flag of ["isSuperuser", "canCreateRole", "canCreateDatabase", "bypassRls", "isReplication", "ownsObjects"]) {
     if (db[flag] !== false) problems.push("collector database role is elevated or its " + flag + " status is not proven false");
   }
-  if (!Array.isArray(db.effectivePrivileges)
-    || db.effectivePrivileges.length !== READ_ONLY_PRIVILEGES.size
-    || [...READ_ONLY_PRIVILEGES].some((privilege) => !db.effectivePrivileges.includes(privilege))
-    || db.effectivePrivileges.some((privilege) => !READ_ONLY_PRIVILEGES.has(privilege))) {
-    problems.push("collector effective privileges are not exactly CONNECT, USAGE and SELECT");
-  }
-  if (!Array.isArray(db.databasePrivileges)
-    || db.databasePrivileges.length !== 1 || db.databasePrivileges[0] !== "CONNECT") {
-    problems.push("collector database-level privilege export is incomplete or not read-only");
-  }
   // The complete database_acl_v1 projection is part of the signed result, not optional metadata.
   const databaseAclRows = db.databaseAclV1;
   if (!Array.isArray(databaseAclRows) || databaseAclRows.length === 0) {
@@ -332,37 +412,7 @@ function validateCollectorAuthority(claims, provenance, evidenceDigest, authorit
     }
   }
   const inventoryObjects = evidence && evidence.catalog && Array.isArray(evidence.catalog.objects) ? evidence.catalog.objects : [];
-  const expectedSchemas = inventoryObjects.filter((entry) => entry && entry.kind === "schemas").map((entry) => entry.identity).sort();
-  const expectedObjects = inventoryObjects.filter((entry) => entry && PRIVILEGE_OBJECT_KINDS.has(entry.kind))
-    .map((entry) => ({ kind: entry.kind, identity: entry.identity })).sort((a, b) => String(a.kind).localeCompare(String(b.kind)) || String(a.identity).localeCompare(String(b.identity)));
-  const schemaRows = Array.isArray(db.schemaPrivileges) ? db.schemaPrivileges : [];
-  const objectRows = Array.isArray(db.objectPrivileges) ? db.objectPrivileges : [];
-  const schemaIds = schemaRows.map((entry) => entry && entry.schema).sort();
-  const objectKeys = objectRows.map((entry) => ({ kind: entry && entry.kind, identity: entry && entry.identity }))
-    .sort((a, b) => String(a.kind).localeCompare(String(b.kind)) || String(a.identity).localeCompare(String(b.identity)));
-  if (!expectedSchemas.length
-    || schemaIds.some((value) => typeof value !== "string") || new Set(schemaIds).size !== schemaIds.length
-    || canonicalJson(schemaIds) !== canonicalJson(expectedSchemas)
-    || schemaRows.some((entry) => !entry || Object.keys(entry).sort().join(",") !== "privileges,schema"
-      || !Array.isArray(entry.privileges) || entry.privileges.length !== 1 || entry.privileges[0] !== "USAGE")) {
-    problems.push("collector schema privilege identities do not exactly match the complete schema catalog inventory");
-  }
-  if (!expectedObjects.length
-    || objectKeys.some((entry) => typeof entry.kind !== "string" || typeof entry.identity !== "string")
-    || new Set(objectKeys.map((entry) => entry.kind + "\0" + entry.identity)).size !== objectKeys.length
-    || canonicalJson(objectKeys) !== canonicalJson(expectedObjects)
-    || objectRows.some((entry) => {
-      if (!entry) return true;
-      const expectedPrivileges = entry.kind === "routines" ? [] : ["SELECT"];
-      return Object.keys(entry).sort().join(",") !== "identity,kind,privileges"
-        || !Array.isArray(entry.privileges) || canonicalJson(entry.privileges) !== canonicalJson(expectedPrivileges);
-    })) {
-    problems.push("collector object privilege identities do not exactly match the complete table, sequence and routine catalog inventory, or routines have execution privileges");
-  }
-  if (!Array.isArray(db.catalogPrivileges)
-    || db.catalogPrivileges.length !== 1 || db.catalogPrivileges[0] !== "SELECT") {
-    problems.push("collector catalog read privileges are not completely attested");
-  }
+  for (const problem of validateCollectorPrivilegeEvidence(db, inventoryObjects)) problems.push(problem);
   if (!Array.isArray(db.roleMemberships) || db.roleMemberships.length !== 0) {
     problems.push("collector has inherited role memberships or membership evidence is missing");
   }
@@ -461,40 +511,59 @@ function validateMapping(mapping, manifest, source, problems) {
   return result;
 }
 function validateEvidence(evidence, now, manifest, problems) {
-  if (!evidence || evidence.schemaVersion !== 2) problems.push("unsupported or missing evidence schema version 2");
+  const exactKeys = (value, keys) => value && typeof value === "object" && !Array.isArray(value)
+    && Object.keys(value).sort().join(",") === [...keys].sort().join(",");
+  const required = ["catalog", "collectorAuthority", "history", "mapping", "provenance", "schemaVersion"];
+  const allowed = [...required, "externalExecutionProvenance"];
+  if (!evidence || evidence.schemaVersion !== 2
+    || required.some((key) => !Object.prototype.hasOwnProperty.call(evidence || {}, key))
+    || Object.keys(evidence || {}).some((key) => !allowed.includes(key))) {
+    problems.push("evidence has an unsupported schema version, missing required property or unexpected property");
+  }
   const p = evidence && evidence.provenance;
+  if (!exactKeys(p, ["environment", "projectRef", "capturedAt", "collectorIdentity", "queryBundleSha256"])) {
+    problems.push("evidence provenance schema is incomplete or contains unsupported properties");
+  }
   if (!p || p.environment !== "production" || p.projectRef !== PROJECT_REF) problems.push("evidence target is not the approved DeedLight Production project");
   if (!p || typeof p.collectorIdentity !== "string" || !p.collectorIdentity.trim()) problems.push("collector identity is missing");
   if (!p || !/^[a-f0-9]{64}$/.test(p.queryBundleSha256 || "")) problems.push("query-bundle fingerprint is missing");
   const captured = parseTime(p && p.capturedAt, "evidence capture timestamp", problems);
   if (Number.isFinite(captured) && (now - captured < 0 || now - captured > MAX_EVIDENCE_AGE_MS)) problems.push("evidence is stale or timestamp is in the future");
-  if (!evidence || !evidence.history || !Array.isArray(evidence.history.rows)) problems.push("migration history export is incomplete");
-  if (!evidence || !evidence.catalog || !Array.isArray(evidence.catalog.objects)) problems.push("live catalog export is incomplete");
-  const completeKinds = evidence && evidence.catalog && evidence.catalog.completeKinds;
+  const history = evidence && evidence.history;
+  if (!exactKeys(history, ["complete", "rows"]) || typeof history.complete !== "boolean" || !Array.isArray(history.rows)) {
+    problems.push("migration history export is incomplete or contains unsupported properties");
+  }
+  const catalog = evidence && evidence.catalog;
+  if (!exactKeys(catalog, ["complete", "completeKinds", "objects"]) || typeof catalog.complete !== "boolean" || !Array.isArray(catalog.objects)) {
+    problems.push("live catalog export is incomplete or contains unsupported properties");
+  }
+  if (catalog && Array.isArray(catalog.objects)) {
+    for (const object of catalog.objects) {
+      const expectedObjectKeys = object && object.kind === "columns"
+        ? ["kind", "identity", "fingerprint", "schema", "relation", "column"]
+        : ["kind", "identity", "fingerprint"];
+      if (!exactKeys(object, expectedObjectKeys)
+        || (object.kind === "columns" && ([object.schema, object.relation, object.column].some((value) => typeof value !== "string" || !value.length)
+          || object.identity !== [object.schema, object.relation, object.column].join(".")))) {
+        problems.push("catalog object contains an unexpected or missing property, or an ambiguous structured column identity");
+        break;
+      }
+    }
+  }
+  const completeKinds = catalog && catalog.completeKinds;
   if (!Array.isArray(completeKinds) || new Set(completeKinds).size !== CATALOG_KINDS.length
     || canonicalJson([...completeKinds].sort()) !== canonicalJson([...CATALOG_KINDS].sort())) {
     problems.push("catalog completeness dimensions are missing, duplicated or unexpected");
   }
-  for (const kind of CATALOG_KINDS) {
-    if (!evidence || !evidence.catalog || !Array.isArray(evidence.catalog.completeKinds) || !evidence.catalog.completeKinds.includes(kind)) {
-      problems.push("catalog export does not attest complete " + kind);
-    }
+  for (const kind of CATALOG_KINDS) if (!Array.isArray(completeKinds) || !completeKinds.includes(kind)) {
+    problems.push("catalog export does not attest complete " + kind);
   }
-  if (evidence && evidence.history && Array.isArray(evidence.history.rows)) {
-    problems.push(...validateMigrationHistoryRows(evidence.history.rows, manifest));
-  }
-  // Candidate external records are untrusted input. No authenticated Production execution-provenance
-  // authority is currently configured or present in the supplied evidence; never promote these records.
+  if (history && Array.isArray(history.rows)) problems.push(...validateMigrationHistoryRows(history.rows, manifest));
   if (evidence && evidence.externalExecutionProvenance !== undefined) {
-    if (!Array.isArray(evidence.externalExecutionProvenance)) {
-      problems.push("external migration execution provenance must be an array of candidate records");
-    } else {
-      for (const record of evidence.externalExecutionProvenance) {
-        parseTime(record && record.executedAt, "external migration execution timestamp", problems);
-      }
-      if (evidence.externalExecutionProvenance.length > 0) {
-        problems.push("external migration execution provenance is unverified: no authenticated authoritative source is configured");
-      }
+    if (!Array.isArray(evidence.externalExecutionProvenance)) problems.push("external migration execution provenance must be an array of candidate records");
+    else {
+      for (const record of evidence.externalExecutionProvenance) parseTime(record && record.executedAt, "external migration execution timestamp", problems);
+      if (evidence.externalExecutionProvenance.length > 0) problems.push("external migration execution provenance is unverified: no authenticated authoritative source is configured");
     }
   }
 }
@@ -504,8 +573,14 @@ function classifyOne(item, manifest, evidence, source, mappedEffects) {
   if (!expected) return { status: "Unknown", reasons: ["migration has no complete authenticated effect mapping"] };
   const catalog = new Map();
   for (const object of evidence.catalog.objects) {
-    if (!object || !CATALOG_KINDS.includes(object.kind) || typeof object.identity !== "string" || !/^[a-f0-9]{64}$/.test(object.fingerprint || "")) {
-      return { status: "Unknown", reasons: ["malformed live catalog object fingerprint"] };
+    const expectedObjectKeys = object && object.kind === "columns"
+      ? "column,fingerprint,identity,kind,relation,schema"
+      : "fingerprint,identity,kind";
+    if (!object || Object.keys(object).sort().join(",") !== expectedObjectKeys || !CATALOG_KINDS.includes(object.kind)
+      || typeof object.identity !== "string" || !/^[a-f0-9]{64}$/.test(object.fingerprint || "")
+      || (object.kind === "columns" && ([object.schema, object.relation, object.column].some((value) => typeof value !== "string" || !value.length)
+        || object.identity !== [object.schema, object.relation, object.column].join(".")))) {
+      return { status: "Unknown", reasons: ["malformed live catalog object fingerprint or structured column identity"] };
     }
     const key = object.kind + "\0" + object.identity;
     if (catalog.has(key)) return { status: "Unknown", reasons: ["duplicate live catalog object identity"] };

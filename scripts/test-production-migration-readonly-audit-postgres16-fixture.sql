@@ -117,7 +117,12 @@ CREATE TABLE supabase_migrations.schema_migrations (
   name text
 );
 INSERT INTO supabase_migrations.schema_migrations(version, statements, name)
-VALUES ('202611240038', ARRAY['SELECT 1'], 'fixture_migration');
+VALUES
+  ('202611240038', ARRAY['SELECT 1'], 'fixture_migration'),
+  ('202611240039', ARRAY['SELECT 1'], NULL),
+  ('202611240040', ARRAY['SELECT 1'], 'NULL'),
+  ('202611240041', ARRAY['SELECT 1'], E'\\N'),
+  ('202611240042', ARRAY['SELECT 1'], '');
 
 CREATE TABLE public.audit_fixture_private (id bigint, private_value text);
 CREATE SEQUENCE public.audit_fixture_sequence OWNED BY public.audit_fixture_private.id;

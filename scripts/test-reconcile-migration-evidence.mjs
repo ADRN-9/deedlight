@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { analyzeMigrationEvidence, canonicalJson, evidencePayload, mappingDigest, normalizeMigrationHistoryRows, strictTimestamp, validateMigrationHistoryRows } from "./reconcile-migration-evidence.mjs";
+import { analyzeMigrationEvidence, canonicalJson, evidencePayload, mappingDigest, normalizeMigrationHistoryRows, SQL_NULL_SENTINEL, strictTimestamp, validateCollectorPrivilegeEvidence, validateMigrationHistoryRows } from "./reconcile-migration-evidence.mjs";
 
 const repoRoot = process.cwd();
 const sourceManifest = JSON.parse(readFileSync(path.join(repoRoot, "supabase/migration-inventory.json"), "utf8"));
@@ -90,9 +90,15 @@ function fixture() {
   const mapping = { schemaVersion: 1, migrations: migrationEffects };
   const expected = migrationEffects.flatMap((entry) => categories.flatMap((category) => entry.effects[category]));
   const catalog = [
-    ...expected.map((effect) => ({ kind: effect.kind, identity: effect.identity, fingerprint: effect.fingerprint })),
+    ...expected.map((effect) => effect.kind === "columns"
+      ? { kind: effect.kind, identity: effect.identity, schema: "fixture", relation: "schema", column: effect.identity.split(".").at(-1), fingerprint: effect.fingerprint }
+      : ({ kind: effect.kind, identity: effect.identity, fingerprint: effect.fingerprint })),
     { kind: "schemas", identity: "public", fingerprint: hash("schema:public") },
+    { kind: "schemas", identity: "supabase_migrations", fingerprint: hash("schema:supabase_migrations") },
     { kind: "tables", identity: "public.profiles", fingerprint: hash("table:public.profiles") },
+    { kind: "tables", identity: "supabase_migrations.schema_migrations", fingerprint: hash("table:supabase_migrations.schema_migrations") },
+    { kind: "columns", identity: "public.profiles.id", schema: "public", relation: "profiles", column: "id", fingerprint: hash("column:public.profiles.id") },
+    { kind: "columns", identity: "supabase_migrations.schema_migrations.version", schema: "supabase_migrations", relation: "schema_migrations", column: "version", fingerprint: hash("column:history.version") },
   ];
   const historyRows = [];
   const byVersion = new Map();
@@ -160,9 +166,10 @@ function fixture() {
         bypassRls: false,
         isReplication: false,
         ownsObjects: false,
-        effectivePrivileges: ["CONNECT", "USAGE", "SELECT"],
-        databasePrivilegesComplete: true,
+        privilegeContractVersion: "catalog_only_v1",
+        requiredAccessSummary: ["DATABASE_CONNECT", "SYSTEM_CATALOG_SELECT", "MIGRATION_HISTORY_SCHEMA_USAGE", "MIGRATION_HISTORY_SELECT"],
         databasePrivileges: ["CONNECT"],
+        catalogPrivileges: ["SELECT"],
         databaseAclV1: [{
           database_count: 1,
           database_oid: 100,
@@ -182,18 +189,28 @@ function fixture() {
             is_grantable: true,
           }],
         }],
-        schemaPrivilegesComplete: true,
         schemaPrivileges: evidence.catalog.objects.filter((entry) => entry.kind === "schemas")
-          .map((entry) => ({ schema: entry.identity, privileges: ["USAGE"] })),
-        objectPrivilegesComplete: true,
+          .map((entry) => ({
+            schema: entry.identity,
+            scope: entry.identity === "supabase_migrations" ? "migration_history" : "application_data",
+            privileges: entry.identity === "supabase_migrations" ? ["USAGE"] : [],
+          })),
         objectPrivileges: evidence.catalog.objects.filter((entry) => ["tables", "sequences", "routines"].includes(entry.kind))
           .map((entry) => ({
             kind: entry.kind,
             identity: entry.identity,
-            privileges: entry.kind === "routines" ? [] : ["SELECT"],
+            scope: entry.kind === "tables" && entry.identity === "supabase_migrations.schema_migrations"
+              ? "migration_history" : "application_data",
+            privileges: entry.kind === "tables" && entry.identity === "supabase_migrations.schema_migrations" ? ["SELECT"] : [],
           })),
-        catalogPrivilegesComplete: true,
-        catalogPrivileges: ["SELECT"],
+        columnPrivileges: evidence.catalog.objects.filter((entry) => entry.kind === "columns")
+          .map((entry) => ({
+            schema: entry.schema,
+            relation: entry.relation,
+            column: entry.column,
+            scope: entry.schema === "supabase_migrations" && entry.relation === "schema_migrations" ? "migration_history" : "application_data",
+            privileges: entry.schema === "supabase_migrations" && entry.relation === "schema_migrations" ? ["SELECT"] : [],
+          })),
         roleMemberships: [],
         ownedSchemas: [],
         proofQueryBundleSha256: evidence.provenance.queryBundleSha256,
@@ -614,12 +631,18 @@ test("write-capable collector, inherited roles or unproven read-only privilege f
         },
       });
     },
-    (f) => {
-      const claims = f.approvals.collectorAttestation.claims;
-      f.approvals.collectorAttestation = artifact("read-only-collector-attestation", "collector", {
-        ...claims, databaseAuthority: { ...claims.databaseAuthority, objectPrivilegesComplete: false },
-      });
-    },
+    (f) => f.reapprove((db) => { db.columnPrivileges.pop(); }),
+    (f) => f.reapprove((db) => { db.privilegeContractVersion = "legacy_flattened_v0"; }),
+    (f) => f.reapprove((db) => { db.requiredAccessSummary = [...db.requiredAccessSummary, "APPLICATION_DATA_SELECT"]; }),
+    (f) => f.reapprove((db) => { db.schemaPrivileges.find((row) => row.schema === "public").privileges.push("USAGE"); }),
+    (f) => f.reapprove((db) => { db.objectPrivileges.find((row) => row.identity === "public.profiles").privileges.push("SELECT"); }),
+    (f) => f.reapprove((db) => { db.columnPrivileges.find((row) => row.schema === "public" && row.relation === "profiles" && row.column === "id").privileges.push("SELECT"); }),
+    (f) => f.reapprove((db) => { db.objectPrivileges.find((row) => row.identity === "supabase_migrations.schema_migrations").privileges.push("UPDATE"); }),
+    (f) => f.reapprove((db) => { db.columnPrivileges.pop(); }),
+    (f) => f.reapprove((db) => { db.columnPrivileges.push({ ...db.columnPrivileges[0] }); }),
+    (f) => f.reapprove((db) => { db.effectivePrivileges = ["CONNECT", "USAGE", "SELECT"]; }),
+    (f) => f.reapprove((db) => { db.schemaPrivileges.find((row) => row.schema === "supabase_migrations").privileges = []; }),
+    (f) => f.reapprove((db) => { db.objectPrivileges.find((row) => row.identity === "supabase_migrations.schema_migrations").privileges = []; }),
   ]) {
     const f = fixture();
     try {
@@ -629,6 +652,83 @@ test("write-capable collector, inherited roles or unproven read-only privilege f
       assert.equal(report.acceptance, "NOT_ACCEPTED");
     } finally { f.cleanup(); }
   }
+});
+
+test("PR23 catalog-only contract is exact, scoped and complete in PR26 analyzer", () => {
+  const f = fixture();
+  try {
+    f.reapprove();
+    const db = f.evidence.collectorAuthority.databaseAuthority;
+    assert.deepEqual(validateCollectorPrivilegeEvidence(db, f.evidence.catalog.objects), []);
+    assert.equal(db.privilegeContractVersion, "catalog_only_v1");
+    assert.deepEqual(db.requiredAccessSummary, [
+      "DATABASE_CONNECT", "SYSTEM_CATALOG_SELECT", "MIGRATION_HISTORY_SCHEMA_USAGE", "MIGRATION_HISTORY_SELECT",
+    ]);
+    assert.deepEqual(db.schemaPrivileges.find((row) => row.schema === "public"),
+      { schema: "public", scope: "application_data", privileges: [] });
+    assert.deepEqual(db.schemaPrivileges.find((row) => row.schema === "supabase_migrations"),
+      { schema: "supabase_migrations", scope: "migration_history", privileges: ["USAGE"] });
+    assert.deepEqual(db.objectPrivileges.find((row) => row.identity === "public.profiles"),
+      { kind: "tables", identity: "public.profiles", scope: "application_data", privileges: [] });
+    assert.deepEqual(db.objectPrivileges.find((row) => row.identity === "supabase_migrations.schema_migrations"),
+      { kind: "tables", identity: "supabase_migrations.schema_migrations", scope: "migration_history", privileges: ["SELECT"] });
+    assert.deepEqual(db.columnPrivileges.find((row) => row.schema === "supabase_migrations" && row.relation === "schema_migrations" && row.column === "version"),
+      { schema: "supabase_migrations", relation: "schema_migrations", column: "version", scope: "migration_history", privileges: ["SELECT"] });
+    assert.ok(db.columnPrivileges.filter((row) => row.scope === "application_data").every((row) => row.privileges.length === 0));
+  } finally { f.cleanup(); }
+});
+
+test("dotted quoted schema and relation identifiers cannot impersonate migration-history columns", () => {
+  const f = fixture();
+  try {
+    f.reapprove();
+    const db = f.evidence.collectorAuthority.databaseAuthority;
+    const inventory = f.evidence.catalog.objects.map((entry) => ({ ...entry }));
+    const dottedColumns = [
+      { kind: "columns", identity: "supabase_migrations.schema_migrations.x.a", schema: "supabase_migrations.schema_migrations", relation: "x", column: "a", fingerprint: hash("quoted-schema-dot") },
+      { kind: "columns", identity: "supabase_migrations.schema_migrations.impostor.b", schema: "supabase_migrations", relation: "schema_migrations.impostor", column: "b", fingerprint: hash("quoted-relation-dot") },
+    ];
+    inventory.push(
+      { kind: "schemas", identity: "supabase_migrations.schema_migrations", fingerprint: hash("quoted-schema") },
+      { kind: "tables", identity: "supabase_migrations.schema_migrations.x", fingerprint: hash("quoted-schema-table") },
+      { kind: "tables", identity: "supabase_migrations.schema_migrations.impostor", fingerprint: hash("quoted-relation-table") },
+      ...dottedColumns,
+    );
+    db.schemaPrivileges.push(
+      { schema: "supabase_migrations.schema_migrations", scope: "application_data", privileges: [] },
+    );
+    db.objectPrivileges.push(
+      { kind: "tables", identity: "supabase_migrations.schema_migrations.x", scope: "application_data", privileges: [] },
+      { kind: "tables", identity: "supabase_migrations.schema_migrations.impostor", scope: "application_data", privileges: [] },
+    );
+    db.columnPrivileges.push(...dottedColumns.map(({ schema, relation, column }) => ({
+      schema, relation, column, scope: "application_data", privileges: [],
+    })));
+    assert.deepEqual(validateCollectorPrivilegeEvidence(db, inventory), []);
+
+    const schemaImpostor = db.columnPrivileges.find((row) => row.schema === "supabase_migrations.schema_migrations");
+    schemaImpostor.privileges = ["SELECT"];
+    assert.ok(validateCollectorPrivilegeEvidence(db, inventory).some((problem) => problem.includes("structured schema/relation/column identities")));
+    schemaImpostor.privileges = [];
+    schemaImpostor.scope = "migration_history";
+    assert.ok(validateCollectorPrivilegeEvidence(db, inventory).some((problem) => problem.includes("structured schema/relation/column identities")));
+    schemaImpostor.scope = "application_data";
+    delete schemaImpostor.schema;
+    assert.ok(validateCollectorPrivilegeEvidence(db, inventory).some((problem) => problem.includes("structured schema/relation/column identities")));
+  } finally { f.cleanup(); }
+});
+
+test("the pinned 40-entry migration inventory retains both 007 sources, Migration 039 and version order", () => {
+  const migrations = sourceManifest.migrations;
+  assert.equal(migrations.length, 40);
+  assert.deepEqual(migrations.filter((entry) => entry.version === "202607260007").map((entry) => entry.path), [
+    "supabase/migrations/202607260007_sprint6_daily_deedlight.sql",
+    "supabase/migrations/202607260007_sprint7_pwa_daily_engagement.sql",
+  ]);
+  assert.deepEqual(migrations.filter((entry) => entry.version === "202611260039").map((entry) => entry.path), [
+    "supabase/migrations/202611260039_delivery_kind_scoped_claims.sql",
+  ]);
+  assert.ok(migrations.every((entry, index) => index === 0 || migrations[index - 1].version <= entry.version));
 });
 
 test("self-declared completeness booleans do not replace signed catalog identity evidence", () => {
@@ -683,7 +783,7 @@ test("collector schema and object privilege identity sets must exactly match cat
       const report = f.analyze();
       assert.equal(report.counts.Unknown, 40);
       assert.equal(report.acceptance, "NOT_ACCEPTED");
-      assert.ok(report.trustProblems.some((reason) => reason.includes("privilege identities do not exactly match")));
+      assert.ok(report.trustProblems.some((reason) => reason.includes("least-privilege contract")));
     } finally { f.cleanup(); }
   }
 });
@@ -826,21 +926,33 @@ test("nullable recorded statement count remains a database fact, not provenance"
   } finally { f.cleanup(); }
 });
 
-test("migration-history SQL output normalization enforces exact row shape and nullable statement count", () => {
+test("migration-history SQL normalization preserves SQL NULL and literal NULL markers", () => {
   const rows = normalizeMigrationHistoryRows([
     ["202607260004", "sprint4_reactions", "12"],
-    ["202607260005", "sprint5_moderation", "\\N"],
+    ["202607260005", SQL_NULL_SENTINEL, "NULL"],
+    ["202607260006", "NULL", "0"],
+    ["202607270008", "\\N", "1"],
   ]);
   assert.deepEqual(rows, [
     { version: "202607260004", name: "sprint4_reactions", recordedStatementCount: 12 },
-    { version: "202607260005", name: "sprint5_moderation", recordedStatementCount: null },
+    { version: "202607260005", name: null, recordedStatementCount: null },
+    { version: "202607260006", name: "NULL", recordedStatementCount: 0 },
+    { version: "202607270008", name: "\\N", recordedStatementCount: 1 },
   ]);
   assert.deepEqual(validateMigrationHistoryRows(rows, sourceManifest), []);
+  assert.ok(validateMigrationHistoryRows([rows[1], rows[0], ...rows.slice(2)], sourceManifest)
+    .some((problem) => problem.includes("strictly ascending")));
+  assert.ok(validateMigrationHistoryRows([rows[0], rows[2], rows[1], ...rows.slice(3)], sourceManifest)
+    .some((problem) => problem.includes("strictly ascending")));
+  const emptyName = normalizeMigrationHistoryRows([["202607270008", "", "1"]]);
+  assert.equal(emptyName[0].name, "");
+  assert.ok(validateMigrationHistoryRows(emptyName, sourceManifest).some((problem) => problem.includes("invalid migration name")));
   for (const malformed of [
     [["202607260004", "sprint4_reactions"]],
     [["202607260004", "sprint4_reactions", "bad"]],
-    [["202607260004", "", "12"]],
+    [["202607260004", "sprint4_reactions", "\\N"]],
     [["202607260004", "sprint4_reactions", "-1"]],
+    [["202607260004", "sprint4_reactions", "01"]],
     [["202607260004", "sprint4_reactions", "9007199254740992"]],
   ]) assert.throws(() => normalizeMigrationHistoryRows(malformed));
   assert.ok(validateMigrationHistoryRows([{ version: "202607260004", migration_name: "sprint4_reactions", recorded_statement_count: 12 }], sourceManifest).length > 0);
@@ -849,6 +961,19 @@ test("migration-history SQL output normalization enforces exact row shape and nu
     { version: "202607260004", name: "sprint4_reactions", recordedStatementCount: 12 },
     { version: "202607260004", name: "sprint4_reactions", recordedStatementCount: 12 },
   ], sourceManifest).some((problem) => problem.includes("duplicate version")));
+});
+test("nullable migration name is a database fact and never proves exact execution", () => {
+  const f = fixture();
+  try {
+    f.evidence.history.rows[0].name = null;
+    f.reapprove();
+    const report = f.analyze();
+    assert.equal(report.trustVerified, true);
+    assert.equal(report.acceptance, "NOT_ACCEPTED");
+    assert.equal(report.counts["Applied and verified"], 0);
+    assert.equal(report.classifications[0].status, "Schema represented but history ambiguous");
+    assert.ok(report.classifications[0].reasons.some((reason) => reason.includes("history version is associated with a different migration name")));
+  } finally { f.cleanup(); }
 });
 test("migration-history facts never establish execution provenance; fabricated fields fail closed", () => {
   const f = fixture();
@@ -1396,6 +1521,26 @@ test("every timestamp-bearing evidence path rejects canonical year zero", () => 
       const report = f.analyze();
       assert.equal(report.counts.Unknown, 40);
       assert.ok(report.trustProblems.some((reason) => /timestamp|notBefore|notAfter|issuedAt|expiresAt/i.test(reason)));
+    } finally { f.cleanup(); }
+  }
+});
+
+test("analyzer rejects unexpected evidence and nested provenance/catalog properties", () => {
+  for (const mutate of [
+    (f) => { f.evidence.unexpected = true; },
+    (f) => { f.evidence.provenance.unexpected = true; },
+    (f) => { f.evidence.history.unexpected = true; },
+    (f) => { f.evidence.catalog.unexpected = true; },
+    (f) => { f.evidence.catalog.objects[0].unexpected = true; },
+  ]) {
+    const f = fixture();
+    try {
+      mutate(f);
+      f.reapprove();
+      const report = f.analyze();
+      assert.equal(report.counts.Unknown, 40);
+      assert.equal(report.acceptance, "NOT_ACCEPTED");
+      assert.ok(report.trustProblems.some((reason) => reason.includes("unexpected") || reason.includes("unsupported") || reason.includes("malformed")));
     } finally { f.cleanup(); }
   }
 });
