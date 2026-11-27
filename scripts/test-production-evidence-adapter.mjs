@@ -293,13 +293,17 @@ test("adapter candidate cannot enter authenticated analyzer acceptance by struct
 });
 
 
+function sourceLineBinding(entry){
+  const line=readFileSync(new URL("../"+entry.path,import.meta.url),"utf8").split(/\r?\n/)[0];
+  return {sourceRange:{startLine:1,endLine:1},sourceStatementSha256:sha256(Buffer.from(line))};
+}
+
 test("category-specific transformation contract requires exact source and target relations",()=>{
-  const mapping=mappingFixture(),entry=mapping.migrations[0];
+  const mapping=mappingFixture(),entry=mapping.migrations[0],binding=sourceLineBinding(entry);
   const effect={kind:"dataTransformations",identity:"fixture.transform",fingerprint:"e".repeat(64),
     description:"Synthetic test-only transformation contract.",sourcePath:entry.path,
     contract:{operation:"UPDATE",sourceRelations:[{schema:"fixture",relation:"source"}],
-      targetRelation:{schema:"fixture",relation:"target"},predicate:{sql:"id IS NOT NULL",sha256:"f".repeat(64)},
-      sourceStatementSha256:"a".repeat(64)}};
+      targetRelation:{schema:"fixture",relation:"target"},predicate:{sql:"id IS NOT NULL",sha256:"f".repeat(64)},...binding}};
   entry.effects.dataTransformations=[effect];entry.coverage.dataTransformations.disposition="effects";
   assert.doesNotThrow(()=>adapt(fixtureCsv(),mapping));
   for(const mutate of [
@@ -311,12 +315,11 @@ test("category-specific transformation contract requires exact source and target
 });
 
 test("backfill contracts preserve unavailable measurement without asserting row counts",()=>{
-  const mapping=mappingFixture(),entry=mapping.migrations[0];
+  const mapping=mappingFixture(),entry=mapping.migrations[0],binding=sourceLineBinding(entry);
   entry.effects.backfills=[{kind:"backfills",identity:"fixture.backfill",fingerprint:"b".repeat(64),
     description:"Synthetic test-only backfill candidate.",sourcePath:entry.path,
     contract:{targetRelation:{schema:"fixture",relation:"target"},predicate:{sql:"processed_at IS NULL",sha256:"c".repeat(64)},
-      measurement:{status:"not_measured",reason:"No independent execution measurement is supplied by this source fixture."},
-      sourceStatementSha256:"d".repeat(64)}}];
+      measurement:{status:"not_measured",reason:"No independent execution measurement is supplied by this source fixture."},...binding}}];
   entry.coverage.backfills.disposition="effects";
   assert.equal(adapt(fixtureCsv(),mapping).candidate.status,"UNSIGNED_NOT_ACCEPTED");
   const malformed=structuredClone(mapping);
@@ -327,11 +330,11 @@ test("backfill contracts preserve unavailable measurement without asserting row 
 });
 
 test("dependency contracts require a pinned distinct prerequisite migration",()=>{
-  const mapping=mappingFixture(),entry=mapping.migrations[1],dependency=inventory.migrations[0];
+  const mapping=mappingFixture(),entry=mapping.migrations[1],dependency=inventory.migrations[0],binding=sourceLineBinding(entry);
   entry.effects.dependencies=[{kind:"dependencies",identity:"fixture.dependency",fingerprint:"a".repeat(64),
     description:"Synthetic test-only dependency edge.",sourcePath:entry.path,
     contract:{dependencyType:"foreign_key",fromRelation:{schema:"fixture",relation:"child"},
-      toRelation:{schema:"fixture",relation:"parent"},dependsOnMigrationPath:dependency.path,sourceStatementSha256:"b".repeat(64)}}];
+      toRelation:{schema:"fixture",relation:"parent"},dependsOnMigrationPath:dependency.path,...binding}}];
   entry.coverage.dependencies.disposition="effects";
   assert.doesNotThrow(()=>adapt(fixtureCsv(),mapping));
   const invalid=structuredClone(mapping);
@@ -341,12 +344,12 @@ test("dependency contracts require a pinned distinct prerequisite migration",()=
 
 test("precondition and postcondition contracts require explicit predicates and verification state",()=>{
   for(const category of ["preconditions","postconditions"]){
-    const mapping=mappingFixture(),entry=mapping.migrations[0];
+    const mapping=mappingFixture(),entry=mapping.migrations[0],binding=sourceLineBinding(entry);
     entry.effects[category]=[{kind:category,identity:"fixture."+category,fingerprint:"c".repeat(64),
       description:"Synthetic test-only condition contract.",sourcePath:entry.path,
       contract:{predicateSql:"SELECT count(*) = 0 FROM fixture.target WHERE invalid",
         predicateSha256:"d".repeat(64),expectedOutcome:"true",
-        verification:{status:"not_verified",reason:"Source text alone cannot establish the execution outcome."}}}];
+        verification:{status:"not_verified",reason:"Source text alone cannot establish the execution outcome."},...binding}}];
     entry.coverage[category].disposition="effects";
     assert.doesNotThrow(()=>adapt(fixtureCsv(),mapping));
     const invalid=structuredClone(mapping);
