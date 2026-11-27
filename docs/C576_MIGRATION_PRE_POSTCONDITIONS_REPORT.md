@@ -160,7 +160,7 @@ Human/security dependencies remain: trust-root design and provisioning, verifier
 
 No local Node runtime was available in this session; no local test execution is claimed. CI is the validation machine.
 
-C576 exact-head PR CI is pending until GitHub Actions reports a completed successful run for the final C576 HEAD. C575's 12/12 run is predecessor evidence only.
+C576 implementation-head PR CI run **46047431436** (run #2190) completed **SUCCESS** against `503fcddfa0438e51d98fedceefab05b403a0efe6`. All 12 jobs passed. The 33-case C575/C576 test suite passed, including the new precondition/postcondition adversarial step. TypeScript, Next.js production build, Cloudflare packaging, dependency audit and all PostgreSQL 16 behavior jobs passed. This run proves the implementation at that exact head. A documentation-only update to this report creates a new PR head and requires a new exact-head run before finalizing.
 
 No Production database mutation, migration-history change, trust-root provisioning, credential exposure, PR merge or Production activation occurred.
 
@@ -172,7 +172,7 @@ No Production database mutation, migration-history change, trust-root provisioni
 | C575 exact-head CI run 46046289879 | PASS |
 | 40-entry inventory / two Migration 007 sources / Migration 039 preservation | PASS |
 | C576 verifier and strict contract schema | IMPLEMENTED |
-| C576 adversarial regression coverage | IMPLEMENTED; exact-head CI pending |
+| C576 adversarial regression coverage | PASS on implementation HEAD (run 46047431436) |
 | Actual independent Production pre/post observations | NOT ESTABLISHED |
 | Live migration execution outcome evidence | NOT ESTABLISHED |
 | Durable atomic replay prevention | BLOCKED |
@@ -180,7 +180,7 @@ No Production database mutation, migration-history change, trust-root provisioni
 | Production verifier/approver trust roots | BLOCKED |
 | Analyzer integration | BLOCKED |
 | F-01 | OPEN |
-| Stacked C576 PR CI | NOT ESTABLISHED |
+| Stacked C576 PR CI | PASS on implementation HEAD; latest report HEAD pending |
 | Semantic verification | NOT ESTABLISHED |
 | Production readiness | NO-GO |
 
