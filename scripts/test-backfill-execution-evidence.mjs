@@ -53,6 +53,11 @@ function signedArtifact(kind, signer, key, claims, id) {
   return { ...unsigned, signature: sign(null, Buffer.from(canonical(unsigned)), key.privateKey).toString("base64") };
 }
 function resign(record) {
+  record.provenance.evidenceBundleSha256 = hash(canonical({
+    executionEvidence: record.executionEvidence,
+    preExecutionState: record.preExecutionState,
+    postExecutionState: record.postExecutionState,
+  }));
   const core = {
     schemaVersion: record.schemaVersion, kind: record.kind, recordId: record.recordId, executionId: record.executionId,
     sourceIdentity: record.sourceIdentity, databaseIdentity: record.databaseIdentity, execution: record.execution,
