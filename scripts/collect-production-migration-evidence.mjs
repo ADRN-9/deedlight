@@ -35,7 +35,7 @@ export function canonicalJson(value) {
   if (typeof value !== "object") throw new CollectorError("INVALID_CANONICAL_VALUE");
   return "{" + Object.keys(value).sort().map((key) => JSON.stringify(key) + ":" + canonicalJson(value[key])).join(",") + "}";
 }
-export function parseCsv(input) {
+export function parseCsv(input, { preserveQuotedEmpty = false } = {}) {
   const text = Buffer.isBuffer(input) ? input.toString("utf8") : String(input);
   if (Buffer.isBuffer(input) && !Buffer.from(text, "utf8").equals(input)) throw new CollectorError("INVALID_CSV_UTF8");
   if (text.includes("\u0000")) throw new CollectorError("INVALID_CSV_NUL");
@@ -47,7 +47,7 @@ export function parseCsv(input) {
     if (quoted) {
       if (ch === '"') {
         if (text[i + 1] === '"') { cell += '"'; i += 1; }
-        else { quoted = false; quoteClosed = true; if (cell === "") cell = CSV_QUOTED_EMPTY; }
+        else { quoted = false; quoteClosed = true; if (preserveQuotedEmpty && cell === "") cell = CSV_QUOTED_EMPTY; }
       } else cell += ch;
       continue;
     }
@@ -109,7 +109,7 @@ function isUnexpectedHeader(row) {
     row.filter((value) => SQL_HEADER_TOKENS.has(value)).length >= 2;
 }
 export function validateSqlOutput(csv) {
-  const rows = parseCsv(csv);
+  const rows = parseCsv(csv, { preserveQuotedEmpty: true });
   const markerHeaderIndex = rows.findIndex((row) => row.length === 1 && row[0] === "collector_transaction_closed");
   if (markerHeaderIndex < 0 || markerHeaderIndex !== rows.length - 2 ||
       rows.slice(0, markerHeaderIndex).some((row) => row.length === 1 && row[0] === "collector_transaction_closed")) {
