@@ -1,10 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { createHash } from "node:crypto";
 import { verifyC574SourceMap } from "./verify-c574-source-semantic-map.mjs";
 
-const inventory = JSON.parse(readFileSync("supabase/migration-inventory.json", "utf8"));
 const mapping = JSON.parse(readFileSync("docs/c574-migration-source-semantic-map.json", "utf8"));
 
 function classifyFixtureLexeme(value) {
