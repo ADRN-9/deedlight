@@ -1,0 +1,3963 @@
+{
+  "schemaVersion": 1,
+  "project": "DeedLight",
+  "artifact": "C574_SOURCE_SEMANTIC_MAPPING",
+  "status": "SOURCE_OBSERVATIONS_ONLY_NOT_SEMANTIC_VERIFICATION",
+  "reviewedRepository": "ADRN-9/deedlight",
+  "reviewedCommit": "2133cee1439287399740bf9794bbb0b4e793105c",
+  "inventory": {
+    "path": "supabase/migration-inventory.json",
+    "gitBlobSha1": "4e63f31368d446e905f4f44565be73337c7188fb",
+    "entryCount": 40,
+    "uniqueVersionCount": 39,
+    "ordering": "Deterministic filename order from pinned inventory; not historical execution proof."
+  },
+  "authorizationBoundary": {
+    "catalogContract": "catalog_only_v1",
+    "changed": false,
+    "nonCatalogLifecycleDomainsAccepted": false,
+    "semanticApprovalPresent": false
+  },
+  "sourceReviewMethod": "Human review of source excerpts plus extraction of schema-qualified identifier tokens from the exact source bodies. No PostgreSQL parser, AST, name resolver, catalog snapshot, or PostgreSQL execution was used.",
+  "literalDistinctions": {
+    "sourceBytesPreservedByGitBlobIdentity": true,
+    "sqlNullKeywordDistinctFromQuotedEmptyString": true,
+    "quotedBackslashNDistinctFromSqlNull": true,
+    "normalizationPerformed": false,
+    "quotedEmptyStringObserved": true,
+    "sqlNullKeywordObserved": true,
+    "fixtureCoverageRequired": true,
+    "quotedBackslashNSourceOccurrence": "NOT_ASSERTED_BY_MAPPING; DISTINCTNESS_IS_COVERED_BY_FIXTURE_ONLY"
+  },
+  "migrationVersionPolicy": "A migration version is not a source identity. Source identity is the exact path plus pinned Git blob SHA-1. The two 202607260007 sources are distinct entries and must never be merged.",
+  "objectReferencePolicy": "Qualified tokens are lexical observations, not resolved PostgreSQL object identities. Unqualified references, overloads, dynamic SQL, search_path effects, and extension-owned objects are not resolved.",
+  "executionPolicy": "No migration execution or historical execution is inferred from source, hashes, preflight guards, filename ordering, or comments.",
+  "entries": [
+    {
+      "source": {
+        "path": "supabase/migrations/202607210001_initial_schema.sql",
+        "version": "202607210001",
+        "gitBlobSha1": "a244ab0df3e766b0f36e29a222b3160f9f74c502",
+        "byteLength": 13648,
+        "sourceIdentityKey": "supabase/migrations/202607210001_initial_schema.sql@a244ab0df3e766b0f36e29a222b3160f9f74c502"
+      },
+      "sourceConstructsObserved": [
+        "extension_ddl",
+        "table_ddl",
+        "foreign_keys_and_constraints",
+        "indexes",
+        "trigger_ddl",
+        "plpgsql_routines",
+        "views",
+        "seed_or_projection_select"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.set_updated_at",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.profiles",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.users",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.themes",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.daily_posts",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.offerings",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.reactions",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.reflections",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.reports",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.badges",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.user_badges",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.saved_lights",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.daily_deed_completions",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.handle_new_user",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.handle_reaction_counts",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.handle_reflection_counts",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.handle_report_counts",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.offerings_public",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202607210002_rls_policies.sql",
+        "version": "202607210002",
+        "gitBlobSha1": "f96b482c0d1cf396baae5b91d7c96112f7e88284",
+        "byteLength": 5885,
+        "sourceIdentityKey": "supabase/migrations/202607210002_rls_policies.sql@f96b482c0d1cf396baae5b91d7c96112f7e88284"
+      },
+      "sourceConstructsObserved": [
+        "sql_routines",
+        "row_level_security",
+        "policies",
+        "grants",
+        "storage_object_policies",
+        "storage_bucket_dml"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.is_admin",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.profiles",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.uid",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.themes",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.daily_posts",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.offerings",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.reactions",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.reflections",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.reports",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.badges",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.user_badges",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.saved_lights",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.daily_deed_completions",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "storage.buckets",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "storage.objects",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "storage.foldername",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202607220003_sprint3_offerings_review.sql",
+        "version": "202607220003",
+        "gitBlobSha1": "74e02f2e60b82cf07a6aac5f8cf57dcdb6fe1382",
+        "byteLength": 1064,
+        "sourceIdentityKey": "supabase/migrations/202607220003_sprint3_offerings_review.sql@74e02f2e60b82cf07a6aac5f8cf57dcdb6fe1382"
+      },
+      "sourceConstructsObserved": [
+        "view_ddl",
+        "select_projection",
+        "joins",
+        "conditional_expression"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.offerings",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.offerings_public",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.themes",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.profiles",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202607260004_sprint4_reactions.sql",
+        "version": "202607260004",
+        "gitBlobSha1": "c25dce46ecf69d082fcdbea2bb931b6acd9180fc",
+        "byteLength": 4983,
+        "sourceIdentityKey": "supabase/migrations/202607260004_sprint4_reactions.sql@c25dce46ecf69d082fcdbea2bb931b6acd9180fc"
+      },
+      "sourceConstructsObserved": [
+        "table_ddl",
+        "indexes",
+        "trigger_ddl",
+        "plpgsql_routines",
+        "view_ddl",
+        "aggregate_query"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.offerings",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.offerings_public",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.reactions",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.is_admin",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.profiles",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.uid",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.handle_reaction_counts",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.offerings_rising",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202607260005_sprint5_moderation.sql",
+        "version": "202607260005",
+        "gitBlobSha1": "b48b4b8b3eea9fb55b68068011fa1371559228c2",
+        "byteLength": 5775,
+        "sourceIdentityKey": "supabase/migrations/202607260005_sprint5_moderation.sql@b48b4b8b3eea9fb55b68068011fa1371559228c2"
+      },
+      "sourceConstructsObserved": [
+        "table_ddl",
+        "indexes",
+        "trigger_ddl",
+        "plpgsql_routines",
+        "data_repair_update",
+        "view_ddl",
+        "constraints"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.offerings_public",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.offerings_rising",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.offerings",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.reports",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.is_admin",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.profiles",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.uid",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.handle_report_counts",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202607260006_sprint5_admin_edit_hide_hotfix.sql",
+        "version": "202607260006",
+        "gitBlobSha1": "9e163de5119c3813724341b7a9eabeba6fdc2970",
+        "byteLength": 2008,
+        "sourceIdentityKey": "supabase/migrations/202607260006_sprint5_admin_edit_hide_hotfix.sql@9e163de5119c3813724341b7a9eabeba6fdc2970"
+      },
+      "sourceConstructsObserved": [
+        "plpgsql_do_block",
+        "dynamic_sql_execute_format",
+        "table_ddl",
+        "grants",
+        "policies",
+        "view_ddl"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.offerings",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.is_admin",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.uid",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.offerings_public",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.themes",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.profiles",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202607260007_sprint6_daily_deedlight.sql",
+        "version": "202607260007",
+        "gitBlobSha1": "e0c2379255003b8c7bc85a1fab781e23051f5e47",
+        "byteLength": 9545,
+        "sourceIdentityKey": "supabase/migrations/202607260007_sprint6_daily_deedlight.sql@e0c2379255003b8c7bc85a1fab781e23051f5e47"
+      },
+      "sourceConstructsObserved": [
+        "extension_ddl",
+        "table_ddl",
+        "alter_table_ddl",
+        "constraints",
+        "indexes",
+        "trigger_ddl",
+        "plpgsql_routines",
+        "policies",
+        "grants",
+        "seed_insert_select"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.is_admin",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.profiles",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.uid",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.daily_posts",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.offerings",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.users",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.daily_reflections",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.set_updated_at",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202607260007_sprint7_pwa_daily_engagement.sql",
+        "version": "202607260007",
+        "gitBlobSha1": "8b051cfce05ea75b1ee7a726864e2ad760f6fe5f",
+        "byteLength": 6279,
+        "sourceIdentityKey": "supabase/migrations/202607260007_sprint7_pwa_daily_engagement.sql@8b051cfce05ea75b1ee7a726864e2ad760f6fe5f"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "table_ddl",
+        "alter_table_ddl",
+        "constraints",
+        "policies",
+        "grants",
+        "data_repair_update"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.daily_lights",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.offerings",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.users",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.daily_reflections",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.is_admin",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.uid",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202607270008_sprint8_short_video_studio.sql",
+        "version": "202607270008",
+        "gitBlobSha1": "5b583bd99562e14db554943d034c748ce302f5ee",
+        "byteLength": 1890,
+        "sourceIdentityKey": "supabase/migrations/202607270008_sprint8_short_video_studio.sql@5b583bd99562e14db554943d034c748ce302f5ee"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "alter_table_ddl",
+        "constraints",
+        "indexes",
+        "grants"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.daily_lights",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202608060009_sprint9_profiles_privacy.sql",
+        "version": "202608060009",
+        "gitBlobSha1": "6594ce6daa0183944fcc548885d6514e8adb9436",
+        "byteLength": 6031,
+        "sourceIdentityKey": "supabase/migrations/202608060009_sprint9_profiles_privacy.sql@6594ce6daa0183944fcc548885d6514e8adb9436"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "alter_table_ddl",
+        "data_repair_update",
+        "plpgsql_do_block",
+        "plpgsql_routines",
+        "policies",
+        "views",
+        "grants",
+        "revoke"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.profiles",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.profiles_username_key",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.handle_new_user",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.uid",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.profiles_public",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.offerings",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.offerings_public",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.themes",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202608100010_sprint9_2_community_identity_consistency.sql",
+        "version": "202608100010",
+        "gitBlobSha1": "774708b7705d88a5a1e0da97e72a9d1b47c8884c",
+        "byteLength": 3294,
+        "sourceIdentityKey": "supabase/migrations/202608100010_sprint9_2_community_identity_consistency.sql@774708b7705d88a5a1e0da97e72a9d1b47c8884c"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "plpgsql_routines",
+        "views",
+        "grants",
+        "revoke",
+        "notify"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.handle_new_user",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.profiles",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.offerings_public",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.offerings",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.themes",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.offerings_rising",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202608100011_sprint9_3_moderation_aware_members.sql",
+        "version": "202608100011",
+        "gitBlobSha1": "1d1b7b844b88077351d2658af4be2b2db92eda97",
+        "byteLength": 12225,
+        "sourceIdentityKey": "supabase/migrations/202608100011_sprint9_3_moderation_aware_members.sql@1d1b7b844b88077351d2658af4be2b2db92eda97"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "table_ddl",
+        "indexes",
+        "alter_table_ddl",
+        "policies",
+        "plpgsql_routines",
+        "data_mutation",
+        "grants",
+        "revoke",
+        "notify"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.member_moderation_events",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.users",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.is_admin",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.admin_list_members",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.offerings",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.reports",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.profiles",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.admin_get_member_context",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.reflections",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.daily_reflections",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.set_member_suspension",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.uid",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202608110012_sprint10_1_daily_deed_completion.sql",
+        "version": "202608110012",
+        "gitBlobSha1": "0973f72e39ce07b41e053a20f1b781c394578877",
+        "byteLength": 4462,
+        "sourceIdentityKey": "supabase/migrations/202608110012_sprint10_1_daily_deed_completion.sql@0973f72e39ce07b41e053a20f1b781c394578877"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "alter_table_ddl",
+        "constraints",
+        "indexes",
+        "policies",
+        "views",
+        "data_repair_update",
+        "grants",
+        "revoke",
+        "plpgsql_do_block",
+        "notify"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.daily_deed_completions",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.daily_lights",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.uid",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.daily_deed_completion_counts",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.daily_reflections",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202608110013_sprint10_2_saved_lights_gentle_rhythm.sql",
+        "version": "202608110013",
+        "gitBlobSha1": "5fd2f4a796a8a1dfd6237ccf36d1ab62c1dc1714",
+        "byteLength": 2769,
+        "sourceIdentityKey": "supabase/migrations/202608110013_sprint10_2_saved_lights_gentle_rhythm.sql@5fd2f4a796a8a1dfd6237ccf36d1ab62c1dc1714"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "alter_table_ddl",
+        "constraints",
+        "indexes",
+        "policies",
+        "grants",
+        "revoke",
+        "data_repair_update",
+        "notify"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.saved_lights",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.daily_lights",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.uid",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202608120014_sprint10_3_gentle_reminder_preferences.sql",
+        "version": "202608120014",
+        "gitBlobSha1": "2af1a6a2aa5cffc6ef6d08849b6f71fab44a54d0",
+        "byteLength": 2523,
+        "sourceIdentityKey": "supabase/migrations/202608120014_sprint10_3_gentle_reminder_preferences.sql@2af1a6a2aa5cffc6ef6d08849b6f71fab44a54d0"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "table_ddl",
+        "trigger_ddl",
+        "plpgsql_routines",
+        "policies",
+        "grants",
+        "revoke",
+        "notify"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.daily_reminder_preferences",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.users",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.set_updated_at",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.uid",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.profiles",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202608130015_sprint11_2_weekly_goodness.sql",
+        "version": "202608130015",
+        "gitBlobSha1": "394c774032d8206c0b7a373640859c2a331667a9",
+        "byteLength": 8089,
+        "sourceIdentityKey": "supabase/migrations/202608130015_sprint11_2_weekly_goodness.sql@394c774032d8206c0b7a373640859c2a331667a9"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "table_ddl",
+        "indexes",
+        "trigger_ddl",
+        "plpgsql_routines",
+        "data_mutation",
+        "aggregate_query",
+        "grants",
+        "revoke",
+        "notify"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.reactions",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.weekly_goodness_features",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.offerings",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.users",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.set_updated_at",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.get_weekly_goodness",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.offerings_public",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.get_current_weekly_goodness_feature",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.set_weekly_goodness_feature",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.uid",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.is_admin",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202608130016_sprint11_3_invitations_newsletter_foundation.sql",
+        "version": "202608130016",
+        "gitBlobSha1": "8d68ed19859e1a820af52a43c110a38b6a460d48",
+        "byteLength": 12951,
+        "sourceIdentityKey": "supabase/migrations/202608130016_sprint11_3_invitations_newsletter_foundation.sql@8d68ed19859e1a820af52a43c110a38b6a460d48"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "extension_ddl",
+        "table_ddl",
+        "indexes",
+        "trigger_ddl",
+        "plpgsql_routines",
+        "policies",
+        "data_mutation",
+        "grants",
+        "revoke",
+        "notify"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.invitation_links",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.users",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.set_updated_at",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.uid",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.invitation_acceptances",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.newsletter_preferences",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.validate_invitation_code",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.profiles",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.create_invitation_link",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "extensions.gen_random_bytes",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.revoke_invitation_link",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.set_newsletter_preference",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.record_invitation_acceptance",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.handle_growth_signup",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202608130017_sprint12_1_offering_ownership_engagement.sql",
+        "version": "202608130017",
+        "gitBlobSha1": "bc23b12fe454c1f49b096fd2c7199e3a2aea5bb4",
+        "byteLength": 11901,
+        "sourceIdentityKey": "supabase/migrations/202608130017_sprint12_1_offering_ownership_engagement.sql@bc23b12fe454c1f49b096fd2c7199e3a2aea5bb4"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "alter_table_ddl",
+        "indexes",
+        "policies",
+        "plpgsql_routines",
+        "data_mutation",
+        "grants",
+        "revoke",
+        "notify"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.offerings",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.uid",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.profiles",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.is_admin",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.saved_lights",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.daily_lights",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.offerings_public",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.reactions",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.update_own_offering",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.remove_own_offering",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.restore_own_offering",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202608140018_sprint12_1_owner_removal_guard_hotfix.sql",
+        "version": "202608140018",
+        "gitBlobSha1": "0ea7eaf04d5c99e4c5a25893aae7694affdd44bc",
+        "byteLength": 2780,
+        "sourceIdentityKey": "supabase/migrations/202608140018_sprint12_1_owner_removal_guard_hotfix.sql@0ea7eaf04d5c99e4c5a25893aae7694affdd44bc"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "plpgsql_do_block",
+        "catalog_preflight_queries",
+        "dynamic_sql_execute_format",
+        "alter_table_ddl",
+        "plpgsql_routines",
+        "data_mutation",
+        "grants",
+        "revoke",
+        "notify"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "information_schema.columns",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.remove_own_offering",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.offerings",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.uid",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202609230019_sprint12_2_gentle_delivery_foundation.sql",
+        "version": "202609230019",
+        "gitBlobSha1": "1403b9324e786a2b724176875a70ffce92961d9b",
+        "byteLength": 15845,
+        "sourceIdentityKey": "supabase/migrations/202609230019_sprint12_2_gentle_delivery_foundation.sql@1403b9324e786a2b724176875a70ffce92961d9b"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "plpgsql_routines",
+        "table_ddl",
+        "indexes",
+        "trigger_ddl",
+        "policies",
+        "data_mutation",
+        "grants",
+        "revoke",
+        "notify"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.set_daily_reminder_preference",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.uid",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_timezone_names",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.profiles",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.daily_reminder_preferences",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_ledger",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.users",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.set_updated_at",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.enqueue_due_daily_reminders",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.enqueue_weekly_goodness_delivery",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.weekly_goodness_features",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.newsletter_preferences",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.claim_delivery_jobs",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.authorize_delivery_job",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.mark_delivery_sent",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.mark_delivery_failed",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202609230020_delivery_reliability_hardening.sql",
+        "version": "202609230020",
+        "gitBlobSha1": "554615da3d15fc4c0d395691103d3be5676856fa",
+        "byteLength": 13642,
+        "sourceIdentityKey": "supabase/migrations/202609230020_delivery_reliability_hardening.sql@554615da3d15fc4c0d395691103d3be5676856fa"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "plpgsql_do_block",
+        "catalog_preflight_queries",
+        "alter_table_ddl",
+        "indexes",
+        "plpgsql_routines",
+        "data_mutation",
+        "grants",
+        "revoke",
+        "notify"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.delivery_ledger",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.claim_delivery_jobs",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.authorize_delivery_job",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.mark_delivery_sent",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.mark_delivery_failed",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "information_schema.columns",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.retry_delivery_job",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.daily_reminder_preferences",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.profiles",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_timezone_names",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.newsletter_preferences",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.users",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.weekly_goodness_features",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202609230021_gentle_delivery_transport.sql",
+        "version": "202609230021",
+        "gitBlobSha1": "e50a06bd3a5ed386c54e789435c64b2bb4a54ab9",
+        "byteLength": 3417,
+        "sourceIdentityKey": "supabase/migrations/202609230021_gentle_delivery_transport.sql@e50a06bd3a5ed386c54e789435c64b2bb4a54ab9"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "plpgsql_do_block",
+        "catalog_preflight_queries",
+        "alter_table_ddl",
+        "plpgsql_routines",
+        "data_mutation",
+        "grants",
+        "revoke",
+        "notify"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.delivery_ledger",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.retry_delivery_job",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "information_schema.columns",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.begin_delivery_transport",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.enqueue_current_weekly_goodness_if_curated",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.weekly_goodness_features",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.enqueue_weekly_goodness_delivery",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202609240022_auth_pgcrypto_schema_qualification.sql",
+        "version": "202609240022",
+        "gitBlobSha1": "f42afb3474f80c7d95cf5b47023b82cf5a948d4d",
+        "byteLength": 1214,
+        "sourceIdentityKey": "supabase/migrations/202609240022_auth_pgcrypto_schema_qualification.sql@f42afb3474f80c7d95cf5b47023b82cf5a948d4d"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "plpgsql_do_block",
+        "catalog_preflight_queries",
+        "plpgsql_routines",
+        "dynamic_sql_risk_review",
+        "extension_reference",
+        "notify"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "auth.users",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "extensions.gen_random_bytes",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.handle_new_user",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.profiles",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202611120023_delivery_consent_linearization.sql",
+        "version": "202611120023",
+        "gitBlobSha1": "75f5086feab2cbda381066cb9094390190c3332f",
+        "byteLength": 9411,
+        "sourceIdentityKey": "supabase/migrations/202611120023_delivery_consent_linearization.sql@75f5086feab2cbda381066cb9094390190c3332f"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "plpgsql_do_block",
+        "catalog_preflight_queries",
+        "plpgsql_routines",
+        "data_mutation",
+        "grants",
+        "revoke",
+        "notify"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.delivery_ledger",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.daily_reminder_preferences",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.newsletter_preferences",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.profiles",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.weekly_goodness_features",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.begin_delivery_transport",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.retry_delivery_job",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "information_schema.columns",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.enqueue_due_daily_reminders",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_timezone_names",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.enqueue_weekly_goodness_delivery",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.users",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202611120024_delivery_identity_lease_capacity.sql",
+        "version": "202611120024",
+        "gitBlobSha1": "240271fd75081c062627cfc3d40bdc0c5feda049",
+        "byteLength": 12329,
+        "sourceIdentityKey": "supabase/migrations/202611120024_delivery_identity_lease_capacity.sql@240271fd75081c062627cfc3d40bdc0c5feda049"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "plpgsql_do_block",
+        "catalog_preflight_queries",
+        "plpgsql_routines",
+        "catalog_introspection",
+        "advisory_lock_calls",
+        "dynamic_sql_risk_review",
+        "data_mutation",
+        "grants",
+        "revoke",
+        "notify"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.begin_delivery_transport",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.enqueue_current_weekly_goodness_if_curated",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_ledger",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.users",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.enqueue_due_daily_reminders",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.enqueue_weekly_goodness_delivery",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_proc",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_language",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.daily_reminder_preferences",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.profiles",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_timezone_names",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.newsletter_preferences",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.weekly_goodness_features",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_advisory_xact_lock",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202611190025_delivery_provider_webhooks.sql",
+        "version": "202611190025",
+        "gitBlobSha1": "e97c5c0ad645dfe43f11a88f01b030fa23dd5822",
+        "byteLength": 17132,
+        "sourceIdentityKey": "supabase/migrations/202611190025_delivery_provider_webhooks.sql@e97c5c0ad645dfe43f11a88f01b030fa23dd5822"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "plpgsql_do_block",
+        "catalog_preflight_queries",
+        "table_ddl",
+        "indexes",
+        "plpgsql_routines",
+        "advisory_lock_calls",
+        "data_mutation",
+        "grants",
+        "revoke",
+        "notify"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.delivery_ledger",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.users",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.begin_delivery_transport",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.enqueue_due_daily_reminders",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.enqueue_weekly_goodness_delivery",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_events",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_suppressions",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.record_delivery_provider_event",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_advisory_xact_lock",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.daily_reminder_preferences",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.profiles",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_timezone_names",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.weekly_goodness_features",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.newsletter_preferences",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202611190026_delivery_provider_lifecycle.sql",
+        "version": "202611190026",
+        "gitBlobSha1": "6a06d780ad65babf2293a2746c68913758313af8",
+        "byteLength": 13857,
+        "sourceIdentityKey": "supabase/migrations/202611190026_delivery_provider_lifecycle.sql@6a06d780ad65babf2293a2746c68913758313af8"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "plpgsql_do_block",
+        "catalog_preflight_queries",
+        "table_ddl",
+        "constraints",
+        "indexes",
+        "plpgsql_routines",
+        "advisory_lock_calls",
+        "data_mutation",
+        "grants",
+        "revoke",
+        "notify"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.delivery_provider_events",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.record_delivery_provider_event",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_lifecycle",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.record_delivery_provider_lifecycle_event",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_advisory_xact_lock",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_suppressions",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202611200027_delivery_provider_integrity.sql",
+        "version": "202611200027",
+        "gitBlobSha1": "a1469938ea13b5cb9d7cd883772bc60e4a058026",
+        "byteLength": 20879,
+        "sourceIdentityKey": "supabase/migrations/202611200027_delivery_provider_integrity.sql@a1469938ea13b5cb9d7cd883772bc60e4a058026"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "alter_table_ddl",
+        "constraints",
+        "indexes",
+        "plpgsql_routines",
+        "plpgsql_control_flow",
+        "advisory_lock_calls",
+        "data_mutation",
+        "grants",
+        "revoke",
+        "notify"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.delivery_provider_events",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_lifecycle",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_integrity_anomalies",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.record_delivery_provider_lifecycle_event",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_advisory_xact_lock",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_suppressions",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.record_delivery_provider_event",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202611210028_delivery_claim_lock_expiry.sql",
+        "version": "202611210028",
+        "gitBlobSha1": "09d1927fba81d711bb37d214609931d2da2173a1",
+        "byteLength": 9643,
+        "sourceIdentityKey": "supabase/migrations/202611210028_delivery_claim_lock_expiry.sql@09d1927fba81d711bb37d214609931d2da2173a1"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "plpgsql_do_block",
+        "catalog_preflight_queries",
+        "plpgsql_routines",
+        "data_mutation",
+        "advisory_lock_risk_review",
+        "grants",
+        "revoke",
+        "notify"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.authorize_delivery_job",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.retry_delivery_job",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.mark_delivery_sent",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.mark_delivery_failed",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_ledger",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.daily_reminder_preferences",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.profiles",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_timezone_names",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.newsletter_preferences",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.users",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.weekly_goodness_features",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202611210029_delivery_legacy_replay_guard.sql",
+        "version": "202611210029",
+        "gitBlobSha1": "872fc49ec47e49b17e96ecf6ccaf5c8eb0e6322a",
+        "byteLength": 7476,
+        "sourceIdentityKey": "supabase/migrations/202611210029_delivery_legacy_replay_guard.sql@872fc49ec47e49b17e96ecf6ccaf5c8eb0e6322a"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "plpgsql_do_block",
+        "catalog_introspection",
+        "catalog_preflight_queries",
+        "dynamic_sql_execute_format",
+        "plpgsql_routines",
+        "grants",
+        "revoke",
+        "notify"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.record_delivery_provider_lifecycle_event",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.record_delivery_provider_event",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public._record_delivery_provider_lifecycle_event_fingerprinted_impl",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_proc",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_language",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_extension",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_namespace",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_events",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_advisory_xact_lock",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202611210030_delivery_idempotency_receipt_guard.sql",
+        "version": "202611210030",
+        "gitBlobSha1": "c5e3955c4e0dde708a8ffdc9c420807c4241fa32",
+        "byteLength": 12214,
+        "sourceIdentityKey": "supabase/migrations/202611210030_delivery_idempotency_receipt_guard.sql@c5e3955c4e0dde708a8ffdc9c420807c4241fa32"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "plpgsql_do_block",
+        "catalog_introspection",
+        "catalog_preflight_queries",
+        "dynamic_sql_execute_format",
+        "plpgsql_routines",
+        "data_mutation",
+        "grants",
+        "revoke",
+        "notify"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.authorize_delivery_job",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.mark_delivery_failed",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.retry_delivery_job",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.mark_delivery_sent",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "information_schema.columns",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_extension",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_namespace",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_proc",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_language",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.authorize_delivery_idempotency_window",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_ledger",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202611220031_delivery_final_recipient_suppression_gate.sql",
+        "version": "202611220031",
+        "gitBlobSha1": "26d69a0a4e73bc7cfd05814f3f6129bc199da02b",
+        "byteLength": 6477,
+        "sourceIdentityKey": "supabase/migrations/202611220031_delivery_final_recipient_suppression_gate.sql@26d69a0a4e73bc7cfd05814f3f6129bc199da02b"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "plpgsql_do_block",
+        "catalog_preflight_queries",
+        "plpgsql_routines",
+        "data_mutation",
+        "advisory_lock_calls",
+        "grants",
+        "revoke",
+        "notify"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.authorize_delivery_idempotency_window",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.begin_delivery_transport",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_suppressions",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.daily_reminder_preferences",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.newsletter_preferences",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.profiles",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.users",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_ledger",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_advisory_xact_lock",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_timezone_names",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.weekly_goodness_features",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202611220032_resend_suppression_list_sync.sql",
+        "version": "202611220032",
+        "gitBlobSha1": "6a0c0193d85ece99335f8715a65243ac42617f97",
+        "byteLength": 14118,
+        "sourceIdentityKey": "supabase/migrations/202611220032_resend_suppression_list_sync.sql@6a0c0193d85ece99335f8715a65243ac42617f97"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "alter_table_ddl",
+        "constraints",
+        "indexes",
+        "table_ddl",
+        "plpgsql_routines",
+        "data_mutation",
+        "advisory_lock_calls",
+        "grants",
+        "revoke",
+        "notify"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.delivery_provider_events",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_integrity_anomalies",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_suppression_state",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.record_delivery_provider_suppression_event",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_advisory_xact_lock",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_lifecycle",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_suppressions",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202611220033_delivery_cross_stream_suppression_order.sql",
+        "version": "202611220033",
+        "gitBlobSha1": "1cd0c2db5415a37b9a31ed8ef7de54db9019a88f",
+        "byteLength": 4647,
+        "sourceIdentityKey": "supabase/migrations/202611220033_delivery_cross_stream_suppression_order.sql@1cd0c2db5415a37b9a31ed8ef7de54db9019a88f"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "plpgsql_do_block",
+        "catalog_preflight_queries",
+        "plpgsql_routines",
+        "data_mutation",
+        "advisory_lock_calls",
+        "grants",
+        "revoke",
+        "notify"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.delivery_provider_suppressions",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_suppression_state",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public._record_delivery_provider_lifecycle_event_fingerprinted_impl",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.record_delivery_provider_lifecycle_event",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_events",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_advisory_xact_lock",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202611230034_delivery_suppression_timestamp_order.sql",
+        "version": "202611230034",
+        "gitBlobSha1": "4ec8aa578ad851918f4c4b2535c476b4ceb40f1d",
+        "byteLength": 11255,
+        "sourceIdentityKey": "supabase/migrations/202611230034_delivery_suppression_timestamp_order.sql@4ec8aa578ad851918f4c4b2535c476b4ceb40f1d"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "indexes",
+        "plpgsql_routines",
+        "data_mutation",
+        "advisory_lock_calls",
+        "grants",
+        "revoke",
+        "notify"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.delivery_provider_events",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.record_delivery_provider_suppression_event",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_suppression_state",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_advisory_xact_lock",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_integrity_anomalies",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_lifecycle",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_suppressions",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202611230035_private_offering_base_table_rls.sql",
+        "version": "202611230035",
+        "gitBlobSha1": "3d0ce8dfd4abb88fccccd23c5ffb9c35f699c098",
+        "byteLength": 564,
+        "sourceIdentityKey": "supabase/migrations/202611230035_private_offering_base_table_rls.sql@3d0ce8dfd4abb88fccccd23c5ffb9c35f699c098"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "policy_ddl"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.offerings",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202611230036_private_daily_reflection_admin_isolation.sql",
+        "version": "202611230036",
+        "gitBlobSha1": "61a1fbf48b4557873ba6016e74fd3995bc62ba14",
+        "byteLength": 2042,
+        "sourceIdentityKey": "supabase/migrations/202611230036_private_daily_reflection_admin_isolation.sql@61a1fbf48b4557873ba6016e74fd3995bc62ba14"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "alter_table_ddl",
+        "policies",
+        "grants",
+        "revoke",
+        "notify"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.daily_reflections",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.uid",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202611240037_delivery_provider_integrity_conflict_evidence.sql",
+        "version": "202611240037",
+        "gitBlobSha1": "ac0449b50a881e3a895ef40a8eee28bea95a6ec0",
+        "byteLength": 44182,
+        "sourceIdentityKey": "supabase/migrations/202611240037_delivery_provider_integrity_conflict_evidence.sql@ac0449b50a881e3a895ef40a8eee28bea95a6ec0"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "plpgsql_do_block",
+        "catalog_preflight_queries",
+        "table_ddl",
+        "constraints",
+        "indexes",
+        "plpgsql_routines",
+        "trigger_ddl",
+        "plpgsql_control_flow",
+        "advisory_lock_calls",
+        "data_mutation",
+        "grants",
+        "revoke",
+        "notify"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.delivery_provider_events",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_lifecycle",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_suppressions",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_suppression_state",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_integrity_anomalies",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.record_delivery_provider_lifecycle_event",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.record_delivery_provider_event",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.record_delivery_provider_suppression_event",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public._record_delivery_provider_lifecycle_event_fingerprinted_impl",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.is_admin",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public._record_delivery_provider_lifecycle_event_pre037_impl",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public._record_delivery_provider_suppression_event_pre037_impl",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_integrity_cases",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_integrity_conflict_evidence",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_integrity_conflict_history",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.users",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public._deny_delivery_provider_integrity_audit_mutation",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public._record_delivery_provider_integrity_conflict",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_advisory_xact_lock",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.admin_list_delivery_provider_integrity_conflicts",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.uid",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.admin_list_delivery_provider_integrity_evidence",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.admin_list_delivery_provider_integrity_history",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.admin_resolve_delivery_provider_integrity_conflict",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202611240038_delivery_provider_integrity_lock_order_pagination.sql",
+        "version": "202611240038",
+        "gitBlobSha1": "38951751fc5abeb79b75c4e37e55da01262a18b8",
+        "byteLength": 43748,
+        "sourceIdentityKey": "supabase/migrations/202611240038_delivery_provider_integrity_lock_order_pagination.sql@38951751fc5abeb79b75c4e37e55da01262a18b8"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "plpgsql_do_block",
+        "catalog_introspection",
+        "catalog_preflight_queries",
+        "indexes",
+        "plpgsql_routines",
+        "dynamic_sql_execute_format",
+        "plpgsql_control_flow",
+        "advisory_lock_calls",
+        "grants",
+        "revoke",
+        "notify"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.delivery_provider_integrity_cases",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_integrity_conflict_evidence",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_integrity_conflict_history",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.is_admin",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_extension",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_namespace",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.admin_list_delivery_provider_integrity_conflicts_page",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.admin_get_delivery_provider_integrity_conflict",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.admin_list_delivery_provider_integrity_evidence_page",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.admin_list_delivery_provider_integrity_history_page",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_integrity_cases_state_cursor_idx",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_integrity_history_reopened_idx",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.record_delivery_provider_lifecycle_event",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.record_delivery_provider_event",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.record_delivery_provider_suppression_event",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public._record_delivery_provider_integrity_conflict",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public._record_delivery_provider_lifecycle_event_pre037_impl",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public._record_delivery_provider_suppression_event_pre037_impl",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public._deny_delivery_provider_integrity_audit_mutation",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.admin_list_delivery_provider_integrity_conflicts",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.admin_list_delivery_provider_integrity_evidence",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.admin_list_delivery_provider_integrity_history",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.admin_resolve_delivery_provider_integrity_conflict",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_proc",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_class",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_trigger",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_events",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_integrity_anomalies",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_provider_lifecycle",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.pg_advisory_xact_lock",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "pg_catalog.hashtext",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "auth.uid",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    },
+    {
+      "source": {
+        "path": "supabase/migrations/202611260039_delivery_kind_scoped_claims.sql",
+        "version": "202611260039",
+        "gitBlobSha1": "39eba637aa9f93fa77855f82f3fcc27b580b25da",
+        "byteLength": 6177,
+        "sourceIdentityKey": "supabase/migrations/202611260039_delivery_kind_scoped_claims.sql@39eba637aa9f93fa77855f82f3fcc27b580b25da"
+      },
+      "sourceConstructsObserved": [
+        "transaction_control",
+        "plpgsql_routines",
+        "data_mutation",
+        "grants",
+        "revoke",
+        "notify"
+      ],
+      "qualifiedReferenceTokens": [
+        {
+          "token": "public.claim_daily_delivery_jobs",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.delivery_ledger",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.claim_weekly_delivery_jobs",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        },
+        {
+          "token": "public.claim_delivery_jobs",
+          "identityStatus": "UNRESOLVED_LEXICAL_REFERENCE",
+          "semanticResolution": "NOT_PERFORMED"
+        }
+      ],
+      "referenceInterpretation": "Lexically observed qualified tokens only; token may name a relation, routine, type, namespace, catalog object, or function argument. No AST, overload resolution, object-kind resolution, or dependency edge is asserted.",
+      "dependencyCandidates": [],
+      "executionOrder": {
+        "basis": "INVENTORY_FILENAME_ORDER_ONLY",
+        "historicalExecutionOrder": "UNKNOWN",
+        "independentlyJustifiedEdges": []
+      },
+      "lifecycleDomains": {
+        "dataTransformations": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "backfills": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "dependencies": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "preconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        },
+        "postconditions": {
+          "status": "UNKNOWN",
+          "reasonCode": "POSTGRES_SEMANTIC_RESOLVER_NOT_IMPLEMENTED"
+        }
+      },
+      "semanticAcceptance": "NOT_ACCEPTED"
+    }
+  ]
+}

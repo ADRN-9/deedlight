@@ -4,7 +4,7 @@ on:
   push:
     branches-ignore: [main]
   pull_request:
-    branches: [main]
+    branches: [main, 'feat/**', 'docs/**', 'fix/**']
 
 permissions:
   contents: read
@@ -68,6 +68,12 @@ jobs:
 
       - name: Verify C556 source-derived migration effect observations
         run: node scripts/verify-c556-migration-source-observations.mjs
+
+      - name: Verify C574 exact-source semantic mapping inventory
+        run: npm run verify:c574-source-map
+
+      - name: C574 source mapping and literal distinction regressions
+        run: npm run test:c574-source-map
 
       - name: Category-specific migration effect contract tests
         run: node --test scripts/test-migration-effect-contracts.mjs
