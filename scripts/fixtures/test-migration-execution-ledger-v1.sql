@@ -16,12 +16,14 @@ END
 $identity_assert$;
 
 -- A reservation rolled back by its caller must leave neither a ledger row nor a consumed approval.
+SET ROLE deedlight_ledger_approver;
 SELECT deedlight_execution_ledger.approve_execution(
   'c5700000-0000-4000-8000-000000000001',
   'c5700000-0000-4000-8000-000000000011',
   'c5700000-0000-4000-8000-000000000021',
   '{"path":"supabase/migrations/test.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb
 );
+RESET ROLE;
 BEGIN;
 SET LOCAL ROLE deedlight_ledger_runner;
 SELECT deedlight_execution_ledger.reserve_execution(
@@ -120,6 +122,7 @@ $assert$;
 RESET ROLE;
 
 -- Duplicate execution ID with a different record ID is rejected at approval.
+SET ROLE deedlight_ledger_approver;
 DO $assert$
 BEGIN
   BEGIN
@@ -134,8 +137,10 @@ BEGIN
   END;
 END
 $assert$;
+RESET ROLE;
 
 -- Duplicate record ID with a different execution ID is rejected at approval.
+SET ROLE deedlight_ledger_approver;
 DO $assert$
 BEGIN
   BEGIN
@@ -150,14 +155,17 @@ BEGIN
   END;
 END
 $assert$;
+RESET ROLE;
 
 -- A reservation abandoned before execution becomes interrupted, never silently reusable.
+SET ROLE deedlight_ledger_approver;
 SELECT deedlight_execution_ledger.approve_execution(
   'c5700000-0000-4000-8000-000000000004',
   'c5700000-0000-4000-8000-000000000014',
   'c5700000-0000-4000-8000-000000000024',
   '{"path":"supabase/migrations/test.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb
 );
+RESET ROLE;
 SET ROLE deedlight_ledger_runner;
 SELECT deedlight_execution_ledger.reserve_execution(
   'c5700000-0000-4000-8000-000000000004',
@@ -180,12 +188,14 @@ END
 $assert$;
 
 -- A running process that disappears has an ambiguous outcome and becomes unknown.
+SET ROLE deedlight_ledger_approver;
 SELECT deedlight_execution_ledger.approve_execution(
   'c5700000-0000-4000-8000-000000000005',
   'c5700000-0000-4000-8000-000000000015',
   'c5700000-0000-4000-8000-000000000025',
   '{"path":"supabase/migrations/test.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb
 );
+RESET ROLE;
 SET ROLE deedlight_ledger_runner;
 SELECT deedlight_execution_ledger.reserve_execution(
   'c5700000-0000-4000-8000-000000000005',
