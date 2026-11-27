@@ -21,6 +21,7 @@ const PSQL_BINARY = "/usr/bin/psql";
 const GIT_BINARY = "/usr/bin/git";
 
 export const CSV_QUOTED_EMPTY = "\u0001DEEDLIGHT_CSV_QUOTED_EMPTY\u0001";
+export const SQL_NULL_SENTINEL = "__DEEDLIGHT_SQL_NULL_V1__";
 export class CollectorError extends Error {
   constructor(code) { super(code); this.name = "CollectorError"; this.code = code; }
 }
@@ -175,9 +176,9 @@ export function validateSqlOutput(csv) {
     if (!/^[0-9]{12}$/.test(version) || seenVersions.has(version) || version <= previousVersion) {
       throw new CollectorError("MIGRATION_HISTORY_VERSION_INVALID");
     }
-    const name = rawName === "" ? null : rawName === CSV_QUOTED_EMPTY ? "" : rawName;
+    const name = rawName === SQL_NULL_SENTINEL ? null : rawName === CSV_QUOTED_EMPTY ? "" : rawName;
     if (name !== null && name !== "" && name !== "\\N" && !/^[A-Za-z0-9_-]+$/.test(name)) throw new CollectorError("MIGRATION_HISTORY_NAME_INVALID");
-    const recordedStatementCount = rawCount === "" ? null : Number(rawCount);
+    const recordedStatementCount = rawCount === "" || rawCount === SQL_NULL_SENTINEL ? null : Number(rawCount);
     if (recordedStatementCount !== null && (!/^(0|[1-9][0-9]*)$/.test(rawCount) ||
         !Number.isSafeInteger(recordedStatementCount) || recordedStatementCount < 0)) {
       throw new CollectorError("MIGRATION_HISTORY_STATEMENT_COUNT_INVALID");
