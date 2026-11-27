@@ -213,7 +213,7 @@ CREATE TABLE IF NOT EXISTS deedlight_execution_ledger.executions (
 
 CREATE TABLE IF NOT EXISTS deedlight_execution_ledger.observation_queries (
   query_id text PRIMARY KEY CHECK (query_id ~ '^[a-z][a-z0-9_]{0,63}$'),
-  query_sql text NOT NULL CHECK (pg_catalog.btrim(query_sql) ~* '^select\\s'),
+  query_sql text NOT NULL CHECK (pg_catalog.btrim(query_sql) ~* '^select[[:space:]]'),
   description text NOT NULL,
   query_sha256 text NOT NULL CHECK (query_sha256 ~ '^[a-f0-9]{64}$'),
   query_bundle_id text NOT NULL,
