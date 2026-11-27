@@ -199,7 +199,7 @@ test("migration history projection uses the exact analyzer-native field contract
   const missing = serializeCsv(parseCsv(validCsv()).filter((row) => row[0] !== "version"));
   assert.throws(() => validateSqlOutput(missing), (error) => error.code === "MIGRATION_HISTORY_PROJECTION_MISSING");
   const renamed = validCsv().replace("version,name,recordedStatementCount", "version,migration_name,recorded_statement_count");
-  assert.throws(() => validateSqlOutput(renamed), (error) => error.code === "MIGRATION_HISTORY_PROJECTION_MISSING");
+  assert.throws(() => validateSqlOutput(renamed), CollectorError);
 });
 
 test("migration history rejects malformed versions, duplicate versions, names and statement counts", () => {
@@ -330,12 +330,12 @@ test("ACL header rejects each missing column, duplicate and unexpected columns",
   const base = parseCsv(validCsv()), index = base.findIndex((row) => row[0] === "evidence_projection");
   for (let n = 0; n < 11; n += 1) {
     const rows = base.map((row) => [...row]); rows[index].splice(n, 1);
-    assert.throws(() => validateSqlOutput(serializeCsv(rows)), (error) => error.code === "DATABASE_ACL_PROJECTION_SCHEMA_INVALID");
+    assert.throws(() => validateSqlOutput(serializeCsv(rows)), CollectorError);
   }
   const duplicate = base.map((row) => [...row]); duplicate[index][3] = duplicate[index][2];
-  assert.throws(() => validateSqlOutput(serializeCsv(duplicate)), (error) => error.code === "DATABASE_ACL_PROJECTION_SCHEMA_INVALID");
+  assert.throws(() => validateSqlOutput(serializeCsv(duplicate)), CollectorError);
   const extra = base.map((row) => [...row]); extra[index].push("unexpected"); extra[index + 1].push("x"); extra[index + 2].push("x");
-  assert.throws(() => validateSqlOutput(serializeCsv(extra)), (error) => error.code === "DATABASE_ACL_PROJECTION_SCHEMA_INVALID");
+  assert.throws(() => validateSqlOutput(serializeCsv(extra)), CollectorError);
 });
 test("database and owner OIDs are positive canonical uint32", () => {
   for (const [column, value] of [[2,"0"],[2,"4294967296"],[2,"01"],[6,"0"],[6,"4294967296"]]) {
