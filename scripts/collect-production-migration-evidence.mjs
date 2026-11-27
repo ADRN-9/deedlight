@@ -512,8 +512,8 @@ export function validateReceiptSchema(r){
  e.hostname!=="db."+PROJECT_REF+".supabase.co"||e.port!==5432||!["postgres","deedlight_migration_order_test"].includes(e.database)||e.tlsMode!=="verify-full"||
  e.tlsVerified!==true||e.tlsHostnameVerified!==true||e.tlsChainVerified!==true||e.projectIdentityMethod!=="independently-pinned-profile-and-project-specific-TLS-hostname"||
  !hex(e.tlsRootCertificateSha256,64)||!hex(e.independentlyPinnedProfileSha256,64))invalid();
- const s=r.source;if(!exactKeys(s,["repositoryCommitSha","migrationInventoryGitBlobSha1","sqlBundlePath","sqlBundleGitBlobSha1","sqlBundleSha256"])||
- !hex(s.repositoryCommitSha,40)||s.migrationInventoryGitBlobSha1!==INVENTORY_GIT_BLOB_SHA1||s.sqlBundlePath!==SQL_PATH||s.sqlBundleGitBlobSha1!==SQL_GIT_BLOB_SHA1||s.sqlBundleSha256!==SQL_SHA256)invalid();
+ const s=r.source;if(!exactKeys(s,["repositoryCommitSha","migrationInventoryGitBlobSha1","sqlBundlePath","sqlBundleGitBlobSha1","sqlBundleSha256","receiptSchemaGitBlobSha1","receiptSchemaSha256"])||
+ !hex(s.repositoryCommitSha,40)||s.migrationInventoryGitBlobSha1!==INVENTORY_GIT_BLOB_SHA1||s.sqlBundlePath!==SQL_PATH||s.sqlBundleGitBlobSha1!==SQL_GIT_BLOB_SHA1||s.sqlBundleSha256!==SQL_SHA256||s.receiptSchemaGitBlobSha1!==RECEIPT_SCHEMA_GIT_BLOB_SHA1||s.receiptSchemaSha256!==RECEIPT_SCHEMA_SHA256)invalid();
  const x=r.execution;if(!exactKeys(x,["collectorId","authenticatedPrincipal","expectedEffectivePrincipal","transactionIsolation","readOnly","transactionRollbackVerified","startedAt","completedAt","outputFormat","canonicalization","resultRecordCount","databaseAclV1RowCount","migrationHistoryRowCount","canonicalResultSha256","evidenceFileSha256"])||
  x.collectorId!==COLLECTOR_ID||x.authenticatedPrincipal!=="deedlight_catalog_auditor"||x.expectedEffectivePrincipal!=="deedlight_catalog_auditor"||
  x.transactionIsolation!=="repeatable read"||x.readOnly!==true||x.transactionRollbackVerified!==true||!dateTime(x.startedAt)||!dateTime(x.completedAt)||compareStrictTimestamps(x.completedAt,x.startedAt)<0||
