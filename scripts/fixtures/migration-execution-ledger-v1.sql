@@ -568,10 +568,18 @@ BEGIN
     PERFORM deedlight_execution_ledger.raise_trust_failure('missing_trust','query_bundle_manifest_missing',jsonb_build_object('bundleId',v_query.query_bundle_id));
   END IF;
   IF v_bundle.member_count <> pg_catalog.jsonb_array_length(v_bundle.manifest)
-    OR deedlight_execution_ledger.canonical_query_bundle_digest(v_bundle.manifest) <> v_bundle.manifest_sha256
-    OR NOT EXISTS (SELECT 1 FROM pg_catalog.jsonb_array_elements(v_bundle.manifest) AS member(value)
-      WHERE value->>'queryId'=v_query.query_id AND value->>'querySha256'=v_query.query_sha256) THEN
-    PERFORM deedlight_execution_ledger.raise_trust_failure('snapshot_substitution','query_bundle_manifest_integrity_or_membership_mismatch',jsonb_build_object('queryId',p_query_id,'bundleId',v_query.query_bundle_id));
+    OR deedlight_execution_ledger.canonical_query_bundle_digest(v_bundle.manifest) <> v_bundle.manifest_sha256 THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'snapshot_substitution','query_bundle_manifest_integrity_mismatch',
+      jsonb_build_object('queryId',p_query_id,'bundleId',v_query.query_bundle_id)
+    );
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.jsonb_array_elements(v_bundle.manifest) AS member(value)
+    WHERE value->>'queryId'=v_query.query_id AND value->>'querySha256'=v_query.query_sha256) THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'snapshot_substitution','query_bundle_query_not_member',
+      jsonb_build_object('queryId',p_query_id,'bundleId',v_query.query_bundle_id)
+    );
   END IF;
   EXECUTE pg_catalog.format(
     'SELECT COALESCE(jsonb_agg(to_jsonb(q)), ''[]''::jsonb) FROM (%s) AS q', v_query.query_sql
