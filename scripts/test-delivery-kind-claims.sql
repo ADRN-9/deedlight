@@ -51,11 +51,18 @@ set role service_role;
 do $daily$
 declare
   v_count integer;
+  v_wrong_kind integer;
 begin
-  select count(*) into v_count from public.claim_daily_delivery_jobs(10)
-  where job_id in ('91000000-0000-0000-0000-000000000101','91000000-0000-0000-0000-000000000103');
-  if v_count <> 2 then
-    raise exception 'Daily claim should claim exactly its queued and expired-retry rows; got %.', v_count;
+  select
+    count(*) filter (where job_id in (
+      '91000000-0000-0000-0000-000000000101',
+      '91000000-0000-0000-0000-000000000103'
+    )),
+    count(*) filter (where kind <> 'daily_reminder')
+  into v_count, v_wrong_kind
+  from public.claim_daily_delivery_jobs(10);
+  if v_count <> 2 or v_wrong_kind <> 0 then
+    raise exception 'Daily claim returned wrong count/kind: expected 2 Daily rows and zero cross-kind rows, got % and %.', v_count, v_wrong_kind;
   end if;
 
   if exists (
@@ -161,11 +168,18 @@ set role service_role;
 do $weekly$
 declare
   v_count integer;
+  v_wrong_kind integer;
 begin
-  select count(*) into v_count from public.claim_weekly_delivery_jobs(10)
-  where job_id in ('91000000-0000-0000-0000-000000000102','91000000-0000-0000-0000-000000000104');
-  if v_count <> 2 then
-    raise exception 'Weekly claim should claim exactly its queued and expired-retry rows; got %.', v_count;
+  select
+    count(*) filter (where job_id in (
+      '91000000-0000-0000-0000-000000000102',
+      '91000000-0000-0000-0000-000000000104'
+    )),
+    count(*) filter (where kind <> 'weekly_newsletter')
+  into v_count, v_wrong_kind
+  from public.claim_weekly_delivery_jobs(10);
+  if v_count <> 2 or v_wrong_kind <> 0 then
+    raise exception 'Weekly claim returned wrong count/kind: expected 2 Weekly rows and zero cross-kind rows, got % and %.', v_count, v_wrong_kind;
   end if;
 
   if exists (
