@@ -187,7 +187,7 @@ The corrected test and diagnostic implementation at code candidate `d3cd07b5d87e
 
 I fetched and inspected both actual decoded PostgreSQL job logs. Both contain:
 - `C595_LOCALE_DISCRIMINATING_BYTEWISE_VECTOR_PASS`;
-- `C595_NONMEMBER_REJECTED_FOR_NONMEMBERSHIP` (temporary test marker name; subsequently renamed for accurate evidence labeling);
+- `C595_VALID_MANIFEST_NONMEMBER_REJECTED`;
 - `C593_FORGED_MANIFEST_DIGEST_REJECTED`;
 - `C593_SOURCE_IDENTITY_IMMUTABILITY_PASS`;
 - `C593_LIVE_DATABASE_IDENTITY_FAIL_CLOSED_PASS`;
@@ -200,6 +200,6 @@ The same run's validation job passed TypeScript, Next.js 16.4.6 production build
 
 ### Evidence boundary and final-head rerun
 
-The C595 code candidate above is runtime-validated. A subsequent commit `aad14079e30421d18bcdc6ef62699e87bc1bcf96` changes only the misleading legacy nonmember evidence marker to `C595_VALID_MANIFEST_NONMEMBER_REJECTED`; this documentation update also changes no SQL behavior. The final documentation-inclusive branch HEAD must receive a fresh exact-head push and PR workflow before this remediation is marked fully validated. The resulting workflow IDs, run IDs, and PostgreSQL job IDs must be recorded separately from the successful d3cd code-candidate runs.
+The C595 code candidate above is runtime-validated. Commit `aad14079e30421d18bcdc6ef62699e87bc1bcf96` changes only the misleading legacy nonmember evidence marker to `C595_VALID_MANIFEST_NONMEMBER_REJECTED`; this documentation update also changes no SQL behavior. The final documentation-inclusive branch HEAD must receive a fresh exact-head push and PR workflow before this remediation is marked fully validated. The resulting workflow IDs, run IDs, and PostgreSQL job IDs must be recorded separately from the successful d3cd code-candidate runs.
 
 No Production database, migration history, credentials, trust roots, or scheduler configuration was modified. Physical-clone protection remains unimplemented and dependent on the separately governed provider workload-identity/verifier/nonce trust binding described above.
