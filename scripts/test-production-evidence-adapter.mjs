@@ -368,3 +368,15 @@ test("precondition and postcondition contracts require explicit predicates and v
     assert.throws(()=>adapt(fixtureCsv(),invalid));
   }
 });
+
+test("database capture timestamp rejects impossible calendar dates", () => {
+  for (const timestamp of ["2026-02-30T00:00:00.000Z", "2026-13-01T00:00:00.000Z", "0000-01-01T00:00:00.000Z"]) {
+    const bytes = fixtureCsv(undefined, undefined, {
+      identity_v1: [[PROJECT_REF, "a".repeat(40), "postgres", "deedlight_catalog_auditor",
+        "deedlight_catalog_auditor", "16.0", "127.0.0.1", "5432", timestamp, "on"]],
+    });
+    const receipt = receiptFor(bytes);
+    assert.throws(() => adaptCollectorEvidence({ receipt, csv: bytes, inventoryBytes, schemaBytes, mapping: mappingFixture() }),
+      error => error.code === "COLLECTOR_CAPTURE_TIMESTAMP_INVALID");
+  }
+});
