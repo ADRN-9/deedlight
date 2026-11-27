@@ -1,6 +1,6 @@
 -- DeedLight SQL Editor aggregate v1
 -- Deterministically generated from immutable Git-blob-pinned migration sources and the maintained bootstrap seed.
--- Inventory Git blob SHA-1: 95d514a0bd97ff448c9507252eb1f5e69a507442
+-- Inventory Git blob SHA-1: a18cf2c65eb595ecd143fbaa16e2d81badf8d1f8
 -- BEGIN SOURCE PROVENANCE
 -- SOURCE 202607210001 202607210001_initial_schema.sql blob=a244ab0df3e766b0f36e29a222b3160f9f74c502 bytes=13648
 -- SOURCE 202607210002 202607210002_rls_policies.sql blob=f96b482c0d1cf396baae5b91d7c96112f7e88284 bytes=5885
@@ -41,6 +41,7 @@
 -- SOURCE 202611230036 202611230036_private_daily_reflection_admin_isolation.sql blob=61a1fbf48b4557873ba6016e74fd3995bc62ba14 bytes=2042
 -- SOURCE 202611240037 202611240037_delivery_provider_integrity_conflict_evidence.sql blob=ac0449b50a881e3a895ef40a8eee28bea95a6ec0 bytes=44182
 -- SOURCE 202611240038 202611240038_delivery_provider_integrity_lock_order_pagination.sql blob=38951751fc5abeb79b75c4e37e55da01262a18b8 bytes=43748
+-- SOURCE 202611260039 202611260039_delivery_kind_scoped_claims.sql blob=ef64692e4b16f3d18314a36c7389bbf1c7c51b01 bytes=4963
 -- BOOTSTRAP SEED supabase/seed.sql blob=e85554aed1553dec407e83966a1b0093f5d1e9a3 bytes=2574 upserts=3
 -- COMPATIBILITY supabase/bootstrap/migration_038_admin_compatibility.sql blob=92e93d88e23d3579f405de266cdf63cba0112472 bytes=15298 placement=after-202611240037-before-202611240038
 -- END SOURCE PROVENANCE
