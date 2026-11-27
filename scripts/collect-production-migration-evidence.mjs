@@ -69,64 +69,170 @@ export function parseCsv(input) {
   if (!rows.length) throw new CollectorError("EMPTY_SQL_OUTPUT");
   return rows;
 }
+export const SQL_PROJECTIONS = Object.freeze([
+  Object.freeze({ id: "identity_v1", columns: Object.freeze(["expected_project_ref","repository_sha","database_name","current_role","session_role","server_version","server_address","server_port","captured_at_utc","transaction_read_only"]) }),
+  Object.freeze({ id: "relations_v1", columns: Object.freeze(["schema_name","relation_name","relation_kind","owner_name","persistence","row_security_enabled","row_security_forced","ordinal_position","column_name","data_type","not_null","default_expression","view_definition"]) }),
+  Object.freeze({ id: "routines_v1", columns: Object.freeze(["schema_name","routine_name","routine_kind","identity_arguments","result_type","language_name","owner_name","security_definer","leakproof","volatility","routine_settings"]) }),
+  Object.freeze({ id: "relation_acl_v1", columns: Object.freeze(["acl_scope","schema_name","object_name","column_name","grantee","grantor","privilege_type","is_grantable"]) }),
+  Object.freeze({ id: "schema_acl_v1", columns: Object.freeze(["schema_name","owner_name","grantee","grantor","privilege_type","is_grantable"]) }),
+  Object.freeze({ id: "routine_acl_v1", columns: Object.freeze(["schema_name","routine_name","identity_arguments","grantee","grantor","privilege_type","is_grantable"]) }),
+  Object.freeze({ id: "roles_v1", columns: Object.freeze(["rolname","rolcanlogin","rolsuper","rolcreatedb","rolcreaterole","rolreplication","rolbypassrls","rolinherit","rolconnlimit","rolvaliduntil"]) }),
+  Object.freeze({ id: "role_memberships_v1", columns: Object.freeze(["granted_role","member_role","grantor_role","admin_option","inherit_option","set_option"]) }),
+  Object.freeze({ id: "rls_policies_v1", columns: Object.freeze(["schemaname","tablename","policyname","permissive","roles","cmd","qual","with_check"]) }),
+  Object.freeze({ id: "constraints_v1", columns: Object.freeze(["schema_name","table_name","constraint_name","constraint_type","validated","deferrable","initially_deferred","definition"]) }),
+  Object.freeze({ id: "indexes_v1", columns: Object.freeze(["schema_name","table_name","index_name","is_unique","is_primary","is_exclusion","is_valid","is_ready","is_live","is_replica_identity","nulls_not_distinct","index_definition"]) }),
+  Object.freeze({ id: "triggers_v1", columns: Object.freeze(["schema_name","table_name","trigger_name","enabled_state","internal_trigger","definition"]) }),
+  Object.freeze({ id: "sequences_v1", columns: Object.freeze(["schema_name","sequence_name","owner_name","sequence_data_type","start_value","increment_by","minimum_value","maximum_value","cache_size","cycles","owned_table_schema","owned_table_name","owned_column_name"]) }),
+  Object.freeze({ id: "sequence_acl_v1", columns: Object.freeze(["schema_name","sequence_name","owner_name","grantee","grantor","privilege_type","is_grantable"]) }),
+  Object.freeze({ id: "default_privileges_v1", columns: Object.freeze(["owner_role","schema_name","object_kind","grantee","grantor","privilege_type","is_grantable"]) }),
+  Object.freeze({ id: "extensions_v1", columns: Object.freeze(["extname","extversion","schema_name","owner_name"]) }),
+  Object.freeze({ id: "migration_history_structure_v1", columns: Object.freeze(["ordinal_position","column_name","data_type","not_null"]) }),
+  Object.freeze({ id: "migration_history_v1", columns: Object.freeze(["version","name","recordedStatementCount"]) }),
+  Object.freeze({ id: "database_acl_v1", columns: Object.freeze(["evidence_projection","database_count","database_oid","database_name","allows_connections","is_template","owner_oid","owner_name","datacl_was_null","acl_expansion_source","expanded_acl_edges"]) }),
+]);
+const SQL_PROJECTION_BY_HEADER = new Map(SQL_PROJECTIONS.map((projection, index) => [projection.columns.join("\u0000"), index]));
+const SQL_HEADER_TOKENS = new Set(SQL_PROJECTIONS.flatMap((projection) => projection.columns));
+function missingProjectionCode(projection) {
+  if (projection.id === "migration_history_v1") return "MIGRATION_HISTORY_PROJECTION_MISSING";
+  if (projection.id === "database_acl_v1") return "DATABASE_ACL_PROJECTION_MISSING";
+  return "SQL_PROJECTION_MISSING";
+}
+function isUnexpectedHeader(row) {
+  return row.length >= 2 && row.length <= 32 && new Set(row).size === row.length &&
+    row.every((value) => /^[a-z][A-Za-z0-9_]*$/.test(value)) &&
+    row.filter((value) => SQL_HEADER_TOKENS.has(value)).length >= 2;
+}
 export function validateSqlOutput(csv) {
   const rows = parseCsv(csv);
   const markerHeaderIndex = rows.findIndex((row) => row.length === 1 && row[0] === "collector_transaction_closed");
-  if (markerHeaderIndex < 0 || markerHeaderIndex !== rows.length - 2) throw new CollectorError("TRANSACTION_CLOSE_MARKER_MISSING");
+  if (markerHeaderIndex < 0 || markerHeaderIndex !== rows.length - 2 ||
+      rows.slice(0, markerHeaderIndex).some((row) => row.length === 1 && row[0] === "collector_transaction_closed")) {
+    throw new CollectorError("TRANSACTION_CLOSE_MARKER_MISSING");
+  }
   if (rows.at(-1).length !== 1 || rows.at(-1)[0] !== "t") throw new CollectorError("TRANSACTION_ROLLBACK_NOT_VERIFIED");
-  const expectedHeader=["evidence_projection","database_count","database_oid","database_name","allows_connections","is_template","owner_oid","owner_name","datacl_was_null","acl_expansion_source","expanded_acl_edges"];
-  const projectionHeaderIndex=rows.findIndex(row=>expectedHeader.filter(column=>row.includes(column)).length>=expectedHeader.length-1);
-  if(projectionHeaderIndex<0||projectionHeaderIndex>=markerHeaderIndex)throw new CollectorError("DATABASE_ACL_PROJECTION_MISSING");
-  const historyHeader=["version","name","recordedStatementCount"];
-  const historyHeaderIndex=rows.findIndex(row=>row.length===historyHeader.length&&row.every((value,index)=>value===historyHeader[index]));
-  if(historyHeaderIndex<0||historyHeaderIndex>=projectionHeaderIndex)throw new CollectorError("MIGRATION_HISTORY_PROJECTION_MISSING");
-  const historyRows=rows.slice(historyHeaderIndex+1,projectionHeaderIndex);
-  const seenVersions=new Set();
-  let previousVersion="";
-  const migrationHistoryRows=historyRows.map((row)=>{
-    if(row.length!==3)throw new CollectorError("MIGRATION_HISTORY_ROW_INVALID");
-    const [version,rawName,rawCount]=row;
-    if(!/^[0-9]{12}$/.test(version)||seenVersions.has(version)||version<=previousVersion)throw new CollectorError("MIGRATION_HISTORY_VERSION_INVALID");
-    const name=rawName===""||rawName==="NULL"?null:rawName;
-    if(name!==null&&!/^[A-Za-z0-9_-]+$/.test(name))throw new CollectorError("MIGRATION_HISTORY_NAME_INVALID");
-    const recordedStatementCount=rawCount===""||rawCount==="NULL"?null:Number(rawCount);
-    if(recordedStatementCount!==null&&(!/^(0|[1-9][0-9]*)$/.test(rawCount)||!Number.isSafeInteger(recordedStatementCount)||recordedStatementCount<0))throw new CollectorError("MIGRATION_HISTORY_STATEMENT_COUNT_INVALID");
+
+  const projectionRows = SQL_PROJECTIONS.map(() => []);
+  const seen = new Set();
+  let expectedIndex = 0;
+  let currentIndex = -1;
+  for (const row of rows.slice(0, markerHeaderIndex)) {
+    const matchedIndex = SQL_PROJECTION_BY_HEADER.get(row.join("\u0000"));
+    if (matchedIndex !== undefined) {
+      const projection = SQL_PROJECTIONS[matchedIndex];
+      if (seen.has(matchedIndex)) throw new CollectorError("SQL_PROJECTION_DUPLICATED");
+      if (matchedIndex !== expectedIndex) throw new CollectorError(missingProjectionCode(SQL_PROJECTIONS[expectedIndex]));
+      seen.add(matchedIndex);
+      currentIndex = matchedIndex;
+      expectedIndex += 1;
+      continue;
+    }
+    if (isUnexpectedHeader(row)) throw new CollectorError("SQL_PROJECTION_UNEXPECTED");
+    if (currentIndex < 0) throw new CollectorError("SQL_PROJECTION_DATA_WITHOUT_HEADER");
+    const projection = SQL_PROJECTIONS[currentIndex];
+    if (row.length !== projection.columns.length) throw new CollectorError("SQL_PROJECTION_ROW_WIDTH_INVALID");
+    projectionRows[currentIndex].push(row);
+  }
+  if (expectedIndex !== SQL_PROJECTIONS.length) throw new CollectorError(missingProjectionCode(SQL_PROJECTIONS[expectedIndex]));
+
+  const identity = SQL_PROJECTIONS[0];
+  const identityRows = projectionRows[0];
+  if (identityRows.length !== 1) throw new CollectorError("SQL_IDENTITY_PROJECTION_CARDINALITY_INVALID");
+  const identityRow = identityRows[0];
+  if (identityRow[0] !== PROJECT_REF || !/^[a-f0-9]{40}$/.test(identityRow[1]) ||
+      !["postgres", "deedlight_migration_order_test"].includes(identityRow[2]) ||
+      identityRow[3] !== "deedlight_catalog_auditor" || identityRow[4] !== "deedlight_catalog_auditor" ||
+      !/^\d+\.\d+(?:\.|$)/.test(identityRow[5]) || !identityRow[6] || identityRow[7] !== "5432" ||
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(identityRow[8]) || identityRow[9] !== "on") {
+    throw new CollectorError("SQL_IDENTITY_PROJECTION_INVALID");
+  }
+
+  const historyRows = projectionRows[17];
+  const seenVersions = new Set();
+  let previousVersion = "";
+  const migrationHistoryRows = historyRows.map((row) => {
+    const [version, rawName, rawCount] = row;
+    if (!/^[0-9]{12}$/.test(version) || seenVersions.has(version) || version <= previousVersion) {
+      throw new CollectorError("MIGRATION_HISTORY_VERSION_INVALID");
+    }
+    const name = rawName === "" || rawName === "NULL" ? null : rawName;
+    if (name !== null && !/^[A-Za-z0-9_-]+$/.test(name)) throw new CollectorError("MIGRATION_HISTORY_NAME_INVALID");
+    const recordedStatementCount = rawCount === "" || rawCount === "NULL" ? null : Number(rawCount);
+    if (recordedStatementCount !== null && (!/^(0|[1-9][0-9]*)$/.test(rawCount) ||
+        !Number.isSafeInteger(recordedStatementCount) || recordedStatementCount < 0)) {
+      throw new CollectorError("MIGRATION_HISTORY_STATEMENT_COUNT_INVALID");
+    }
     seenVersions.add(version);
-    previousVersion=version;
-    return {version,name,recordedStatementCount};
+    previousVersion = version;
+    return { version, name, recordedStatementCount };
   });
-  const header=rows[projectionHeaderIndex];
-  if(header.length!==11||new Set(header).size!==11||header.some((v,i)=>v!==expectedHeader[i]))throw new CollectorError("DATABASE_ACL_PROJECTION_SCHEMA_INVALID");
-  const [projectionColumn,countColumn,oidColumn,nameColumn,allowsColumn,templateColumn,ownerOidColumn,ownerNameColumn,dataclNullColumn,aclSourceColumn,edgesColumn]=expectedHeader.map(v=>header.indexOf(v));
-  const databaseRows=rows.slice(projectionHeaderIndex+1,markerHeaderIndex);if(!databaseRows.length)throw new CollectorError("DATABASE_ACL_PROJECTION_EMPTY");
-  const positiveUint32=v=>typeof v==="string"&&/^[1-9][0-9]*$/.test(v)&&Number(v)<=0xffffffff;
-  const expectedCount=Number(databaseRows[0][countColumn]);const databaseOids=new Set();let previousDatabaseOid=-1;
-  if(!Number.isSafeInteger(expectedCount)||expectedCount<1||databaseRows.length!==expectedCount||databaseRows.some(row=>
-    row.length!==11||row[projectionColumn]!=="database_acl_v1"||!/^[1-9][0-9]*$/.test(row[countColumn]??"")||Number(row[countColumn])!==expectedCount||
-    !positiveUint32(row[oidColumn])||!positiveUint32(row[ownerOidColumn])||typeof row[nameColumn]!=="string"||!row[nameColumn]||
-    !["t","f"].includes(row[allowsColumn])||!["t","f"].includes(row[templateColumn])||typeof row[ownerNameColumn]!=="string"||!row[ownerNameColumn]||
-    !["t","f"].includes(row[dataclNullColumn])||!["built_in_default","explicit"].includes(row[aclSourceColumn])||
-    (row[dataclNullColumn]==="t")!==(row[aclSourceColumn]==="built_in_default")))throw new CollectorError("DATABASE_ACL_PROJECTION_INCOMPLETE");
-  for(const row of databaseRows){
-    const dbOid=Number(row[oidColumn]);if(databaseOids.has(dbOid)||dbOid<=previousDatabaseOid)throw new CollectorError("DATABASE_ACL_PROJECTION_DUPLICATED_OR_UNORDERED");databaseOids.add(dbOid);previousDatabaseOid=dbOid;
-    let edges;try{edges=JSON.parse(row[edgesColumn]);}catch{throw new CollectorError("DATABASE_ACL_EDGES_INVALID_JSON");}
-    const parseOid=(v,zero=false)=>{if(typeof v==="string"){if(!/^(?:0|[1-9][0-9]*)$/.test(v))return null;const n=Number(v);return Number.isSafeInteger(n)&&n<=0xffffffff&&(zero||n>0)?n:null;}return typeof v==="number"&&Number.isSafeInteger(v)&&v>=(zero?0:1)&&v<=0xffffffff?v:null;};
-    const seen=new Set();let previous=null;if(!Array.isArray(edges))throw new CollectorError("DATABASE_ACL_EDGES_INVALID");
-    for(const edge of edges){
-      const keys=["grantee_oid","grantee_name","grantor_oid","grantor_name","privilege_type","is_grantable"];
-      const grantee=edge&&typeof edge==="object"?parseOid(edge.grantee_oid,true):null,grantor=edge&&typeof edge==="object"?parseOid(edge.grantor_oid):null;
-      if(!edge||typeof edge!=="object"||Array.isArray(edge)||Object.keys(edge).sort().join("|")!==keys.slice().sort().join("|")||grantee===null||grantor===null||
-        typeof edge.grantee_name!=="string"||!edge.grantee_name||typeof edge.grantor_name!=="string"||!edge.grantor_name||
-        typeof edge.privilege_type!=="string"||!edge.privilege_type||typeof edge.is_grantable!=="boolean"||
-        (grantee===0&&edge.grantee_name!=="PUBLIC")||(grantee!==0&&edge.grantee_name==="PUBLIC"))throw new CollectorError("DATABASE_ACL_EDGES_INVALID");
-      const logical=JSON.stringify([grantee,grantor,edge.privilege_type]);if(seen.has(logical))throw new CollectorError("DATABASE_ACL_EDGES_DUPLICATED");seen.add(logical);
-      const order=[grantee,grantor,edge.privilege_type,edge.is_grantable?1:0];
-      if(previous){const[pg,pr,pp,pf]=previous,[cg,cr,cp,cf]=order;if(!(pg<cg||pg===cg&&(pr<cr||pr===cr&&(pp<cp||pp===cp&&pf<=cf))))throw new CollectorError("DATABASE_ACL_EDGES_UNORDERED");}previous=order;
+
+  const databaseRows = projectionRows[18];
+  if (!databaseRows.length) throw new CollectorError("DATABASE_ACL_PROJECTION_EMPTY");
+  const positiveUint32 = (value) => typeof value === "string" && /^[1-9][0-9]*$/.test(value) && Number(value) <= 0xffffffff;
+  const expectedCount = Number(databaseRows[0][1]);
+  const databaseOids = new Set();
+  let previousDatabaseOid = -1;
+  if (!Number.isSafeInteger(expectedCount) || expectedCount < 1 || databaseRows.length !== expectedCount ||
+      databaseRows.some((row) => row[0] !== "database_acl_v1" || !/^[1-9][0-9]*$/.test(row[1] ?? "") ||
+        Number(row[1]) !== expectedCount || !positiveUint32(row[2]) || !positiveUint32(row[6]) ||
+        typeof row[3] !== "string" || !row[3] || !["t", "f"].includes(row[4]) || !["t", "f"].includes(row[5]) ||
+        typeof row[7] !== "string" || !row[7] || !["t", "f"].includes(row[8]) ||
+        !["built_in_default", "explicit"].includes(row[9]) ||
+        (row[8] === "t") !== (row[9] === "built_in_default"))) {
+    throw new CollectorError("DATABASE_ACL_PROJECTION_INCOMPLETE");
+  }
+  for (const row of databaseRows) {
+    const databaseOid = Number(row[2]);
+    if (databaseOids.has(databaseOid) || databaseOid <= previousDatabaseOid) {
+      throw new CollectorError("DATABASE_ACL_PROJECTION_DUPLICATED_OR_UNORDERED");
+    }
+    databaseOids.add(databaseOid);
+    previousDatabaseOid = databaseOid;
+    let edges;
+    try { edges = JSON.parse(row[10]); } catch { throw new CollectorError("DATABASE_ACL_EDGES_INVALID_JSON"); }
+    const parseOid = (value, zero = false) => {
+      if (typeof value === "string") {
+        if (!/^(?:0|[1-9][0-9]*)$/.test(value)) return null;
+        const number = Number(value);
+        return Number.isSafeInteger(number) && number <= 0xffffffff && (zero || number > 0) ? number : null;
+      }
+      return typeof value === "number" && Number.isSafeInteger(value) && value >= (zero ? 0 : 1) && value <= 0xffffffff ? value : null;
+    };
+    if (!Array.isArray(edges)) throw new CollectorError("DATABASE_ACL_EDGES_INVALID");
+    const seenEdges = new Set();
+    let previousEdge = null;
+    for (const edge of edges) {
+      const keys = ["grantee_oid", "grantee_name", "grantor_oid", "grantor_name", "privilege_type", "is_grantable"];
+      const grantee = edge && typeof edge === "object" && !Array.isArray(edge) ? parseOid(edge.grantee_oid, true) : null;
+      const grantor = edge && typeof edge === "object" && !Array.isArray(edge) ? parseOid(edge.grantor_oid) : null;
+      if (!edge || typeof edge !== "object" || Array.isArray(edge) ||
+          Object.keys(edge).sort().join("|") !== keys.slice().sort().join("|") || grantee === null || grantor === null ||
+          typeof edge.grantee_name !== "string" || !edge.grantee_name || typeof edge.grantor_name !== "string" || !edge.grantor_name ||
+          typeof edge.privilege_type !== "string" || !edge.privilege_type || typeof edge.is_grantable !== "boolean" ||
+          (grantee === 0 && edge.grantee_name !== "PUBLIC") || (grantee !== 0 && edge.grantee_name === "PUBLIC")) {
+        throw new CollectorError("DATABASE_ACL_EDGES_INVALID");
+      }
+      const logical = JSON.stringify([grantee, grantor, edge.privilege_type]);
+      if (seenEdges.has(logical)) throw new CollectorError("DATABASE_ACL_EDGES_DUPLICATED");
+      seenEdges.add(logical);
+      const order = [grantee, grantor, edge.privilege_type, edge.is_grantable ? 1 : 0];
+      if (previousEdge) {
+        const [pg, pr, pp, pf] = previousEdge, [cg, cr, cp, cf] = order;
+        if (!(pg < cg || pg === cg && (pr < cr || pr === cr && (pp < cp || pp === cp && pf <= cf)))) {
+          throw new CollectorError("DATABASE_ACL_EDGES_UNORDERED");
+        }
+      }
+      previousEdge = order;
     }
   }
+
   const resultRows = rows.slice(0, markerHeaderIndex);
-  if (resultRows.length < 15) throw new CollectorError("SQL_RESULT_SET_INCOMPLETE");
-  return { rows, resultRows, databaseAclRows: databaseRows.length, migrationHistoryRows, transactionClosed: true };
+  return {
+    rows, resultRows, projections: SQL_PROJECTIONS.map((projection, index) => ({
+      id: projection.id, columns: projection.columns, rowCount: projectionRows[index].length,
+    })),
+    databaseAclRows: databaseRows.length, migrationHistoryRows, transactionClosed: true,
+  };
 }
 function assertOutsideRepository(filePath, repoPath, code) {
   const resolved = realpathSync(filePath);
