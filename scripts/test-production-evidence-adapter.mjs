@@ -303,19 +303,25 @@ function sourceLineBinding(entry){
 }
 
 test("category-specific transformation contract requires exact source and target relations",()=>{
-  const mapping=mappingFixture(),entry=mapping.migrations[0],binding=sourceLineBinding(entry);
+  const mapping=mappingFixture(),entry=mapping.migrations[3];
+  const sourceLines=readFileSync(new URL("../"+entry.path,import.meta.url),"utf8").split(/\r?\n/);
+  const updateLine=sourceLines.findIndex(line=>/^\s*update\s+public\.offerings\s+set\b/i.test(line));
+  assert.ok(updateLine>=0);
+  const sourceStatement=sourceLines[updateLine];
+  const binding={sourceRange:{startLine:updateLine+1,endLine:updateLine+1},sourceStatementSha256:sha256(Buffer.from(sourceStatement))};
   const effect={kind:"dataTransformations",identity:"fixture.transform",fingerprint:"e".repeat(64),
     description:"Synthetic test-only transformation contract.",sourcePath:entry.path,
-    contract:{operation:"UPDATE",sourceRelations:[{schema:"fixture",relation:"source"}],
-      targetRelation:{schema:"fixture",relation:"target"},predicate:{sql:"id IS NOT NULL",sha256:sha256(Buffer.from("id IS NOT NULL"))},...binding}};
+    contract:{operation:"UPDATE",sourceRelations:[{schema:"public",relation:"offerings"}],
+      targetRelation:{schema:"public",relation:"offerings"},predicate:{sql:"id IS NOT NULL",sha256:sha256(Buffer.from("id IS NOT NULL"))},...binding}};
   entry.effects.dataTransformations=[effect];entry.coverage.dataTransformations.disposition="effects";
   assert.doesNotThrow(()=>adapt(fixtureCsv(),mapping));
   for(const mutate of [
     x=>{x.contract.targetRelation={schema:"fixture"};},
-    x=>{x.contract.sourceRelations=[{schema:"fixture",relation:"bad-name;drop"}];},
+    x=>{x.contract.sourceRelations=[];},
     x=>{x.contract.sourceStatementSha256="not-a-digest";},
+    x=>{x.contract.operation="DELETE";},
     x=>{x.sourcePath="supabase/migrations/not-in-inventory.sql";},
-  ]){const changed=structuredClone(mapping);mutate(changed.migrations[0].effects.dataTransformations[0]);assert.throws(()=>adapt(fixtureCsv(),changed));}
+  ]){const changed=structuredClone(mapping);mutate(changed.migrations[3].effects.dataTransformations[0]);assert.throws(()=>adapt(fixtureCsv(),changed));}
 });
 
 test("backfill contracts preserve unavailable measurement without asserting row counts",()=>{
