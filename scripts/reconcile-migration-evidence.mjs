@@ -107,6 +107,7 @@ export function validateCollectorPrivilegeEvidence(db, inventoryObjects) {
     .sort((a, b) => String(a.kind).localeCompare(String(b.kind)) || String(a.identity).localeCompare(String(b.identity)));
   const schemaRows = Array.isArray(db && db.schemaPrivileges) ? db.schemaPrivileges : [];
   const objectRows = Array.isArray(db && db.objectPrivileges) ? db.objectPrivileges : [];
+  const columnRows = Array.isArray(db && db.columnPrivileges) ? db.columnPrivileges : [];
   const schemaIds = schemaRows.map((entry) => entry && entry.schema).sort();
   const objectKeys = objectRows.map((entry) => ({ kind: entry && entry.kind, identity: entry && entry.identity }))
     .sort((a, b) => String(a.kind).localeCompare(String(b.kind)) || String(a.identity).localeCompare(String(b.identity)));
@@ -134,6 +135,15 @@ export function validateCollectorPrivilegeEvidence(db, inventoryObjects) {
         || canonicalJson(entry.privileges) !== canonicalJson(history ? ["SELECT"] : []);
     })) {
     problems.push("collector object privilege evidence does not match the least-privilege contract: only migration-history SELECT is allowed");
+  }
+  const expectedColumns = inventory.filter((entry) => entry && entry.kind === "columns")
+    .map((entry) => entry.identity).sort();
+  const columnIds = columnRows.map((entry) => entry && entry.identity).sort();
+  if (!expectedColumns.length || columnIds.some((value) => typeof value !== "string")
+    || new Set(columnIds).size !== columnIds.length || canonicalJson(columnIds) !== canonicalJson(expectedColumns)
+    || columnRows.some((entry) => !entry || Object.keys(entry).sort().join(",") !== "identity,privileges,scope"
+      || entry.scope !== "application_data" || !Array.isArray(entry.privileges) || entry.privileges.length !== 0)) {
+    problems.push("collector column privilege evidence does not match the least-privilege contract: application columns must have no effective privileges");
   }
   return problems;
 }
