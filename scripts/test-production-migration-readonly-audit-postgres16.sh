@@ -208,6 +208,7 @@ WITH schemas AS (
   WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
     AND n.nspname NOT LIKE 'pg_toast%'
     AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+    AND NOT (n.nspname = 'supabase_migrations' AND c.relname = 'schema_migrations')
     AND a.attnum > 0 AND NOT a.attisdropped
 ), routines AS (
   SELECT p.oid, n.nspname, p.proname,
