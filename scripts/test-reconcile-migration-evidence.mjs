@@ -163,7 +163,7 @@ function fixture() {
         isReplication: false,
         ownsObjects: false,
         privilegeContractVersion: "catalog_only_v1",
-        effectivePrivileges: ["DATABASE_CONNECT", "SYSTEM_CATALOG_SELECT", "MIGRATION_HISTORY_SCHEMA_USAGE", "MIGRATION_HISTORY_SELECT"],
+        requiredAccessSummary: ["DATABASE_CONNECT", "SYSTEM_CATALOG_SELECT", "MIGRATION_HISTORY_SCHEMA_USAGE", "MIGRATION_HISTORY_SELECT"],
         databasePrivilegesComplete: true,
         databasePrivileges: ["CONNECT"],
         databaseAclV1: [{
@@ -621,7 +621,7 @@ test("write-capable collector, inherited roles or unproven read-only privilege f
     (f) => {
       const claims = f.approvals.collectorAttestation.claims;
       f.approvals.collectorAttestation = artifact("read-only-collector-attestation", "collector", {
-        ...claims, databaseAuthority: { ...claims.databaseAuthority, effectivePrivileges: ["CONNECT", "USAGE", "SELECT", "UPDATE"] },
+        ...claims, databaseAuthority: { ...claims.databaseAuthority, requiredAccessSummary: ["CONNECT", "USAGE", "SELECT", "UPDATE"] },
       });
     },
     (f) => {
@@ -713,7 +713,7 @@ test("collector privilege evidence follows the explicit catalog-only scope contr
     assert.deepEqual(historySchema, { schema: "supabase_migrations", scope: "migration_history", privileges: ["USAGE"] });
     assert.deepEqual(applicationTable.privileges, []);
     assert.deepEqual(historyTable.privileges, ["SELECT"]);
-    assert.deepEqual(db.effectivePrivileges, [
+    assert.deepEqual(db.requiredAccessSummary, [
       "DATABASE_CONNECT", "SYSTEM_CATALOG_SELECT", "MIGRATION_HISTORY_SCHEMA_USAGE", "MIGRATION_HISTORY_SELECT",
     ]);
   } finally { f.cleanup(); }
