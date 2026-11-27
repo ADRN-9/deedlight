@@ -69,6 +69,9 @@ jobs:
       - name: Verify C556 source-derived migration effect observations
         run: node scripts/verify-c556-migration-source-observations.mjs
 
+      - name: Category-specific migration effect contract tests
+        run: node --test scripts/test-migration-effect-contracts.mjs
+
       - name: Migration reconciliation analyzer adversarial security regressions
         run: node --test scripts/test-reconcile-migration-evidence.mjs
 
