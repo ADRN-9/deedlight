@@ -1544,3 +1544,41 @@ test("analyzer rejects unexpected evidence and nested provenance/catalog propert
     } finally { f.cleanup(); }
   }
 });
+
+
+test("unsupported and unknown effect domains are explicit blockers, never silently omitted",()=>{
+  for(const disposition of ["unsupported","unknown"]){
+    const f=fixture();
+    try{
+      f.mapping.migrations[0].effects.backfills=[];
+      f.mapping.migrations[0].coverage.backfills.disposition=disposition;
+      f.mapping.migrations[0].coverage.backfills.rationale="Fixture explicitly records an unresolved backfill review disposition.";
+      f.reapprove();
+      const report=f.analyze();
+      assert.equal(report.trustVerified,false);
+      assert.equal(report.acceptance,"NOT_ACCEPTED");
+      assert.equal(report.counts.Unknown,40);
+      assert.ok(report.trustProblems.some(reason=>reason.includes("backfills")&&reason.includes(disposition)));
+    }finally{f.cleanup();}
+  }
+});
+
+test("mapping rejects missing categories, malformed fingerprints and incomplete or overlapping source ranges",()=>{
+  const mutations=[
+    mapping=>{delete mapping.migrations[0].coverage.postconditions;},
+    mapping=>{mapping.migrations[0].effects.dataTransformations[0].fingerprint="not-a-digest";},
+    mapping=>{mapping.migrations[0].coverage.dependencies.sourceRanges=[{startLine:8,endLine:12},{startLine:4,endLine:9}];},
+    mapping=>{mapping.migrations[0].coverage.dependencies.sourceRanges=[{startLine:1,endLine:4},{startLine:4,endLine:8}];},
+    mapping=>{mapping.migrations[0].effects.dependencies=[{kind:"preconditions",identity:"wrong-domain",fingerprint:hash("wrong"),description:"Wrong category effect."}];mapping.migrations[0].coverage.dependencies.disposition="effects";},
+  ];
+  for(const mutate of mutations){
+    const f=fixture();
+    try{
+      mutate(f.mapping);f.reapprove();const report=f.analyze();
+      assert.equal(report.trustVerified,false);
+      assert.equal(report.acceptance,"NOT_ACCEPTED");
+      assert.equal(report.counts.Unknown,40);
+      assert.ok(report.trustProblems.some(reason=>reason.includes("mapping")||reason.includes("effect")));
+    }finally{f.cleanup();}
+  }
+});
