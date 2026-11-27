@@ -3,6 +3,7 @@ import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gitBlobSha1, validateInventory } from "./verify-migration-inventory-aggregate.mjs";
+import { categoryEffectKeys, validateCategoryEffectContract } from "./migration-effect-contracts.mjs";
 
 const PROJECT_REF = "xaipiovflxomcbfwtwmu";
 const INVENTORY_BLOB_SHA1 = "4e63f31368d446e905f4f44565be73337c7188fb";
@@ -444,6 +445,7 @@ function validateMapping(mapping, manifest, source, problems) {
     byPath.set(entry.path, entry);
   }
   const result = new Map();
+  const inventoryPaths = new Set(manifest.migrations.map((item) => item.path));
   const allowedDispositions = new Set(["effects", "none", "unsupported", "unknown"]);
   for (const item of manifest.migrations) {
     const entry = byPath.get(item.path);
@@ -503,10 +505,17 @@ function validateMapping(mapping, manifest, source, problems) {
       for (const effect of effects) {
         const allowed = category === "schema" ? SCHEMA_KINDS
           : category === "routines" ? new Set(["routines"]) : new Set([category]);
-        if (!effect || Object.keys(effect).sort().join(",") !== ["description", "fingerprint", "identity", "kind"].sort().join(",")
+        if (!effect || Object.keys(effect).sort().join(",") !== categoryEffectKeys(category).sort().join(",")
           || !allowed.has(effect.kind) || typeof effect.identity !== "string" || !effect.identity.trim()
           || !/^[a-f0-9]{64}$/.test(effect.fingerprint || "")
-          || typeof effect.description !== "string" || !effect.description.trim()) {
+          || typeof effect.description !== "string" || !effect.description.trim()
+          || (categoryEffectKeys(category).includes("sourcePath") && effect.sourcePath !== item.path)) {
+          coverageMalformed = true;
+          break;
+        }
+        const contractProblem = validateCategoryEffectContract(category, effect, inventoryPaths);
+        if (contractProblem) {
+          problems.push(contractProblem + " for " + item.path);
           coverageMalformed = true;
           break;
         }
