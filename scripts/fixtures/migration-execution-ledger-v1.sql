@@ -435,7 +435,13 @@ BEGIN
     RAISE EXCEPTION 'terminal execution outcomes are immutable';
   END IF;
   IF NOT ((OLD.status = 'reserved' AND NEW.status IN ('running','interrupted'))
-    OR (OLD.status = 'running' AND NEW.status IN ('succeeded','failed','partial','unknown'))) THEN
+    OR (OLD.status = 'running' AND NEW.status IN ('succeeded','failed','partial','unknown'))
+    OR (OLD.status = 'running' AND NEW.status = 'running'
+      AND NEW.runner_identity = OLD.runner_identity
+      AND NEW.started_at = OLD.started_at
+      AND NEW.completed_at IS NULL
+      AND NEW.outcome_detail IS NULL
+      AND NEW.heartbeat_at >= OLD.heartbeat_at)) THEN
     RAISE EXCEPTION 'invalid execution state transition: % -> %', OLD.status, NEW.status;
   END IF;
   IF NEW.system_identifier <> OLD.system_identifier OR NEW.database_oid <> OLD.database_oid
