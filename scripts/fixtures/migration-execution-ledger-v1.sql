@@ -72,7 +72,7 @@ BEGIN
     );
   END IF;
   SELECT pg_catalog.string_agg(
-    value->>'queryId' || ':' || value->>'querySha256',
+    (value->>'queryId') || ':' || (value->>'querySha256'),
     pg_catalog.chr(10) ORDER BY value->>'queryId'
   ) INTO v_canonical
   FROM pg_catalog.jsonb_array_elements(p_manifest) AS e(value);
