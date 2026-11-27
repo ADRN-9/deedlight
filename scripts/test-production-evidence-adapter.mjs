@@ -154,7 +154,7 @@ test("row-shape validators reject malformed relation, ACL and role values",()=>{
 test("receipt endpoint database and repository SHA must bind to SQL identity",()=>{
   const bytes=fixtureCsv(),receipt=receiptFor(bytes);
   const databaseMismatch=Buffer.from(bytes.toString("utf8").replace("postgres,deedlight_catalog_auditor","deedlight_migration_order_test,deedlight_catalog_auditor"));
-  assert.throws(()=>adaptCollectorEvidence({receipt,csv:databaseMismatch,inventoryBytes,schemaBytes}),/PROVENANCE_DATABASE_IDENTITY_MISMATCH|EVIDENCE/);
+  assert.throws(()=>adaptCollectorEvidence({receipt:receiptFor(databaseMismatch),csv:databaseMismatch,inventoryBytes,schemaBytes}),/PROVENANCE_DATABASE_IDENTITY_MISMATCH/);
   const changedRepo=Buffer.from(bytes.toString("utf8").replace("a".repeat(40)+",postgres,","b".repeat(40)+",postgres,"));
   const changedRepoReceipt=receiptFor(changedRepo);
   assert.throws(()=>adaptCollectorEvidence({receipt:changedRepoReceipt,csv:changedRepo,inventoryBytes,schemaBytes}),/PROVENANCE_REPOSITORY_IDENTITY_MISMATCH/);

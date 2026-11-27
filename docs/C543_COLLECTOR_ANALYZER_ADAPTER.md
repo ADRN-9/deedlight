@@ -1,20 +1,47 @@
-# C543 — Collector-to-analyzer adapter contract
+# C544 — Collector provenance, nullability and privilege compatibility
 
-## Purpose
+## Provenance bindings
 
-`scripts/adapt-production-migration-evidence.mjs` converts the 19 validated CSV projections emitted by `collect-production-migration-evidence.mjs` into an analyzer schema-version-2 **candidate**. It does not authenticate or accept evidence.
+- SQL `identity_v1.database_name` must equal receipt `endpoint.database`.
+- SQL `identity_v1.repository_sha` must equal receipt `source.repositoryCommitSha`.
+- SQL project identity, receipt project identity and the pinned DeedLight project reference must match.
+- The collector's explicitly authorized disposable PostgreSQL database is classified as `test`; it is never labelled `production`. The approved Production database `postgres` is labelled `production`.
+- Database capture time is retained separately from collector receipt completion time.
 
-## Invocation
+These are consistency checks, not authentication or proof of execution authority.
 
-```sh
-node scripts/adapt-production-migration-evidence.mjs \
-  --receipt receipt.json \
-  --csv evidence.csv \
-  [--mapping independently-reviewed-mapping.json] \
-  --output candidate.json
-```
+## CSV nullability
 
-The inventory and receipt schema are loaded from their pinned repository paths. The output file is created exclusively with mode 0600; an existing output path is not overwritten.
+The parser preserves the PostgreSQL CSV distinction:
+- Unquoted empty field: SQL NULL.
+- Literal `NULL`: ordinary string.
+- Literal `\\N`: ordinary string.
+- Quoted empty field `""`: empty string.
+
+Quoted empty cells use a reserved internal sentinel for canonical result hashing. The sentinel is rejected if it appears in input data and is normalized back to an empty string in public candidate projections. The PostgreSQL 16 fixture emits all four cases through actual collector output and checks collector and adapter normalization.
+
+## Projection validation
+
+All 19 projection identities, exact headers, fixed order, cardinality and row widths are validated. Only the explicit `EMPTY_PROJECTION_ALLOWLIST` may have zero rows. Whole-block reordering, missing/duplicate/unexpected projections and malformed row structures fail closed.
+
+The collector role must exist exactly once in `roles_v1`, satisfy the least-privilege role flags, and have no role memberships. ACL rows are checked against PostgreSQL privilege sets, duplicate identities and grant options are rejected, and schema/object/column privilege scopes are checked.
+
+The `extensions_v1` projection is retained and validated, but the current analyzer catalog schema has no `extensions` kind. It is exposed as `PRESERVED_NOT_NORMALIZED`; catalog completeness remains false.
+
+## PR #23 versus PR #26 security contract
+
+The actual PR #23 analyzer requires:
+- `privilegeContractVersion: catalog_only_v1`.
+- Exact `requiredAccessSummary`: `DATABASE_CONNECT`, `SYSTEM_CATALOG_SELECT`, `MIGRATION_HISTORY_SCHEMA_USAGE`, `MIGRATION_HISTORY_SELECT`.
+- Database `CONNECT` only.
+- `USAGE` only on `supabase_migrations`; no application-schema `USAGE`.
+- `SELECT` only on `supabase_migrations.schema_migrations`; no application-data table or column `SELECT`.
+- Explicit `scope` on every schema, object and column privilege row.
+- Exact column-level privilege coverage, zero role memberships and zero owned application schemas.
+
+The PR #26 analyzer at the refreshed C543 base is not equivalent. It requires a flattened `effectivePrivileges` set, uses scope-less schema privilege rows, and its object-privilege expectation permits `SELECT` for every table object. Those assumptions do not preserve PR #23's application-data denial boundary. Do not treat PR #26 analyzer acceptance as PR #23 security acceptance or silently weaken PR #23.
+
+The adapter emits a separately labelled, unauthenticated `databaseAuthorityCandidate` with the PR #23 scoped privilege shape. Executable tests assert the exact summary, database CONNECT, migration-schema USAGE, migration-history table/column SELECT, and application-data table/column denial. This candidate is not a signed `collectorAuthority`.
 
 ## Fingerprint boundaries
 
@@ -28,28 +55,20 @@ The inventory and receipt schema are loaded from their pinned repository paths. 
 | Collector result | Collector-defined canonical result SHA-256 |
 | Normalized analyzer candidate | Canonical JSON SHA-256 |
 
-These digests are not interchangeable. The adapter verifies the actual inventory and schema bytes and checks receipt claims against independent pins.
+These digests are not interchangeable.
 
-## Normalization
+## Remaining incompleteness and trust
 
-- The exact 19 projection identities, headers and order are required.
-- Collector CSV parsing validates projection cardinality, row widths, transaction closure, rollback, history rows and database ACL rows.
-- Adapter validation checks typed row structure for relation, routine, ACL, role, membership, policy, constraint, index, trigger, sequence and extension projections.
-- Migration history is ordered by version. Empty CSV cells become SQL NULL; literal `NULL` and literal `\\N` remain strings. Statement counts accept only canonical nonnegative integers or SQL NULL.
-- Migration-history structure is checked by column identity and type, not physical column order.
-- The analyzer capture timestamp is the collector receipt completion time; the database query timestamp is preserved separately as `databaseCaptureTimestamp` because the database host and collector runner clocks must not be assumed synchronized. The migration mapping is optional for candidate generation. If supplied, it must cover the exact 40-entry pinned inventory, without duplicate paths or malformed effects/coverage.
-- Catalog objects use SHA-256 over canonical JSON of their normalized source rows.
+Data transformations, backfills, dependencies, preconditions and postconditions are not projected. Extensions remain unmapped. A reviewed 40-entry migration mapping and independent evidence, mapping and collector approvals with provisioned trust roots remain prerequisites. The candidate always remains `UNSIGNED_NOT_ACCEPTED` / `NOT_ACCEPTED`.
 
-## Explicit incompleteness
+## Invocation
 
-The collector does not provide evidence for data transformations, backfills, dependencies, preconditions or postconditions. Accordingly, the candidate sets `catalog.complete=false` and only lists the 11 directly projected catalog dimensions. It does not fabricate the missing five dimensions.
+```sh
+node scripts/adapt-production-migration-evidence.mjs \
+  --receipt receipt.json \
+  --csv evidence.csv \
+  [--mapping independently-reviewed-mapping.json] \
+  --output candidate.json
+```
 
-The analyzer also requires authenticated `collectorAuthority`, distinct signed evidence/mapping/collector approvals, and independently provisioned trust roots. The adapter intentionally emits none of these. Its output always states `UNSIGNED_NOT_ACCEPTED` and `NOT_ACCEPTED`.
-
-## Privilege evidence
-
-The complete `catalog_only_v1`-related raw role, role-membership, ACL and database-ACL projections are preserved under `databaseAuthorityCandidate`. This is explicitly unauthenticated candidate data, not an analyzer `collectorAuthority` assertion.
-
-## PostgreSQL 16 integration
-
-The existing disposable PostgreSQL 16 collector integration invokes this adapter against the actual collector output and asserts that the result remains unsigned and incomplete. No Production credentials, signing keys, migrations, Cron settings or delivery settings are used.
+The output file is created exclusively with mode 0600; an existing output path is not overwritten.

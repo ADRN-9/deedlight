@@ -205,7 +205,7 @@ function validateMapping(mapping,inventory){
   for(const item of inventory.migrations){const entry=byPath.get(item.path);if(!entry||entry.blobSha1!==item.blobSha1)fail("MIGRATION_MAPPING_SOURCE_MISMATCH");}
   if(byPath.size!==40)fail("MIGRATION_MAPPING_PATH_SET_INVALID");return mapping;
 }
-function rawProjections(p){return SQL_PROJECTIONS.map(x=>({id:x.id,columns:[...x.columns],rows:p.get(x.id).map(row=>[...row])}));}
+function rawProjections(p){return SQL_PROJECTIONS.map(x=>({id:x.id,columns:[...x.columns],rows:p.get(x.id).map(row=>row.map(cell=>cell===CSV_QUOTED_EMPTY?"":cell))}));}
 function authorityCandidate(p,identity,catalogObjects,receipt){
   const roleName=identity.current_role;
   const role=projectionObjects(p,"roles_v1").find(row=>row[0]===roleName);
