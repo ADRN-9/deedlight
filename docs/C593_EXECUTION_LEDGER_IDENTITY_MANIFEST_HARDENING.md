@@ -200,6 +200,24 @@ The same run's validation job passed TypeScript, Next.js 16.4.6 production build
 
 ### Evidence boundary and final-head rerun
 
-The C595 code candidate above is runtime-validated. Commit `aad14079e30421d18bcdc6ef62699e87bc1bcf96` changes only the misleading legacy nonmember evidence marker to `C595_VALID_MANIFEST_NONMEMBER_REJECTED`; this documentation update also changes no SQL behavior. The final documentation-inclusive branch HEAD must receive a fresh exact-head push and PR workflow before this remediation is marked fully validated. The resulting workflow IDs, run IDs, and PostgreSQL job IDs must be recorded separately from the successful d3cd code-candidate runs.
+The C595 code candidate above is runtime-validated. Commit `aad14079e30421d18bcdc6ef62699e87bc1bcf96` changes only the misleading legacy nonmember evidence marker to `C595_VALID_MANIFEST_NONMEMBER_REJECTED`; this documentation update also changes no SQL behavior. The final documentation-inclusive branch HEAD `5a075ee0916496f191b988e05173e007bdbee639` has since received fresh exact-head validation. Branch-head push run #2351 / `46080891262` and PR-head run #2352 / `46080896187`, workflow ID `365241434`, both completed **SUCCESS, 13/13 jobs**. The PostgreSQL 16.16 job IDs are `140779390333` (branch-head) and `140779374164` (PR-head). The PR-head validation job is `140779374236`; branch-head validation job is `140779390225`. Both validation jobs passed TypeScript, Next.js 16.4.6 production build, OpenNext Cloudflare packaging, and npm audit (zero vulnerabilities). Actual PostgreSQL logs were inspected and contain the C595 locale and valid-manifest nonmembership markers, forged-digest rejection, preserved identity checks, C578 crash recovery, and C585 concurrency/replay evidence. Expected PostgreSQL log errors are the intentional replay-holder cancellation and replay rejection. The final exact-head CI gate is therefore satisfied for this documentation-inclusive head.
 
 No Production database, migration history, credentials, trust roots, or scheduler configuration was modified. Physical-clone protection remains unimplemented and dependent on the separately governed provider workload-identity/verifier/nonce trust binding described above.
+
+
+### C597 — Final C593 evidence documentation reconciliation
+
+This documentation-only correction reconciles the earlier C593/C595 evidence boundary with final exact-head CI:
+
+- Branch-head: workflow `365241434`, run `46080891262` (#2351), final tested SHA `5a075ee0916496f191b988e05173e007bdbee639`, **13/13 PASS**.
+- PR-head: workflow `365241434`, run `46080896187` (#2352), same final tested SHA, **13/13 PASS**.
+- PostgreSQL 16.16: branch job `140779390333`; PR job `140779374164`.
+- Validation: branch job `140779390225`; PR job `140779374236`. TypeScript, Next.js 16.4.6 production build, OpenNext Cloudflare packaging, and npm audit (zero vulnerabilities) all passed on the final tested SHA.
+
+The historical C593 false-positive correction is preserved: the original nonmember fixture's unrelated SQL-digest mismatch did not prove nonmembership, and that claim remains withdrawn. C595's corrected valid-manifest/same-SQL-digest/different-query-ID test and exact `query_bundle_query_not_member` diagnostic remain the evidence for the nonmembership invariant. The independent forged-manifest-digest rejection remains distinct.
+
+The C596 independent security review recommended approval for merge. This records an independent review recommendation only; it is **not** a formal GitHub PR review approval. GitHub's PR review API currently returns no submitted review records. PR #36 remains open and unmerged.
+
+Physical-clone protection and external Production trust enforcement remain unresolved blockers. In particular, authoritative provider workload identity, separately governed verifier trust roots, deployment-resource binding, and nonce freshness/replay enforcement have not been implemented or proven. Production must not rely on the ledger's live database identity checks as physical-clone protection.
+
+No migration SQL, credentials, Production resources, trust roots, or scheduler configuration were changed by C597. The repository still contains all 40 historical migration files; migration inventory SHA remains `4e63f31368d446e905f4f44565be73337c7188fb`. Existing C575/C576 contracts and `catalog_only_v1` are preserved.
