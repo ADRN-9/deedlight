@@ -338,7 +338,8 @@ export function adaptCollectorEvidence({receipt,csv,inventoryBytes,schemaBytes,m
       normalizedEvidenceSha256:sha256(Buffer.from(canonicalJson(evidence),"utf8"))},
     signing:{state:"NOT_SIGNED",authenticated:false},
     blockers:["Collector receipt is explicitly unsigned and cannot authenticate evidence.",
-      "Catalog projections do not attest data transformations, backfills, dependencies, preconditions or postconditions.",\n      "extensions_v1 is preserved but the analyzer catalog schema has no extensions kind; it remains explicitly unmapped.",
+      "Catalog projections do not attest data transformations, backfills, dependencies, preconditions or postconditions.",
+      "extensions_v1 is preserved but the analyzer catalog schema has no extensions kind; it remains explicitly unmapped.",
       "Collector output does not contain independently authenticated collectorAuthority execution evidence.",
       ...(normalizedMapping?[]:["A complete independently reviewed 40-entry migration mapping was not supplied."]),
       "Independent evidence, mapping and collector approvals and provisioned trust roots are required."]};
