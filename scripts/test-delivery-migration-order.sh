@@ -420,3 +420,9 @@ cat "$tmp/idempotency-guard.log"
 cat "$tmp/provider-suppressions.log"
 echo "Migrations 030-034 delivery idempotency, final recipient, Resend suppression and timestamp ordering: PASS"
 
+# Migration 039 replaces the unrestricted claim path with kind-bound service RPCs.
+"${psql_cmd[@]}" --file supabase/migrations/202611260039_delivery_kind_scoped_claims.sql >"$tmp/m039.log"
+"${psql_cmd[@]}" --file scripts/test-delivery-kind-claims.sql >"$tmp/kind-claims.log"
+cat "$tmp/kind-claims.log"
+echo "Migration 039 Daily/Weekly database-enforced claim isolation: PASS"
+
