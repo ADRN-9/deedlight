@@ -344,7 +344,7 @@ export function adaptCollectorEvidence({receipt,csv,inventoryBytes,schemaBytes,m
   if(!hex(receipt?.source?.repositoryCommitSha,40)||identityRow.repository_sha!==receipt.source.repositoryCommitSha)fail("PROVENANCE_REPOSITORY_IDENTITY_MISMATCH");
   const databaseCaptureTimestamp=identityRow.captured_at_utc;
   if(typeof databaseCaptureTimestamp!=="string"
-    || !/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$/.test(databaseCaptureTimestamp)
+    || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(databaseCaptureTimestamp)
     || !isStrictRfc3339(databaseCaptureTimestamp))fail("COLLECTOR_CAPTURE_TIMESTAMP_INVALID");
   const capturedAt=receipt.execution.completedAt;
   const structure=p.get("migration_history_structure_v1");
