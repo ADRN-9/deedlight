@@ -45,7 +45,8 @@ export function validateCategoryEffectContract(category, effect, inventoryPaths,
       MERGE: /^\s*merge\s+into\b[\s\S]*?\bwhen\b/i,
     }[contract.operation];
     if (!operationPattern.test(sourceStatement)) return "transformation operation does not match its pinned SQL source range";
-    const relationOccurs = value => new RegExp("(^|[^A-Za-z0-9_$])" + value.schema + "\\s*\\.\\s*" + value.relation + "([^A-Za-z0-9_$]|$)", "i").test(sourceStatement);
+    const escapeRegex = value => value.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\    const relationOccurs = value => new RegExp("(^|[^A-Za-z0-9_$])" + value.schema + "\\s*\\.\\s*" + value.relation + "([^A-Za-z0-9_$]|$)", "i").test(sourceStatement);");
+    const relationOccurs = value => new RegExp("(^|[^A-Za-z0-9_$])" + escapeRegex(value.schema) + "\\s*\\.\\s*" + escapeRegex(value.relation) + "([^A-Za-z0-9_$]|$)", "i").test(sourceStatement);
     if (!relationOccurs(contract.targetRelation) || contract.sourceRelations.some(value => !relationOccurs(value))) {
       return "transformation source/target relations do not occur in the pinned SQL source range";
     }
