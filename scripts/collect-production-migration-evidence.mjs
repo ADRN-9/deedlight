@@ -126,7 +126,12 @@ export function validateSqlOutput(csv) {
       expectedIndex += 1;
       continue;
     }
-    if (isUnexpectedHeader(row)) throw new CollectorError("SQL_PROJECTION_UNEXPECTED");
+    if (isUnexpectedHeader(row)) {
+      const expected = SQL_PROJECTIONS[expectedIndex];
+      if (expected?.id === "database_acl_v1") throw new CollectorError("DATABASE_ACL_PROJECTION_SCHEMA_INVALID");
+      if (expected?.id === "migration_history_v1") throw new CollectorError("MIGRATION_HISTORY_PROJECTION_MISSING");
+      throw new CollectorError("SQL_PROJECTION_UNEXPECTED");
+    }
     if (currentIndex < 0) throw new CollectorError("SQL_PROJECTION_DATA_WITHOUT_HEADER");
     const projection = SQL_PROJECTIONS[currentIndex];
     if (row.length !== projection.columns.length) throw new CollectorError("SQL_PROJECTION_ROW_WIDTH_INVALID");
