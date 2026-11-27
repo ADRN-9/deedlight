@@ -4468,6 +4468,685 @@
           "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
         }
       }
+    },
+    {
+      "path": "supabase/migrations/202611210029_delivery_legacy_replay_guard.sql",
+      "blobSha1": "872fc49ec47e49b17e96ecf6ccaf5c8eb0e6322a",
+      "byteLength": 7476,
+      "lineCount": 175,
+      "observations": {
+        "transformations": [],
+        "foreignKeyReferences": [],
+        "guards": [
+          {
+            "line": 14,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 029 requires the reviewed provider lifecycle and legacy RPC overloads from migration 027.';"
+          },
+          {
+            "line": 17,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 029 refuses an existing private implementation with an unknown origin.';"
+          },
+          {
+            "line": 26,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 029 refuses an unrecognized migration-027 provider lifecycle implementation.';"
+          },
+          {
+            "line": 32,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 029 requires pgcrypto to verify the migration-027 implementation identity.';"
+          },
+          {
+            "line": 37,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 029 refuses an unrecognized migration-027 provider lifecycle implementation.';"
+          },
+          {
+            "line": 83,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'A valid event ID, provider email ID and recipient are required for historical replay.'"
+          },
+          {
+            "line": 89,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid delivery provider recipient.' using errcode = '22023';"
+          },
+          {
+            "line": 103,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Fingerprint-less provider events cannot be inserted; use the fingerprinted canonical RPC.'"
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unknown",
+          "reason": "No simple top-level DML candidate found; dynamic SQL and function bodies prevent a safe none assertion."
+        },
+        "backfills": {
+          "disposition": "unknown",
+          "reason": "No simple DML candidate found; absence of a source match is not proof of no backfill."
+        },
+        "dependencies": {
+          "disposition": "unknown",
+          "reason": "No REFERENCES candidate found; view, routine and procedural dependencies remain unparsed."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202611210030_delivery_idempotency_receipt_guard.sql",
+      "blobSha1": "c5e3955c4e0dde708a8ffdc9c420807c4241fa32",
+      "byteLength": 12214,
+      "lineCount": 215,
+      "observations": {
+        "transformations": [
+          {
+            "line": 110,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger set state='failed',failed_at=clock_timestamp(),claim_token=null,"
+          },
+          {
+            "line": 139,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger set state='failed',failed_at=clock_timestamp(),claim_token=null,claim_expires_at=null,"
+          },
+          {
+            "line": 147,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger set state='failed',failed_at=clock_timestamp(),claim_token=null,claim_expires_at=null,"
+          },
+          {
+            "line": 153,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger set state='queued',claim_token=null,claim_expires_at=null,next_attempt_at=v_retry_at,"
+          },
+          {
+            "line": 158,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger set state='failed',failed_at=clock_timestamp(),claim_token=null,claim_expires_at=null,"
+          },
+          {
+            "line": 201,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger set state='sent',sent_at=clock_timestamp(),claim_token=null,claim_expires_at=null,"
+          }
+        ],
+        "foreignKeyReferences": [],
+        "guards": [
+          {
+            "line": 29,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 030 requires the exact hardened migration-028 authorize_delivery_job and mark_delivery_failed implementations.';"
+          },
+          {
+            "line": 38,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 030 requires pgcrypto to attest migration-028 function source.';"
+          },
+          {
+            "line": 71,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 030 requires the exact hardened migration-028 authorize_delivery_job and mark_delivery_failed implementations.';"
+          },
+          {
+            "line": 88,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 030 requires migration-028 service-role-only RPC privileges.';"
+          },
+          {
+            "line": 93,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop function if exists public.authorize_delivery_idempotency_window(uuid,uuid);"
+          },
+          {
+            "line": 100,
+            "kind": "exception_guard",
+            "sourceExcerpt": "if p_job_id is null or p_claim_token is null then raise exception 'A job ID and claim token are required.' using errcode='22023'; end if;"
+          },
+          {
+            "line": 107,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery claim is not authorized for provider transport.' using errcode='42501';"
+          },
+          {
+            "line": 113,
+            "kind": "exception_guard",
+            "sourceExcerpt": "if not found then raise exception 'Delivery claim is not authorized for provider transport.' using errcode='42501'; end if;"
+          },
+          {
+            "line": 130,
+            "kind": "exception_guard",
+            "sourceExcerpt": "if p_job_id is null or p_claim_token is null then raise exception 'A job ID and claim token are required.' using errcode='22023'; end if;"
+          },
+          {
+            "line": 131,
+            "kind": "exception_guard",
+            "sourceExcerpt": "if char_length(v_error)<1 or char_length(v_error)>100 then raise exception 'A bounded error code is required.' using errcode='22023'; end if;"
+          },
+          {
+            "line": 136,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery claim is not authorized for retry.' using errcode='42501';"
+          },
+          {
+            "line": 142,
+            "kind": "exception_guard",
+            "sourceExcerpt": "if not found then raise exception 'Delivery claim is not authorized for retry.' using errcode='42501'; end if;"
+          },
+          {
+            "line": 150,
+            "kind": "exception_guard",
+            "sourceExcerpt": "if not found then raise exception 'Delivery claim is not authorized for retry.' using errcode='42501'; end if;"
+          },
+          {
+            "line": 163,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery claim is not authorized for retry.' using errcode='42501';"
+          },
+          {
+            "line": 194,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery claim is not authorized for sent transition.' using errcode='42501';"
+          },
+          {
+            "line": 199,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'A valid Resend email identifier is required.' using errcode='22023';"
+          },
+          {
+            "line": 205,
+            "kind": "exception_guard",
+            "sourceExcerpt": "if not found then raise exception 'Delivery claim is not authorized for sent transition.' using errcode='42501'; end if;"
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unknown",
+          "reason": "No REFERENCES candidate found; view, routine and procedural dependencies remain unparsed."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202611220031_delivery_final_recipient_suppression_gate.sql",
+      "blobSha1": "26d69a0a4e73bc7cfd05814f3f6129bc199da02b",
+      "byteLength": 6477,
+      "lineCount": 189,
+      "observations": {
+        "transformations": [
+          {
+            "line": 133,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger"
+          },
+          {
+            "line": 154,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger"
+          }
+        ],
+        "foreignKeyReferences": [],
+        "guards": [
+          {
+            "line": 14,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 031 requires the reviewed delivery, recipient and provider-suppression baseline through migration 030.';"
+          },
+          {
+            "line": 41,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'A job ID, claim token and expected recipient are required.'"
+          },
+          {
+            "line": 48,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid expected delivery recipient.' using errcode = '22023';"
+          },
+          {
+            "line": 62,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery claim is not authorized for provider transport.'"
+          },
+          {
+            "line": 121,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Unsupported delivery kind.' using errcode = '22023';"
+          },
+          {
+            "line": 128,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery claim expired during final authorization.'"
+          },
+          {
+            "line": 147,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery claim is not authorized for provider transport.'"
+          },
+          {
+            "line": 168,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Delivery claim is not authorized for provider transport.'"
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unknown",
+          "reason": "No REFERENCES candidate found; view, routine and procedural dependencies remain unparsed."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202611220032_resend_suppression_list_sync.sql",
+      "blobSha1": "6a0c0193d85ece99335f8715a65243ac42617f97",
+      "byteLength": 14118,
+      "lineCount": 391,
+      "observations": {
+        "transformations": [
+          {
+            "line": 165,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_provider_events",
+            "sourceExcerpt": "insert into public.delivery_provider_events ("
+          },
+          {
+            "line": 220,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_provider_integrity_anomalies",
+            "sourceExcerpt": "insert into public.delivery_provider_integrity_anomalies ("
+          },
+          {
+            "line": 228,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_provider_lifecycle",
+            "sourceExcerpt": "update public.delivery_provider_lifecycle"
+          },
+          {
+            "line": 247,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_provider_suppression_state",
+            "sourceExcerpt": "insert into public.delivery_provider_suppression_state ("
+          },
+          {
+            "line": 264,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_provider_suppression_state",
+            "sourceExcerpt": "update public.delivery_provider_suppression_state"
+          },
+          {
+            "line": 280,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_provider_integrity_anomalies",
+            "sourceExcerpt": "insert into public.delivery_provider_integrity_anomalies ("
+          },
+          {
+            "line": 287,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_provider_suppression_state",
+            "sourceExcerpt": "update public.delivery_provider_suppression_state"
+          },
+          {
+            "line": 301,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_provider_suppression_state",
+            "sourceExcerpt": "update public.delivery_provider_suppression_state"
+          },
+          {
+            "line": 324,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_provider_suppressions",
+            "sourceExcerpt": "insert into public.delivery_provider_suppressions ("
+          },
+          {
+            "line": 365,
+            "operation": "DELETE_FROM",
+            "targetCandidate": "public.delivery_provider_suppressions",
+            "sourceExcerpt": "delete from public.delivery_provider_suppressions"
+          }
+        ],
+        "foreignKeyReferences": [
+          {
+            "line": 89,
+            "targetCandidate": "public.delivery_provider_events",
+            "sourceExcerpt": "references public.delivery_provider_events(event_id) on delete restrict,"
+          }
+        ],
+        "guards": [
+          {
+            "line": 13,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (event_type in ("
+          },
+          {
+            "line": 29,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (provider_suppression_id is null"
+          },
+          {
+            "line": 32,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (suppression_origin is null"
+          },
+          {
+            "line": 35,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (suppression_source_id is null"
+          },
+          {
+            "line": 38,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check ("
+          },
+          {
+            "line": 69,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (anomaly_type in ("
+          },
+          {
+            "line": 77,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check ("
+          },
+          {
+            "line": 84,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (char_length(provider_suppression_id) between 1 and 255),"
+          },
+          {
+            "line": 85,
+            "kind": "check_constraint",
+            "sourceExcerpt": "origin text not null check (origin in ('bounce', 'complaint', 'manual')),"
+          },
+          {
+            "line": 142,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid provider suppression event.' using errcode = '22023';"
+          },
+          {
+            "line": 148,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid provider suppression recipient.' using errcode = '22023';"
+          },
+          {
+            "line": 155,
+            "kind": "existence_guard",
+            "sourceExcerpt": "if exists ("
+          },
+          {
+            "line": 161,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Provider suppression correlation does not match.'"
+          },
+          {
+            "line": 204,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Conflicting provider suppression event could not be inspected.'"
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unsupported",
+          "reason": "Foreign-key reference candidates found, but prerequisite migration ownership and execution ordering are not established by the SQL line alone."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202611220033_delivery_cross_stream_suppression_order.sql",
+      "blobSha1": "1cd0c2db5415a37b9a31ed8ef7de54db9019a88f",
+      "byteLength": 4647,
+      "lineCount": 130,
+      "observations": {
+        "transformations": [
+          {
+            "line": 102,
+            "operation": "DELETE_FROM",
+            "targetCandidate": "public.delivery_provider_suppressions",
+            "sourceExcerpt": "delete from public.delivery_provider_suppressions"
+          }
+        ],
+        "foreignKeyReferences": [],
+        "guards": [
+          {
+            "line": 10,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 033 requires migration 032 suppression state and the private migration-029 lifecycle implementation.';"
+          },
+          {
+            "line": 43,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'A valid event ID, provider email ID and recipient are required for historical replay.'"
+          },
+          {
+            "line": 49,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid delivery provider recipient.' using errcode = '22023';"
+          },
+          {
+            "line": 62,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Fingerprint-less provider events cannot be inserted; use the fingerprinted canonical RPC.'"
+          },
+          {
+            "line": 86,
+            "kind": "existence_guard",
+            "sourceExcerpt": "if exists ("
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unknown",
+          "reason": "No REFERENCES candidate found; view, routine and procedural dependencies remain unparsed."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202611230034_delivery_suppression_timestamp_order.sql",
+      "blobSha1": "4ec8aa578ad851918f4c4b2535c476b4ceb40f1d",
+      "byteLength": 11255,
+      "lineCount": 317,
+      "observations": {
+        "transformations": [
+          {
+            "line": 75,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_provider_events",
+            "sourceExcerpt": "insert into public.delivery_provider_events ("
+          },
+          {
+            "line": 130,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_provider_integrity_anomalies",
+            "sourceExcerpt": "insert into public.delivery_provider_integrity_anomalies ("
+          },
+          {
+            "line": 138,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_provider_lifecycle",
+            "sourceExcerpt": "update public.delivery_provider_lifecycle"
+          },
+          {
+            "line": 157,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_provider_suppression_state",
+            "sourceExcerpt": "insert into public.delivery_provider_suppression_state ("
+          },
+          {
+            "line": 174,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_provider_suppression_state",
+            "sourceExcerpt": "update public.delivery_provider_suppression_state"
+          },
+          {
+            "line": 190,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_provider_integrity_anomalies",
+            "sourceExcerpt": "insert into public.delivery_provider_integrity_anomalies ("
+          },
+          {
+            "line": 197,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_provider_suppression_state",
+            "sourceExcerpt": "update public.delivery_provider_suppression_state"
+          },
+          {
+            "line": 211,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_provider_suppression_state",
+            "sourceExcerpt": "update public.delivery_provider_suppression_state"
+          },
+          {
+            "line": 234,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_provider_suppressions",
+            "sourceExcerpt": "insert into public.delivery_provider_suppressions ("
+          },
+          {
+            "line": 290,
+            "operation": "DELETE_FROM",
+            "targetCandidate": "public.delivery_provider_suppressions",
+            "sourceExcerpt": "delete from public.delivery_provider_suppressions"
+          }
+        ],
+        "foreignKeyReferences": [],
+        "guards": [
+          {
+            "line": 5,
+            "kind": "existence_guard",
+            "sourceExcerpt": "create index if not exists delivery_provider_events_generic_suppression_order_idx"
+          },
+          {
+            "line": 52,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid provider suppression event.' using errcode = '22023';"
+          },
+          {
+            "line": 58,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid provider suppression recipient.' using errcode = '22023';"
+          },
+          {
+            "line": 65,
+            "kind": "existence_guard",
+            "sourceExcerpt": "if exists ("
+          },
+          {
+            "line": 71,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Provider suppression correlation does not match.'"
+          },
+          {
+            "line": 114,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Conflicting provider suppression event could not be inspected.'"
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unknown",
+          "reason": "No REFERENCES candidate found; view, routine and procedural dependencies remain unparsed."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
     }
   ]
 }
