@@ -284,12 +284,14 @@ do $weekly_stale_reclaim$
 declare
   v_old_token uuid := '92000000-0000-0000-0000-000000000110';
   v_new_token uuid;
-  v_claim_count integer;\n  v_job_id uuid;
+  v_job_id uuid;
+  v_claim_count integer;
 begin
-  select count(*), max(claim_token)
-    into v_claim_count, v_new_token
+  select job_id, claim_token
+    into v_job_id, v_new_token
   from public.claim_weekly_delivery_jobs(10)
   where job_id = '91000000-0000-0000-0000-000000000110';
+  v_claim_count := case when found then 1 else 0 end;
 
   if v_claim_count <> 1 or v_new_token is null or v_new_token = v_old_token then
     raise exception 'Weekly expired claim was not reclaimed with a fresh token.';
@@ -302,10 +304,11 @@ begin
     and state = 'claimed'
     and claim_token = v_new_token;
 
-  select count(*), max(claim_token)
-    into v_claim_count, v_new_token
+  select job_id, claim_token
+    into v_job_id, v_new_token
   from public.claim_weekly_delivery_jobs(10)
   where job_id = '91000000-0000-0000-0000-000000000110';
+  v_claim_count := case when found then 1 else 0 end;
 
   if v_claim_count <> 1 or v_new_token is null or v_new_token = v_old_token then
     raise exception 'Weekly second reclaim did not retain a fresh token.';
