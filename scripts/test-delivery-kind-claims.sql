@@ -40,8 +40,10 @@ begin
     raise exception 'Kind-specific claim RPC privilege boundary is invalid.';
   end if;
 
-  if has_function_privilege('service_role','public.claim_delivery_jobs(timestamp with time zone,integer)','EXECUTE') then
-    raise exception 'Legacy unrestricted claim function remains callable by service_role.';
+  if has_function_privilege('service_role','public.claim_delivery_jobs(timestamp with time zone,integer)','EXECUTE')
+    or has_function_privilege('anon','public.claim_delivery_jobs(timestamp with time zone,integer)','EXECUTE')
+    or has_function_privilege('authenticated','public.claim_delivery_jobs(timestamp with time zone,integer)','EXECUTE') then
+    raise exception 'Legacy unrestricted claim function remains callable by an application role.';
   end if;
 
   if to_regprocedure('public._claim_delivery_jobs_for_kind(text,timestamp with time zone,integer)') is not null then
@@ -167,6 +169,24 @@ end;
 $stale$;
 reset role;
 
+-- Add fresh Daily jobs after the Daily claim pass so Weekly must leave
+-- eligible Daily queued, expired and exhausted rows completely untouched.
+insert into public.delivery_ledger (
+  id, user_id, kind, delivery_key, state, scheduled_for,
+  claim_token, claimed_at, claim_expires_at, attempt_count
+) values
+  ('91000000-0000-0000-0000-000000000107','00000000-0000-0000-0000-000000000002',
+   'daily_reminder','daily:c525:weekly-isolation-queued','queued',clock_timestamp() - interval '2 minutes',
+   null,null,null,0),
+  ('91000000-0000-0000-0000-000000000108','00000000-0000-0000-0000-000000000002',
+   'daily_reminder','daily:c525:weekly-isolation-expired','claimed',clock_timestamp() - interval '3 minutes',
+   '92000000-0000-0000-0000-000000000108',clock_timestamp() - interval '10 minutes',
+   clock_timestamp() - interval '1 minute',1),
+  ('91000000-0000-0000-0000-000000000109','00000000-0000-0000-0000-000000000002',
+   'daily_reminder','daily:c525:weekly-isolation-exhausted','claimed',clock_timestamp() - interval '4 minutes',
+   '92000000-0000-0000-0000-000000000109',clock_timestamp() - interval '10 minutes',
+   clock_timestamp() - interval '1 minute',5);
+
 set role service_role;
 do $weekly$
 declare
@@ -217,6 +237,28 @@ begin
   ) then
     raise exception 'Weekly claim did not terminalize only its own exhausted lease.';
   end if;
+  if exists (
+    select 1 from public.delivery_ledger
+    where id in (
+      '91000000-0000-0000-0000-000000000107',
+      '91000000-0000-0000-0000-000000000108',
+      '91000000-0000-0000-0000-000000000109'
+    )
+      and (
+        state <> case
+          when id='91000000-0000-0000-0000-000000000107' then 'queued'
+          else 'claimed'
+        end
+        or claim_token is distinct from case
+          when id='91000000-0000-0000-0000-000000000108' then '92000000-0000-0000-0000-000000000108'::uuid
+          when id='91000000-0000-0000-0000-000000000109' then '92000000-0000-0000-0000-000000000109'::uuid
+          else null
+        end
+        or error_code is not null
+      )
+  ) then
+    raise exception 'Weekly claim mutated a Daily queued, expired, or exhausted job.';
+  end if;
 end;
 $weekly$;
 reset role;
@@ -235,6 +277,11 @@ begin
     raise exception 'Anonymous role executed Weekly claim.';
   exception when insufficient_privilege then null;
   end;
+  begin
+    perform * from public.claim_delivery_jobs(clock_timestamp(), 1);
+    raise exception 'Anonymous role executed legacy unrestricted claim.';
+  exception when insufficient_privilege then null;
+  end;
 end;
 $anon$;
 reset role;
@@ -250,6 +297,11 @@ begin
   begin
     perform * from public.claim_weekly_delivery_jobs(1);
     raise exception 'Authenticated role executed Weekly claim.';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform * from public.claim_delivery_jobs(clock_timestamp(), 1);
+    raise exception 'Authenticated role executed legacy unrestricted claim.';
   exception when insufficient_privilege then null;
   end;
 end;
