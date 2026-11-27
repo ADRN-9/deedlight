@@ -17,7 +17,7 @@ for (const [kind, rpc] of [["daily_reminder","claim_daily_delivery_jobs"],["week
 }
 expect((migration.match(/security invoker/gi) ?? []).length === 2, "both claim RPCs are SECURITY INVOKER");
 for (const [kind, rpc] of [["Daily","claim_daily_delivery_jobs"],["Weekly","claim_weekly_delivery_jobs"]]) {
-  const signature = new RegExp(`create\s+or\s+replace\s+function\s+public\.${rpc}\s*\(\s*p_limit\s+integer`, "i");
+  const signature = new RegExp(String.raw`create\s+or\s+replace\s+function\s+public\.${rpc}\s*\(\s*p_limit\s+integer`, "i");
   expect(signature.test(migration), `${kind} claim accepts only the batch limit, never a caller-controlled timestamp`);
   const definition = migration.match(new RegExp(`create\\s+or\\s+replace\\s+function\\s+public\\.${rpc}\\s*\\(\\s*p_limit\\s+integer[\\s\\S]*?as\\s+\\$\\$([\\s\\S]*?)\\$\\$;`, "i"));
   expect(definition, `${kind} claim function body is statically extractable`);
@@ -27,8 +27,8 @@ for (const [kind, rpc] of [["Daily","claim_daily_delivery_jobs"],["Weekly","clai
   expect(/claim_expires_at\s*=\s*clock_timestamp\(\)\s*\+\s*interval\s+'5 minutes'/i.test(body), `${kind} claim lease duration uses database wall-clock time`);
   expect(!/\bnow\s*\(/i.test(body), `${kind} claim contains no transaction-start now() time decision`);
 
-  expect(!new RegExp(`create\s+or\s+replace\s+function\s+public\.${rpc}\s*\([^)]*timestamptz`, "i").test(migration), `${kind} claim has no caller-supplied timestamptz`);
-  expect(!new RegExp(`create\s+or\s+replace\s+function\s+public\.${rpc}\s*\([^)]*timestamp\s+with\s+time\s+zone`, "i").test(migration), `${kind} claim has no caller-supplied timestamp with time zone`);
+  expect(!new RegExp(String.raw`create\s+or\s+replace\s+function\s+public\.${rpc}\s*\([^)]*timestamptz`, "i").test(migration), `${kind} claim has no caller-supplied timestamptz`);
+  expect(!new RegExp(String.raw`create\s+or\s+replace\s+function\s+public\.${rpc}\s*\([^)]*timestamp\s+with\s+time\s+zone`, "i").test(migration), `${kind} claim has no caller-supplied timestamp with time zone`);
 }
 expect((migration.match(/clock_timestamp\(\)/g) ?? []).length >= 16, "claim lease and eligibility decisions use PostgreSQL clock_timestamp()");
 expect(!/claim_expires_at\s*<=\s*now\(\)/i.test(migration), "claim lease expiry never uses transaction-start now()");
@@ -58,7 +58,7 @@ expect(sqlTests.includes("Legacy unrestricted claim function remains callable"),
 expect(sqlTests.includes("SECURITY INVOKER") && sqlTests.includes("to_regprocedure('public._claim_delivery_jobs_for_kind"), "database test asserts invoker functions and absence of generic helper");
 expect(sqlTests.includes("set role anon") && sqlTests.includes("set role authenticated"), "browser role denial tested");
 expect(sqlTests.includes("authorize_delivery_job("), "stale pre-reclaim token rejection tested");
-expect(sqlTests.includes("weekly_stale_reclaim_token_rejected") && sqlTests.includes("v_old_token") && sqlTests.includes("Weekly second reclaim"), "Weekly stale token cannot authorize after reclaim");
+expect(sqlTests.includes("weekly_stale_reclaim_token_rejected") && sqlTests.includes("v_stale_token") && sqlTests.includes("Weekly second reclaim"), "Weekly stale token cannot authorize after reclaim");
 expect(migrationOrder.includes("202611260039_delivery_kind_scoped_claims.sql"), "migration-order CI applies migration 039");
 expect(migrationOrder.includes("scripts/test-delivery-kind-claims.sql"), "migration-order CI executes adversarial DB test");
 expect(workflow.includes("node scripts/verify-delivery-kind-claims.mjs"), "full PR validation runs claim security verifier");
