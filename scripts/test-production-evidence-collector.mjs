@@ -225,7 +225,7 @@ test("migration history preserves literal NULL names and rejects nonnumeric stat
 test("migration history rejects malformed versions, duplicate versions, names and statement counts", () => {
   for (const [from, to, code] of [
     ["202611240037,migration_037_fixture,1", "bad-version,migration_037_fixture,1", "MIGRATION_HISTORY_VERSION_INVALID"],
-    ["202611240038,,", "202611240037,,", "MIGRATION_HISTORY_VERSION_INVALID"],
+    ["202611240038,__DEEDLIGHT_SQL_NULL_V1__,", "202611240037,__DEEDLIGHT_SQL_NULL_V1__,", "MIGRATION_HISTORY_VERSION_INVALID"],
     ["202611240037,migration_037_fixture,1", "202611240037,bad/name,1", "MIGRATION_HISTORY_NAME_INVALID"],
     ["202611240037,migration_037_fixture,1", "202611240037,migration_037_fixture,1.5", "MIGRATION_HISTORY_STATEMENT_COUNT_INVALID"],
   ]) {
