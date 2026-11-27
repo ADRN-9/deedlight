@@ -181,6 +181,7 @@ $assert$;
 -- Completed execution and consumed approval are permanently replay-protected.
 SET ROLE deedlight_ledger_runner;
 DO $assert$
+DECLARE v_detail text;
 BEGIN
   BEGIN
     PERFORM deedlight_execution_ledger.reserve_execution(
@@ -190,8 +191,10 @@ BEGIN
       '{"path":"supabase/migrations/test.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb
     );
     RAISE EXCEPTION 'replay unexpectedly accepted';
-  EXCEPTION WHEN unique_violation OR raise_exception THEN
-    IF SQLERRM = 'replay unexpectedly accepted' THEN RAISE; END IF;
+  EXCEPTION WHEN SQLSTATE 'D1005' THEN
+    GET STACKED DIAGNOSTICS v_detail = PG_EXCEPTION_DETAIL;
+    IF SQLERRM = 'replay unexpectedly accepted'
+      OR v_detail NOT LIKE '%approval_missing_or_consumed%' THEN RAISE; END IF;
   END;
 END
 $assert$;
@@ -266,6 +269,7 @@ $assert$;
 -- An interrupted reservation remains non-replayable.
 SET ROLE deedlight_ledger_runner;
 DO $assert$
+DECLARE v_detail text;
 BEGIN
   BEGIN
     PERFORM deedlight_execution_ledger.reserve_execution(
@@ -275,9 +279,10 @@ BEGIN
       '{"path":"supabase/migrations/test.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb
     );
     RAISE EXCEPTION 'interrupted execution replay unexpectedly accepted';
-  EXCEPTION WHEN raise_exception THEN
-    IF SQLERRM = 'interrupted execution replay unexpectedly accepted' THEN RAISE; END IF;
-    IF SQLERRM NOT LIKE 'approval is missing, consumed, or does not bind%' THEN RAISE; END IF;
+  EXCEPTION WHEN SQLSTATE 'D1005' THEN
+    GET STACKED DIAGNOSTICS v_detail = PG_EXCEPTION_DETAIL;
+    IF SQLERRM = 'interrupted execution replay unexpectedly accepted'
+      OR v_detail NOT LIKE '%approval_missing_or_consumed%' THEN RAISE; END IF;
   END;
 END
 $assert$;
