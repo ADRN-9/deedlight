@@ -242,13 +242,30 @@ export function validateBackfillExecutionRecord(record, {
   }
   const roles = new Set(["backfill-approver", "backfill-verifier"]);
   const keyIds = new Set();
+  const signerIds = new Set();
+  const publicKeyFingerprints = new Set();
+  const rootRoles = new Set();
   for (const key of (Array.isArray(trustRoots?.keys) ? trustRoots.keys : [])) {
     if (!exact(key, ["algorithm", "keyId", "notAfter", "notBefore", "publicKeyPem", "revokedAt", "role", "signerId", "status"])
       || !roles.has(key.role) || key.algorithm !== "Ed25519" || key.status !== "active"
       || typeof key.keyId !== "string" || !key.keyId || typeof key.signerId !== "string" || !key.signerId
       || typeof key.publicKeyPem !== "string" || key.publicKeyPem.includes("PRIVATE KEY")
-      || keyIds.has(key.keyId)) problems.push("TRUST:KEY_BUNDLE_INVALID");
+      || keyIds.has(key.keyId) || signerIds.has(key.signerId) || rootRoles.has(key.role)) {
+      problems.push("TRUST:KEY_BUNDLE_INVALID");
+    }
     keyIds.add(key.keyId);
+    signerIds.add(key.signerId);
+    rootRoles.add(key.role);
+    try {
+      const fingerprint = sha256(createPublicKey(key.publicKeyPem).export({ type: "spki", format: "der" }));
+      if (publicKeyFingerprints.has(fingerprint)) problems.push("TRUST:PUBLIC_KEY_REUSED_ACROSS_AUTHORITIES");
+      publicKeyFingerprints.add(fingerprint);
+    } catch {
+      problems.push("TRUST:PUBLIC_KEY_INVALID");
+    }
+  }
+  if (rootRoles.size !== 2 || !rootRoles.has("backfill-approver") || !rootRoles.has("backfill-verifier")) {
+    problems.push("TRUST:REQUIRED_INDEPENDENT_ROLES_MISSING");
   }
   const nowMs = timestamp(now);
   if (!Number.isFinite(nowMs)) problems.push("CLOCK:NOW_TIMESTAMP_INVALID");
@@ -318,6 +335,10 @@ export function validateBackfillExecutionRecord(record, {
   }
   const uniqueActors = new Set([record.execution?.executorIdentity, record.authorization?.signerId, record.verification?.signerId]);
   if (uniqueActors.size !== 3) problems.push("SEPARATION_OF_DUTIES:EXECUTOR_APPROVER_VERIFIER_MUST_BE_DISTINCT");
+  if (independentObservers.includes(record.authorization?.signerId)
+    || independentObservers.includes(record.verification?.signerId)) {
+    problems.push("SEPARATION_OF_DUTIES:APPROVER_AND_VERIFIER_MUST_BE_INDEPENDENT_OF_OBSERVERS");
+  }
   return {
     structuralValidation: problems.length === 0 ? "PASS" : "FAIL",
     acceptance: "NOT_ACCEPTED",
