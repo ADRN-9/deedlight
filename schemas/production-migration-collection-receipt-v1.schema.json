@@ -94,7 +94,7 @@
           "$ref": "#/$defs/sha1"
         },
         "migrationInventoryGitBlobSha1": {
-          "const": "95d514a0bd97ff448c9507252eb1f5e69a507442"
+          "const": "a18cf2c65eb595ecd143fbaa16e2d81badf8d1f8"
         },
         "sqlBundlePath": {
           "const": "scripts/production-migration-readonly-audit.sql"
