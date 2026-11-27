@@ -149,8 +149,8 @@ test("duplicate and unexpected SQL projections fail closed", () => {
 
   const unexpected = parseCsv(validCsv());
   const aclIndex = unexpected.findIndex((row) => row[0] === "evidence_projection");
-  unexpected.splice(aclIndex, 0, ["schema_name", "table_name", "unexpected_column",
-    "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth", "eleventh"]);
+  unexpected.splice(aclIndex, 0, ["unexpected_a", "unexpected_b", "unexpected_c", "unexpected_d",
+    "unexpected_e", "unexpected_f", "unexpected_g", "unexpected_h", "unexpected_i", "unexpected_j", "unexpected_k"]);
   assert.throws(() => validateSqlOutput(serializeCsv(unexpected)), CollectorError);
 });
 
