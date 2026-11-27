@@ -683,13 +683,12 @@ test("dotted quoted schema and relation identifiers cannot impersonate migration
     const db = f.evidence.collectorAuthority.databaseAuthority;
     const inventory = f.evidence.catalog.objects.map((entry) => ({ ...entry }));
     const dottedColumns = [
-      { kind: "columns", identity: "supabase_migrations.schema_migrations.impostor.a", schema: "supabase_migrations.schema_migrations", relation: "impostor", column: "a", fingerprint: hash("quoted-schema-dot") },
+      { kind: "columns", identity: "supabase_migrations.schema_migrations.x.a", schema: "supabase_migrations.schema_migrations", relation: "x", column: "a", fingerprint: hash("quoted-schema-dot") },
       { kind: "columns", identity: "supabase_migrations.schema_migrations.impostor.b", schema: "supabase_migrations", relation: "schema_migrations.impostor", column: "b", fingerprint: hash("quoted-relation-dot") },
     ];
     inventory.push(
       { kind: "schemas", identity: "supabase_migrations.schema_migrations", fingerprint: hash("quoted-schema") },
-      { kind: "tables", identity: "supabase_migrations.schema_migrations.impostor", fingerprint: hash("quoted-schema-table") },
-      { kind: "schemas", identity: "supabase_migrations", fingerprint: hash("duplicate-existing-schema") },
+      { kind: "tables", identity: "supabase_migrations.schema_migrations.x", fingerprint: hash("quoted-schema-table") },
       { kind: "tables", identity: "supabase_migrations.schema_migrations.impostor", fingerprint: hash("quoted-relation-table") },
       ...dottedColumns,
     );
@@ -697,6 +696,7 @@ test("dotted quoted schema and relation identifiers cannot impersonate migration
       { schema: "supabase_migrations.schema_migrations", scope: "application_data", privileges: [] },
     );
     db.objectPrivileges.push(
+      { kind: "tables", identity: "supabase_migrations.schema_migrations.x", scope: "application_data", privileges: [] },
       { kind: "tables", identity: "supabase_migrations.schema_migrations.impostor", scope: "application_data", privileges: [] },
     );
     db.columnPrivileges.push(...dottedColumns.map(({ schema, relation, column }) => ({
