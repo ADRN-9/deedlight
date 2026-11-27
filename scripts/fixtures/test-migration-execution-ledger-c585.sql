@@ -4,6 +4,11 @@
 DO $vectors$
 DECLARE v_manifest jsonb := '[{"queryId":"beta","querySha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},{"queryId":"alpha","querySha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]'::jsonb;
         v_expected constant text := 'bd74c6371a354921102fac978aadf1da23615655858f97f875671beaa4d624e4';
+        v_locale_collation name;
+        v_bytewise_order text[];
+        v_locale_order text[];
+        v_locale_manifest jsonb := '[{"queryId":"a_","querySha256":"1111111111111111111111111111111111111111111111111111111111111111"},{"queryId":"a0","querySha256":"2222222222222222222222222222222222222222222222222222222222222222"}]'::jsonb;
+        v_locale_expected constant text := '180f78937bcfbbce72a3f88b4968bafa154a460e78d4b05026a70bf79b10e5aa';
 BEGIN
   IF deedlight_execution_ledger.canonical_query_bundle_digest(v_manifest) <> v_expected THEN
     RAISE EXCEPTION 'C593 independent canonical digest vector mismatch';
@@ -13,6 +18,32 @@ BEGIN
   ) <> v_expected THEN
     RAISE EXCEPTION 'C593 manifest ordering is not permutation independent';
   END IF;
+
+  SELECT collname INTO v_locale_collation
+  FROM pg_catalog.pg_collation
+  WHERE collprovider='i' AND collname='en-US-x-icu';
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'C595 required ICU en-US collation is unavailable';
+  END IF;
+  SELECT pg_catalog.array_agg(value ORDER BY pg_catalog.convert_to(value,'UTF8'))
+    INTO v_bytewise_order
+  FROM pg_catalog.unnest(ARRAY['a_','a0']::text[]) AS u(value);
+  EXECUTE pg_catalog.format(
+    'SELECT pg_catalog.array_agg(value ORDER BY value COLLATE %I) FROM pg_catalog.unnest($1) AS u(value)',
+    v_locale_collation
+  ) INTO v_locale_order USING ARRAY['a_','a0']::text[];
+  IF v_bytewise_order = v_locale_order THEN
+    RAISE EXCEPTION 'C595 locale test identifiers do not discriminate ICU and UTF-8 bytewise order';
+  END IF;
+  IF deedlight_execution_ledger.canonical_query_bundle_digest(v_locale_manifest) <> v_locale_expected THEN
+    RAISE EXCEPTION 'C595 locale-discriminating bytewise digest vector mismatch';
+  END IF;
+  IF deedlight_execution_ledger.canonical_query_bundle_digest(
+    pg_catalog.jsonb_build_array(v_locale_manifest->1, v_locale_manifest->0)
+  ) <> v_locale_expected THEN
+    RAISE EXCEPTION 'C595 locale-discriminating manifest permutation mismatch';
+  END IF;
+
   BEGIN
     PERFORM deedlight_execution_ledger.canonical_query_bundle_digest(
       '[{"queryId":"alpha","querySha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},{"queryId":"alpha","querySha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}]'::jsonb
@@ -23,34 +54,72 @@ BEGIN
 END
 $vectors$;
 
--- A valid digest does not make a query a member of a different manifest.
+-- Valid manifest digest and matching SQL digest; only the registered query ID is a nonmember.
 INSERT INTO deedlight_execution_ledger.query_bundle_manifests
   (bundle_id, manifest, member_count, manifest_sha256)
-VALUES (
-  'c593_forged_bundle',
-  '[{"queryId":"alpha","querySha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]'::jsonb,
+SELECT 'c595_nonmember_bundle',
+  pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object(
+    'queryId','alpha','querySha256',q.query_sha256)),
   1,
   deedlight_execution_ledger.canonical_query_bundle_digest(
-    '[{"queryId":"alpha","querySha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]'::jsonb
-  )
-);
+    pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object(
+      'queryId','alpha','querySha256',q.query_sha256))
+    )
+FROM deedlight_execution_ledger.observation_queries q
+WHERE q.query_id='test_effects_v1';
+
 INSERT INTO deedlight_execution_ledger.observation_queries
   (query_id,query_sql,description,query_sha256,query_bundle_id,query_bundle_digest)
-SELECT 'c593_nonmember_query',query_sql,'C593 valid SQL but not a member of the forged manifest',
-  query_sha256,'c593_forged_bundle',
-  (SELECT manifest_sha256 FROM deedlight_execution_ledger.query_bundle_manifests WHERE bundle_id='c593_forged_bundle')
-FROM deedlight_execution_ledger.observation_queries WHERE query_id='test_effects_v1';
+SELECT 'c593_nonmember_query',q.query_sql,'C595 same SQL digest but query ID is not in valid manifest',
+  q.query_sha256,'c595_nonmember_bundle',m.manifest_sha256
+FROM deedlight_execution_ledger.observation_queries q
+JOIN deedlight_execution_ledger.query_bundle_manifests m
+  ON m.bundle_id='c595_nonmember_bundle'
+WHERE q.query_id='test_effects_v1';
+
+DO $membership_preconditions$
+DECLARE v_query deedlight_execution_ledger.observation_queries%ROWTYPE;
+        v_manifest jsonb;
+        v_manifest_digest text;
+BEGIN
+  SELECT * INTO STRICT v_query
+  FROM deedlight_execution_ledger.observation_queries
+  WHERE query_id='c593_nonmember_query';
+  SELECT manifest,manifest_sha256 INTO STRICT v_manifest,v_manifest_digest
+  FROM deedlight_execution_ledger.query_bundle_manifests
+  WHERE bundle_id='c595_nonmember_bundle';
+  IF v_query.query_sha256 <> (
+    SELECT value->>'querySha256'
+    FROM pg_catalog.jsonb_array_elements(v_manifest) AS e(value)
+    WHERE value->>'queryId'='alpha'
+  ) THEN
+    RAISE EXCEPTION 'C595 nonmember fixture SQL digest does not match manifest member digest';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_catalog.jsonb_array_elements(v_manifest) AS e(value)
+    WHERE value->>'queryId'=v_query.query_id) THEN
+    RAISE EXCEPTION 'C595 nonmember fixture query ID unexpectedly appears in manifest';
+  END IF;
+  IF v_manifest_digest <> deedlight_execution_ledger.canonical_query_bundle_digest(v_manifest) THEN
+    RAISE EXCEPTION 'C595 nonmember fixture manifest digest is invalid';
+  END IF;
+END
+$membership_preconditions$;
+
 SET ROLE deedlight_ledger_observer;
 DO $membership$
 DECLARE v_detail text;
+        v_reason text;
 BEGIN
   BEGIN
     PERFORM deedlight_execution_ledger.capture_snapshot(
       'c5700000-0000-4000-8000-000000000028','post','c593_nonmember_query');
-    RAISE EXCEPTION 'C593 nonmember query unexpectedly accepted';
+    RAISE EXCEPTION 'C595 nonmember query unexpectedly accepted';
   EXCEPTION WHEN SQLSTATE 'D1004' THEN
     GET STACKED DIAGNOSTICS v_detail=PG_EXCEPTION_DETAIL;
-    IF v_detail NOT LIKE '%query_bundle_manifest_integrity_or_membership_mismatch%' THEN RAISE; END IF;
+    v_reason := v_detail::jsonb->>'reason';
+    IF v_reason <> 'query_bundle_query_not_member' THEN
+      RAISE EXCEPTION 'C595 expected nonmembership rejection, received reason %: %',v_reason,v_detail;
+    END IF;
   END;
 END
 $membership$;
@@ -365,7 +434,7 @@ BEGIN
     RAISE EXCEPTION 'C593 forged manifest digest unexpectedly accepted';
   EXCEPTION WHEN SQLSTATE 'D1004' THEN
     GET STACKED DIAGNOSTICS v_detail=PG_EXCEPTION_DETAIL;
-    IF v_detail NOT LIKE '%query_bundle_manifest_integrity_or_membership_mismatch%' THEN RAISE; END IF;
+    IF v_detail::jsonb->>'reason' <> 'query_bundle_manifest_integrity_mismatch' THEN RAISE EXCEPTION 'C595 forged digest test rejected for unexpected reason: %',v_detail; END IF;
   END;
 END
 $forged$;
@@ -496,6 +565,8 @@ $assert$;
 RESET ROLE;
 
 SELECT 'C593_BYTEWISE_CANONICAL_DIGEST_VECTOR_PASS' AS evidence;
+SELECT 'C595_LOCALE_DISCRIMINATING_BYTEWISE_VECTOR_PASS' AS evidence;
+SELECT 'C595_NONMEMBER_REJECTED_FOR_NONMEMBERSHIP' AS evidence;
 SELECT 'C593_FORGED_MANIFEST_NONMEMBER_QUERY_REJECTED' AS evidence;
 SELECT 'C593_FORGED_MANIFEST_DIGEST_REJECTED' AS evidence;
 SELECT 'C593_SOURCE_IDENTITY_IMMUTABILITY_PASS' AS evidence;
