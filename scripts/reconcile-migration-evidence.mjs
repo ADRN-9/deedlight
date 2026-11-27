@@ -16,6 +16,13 @@ const CATALOG_CATEGORIES = new Set(["schema", "privileges", "ownership", "routin
 const PRIVILEGE_OBJECT_KINDS = new Set(["tables", "sequences", "routines"]);
 const REQUIRED_ACCESS_SUMMARY = ["DATABASE_CONNECT", "SYSTEM_CATALOG_SELECT", "MIGRATION_HISTORY_SCHEMA_USAGE", "MIGRATION_HISTORY_SELECT"];
 const SCHEMA_KINDS = new Set(["tables", "columns", "constraints", "indexes", "triggers", "policies"]);
+const SEMANTIC_VERIFICATION_BLOCKERS = Object.freeze({
+  dataTransformations: "PostgreSQL-aware semantic analysis and independent review are unavailable; lexical SQL matches and source digests do not prove transformation meaning.",
+  backfills: "Independently verifiable PostgreSQL execution results are unavailable; row counts and query/result digests alone do not prove a backfill measurement.",
+  dependencies: "PostgreSQL-aware dependency analysis and independent review are unavailable; a pinned prerequisite migration does not prove a semantic dependency.",
+  preconditions: "Independently verifiable PostgreSQL predicate execution evidence is unavailable.",
+  postconditions: "Independently verifiable PostgreSQL predicate execution evidence is unavailable.",
+});
 export const SQL_NULL_SENTINEL = "__DEEDLIGHT_SQL_NULL_V1__";
 
 function assert(condition, message) {
@@ -540,6 +547,7 @@ function validateMapping(mapping, manifest, source, problems) {
     const unsupportedCategories = [];
     const unknownCategories = [];
     const nonCatalogEvidenceCategories = [];
+    const semanticVerificationRequiredCategories = [];
     const unsupportedNonCatalogCategories = [];
     const unknownNonCatalogCategories = [];
     const seenEffects = new Set();
@@ -570,8 +578,11 @@ function validateMapping(mapping, manifest, source, problems) {
         previousEnd = range.endLine;
       }
       if (coverageMalformed) break;
-      if (!CATALOG_CATEGORIES.has(category) && disposition !== "none") {
+      if (!CATALOG_CATEGORIES.has(category)) {
+        // A source mapping's "none" disposition is not proof of semantic absence.
+        // Every non-catalog domain remains blocked until a separate semantic/evidence pipeline exists.
         nonCatalogEvidenceCategories.push(category);
+        semanticVerificationRequiredCategories.push(category);
         if (disposition === "unsupported") unsupportedNonCatalogCategories.push(category);
         if (disposition === "unknown") unknownNonCatalogCategories.push(category);
       } else if (disposition === "unsupported") {
@@ -627,6 +638,7 @@ function validateMapping(mapping, manifest, source, problems) {
     result.set(item.path, {
       effects: flattened, unsupportedCategories, unknownCategories,
       nonCatalogEvidenceCategories: [...new Set(nonCatalogEvidenceCategories)],
+      semanticVerificationRequiredCategories: [...new Set(semanticVerificationRequiredCategories)],
       unsupportedNonCatalogCategories: [...new Set(unsupportedNonCatalogCategories)],
       unknownNonCatalogCategories: [...new Set(unknownNonCatalogCategories)],
     });
@@ -880,20 +892,31 @@ export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approval
       path: item.path, version: item.version, blobSha1: item.blobSha1, status: "Unknown",
       reasons: ["one or more evidence, approval, mapping or collector trust checks failed"],
       nonCatalogEvidenceCategories: [],
+      semanticVerificationRequiredCategories: [],
+      semanticVerificationBlockers: [],
       unsupportedNonCatalogCategories: [],
       unknownNonCatalogCategories: [],
     };
+    const semanticCategories = mappedEffects.get(item.path)?.semanticVerificationRequiredCategories ?? [];
     return {
       path: item.path, version: item.version, blobSha1: item.blobSha1,
       ...classifyOne(item, manifest, evidence, source, mappedEffects),
       nonCatalogEvidenceCategories: mappedEffects.get(item.path)?.nonCatalogEvidenceCategories ?? [],
+      semanticVerificationRequiredCategories: semanticCategories,
+      semanticVerificationBlockers: semanticCategories.map(category => ({ category, reason: SEMANTIC_VERIFICATION_BLOCKERS[category] })),
       unsupportedNonCatalogCategories: mappedEffects.get(item.path)?.unsupportedNonCatalogCategories ?? [],
       unknownNonCatalogCategories: mappedEffects.get(item.path)?.unknownNonCatalogCategories ?? [],
     };
   });
   const counts = Object.fromEntries(["Applied and verified", "Schema represented but history ambiguous", "Verified unapplied", "Partial or drifted", "Unknown"]
     .map((status) => [status, reports.filter((entry) => entry.status === status).length]));
-  const unresolvedLifecycleEvidence = reports.filter(entry => entry.nonCatalogEvidenceCategories.length > 0).length;
+  const unresolvedLifecycleEvidence = reports.filter(entry => entry.semanticVerificationRequiredCategories.length > 0).length;
+  const semanticVerification = {
+    status: unresolvedLifecycleEvidence === 0 ? "VERIFIED" : "UNKNOWN",
+    requiredCategories: [...Object.keys(SEMANTIC_VERIFICATION_BLOCKERS)],
+    unresolvedMigrationCount: unresolvedLifecycleEvidence,
+    blockersByCategory: Object.fromEntries(Object.entries(SEMANTIC_VERIFICATION_BLOCKERS)),
+  };
   const unresolved = counts["Schema represented but history ambiguous"] + counts["Partial or drifted"] + counts.Unknown
     + unresolvedLifecycleEvidence;
   return {
@@ -908,6 +931,7 @@ export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approval
     classifications: reports,
     counts,
     unresolvedLifecycleEvidence,
+    semanticVerification,
     acceptance: problems.length === 0 && unresolved === 0 ? "ACCEPTED" : "NOT_ACCEPTED",
     mutationPerformed: false,
   };
