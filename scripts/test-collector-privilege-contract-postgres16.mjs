@@ -13,6 +13,7 @@ const db = evidence.databaseAuthority;
 const appSchemas = db.schemaPrivileges.filter((row) => row.scope === "application_data");
 const historySchema = db.schemaPrivileges.find((row) => row.schema === "supabase_migrations");
 const appObjects = db.objectPrivileges.filter((row) => row.scope === "application_data");
+const appColumns = db.columnPrivileges;
 const historyTable = db.objectPrivileges.find((row) => row.identity === "supabase_migrations.schema_migrations");
 assert.ok(appSchemas.length > 0, "fixture must include an application schema");
 assert.ok(appSchemas.every((row) => row.privileges.length === 0),
@@ -21,5 +22,8 @@ assert.deepEqual(historySchema?.privileges, ["USAGE"]);
 assert.ok(appObjects.length > 0, "fixture must include application objects");
 assert.ok(appObjects.every((row) => row.privileges.length === 0),
   "collector unexpectedly has effective application-object privileges");
+assert.ok(Array.isArray(appColumns) && appColumns.length > 0, "fixture must include application columns");
+assert.ok(appColumns.every((row) => row.scope === "application_data" && row.privileges.length === 0),
+  "collector unexpectedly has effective application-column privileges");
 assert.deepEqual(historyTable?.privileges, ["SELECT"]);
 console.log("PASS: PostgreSQL-derived collector authority matches catalog_only_v1; application schemas/objects remain inaccessible");
