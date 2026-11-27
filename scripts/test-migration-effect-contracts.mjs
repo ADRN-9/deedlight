@@ -120,3 +120,20 @@ test("condition verification records the actual predicate result and rejects mis
   ambiguous.contract.verification.observedOutcome = "unknown";
   assert.match(validateCategoryEffectContract("postconditions", ambiguous, inventory, { sourceText }), /independently evidenced/);
 });
+
+
+test("transformation relation matching treats valid identifier metacharacters literally", () => {
+  const sql = "UPDATE public.offerings$archive SET blessed = true;";
+  const effect = {
+    ...base,
+    contract: {
+      operation: "UPDATE",
+      sourceRelations: [{ schema: "public", relation: "offerings$archive" }],
+      targetRelation: { schema: "public", relation: "offerings$archive" },
+      predicate: null,
+      sourceRange,
+      sourceStatementSha256: hash(sql),
+    },
+  };
+  assert.equal(validateCategoryEffectContract("dataTransformations", effect, inventory, { sourceText: sql }), null);
+});
