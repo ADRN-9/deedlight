@@ -5,6 +5,12 @@ on:
     branches-ignore: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Full 40-character commit SHA to validate
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -23,8 +29,21 @@ jobs:
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-not-a-secret
       DELIVERY_ENABLED: "false"
     steps:
-      - name: Checkout
+      - name: Checkout exact candidate
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.sha }}
+          persist-credentials: false
+      - name: Verify and record exact candidate checkout
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+          test "$ACTUAL_SHA" = "$EXPECTED_SHA"
+          printf 'EXPECTED_CANDIDATE_SHA=%s\nCHECKED_OUT_SHA=%s\n' "$EXPECTED_SHA" "$ACTUAL_SHA"
 
       - name: Fail closed on production configuration
         shell: bash
@@ -49,6 +68,18 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Resend webhook signature, replay and destination regressions
+        run: node --test scripts/test-c73-provider-webhook.mjs
+
+      - name: Exported POST privileged-boundary instrumentation
+        run: node --test scripts/test-c516-webhook-route-instrumentation.mjs
+
+      - name: Webhook network isolation and recipient privacy canaries
+        run: node --test scripts/test-c73-webhook-isolation.mjs
+
+      - name: C73 webhook security assertions
+        run: node scripts/verify-c73-security.mjs
 
       - name: Diff integrity
         run: git diff --check
@@ -105,8 +136,21 @@ jobs:
     env:
       PGPASSWORD: postgres
     steps:
-      - name: Checkout
+      - name: Checkout exact candidate
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.sha }}
+          persist-credentials: false
+      - name: Verify and record exact candidate checkout
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+          test "$ACTUAL_SHA" = "$EXPECTED_SHA"
+          printf 'EXPECTED_CANDIDATE_SHA=%s\nCHECKED_OUT_SHA=%s\n' "$EXPECTED_SHA" "$ACTUAL_SHA"
 
       - name: Fail closed on production configuration
         shell: bash
@@ -153,8 +197,21 @@ jobs:
     env:
       PGPASSWORD: postgres
     steps:
-      - name: Checkout
+      - name: Checkout exact candidate
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.sha }}
+          persist-credentials: false
+      - name: Verify and record exact candidate checkout
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+          test "$ACTUAL_SHA" = "$EXPECTED_SHA"
+          printf 'EXPECTED_CANDIDATE_SHA=%s\nCHECKED_OUT_SHA=%s\n' "$EXPECTED_SHA" "$ACTUAL_SHA"
 
       - name: Fail closed on production configuration
         shell: bash
@@ -201,8 +258,21 @@ jobs:
     env:
       PGPASSWORD: postgres
     steps:
-      - name: Checkout
+      - name: Checkout exact candidate
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.sha }}
+          persist-credentials: false
+      - name: Verify and record exact candidate checkout
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+          test "$ACTUAL_SHA" = "$EXPECTED_SHA"
+          printf 'EXPECTED_CANDIDATE_SHA=%s\nCHECKED_OUT_SHA=%s\n' "$EXPECTED_SHA" "$ACTUAL_SHA"
 
       - name: Fail closed on production configuration
         shell: bash
@@ -252,8 +322,21 @@ jobs:
     env:
       PGPASSWORD: postgres
     steps:
-      - name: Checkout
+      - name: Checkout exact candidate
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.sha }}
+          persist-credentials: false
+      - name: Verify and record exact candidate checkout
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+          test "$ACTUAL_SHA" = "$EXPECTED_SHA"
+          printf 'EXPECTED_CANDIDATE_SHA=%s\nCHECKED_OUT_SHA=%s\n' "$EXPECTED_SHA" "$ACTUAL_SHA"
 
       - name: Fail closed on production configuration
         shell: bash
@@ -300,8 +383,21 @@ jobs:
     env:
       PGPASSWORD: postgres
     steps:
-      - name: Checkout
+      - name: Checkout exact candidate
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.sha }}
+          persist-credentials: false
+      - name: Verify and record exact candidate checkout
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+          test "$ACTUAL_SHA" = "$EXPECTED_SHA"
+          printf 'EXPECTED_CANDIDATE_SHA=%s\nCHECKED_OUT_SHA=%s\n' "$EXPECTED_SHA" "$ACTUAL_SHA"
 
       - name: Fail closed on Production configuration
         shell: bash

@@ -1,4 +1,6 @@
-const FALLBACK_SUPABASE_URL = "https://xaipiovflxomcbfwtwmu.supabase.co";
+import { DEEDLIGHT_SUPABASE_ORIGIN } from "./project-identity";
+
+const FALLBACK_SUPABASE_URL = DEEDLIGHT_SUPABASE_ORIGIN;
 
 function stripWrappingQuotes(value: string) {
   return value.replace(/^['\"]+|['\"]+$/g, "").trim();

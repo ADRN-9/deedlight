@@ -6,6 +6,8 @@ const runtime=read("lib/delivery/supabase-runtime.ts");
 const scheduler=read("lib/delivery/scheduler.ts");
 const route=read("app/api/webhooks/resend/route.ts");
 const verifier=read("lib/delivery/resend-webhook.ts");
+const destination=read("lib/supabase/trusted-destination.ts");
+const projectIdentity=read("lib/supabase/project-identity.ts");
 for(const p of [
 "supabase/migrations/202611130025_delivery_kind_claim_isolation.sql",
 "supabase/migrations/202611130026_resend_webhook_lifecycle.sql",
@@ -26,7 +28,17 @@ assert(sql.includes("provider_suppressed=true"));
 assert(sql.includes("Legacy webhook identity entry point disabled"));
 assert(sql.includes("deedlight_record_resend_verified"));
 assert(route.includes('readLimitedRawBody(request)'));
-assert(route.includes('isValidSupabaseUrl(supabaseUrl)'));
+assert(route.includes('isTrustedSupabaseDestination(supabaseUrl)'));
+assert(route.includes('lib/supabase/trusted-destination.ts'));
+assert(projectIdentity.includes('DEEDLIGHT_SUPABASE_PROJECT_REF = "xaipiovflxomcbfwtwmu"'));
+assert(destination.includes('value === DEEDLIGHT_SUPABASE_ORIGIN'));
+assert(destination.includes('url.protocol === "https:"'));
+assert(destination.includes('url.port === ""'));
+assert(destination.includes('url.username === ""'));
+assert(destination.includes('url.pathname === "/"'));
+assert(destination.includes('url.search === ""'));
+assert(destination.includes('url.hash === ""'));
+assert(route.indexOf('!isTrustedSupabaseDestination(supabaseUrl)') < route.indexOf('createPrivilegedClient(supabaseUrl, serviceRoleKey'));
 assert(route.includes('status: 503'));
 assert(route.includes('deedlight_record_resend_delivery_v2'));
 assert(route.includes('deedlight_record_resend_suppression_verified'));
