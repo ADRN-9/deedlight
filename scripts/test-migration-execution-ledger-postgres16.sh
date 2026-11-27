@@ -201,8 +201,7 @@ RESET ROLE;
 SQL
 echo "C578_CRASH_REPLAY_REJECTED execution_id=c5700000-0000-4000-8000-000000000027"
 
-# Two independent sessions race for one approved execution. Row locking and the
-# one-time approval consumption must permit exactly one reservation.
+# Deterministically serialize two waiters behind a known approval-row lock holder.
 clean_psql --command "
   SET ROLE deedlight_ledger_approver;
   SELECT deedlight_execution_ledger.approve_execution(
@@ -214,36 +213,108 @@ clean_psql --command "
   RESET ROLE;
 "
 
-race_sql="
+app_psql() {
+  local app_name="$1"
+  shift
+  env -i PATH="$PATH" HOME="${HOME:-/tmp}" PGPASSWORD=postgres \
+    PGHOST=127.0.0.1 PGPORT=5432 PGUSER=postgres PGDATABASE=deedlight_ledger_test \
+    PGSSLMODE=disable PGAPPNAME="$app_name" \
+    psql --no-psqlrc --set ON_ERROR_STOP=1 "$@"
+}
+
+holder_sql="
   BEGIN;
-  SELECT pg_catalog.pg_sleep(0.25);
-  SET LOCAL ROLE deedlight_ledger_runner;
+  SELECT 1 FROM deedlight_execution_ledger.approvals
+    WHERE approval_id='c5770000-0000-4000-8000-000000000001' FOR UPDATE;
+  SELECT pg_catalog.pg_sleep(60);
+  COMMIT;
+"
+app_psql deedlight_c585_lock_holder --command "$holder_sql" >"$tmp_dir/holder.log" 2>&1 &
+holder_client_pid=$!
+
+holder_backend_pid=""
+for attempt in $(seq 1 200); do
+  holder_backend_pid="$(clean_psql --tuples-only --no-align --command "
+    SELECT pid FROM pg_catalog.pg_stat_activity
+    WHERE application_name='deedlight_c585_lock_holder'
+      AND state='active' AND wait_event='PgSleep'
+      AND query LIKE '%pg_sleep(60)%'
+  ")"
+  [[ -n "$holder_backend_pid" ]] && break
+  kill -0 "$holder_client_pid" 2>/dev/null || {
+    cat "$tmp_dir/holder.log"
+    echo "FAIL: deterministic lock holder exited before acquiring the approval lock" >&2
+    exit 1
+  }
+  sleep 0.1
+done
+[[ -n "$holder_backend_pid" ]] || {
+  echo "FAIL: timed out waiting for lock holder backend" >&2
+  exit 1
+}
+
+waiter_sql="
+  SET ROLE deedlight_ledger_runner;
   SELECT deedlight_execution_ledger.reserve_execution(
     'c5770000-0000-4000-8000-000000000001',
     'c5770000-0000-4000-8000-000000000011',
     'c5770000-0000-4000-8000-000000000021',
     '{\"path\":\"supabase/migrations/concurrent-test.sql\",\"sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}'::jsonb
   );
-  COMMIT;
+  RESET ROLE;
 "
-
-set +e
-clean_psql --command "$race_sql" >"$tmp_dir/race-a.log" 2>&1 &
+app_psql deedlight_c585_waiter_a --command "$waiter_sql" >"$tmp_dir/race-a.log" 2>&1 &
 pid_a=$!
-clean_psql --command "$race_sql" >"$tmp_dir/race-b.log" 2>&1 &
+app_psql deedlight_c585_waiter_b --command "$waiter_sql" >"$tmp_dir/race-b.log" 2>&1 &
 pid_b=$!
+
+both_blocked=false
+for attempt in $(seq 1 200); do
+  blocked="$(clean_psql --tuples-only --no-align --command "
+    SELECT count(*) FROM pg_catalog.pg_stat_activity waiter
+    WHERE waiter.application_name IN ('deedlight_c585_waiter_a','deedlight_c585_waiter_b')
+      AND waiter.wait_event_type='Lock'
+      AND $holder_backend_pid = ANY(pg_catalog.pg_blocking_pids(waiter.pid))
+  ")"
+  if [[ "$blocked" == "2" ]]; then
+    both_blocked=true
+    break
+  fi
+  sleep 0.1
+done
+[[ "$both_blocked" == "true" ]] || {
+  echo "FAIL: both replay waiters were not observed blocked by holder PID $holder_backend_pid" >&2
+  cat "$tmp_dir/race-a.log" "$tmp_dir/race-b.log"
+  exit 1
+}
+printf 'C585_REPLAY_WAITERS_BLOCKED holder_pid=%s waiters=2 blocker_proven_by=pg_blocking_pids\n' "$holder_backend_pid"
+
+# Cancel the holder only after PostgreSQL proves both waiters are blocked by it.
+cancelled="$(clean_psql --tuples-only --no-align --command "SELECT pg_catalog.pg_cancel_backend($holder_backend_pid)")"
+[[ "$cancelled" == "t" ]] || {
+  echo "FAIL: PostgreSQL did not cancel the deterministic lock holder" >&2
+  exit 1
+}
+set +e
+wait "$holder_client_pid"; holder_status=$?
 wait "$pid_a"; status_a=$?
 wait "$pid_b"; status_b=$?
 set -e
+[[ "$holder_status" -eq 1 ]] || {
+  echo "FAIL: expected cancelled holder psql status 1, got $holder_status" >&2
+  cat "$tmp_dir/holder.log"
+  exit 1
+}
 
 successes=0
 [[ "$status_a" -eq 0 ]] && successes=$((successes + 1))
 [[ "$status_b" -eq 0 ]] && successes=$((successes + 1))
 if [[ "$successes" -ne 1 ]]; then
   cat "$tmp_dir/race-a.log" "$tmp_dir/race-b.log"
-  echo "FAIL: concurrent duplicate reservation did not produce exactly one winner" >&2
+  echo "FAIL: deterministic concurrent replay did not produce exactly one winner" >&2
   exit 1
 fi
+printf 'C585_REPLAY_ONE_WINNER status_a=%s status_b=%s holder_cancel_status=%s\n' "$status_a" "$status_b" "$holder_status"
 
 clean_psql --command "
   DO \$assert\$
