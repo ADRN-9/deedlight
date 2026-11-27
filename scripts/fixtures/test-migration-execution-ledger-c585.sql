@@ -228,6 +228,13 @@ BEGIN
     RAISE EXCEPTION 'C585 missing observer trust unexpectedly accepted';
   EXCEPTION WHEN SQLSTATE 'D1001' THEN NULL;
   END;
+END
+$assert$;
+RESET ROLE;
+
+SET ROLE deedlight_ledger_runner;
+DO $assert$
+BEGIN
   BEGIN
     PERFORM deedlight_execution_ledger.reserve_execution(
       'c5850000-0000-4000-8000-000000000004',
