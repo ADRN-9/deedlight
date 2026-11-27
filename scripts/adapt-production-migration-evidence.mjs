@@ -119,15 +119,15 @@ function validateProjectionRows(p) {
   const sessionRoleName=identity[0].session_role;
   const effectiveRoleName=identity[0].current_role;
   if(sessionRoleName!=="deedlight_catalog_auditor")fail("COLLECTOR_ROLE_IDENTITY_MISMATCH");
-  const roleNames=new Set([sessionRoleName,effectiveRoleName]);
-  for(const roleName of roleNames){
+  const collectorRoleNames=new Set([sessionRoleName,effectiveRoleName]);
+  for(const roleName of collectorRoleNames){
     const collectorRoles=roles.filter(row=>row[0]===roleName);
     if(collectorRoles.length!==1)fail("COLLECTOR_ROLE_MISSING_OR_DUPLICATED");
     const role=collectorRoles[0];
     if(role[2]!=="f"||role[3]!=="f"||role[4]!=="f"||role[5]!=="f"||role[6]!=="f"||role[7]!=="f")fail("COLLECTOR_ROLE_PRIVILEGE_INVALID");
     if(roleName===sessionRoleName&&role[1]!=="t")fail("COLLECTOR_ROLE_PRIVILEGE_INVALID");
   }
-  if(p.get("role_memberships_v1").some(row=>roleNames.has(row[1])))fail("COLLECTOR_ROLE_MEMBERSHIP_PRESENT");
+  if(p.get("role_memberships_v1").some(row=>collectorRoleNames.has(row[1])))fail("COLLECTOR_ROLE_MEMBERSHIP_PRESENT");
 }
 function buildCatalog(p) {
   const objects=[],seen=new Set();
