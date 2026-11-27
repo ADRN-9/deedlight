@@ -77,3 +77,12 @@ The CI run must demonstrate D1002 source-identity rejection at reservation and m
 - The fixture uses owner-level test seeding for negative cases; this does not establish Production operational-role integration.
 - A successful disposable PostgreSQL run does not establish Production readiness.
 - No merge, Production migration, migration-history reconciliation, delivery activation or privileged credential operation is authorized or performed.
+
+
+## CI failure and correction record
+
+Initial PR-triggered run #2285 / `46063685445` failed in PostgreSQL 16 fixture bootstrap. I inspected the actual service-container log: PostgreSQL 16.16 reported that `pg_catalog.jsonb_object_length(jsonb)` does not exist while compiling `valid_source_identity`. This was a real failure; no C585 runtime assertions were reached and no PASS is claimed from that run.
+
+Corrected the key-count checks to use `count(*) FROM pg_catalog.jsonb_object_keys(...)` in commit `a0e92bbeb18acec1d7d6fd15561e037ad1dcd56f`. Follow-up review also hardened path traversal checks and aligned the replay assertion with SQLSTATE D1005. Latest source HEAD is `cffd28989908442abd4b328d64fe1e891760c688`.
+
+The available GitHub workflow-run lookup has not returned a PR-triggered run for the latest commits. Therefore exact-head CI and actual PostgreSQL log verification remain PENDING. The failed #2285 run is not counted as validation success. Do not merge while this gate remains pending.
