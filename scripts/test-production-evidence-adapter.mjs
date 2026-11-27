@@ -281,13 +281,17 @@ test("mapping rejects disposition/effect contradictions, unordered ranges and ca
   for(const mutate of mutations){const mapping=mappingFixture();mutate(mapping);assert.throws(()=>adapt(fixtureCsv(),mapping));}
 });
 
-test("adapter candidate cannot enter authenticated analyzer acceptance by structural validation alone",()=>{
+test("adapter output passes catalog-only analyzer structure without synthetic catalog substitutions",()=>{
   const {candidate}=adapt();
+  assert.deepEqual(candidate.evidence.catalog.completeKinds,["schemas","tables","sequences","columns","constraints","indexes","triggers","policies","routines","privileges","ownership"]);
+  assert.ok(candidate.evidence.catalog.objects.every(object=>!["dataTransformations","backfills","dependencies","preconditions","postconditions"].includes(object.kind)));
   assert.deepEqual(validateCollectorPrivilegeEvidence(candidate.databaseAuthorityCandidate,candidate.evidence.catalog.objects),[]);
   assert.equal(Object.hasOwn(candidate.evidence,"collectorAuthority"),false);
   const report=analyzeMigrationEvidence({rootDir:process.cwd(),manifest:inventory,evidence:candidate.evidence,approvals:{},trustRoots:{schemaVersion:1,keys:[]}});
   assert.equal(report.trustVerified,false);
   assert.equal(report.acceptance,"NOT_ACCEPTED");
+  assert.ok(!report.trustProblems.some(reason=>reason.includes("catalog completeness dimensions")));
+  assert.ok(!report.trustProblems.some(reason=>reason.includes("unexpected or missing property")));
   assert.ok(report.trustProblems.some(reason=>reason.includes("missing required property")));
   assert.ok(report.trustProblems.some(reason=>reason.includes("signed artifact is missing")));
 });
