@@ -731,6 +731,12 @@ test("collector privilege evidence follows the explicit catalog-only scope contr
     assert.deepEqual(historySchema, { schema: "supabase_migrations", scope: "migration_history", privileges: ["USAGE"] });
     assert.deepEqual(applicationTable.privileges, []);
     assert.deepEqual(historyTable.privileges, ["SELECT"]);
+    const historyColumn = db.columnPrivileges.find((row) => row.identity === "supabase_migrations.schema_migrations.version");
+    assert.deepEqual(historyColumn, {
+      identity: "supabase_migrations.schema_migrations.version",
+      scope: "migration_history",
+      privileges: ["SELECT"],
+    });
     assert.deepEqual(db.requiredAccessSummary, [
       "DATABASE_CONNECT", "SYSTEM_CATALOG_SELECT", "MIGRATION_HISTORY_SCHEMA_USAGE", "MIGRATION_HISTORY_SELECT",
     ]);
