@@ -9,7 +9,7 @@ import process from "node:process";
 export const RECEIPT_SCHEMA_VERSION = 1;
 export const PROJECT_REF = "xaipiovflxomcbfwtwmu";
 export const SQL_PATH = "scripts/production-migration-readonly-audit.sql";
-export const SQL_SHA256 = "5408e4653d639329fede661b8e68ee39b0b70196aae57829157cfd1db9c8c5c7";
+export const SQL_SHA256 = "e6be28a9336579d46de58ea31dcb2ceed7310dad1bcc1aebd8d6ce6e1c5206a9";
 export const SQL_GIT_BLOB_SHA1 = "41fa608f6275777a1fcc08f1520abe42c8b600dc";
 export const INVENTORY_GIT_BLOB_SHA1 = "4e63f31368d446e905f4f44565be73337c7188fb";
 export const RECEIPT_SCHEMA_GIT_BLOB_SHA1 = "3fb1791a59b8ec8ba1ec77b2d9c5f25f849c7f59";
