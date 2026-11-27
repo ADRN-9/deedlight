@@ -224,7 +224,7 @@ test("missing independent authorization is rejected", () => {
 
 test("SQL NULL, quoted-empty and literal backslash-N observations remain distinct", () => {
   const f = fixture();
-  const rows = [{ databaseIdentity: db, sqlNull: null, quotedEmpty: "", literalBackslashN: String.raw`\\N` }];
+  const rows = [{ databaseIdentity: db, sqlNull: null, quotedEmpty: "", literalBackslashN: String.fromCharCode(92) + "N" }];
   f.record.preExecutionState.rows = rows;
   f.record.preExecutionState.rowsSha256 = hash(canonical(rows));
   resign(f.record);
