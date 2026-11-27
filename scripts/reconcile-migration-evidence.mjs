@@ -439,7 +439,7 @@ function validateIndependentEffectEvidence(mapping, evidence, manifest, problems
   for (const entry of mapping && Array.isArray(mapping.migrations) ? mapping.migrations : []) {
     for (const effect of entry.effects && Array.isArray(entry.effects.backfills) ? entry.effects.backfills : []) {
       const m = effect.contract && effect.contract.measurement;
-      if (m && m.status === "independently_measured") expectedMeasurements.push({
+      if (m && m.status === "independently_measured" && effect.contract && effect.contract.predicate && effect.contract.predicate.sha256) expectedMeasurements.push({
         sourcePath: entry.path, sourceBlobSha1: entry.blobSha1, sourceRange: effect.contract.sourceRange,
         targetRelation: effect.contract.targetRelation, predicateSha256: effect.contract.predicate.sha256,
         querySha256: m.querySha256, rowCount: m.rowCount, evidenceDigest: m.evidenceDigest,
@@ -467,7 +467,7 @@ function validateIndependentEffectEvidence(mapping, evidence, manifest, problems
         || !HEX_256.test(row.predicateSha256 || "") || !HEX_256.test(row.querySha256 || "")
         || !HEX_256.test(row.evidenceDigest || "") || !parseTime(row.capturedAt, kind + " evidence timestamp", problems)
         || typeof row.executionId !== "string" || !row.executionId.trim()
-        || !row.sourceRange || !Number.isSafeInteger(row.sourceRange.startLine) || !Number.isSafeInteger(row.sourceRange.endLine)
+        || !exactKeys(row.sourceRange, ["startLine", "endLine"]) || !Number.isSafeInteger(row.sourceRange.startLine) || !Number.isSafeInteger(row.sourceRange.endLine)
         || row.sourceRange.startLine < 1 || row.sourceRange.endLine < row.sourceRange.startLine
         || (kind === "backfill" && (!Number.isSafeInteger(row.rowCount) || row.rowCount < 0
           || !exactKeys(row.targetRelation, ["schema", "relation"]) || !row.targetRelation.schema || !row.targetRelation.relation))
