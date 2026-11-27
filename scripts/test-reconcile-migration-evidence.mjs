@@ -1664,6 +1664,13 @@ test("dependency, precondition and postcondition contracts cannot omit their sem
       };
       f.mapping.migrations[0].effects[category]=[effect];
       f.mapping.migrations[0].coverage[category].disposition="effects";
+      if(category==="preconditions"||category==="postconditions"){
+        f.evidence.conditionVerifications.push({sourcePath:item.path,sourceBlobSha1:item.blobSha1,category,
+          sourceRange:effect.contract.sourceRange,predicateSha256:effect.contract.predicateSha256,
+          expectedOutcome:effect.contract.expectedOutcome,querySha256:effect.contract.verification.querySha256,
+          evidenceDigest:effect.contract.verification.evidenceDigest,capturedAt:effect.contract.verification.capturedAt,
+          executionId:effect.contract.verification.executionId});
+      }
       mutate(effect);f.reapprove();const report=f.analyze();
       assert.equal(report.trustVerified,false);
       assert.equal(report.acceptance,"NOT_ACCEPTED");
