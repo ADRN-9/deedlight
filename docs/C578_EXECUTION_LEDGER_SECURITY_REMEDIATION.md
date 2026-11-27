@@ -1,6 +1,6 @@
 # DeedLight C578 — Execution-ledger crash and snapshot identity remediation
 
-**Status:** Documentation-inclusive PR #34 HEAD `02642d9894ba291ae45c34d32881f0a261cd7ab9` passed PR Validation run #2249 / `46055268836` with 13/13 jobs successful. The dedicated PostgreSQL 16 integration job passed and its actual decoded job log was inspected for every crash/snapshot evidence marker. Production remains NO-GO.
+**Status:** Latest documentation-inclusive PR #34 HEAD `3cc944d5ea57856af8f28343331ff3f53ea015f3` passed PR Validation run #2257 / `46056007501` with 13/13 jobs successful. The dedicated PostgreSQL 16 integration job passed and its actual decoded job log was inspected for every crash/snapshot evidence marker. Production remains NO-GO.
 
 ## 1. Baseline independently verified
 
@@ -158,11 +158,15 @@ The validate job passed migration inventory and aggregate checks, C575/C576 sour
 A later documentation-only update changes the PR head; that later HEAD must receive a fresh exact-head CI run before this report's final text is considered validated.
 
 
-## 11. Latest exact PR-head verification
+## 11. Prior exact PR-head verification
 
 The latest PR #34 HEAD `9fba2fbf43141771a2029c3bda4b9c683086c1fc` passed PR Validation run #2253 / `46055632225` with all 13/13 jobs successful. The dedicated PostgreSQL 16 job completed successfully and its actual decoded log again contained matching-query PASS, mismatched-query rejection, backend-ready handshake, SIGKILL status 137, backend exit, effect/marker rollback, reservation survival, UNKNOWN recovery and replay rejection. The current PR remains OPEN/unmerged; PR #33 remains OPEN/unmerged.
 
-## 12. Handover and safety disposition
+## 12. Final documentation-inclusive exact-head verification
+
+The final PR #34 HEAD `3cc944d5ea57856af8f28343331ff3f53ea015f3` passed PR Validation run #2257 / `46056007501` with **13/13 jobs successful**. The dedicated PostgreSQL job ID `140698600689` passed; its actual decoded log repeated the matching-query success, mismatch rejection, backend/client identity, SIGKILL status 137, backend exit, effects and marker rollback, committed reservation survival, UNKNOWN recovery, and replay rejection evidence. The validation job and all inherited database behavior jobs also passed.
+
+## 13. Handover and safety disposition
 
 After pushing the final C578 branch changes, inspect the dedicated PostgreSQL job's actual decoded log. A green workflow conclusion is insufficient. Require all five `C578_CRASH_*` evidence lines, the exact wait status 137, no PostgreSQL JSON syntax error, unchanged effects count, zero marker rows, surviving committed reservation, `unknown` recovery and rejected replay. Inspect the snapshot mismatch rejection and matching-query success evidence too.
 
