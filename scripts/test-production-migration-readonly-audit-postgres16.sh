@@ -188,6 +188,7 @@ psql -X -v ON_ERROR_STOP=1 --file scripts/test-production-migration-readonly-aud
 
 # Capture effective privileges as the real collector login and validate the exact signed-evidence contract.
 DEEDLIGHT_PSQL_USER=deedlight_catalog_auditor DEEDLIGHT_PSQL_PASSWORD="$DEEDLIGHT_FIXTURE_AUDITOR_PASSWORD" psql -X -qAt -v ON_ERROR_STOP=1 <<'SQL' | node scripts/test-collector-privilege-contract-postgres16.mjs
+BEGIN TRANSACTION READ ONLY;
 WITH schemas AS (
   SELECT n.oid, n.nspname
   FROM pg_catalog.pg_namespace n
@@ -218,7 +219,7 @@ WITH schemas AS (
   WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
     AND n.nspname NOT LIKE 'pg_toast%'
 ), inventory AS (
-  SELECT 'schemas'::text AS kind, nspname AS identity FROM schemas
+  SELECT 'schemas'::text AS kind, nspname::text AS identity FROM schemas
   UNION ALL
   SELECT CASE WHEN relkind = 'S' THEN 'sequences' ELSE 'tables' END,
     nspname || '.' || relname FROM relations
@@ -333,6 +334,7 @@ SELECT jsonb_build_object(
     )
   )
 );
+ROLLBACK;
 SQL
 
 # Hostile functions deliberately shadow security-sensitive built-ins on the session search_path.
