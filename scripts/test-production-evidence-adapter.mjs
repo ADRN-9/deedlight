@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { canonicalJson, INVENTORY_GIT_BLOB_SHA1, PROJECT_REF, RECEIPT_SCHEMA_GIT_BLOB_SHA1, RECEIPT_SCHEMA_SHA256, SQL_GIT_BLOB_SHA1, SQL_PATH, SQL_PROJECTIONS, SQL_SHA256, CSV_QUOTED_EMPTY, parseCsv, sha256, validateSqlOutput } from "./collect-production-migration-evidence.mjs";
+import { canonicalJson, INVENTORY_GIT_BLOB_SHA1, PROJECT_REF, RECEIPT_SCHEMA_GIT_BLOB_SHA1, RECEIPT_SCHEMA_SHA256, SQL_GIT_BLOB_SHA1, SQL_PATH, SQL_PROJECTIONS, SQL_SHA256, SQL_NULL_SENTINEL, CSV_QUOTED_EMPTY, parseCsv, sha256, validateSqlOutput } from "./collect-production-migration-evidence.mjs";
 import { gitBlobSha1 } from "./verify-migration-inventory-aggregate.mjs";
 import { adaptCollectorEvidence } from "./adapt-production-migration-evidence.mjs";
 const inventoryBytes=readFileSync(new URL("../supabase/migration-inventory.json",import.meta.url));
 const schemaBytes=readFileSync(new URL("../schemas/production-migration-collection-receipt-v1.schema.json",import.meta.url));
 const inventory=JSON.parse(inventoryBytes);
-const cell=v=>{if(v===null)return "";if(v===CSV_QUOTED_EMPTY)return '""';const s=String(v);return s===""||/[",\r\n]/.test(s)?'"'+s.replaceAll('"','""')+'"':s;};
+const cell=v=>{if(v===null)return SQL_NULL_SENTINEL;if(v===CSV_QUOTED_EMPTY)return '""';const s=String(v);return s===""||/[",\r\n]/.test(s)?'"'+s.replaceAll('"','""')+'"':s;};
 const serialize=rows=>Buffer.from(rows.map(row=>row.map(cell).join(",")).join("\r\n")+"\r\n");
 function fixtureCsv(history=[["202607210001","NULL","12"],["202607210002","\\N","13"],["202607220003",null,"14"]],historyStructure=[["1","version","text","t"],["2","name","text","f"],["3","statements","text[]","f"]],overrides={}){
   const data=new Map(SQL_PROJECTIONS.map(p=>[p.id,[]]));
