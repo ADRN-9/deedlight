@@ -11,6 +11,7 @@ const PROVISIONED_TRUST_ROOTS_SHA256 = process.env.DEEDLIGHT_MIGRATION_TRUST_ROO
 const CATEGORIES = ["schema", "privileges", "ownership", "routines", "dataTransformations", "backfills", "dependencies", "preconditions", "postconditions"];
 const CATALOG_KINDS = ["schemas", "tables", "sequences", "columns", "constraints", "indexes", "triggers", "policies", "routines", "privileges", "ownership", "dataTransformations", "backfills", "dependencies", "preconditions", "postconditions"];
 const PRIVILEGE_OBJECT_KINDS = new Set(["tables", "sequences", "routines"]);
+const REQUIRED_ACCESS_SUMMARY = ["DATABASE_CONNECT", "SYSTEM_CATALOG_SELECT", "MIGRATION_HISTORY_SCHEMA_USAGE", "MIGRATION_HISTORY_SELECT"];
 const SCHEMA_KINDS = new Set(["tables", "columns", "constraints", "indexes", "triggers", "policies"]);
 export const SQL_NULL_SENTINEL = "__DEEDLIGHT_SQL_NULL_V1__";
 
@@ -75,7 +76,7 @@ export function validateCollectorPrivilegeEvidence(db, inventoryObjects) {
     problems.push("collector schema privilege evidence does not match the least-privilege contract: only supabase_migrations USAGE is allowed");
   }
   if (!expectedObjects.length || objectKeys.some((entry) => typeof entry.kind !== "string" || typeof entry.identity !== "string")
-    || new Set(objectKeys.map((entry) => entry.kind + "\\0" + entry.identity)).size !== objectKeys.length
+    || new Set(objectKeys.map((entry) => canonicalJson([entry.kind, entry.identity]))).size !== objectKeys.length
     || canonicalJson(objectKeys) !== canonicalJson(expectedObjects)
     || objectRows.some((entry) => {
       if (!entry) return true;
