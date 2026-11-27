@@ -685,11 +685,10 @@ function classifyOne(item, manifest, evidence, source, mappedEffects) {
   if (!source.get(item.path)?.valid) return { status: "Unknown", reasons: ["migration source fingerprint is not verified"] };
   const mapping = mappedEffects.get(item.path);
   if (!mapping) return { status: "Unknown", reasons: ["migration has no complete authenticated effect mapping"] };
-  if (mapping.unsupportedCategories.length || mapping.unknownCategories.length || mapping.nonCatalogEvidenceCategories.length) {
+  if (mapping.unsupportedCategories.length || mapping.unknownCategories.length) {
     return { status: "Unknown", reasons: [
       ...mapping.unsupportedCategories.map((category) => "effect domain is explicitly unsupported: " + category),
       ...mapping.unknownCategories.map((category) => "effect domain is explicitly unknown: " + category),
-      ...mapping.nonCatalogEvidenceCategories.map((category) => "non-catalog lifecycle evidence is not authenticated as a PostgreSQL catalog object: " + category),
     ], exactExecutionEstablished: false };
   }
   const expected = mapping.effects;
@@ -860,11 +859,17 @@ export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approval
     evidence, now, problems);
   const reports = manifest.migrations.map((item) => {
     if (problems.length) return { path: item.path, version: item.version, blobSha1: item.blobSha1, status: "Unknown", reasons: ["one or more evidence, approval, mapping or collector trust checks failed"] };
-    return { path: item.path, version: item.version, blobSha1: item.blobSha1, ...classifyOne(item, manifest, evidence, source, mappedEffects) };
+    return {
+      path: item.path, version: item.version, blobSha1: item.blobSha1,
+      ...classifyOne(item, manifest, evidence, source, mappedEffects),
+      nonCatalogEvidenceCategories: mappedEffects.get(item.path)?.nonCatalogEvidenceCategories ?? [],
+    };
   });
   const counts = Object.fromEntries(["Applied and verified", "Schema represented but history ambiguous", "Verified unapplied", "Partial or drifted", "Unknown"]
     .map((status) => [status, reports.filter((entry) => entry.status === status).length]));
-  const unresolved = counts["Schema represented but history ambiguous"] + counts["Partial or drifted"] + counts.Unknown;
+  const unresolvedLifecycleEvidence = reports.filter(entry => entry.nonCatalogEvidenceCategories.length > 0).length;
+  const unresolved = counts["Schema represented but history ambiguous"] + counts["Partial or drifted"] + counts.Unknown
+    + unresolvedLifecycleEvidence;
   return {
     schemaVersion: 2,
     project: "DeedLight",
@@ -876,6 +881,7 @@ export function analyzeMigrationEvidence({ rootDir, manifest, evidence, approval
     duplicateVersionPolicy: "A history row for 202607260007 never establishes exact execution of either or both distinct source bodies.",
     classifications: reports,
     counts,
+    unresolvedLifecycleEvidence,
     acceptance: problems.length === 0 && unresolved === 0 ? "ACCEPTED" : "NOT_ACCEPTED",
     mutationPerformed: false,
   };
