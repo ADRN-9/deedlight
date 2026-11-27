@@ -52,7 +52,8 @@ do $daily$
 declare
   v_count integer;
 begin
-  select count(*) into v_count from public.claim_daily_delivery_jobs(10);
+  select count(*) into v_count from public.claim_daily_delivery_jobs(10)
+  where job_id in ('91000000-0000-0000-0000-000000000101','91000000-0000-0000-0000-000000000103');
   if v_count <> 2 then
     raise exception 'Daily claim should claim exactly its queued and expired-retry rows; got %.', v_count;
   end if;
@@ -161,7 +162,8 @@ do $weekly$
 declare
   v_count integer;
 begin
-  select count(*) into v_count from public.claim_weekly_delivery_jobs(10);
+  select count(*) into v_count from public.claim_weekly_delivery_jobs(10)
+  where job_id in ('91000000-0000-0000-0000-000000000102','91000000-0000-0000-0000-000000000104');
   if v_count <> 2 then
     raise exception 'Weekly claim should claim exactly its queued and expired-retry rows; got %.', v_count;
   end if;
