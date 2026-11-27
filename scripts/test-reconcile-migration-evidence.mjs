@@ -579,6 +579,12 @@ test("mapping requires source-linked review disposition for every effect domain"
       const report = f.analyze();
       assert.equal(report.counts.Unknown, 40);
       assert.equal(report.acceptance, "NOT_ACCEPTED");
+      assert.equal(report.classifications.length, 40);
+      for (const classification of report.classifications) {
+        assert.ok(Array.isArray(classification.nonCatalogEvidenceCategories));
+        assert.ok(Array.isArray(classification.unsupportedNonCatalogCategories));
+        assert.ok(Array.isArray(classification.unknownNonCatalogCategories));
+      }
       assert.ok(report.trustProblems.some((reason) =>
         reason.includes("reviewed coverage disposition")
         || reason.includes("source-linked coverage review")
@@ -1399,6 +1405,13 @@ test("mapping rejects unreviewed effect domains and extra effect fields", () => 
       f.reapprove();
       const report = f.analyze();
       assert.equal(report.counts.Unknown, 40);
+      assert.equal(report.acceptance, "NOT_ACCEPTED");
+      assert.equal(report.classifications.length, 40);
+      for (const classification of report.classifications) {
+        assert.ok(Array.isArray(classification.nonCatalogEvidenceCategories));
+        assert.ok(Array.isArray(classification.unsupportedNonCatalogCategories));
+        assert.ok(Array.isArray(classification.unknownNonCatalogCategories));
+      }
       assert.ok(report.trustProblems.some((reason) =>
         reason.includes("effect domains")
         || reason.includes("malformed or empty effects")
