@@ -47,7 +47,7 @@ function completeReceipt(csv,validation=validateSqlOutput(csv)){
  return{schemaVersion:1,kind:"deedlight-production-migration-collection",status:"UNSIGNED_NOT_ACCEPTED",projectRef:"xaipiovflxomcbfwtwmu",
  endpoint:{hostname:"db.xaipiovflxomcbfwtwmu.supabase.co",port:5432,database:"postgres",tlsMode:"verify-full",tlsVerified:true,tlsHostnameVerified:true,tlsChainVerified:true,
  projectIdentityMethod:"independently-pinned-profile-and-project-specific-TLS-hostname",tlsRootCertificateSha256:"a".repeat(64),independentlyPinnedProfileSha256:"b".repeat(64)},
- source:{repositoryCommitSha:"c".repeat(40),migrationInventoryGitBlobSha1:"a18cf2c65eb595ecd143fbaa16e2d81badf8d1f8",sqlBundlePath:"scripts/production-migration-readonly-audit.sql",
+ source:{repositoryCommitSha:"c".repeat(40),migrationInventoryGitBlobSha1:"4e63f31368d446e905f4f44565be73337c7188fb",sqlBundlePath:"scripts/production-migration-readonly-audit.sql",
  sqlBundleGitBlobSha1:"8f8c38ba0c2a463ee25c6dae1dc1b15e24e3819f",sqlBundleSha256:"afda6bcfc9f7abc7765b8dfb54bf02d1cdb0d8062da2a9f953336b638d13af7d"},
  execution:{collectorId:"deedlight-readonly-collector-v1",authenticatedPrincipal:"deedlight_catalog_auditor",expectedEffectivePrincipal:"deedlight_catalog_auditor",transactionIsolation:"repeatable read",
  readOnly:true,transactionRollbackVerified:true,startedAt:"2026-01-01T00:00:00Z",completedAt:"2026-01-01T00:01:00Z",outputFormat:"PostgreSQL psql CSV",
