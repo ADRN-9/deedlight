@@ -92,6 +92,34 @@ test("normalizes all 19 validated projections without crossing authentication bo
   assert.equal(candidate.integrity.receiptSchemaSha256,RECEIPT_SCHEMA_SHA256);
   assert.ok(candidate.blockers.length>=4);
 });
+test("quoted dotted schema and relation names remain application-data columns",()=>{
+  const relations=[
+    ["public","profiles","r","postgres","p","f","f","1","id","uuid","t","",""],
+    ["supabase_migrations","schema_migrations","r","postgres","p","f","f","1","version","text","t","",""],
+    ["supabase_migrations","schema_migrations","r","postgres","p","f","f","2","statements","_text","f","",""],
+    ["supabase_migrations","schema_migrations","r","postgres","p","f","f","3","name","text","f","",""],
+    ["supabase_migrations.schema_migrations","x","r","postgres","p","f","f","1","a","text","f","",""],
+    ["supabase_migrations","schema_migrations.impostor","r","postgres","p","f","f","1","b","text","f","",""],
+  ];
+  const {candidate}=adapt(fixtureCsv(undefined,undefined,{relations_v1:relations}));
+  const columns=candidate.databaseAuthorityCandidate.columnPrivileges;
+  const dottedSchema=columns.find(row=>row.schema==="supabase_migrations.schema_migrations");
+  const dottedRelation=columns.find(row=>row.schema==="supabase_migrations"&&row.relation==="schema_migrations.impostor");
+  assert.deepEqual([dottedSchema.scope,dottedSchema.privileges],["application_data",[]]);
+  assert.deepEqual([dottedRelation.scope,dottedRelation.privileges],["application_data",[]]);
+  assert.deepEqual(validateCollectorPrivilegeEvidence(candidate.databaseAuthorityCandidate,candidate.evidence.catalog.objects),[]);
+  dottedSchema.privileges=["SELECT"];
+  assert.ok(validateCollectorPrivilegeEvidence(candidate.databaseAuthorityCandidate,candidate.evidence.catalog.objects)
+    .some(problem=>problem.includes("structured schema/relation/column identities")));
+  const grant=[
+    "column","supabase_migrations.schema_migrations","x","a","deedlight_catalog_auditor","postgres","SELECT","f",
+  ];
+  assert.throws(()=>adapt(fixtureCsv(undefined,undefined,{
+    relations_v1:relations,
+    relation_acl_v1:[["relation","supabase_migrations","schema_migrations","","deedlight_catalog_auditor","postgres","SELECT","f"],grant],
+  })),/PRIVILEGE_COLUMN_SCOPE_INVALID/);
+});
+
 test("does not invent a reviewed mapping or authenticated authority",()=>{
   const bytes=fixtureCsv(),receipt=receiptFor(bytes),candidate=adaptCollectorEvidence({receipt,csv:bytes,inventoryBytes,schemaBytes});
   assert.equal(Object.hasOwn(candidate.evidence,"mapping"),false);assert.ok(candidate.blockers.some(x=>x.includes("mapping")));
