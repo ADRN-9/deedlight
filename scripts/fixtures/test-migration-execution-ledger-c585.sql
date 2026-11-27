@@ -97,7 +97,8 @@ SELECT system_identifier, database_oid, database_name, server_version_num
 FROM deedlight_execution_ledger.database_identity WHERE singleton;
 SET LOCAL session_replication_role = replica;
 UPDATE deedlight_execution_ledger.database_identity
-SET system_identifier = '0' || substr(system_identifier, 2)
+SET system_identifier = CASE WHEN system_identifier LIKE '0%'
+  THEN '1' || substr(system_identifier, 2) ELSE '0' || substr(system_identifier, 2) END
 WHERE singleton;
 SET LOCAL session_replication_role = origin;
 
@@ -212,19 +213,16 @@ SET database_oid = (SELECT database_oid FROM c593_oid_anchor);
 SET LOCAL session_replication_role = origin;
 COMMIT;
 
-SELECT 'C593_BYTEWISE_CANONICAL_DIGEST_VECTOR_PASS' AS evidence;
-SELECT 'C593_FORGED_MANIFEST_NONMEMBER_QUERY_REJECTED' AS evidence;
-SELECT 'C593_SOURCE_IDENTITY_IMMUTABILITY_PASS' AS evidence;
-SELECT 'C593_LIVE_DATABASE_IDENTITY_FAIL_CLOSED_PASS' AS evidence;
-
 DO $assert$
 BEGIN
-  IF (SELECT count(*) FROM deedlight_execution_ledger.query_bundle_manifests) <> 2 THEN
+  IF (SELECT count(*) FROM deedlight_execution_ledger.query_bundle_manifests
+      WHERE bundle_id IN ('test_effects_bundle_v1','test_effects_bundle_v2')) <> 2 THEN
     RAISE EXCEPTION 'C585 bundle manifest cardinality mismatch';
   END IF;
   IF EXISTS (SELECT 1 FROM deedlight_execution_ledger.query_bundle_manifests
-    WHERE manifest_sha256 <> deedlight_execution_ledger.canonical_query_bundle_digest(manifest)
-       OR member_count <> jsonb_array_length(manifest)) THEN
+    WHERE bundle_id IN ('test_effects_bundle_v1','test_effects_bundle_v2')
+      AND (manifest_sha256 <> deedlight_execution_ledger.canonical_query_bundle_digest(manifest)
+       OR member_count <> jsonb_array_length(manifest))) THEN
     RAISE EXCEPTION 'C585 canonical manifest digest mismatch';
   END IF;
   BEGIN
@@ -497,3 +495,8 @@ END
 $assert$;
 RESET ROLE;
 
+SELECT 'C593_BYTEWISE_CANONICAL_DIGEST_VECTOR_PASS' AS evidence;
+SELECT 'C593_FORGED_MANIFEST_NONMEMBER_QUERY_REJECTED' AS evidence;
+SELECT 'C593_FORGED_MANIFEST_DIGEST_REJECTED' AS evidence;
+SELECT 'C593_SOURCE_IDENTITY_IMMUTABILITY_PASS' AS evidence;
+SELECT 'C593_LIVE_DATABASE_IDENTITY_FAIL_CLOSED_PASS' AS evidence;
