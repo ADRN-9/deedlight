@@ -24,10 +24,10 @@
     "sqlNullKeywordDistinctFromQuotedEmptyString": true,
     "quotedBackslashNDistinctFromSqlNull": true,
     "normalizationPerformed": false,
-    "quotedBackslashNObservedInReviewedMigrationSources": false,
     "quotedEmptyStringObserved": true,
     "sqlNullKeywordObserved": true,
-    "fixtureCoverageRequired": true
+    "fixtureCoverageRequired": true,
+    "quotedBackslashNSourceOccurrence": "NOT_ASSERTED_BY_MAPPING; DISTINCTNESS_IS_COVERED_BY_FIXTURE_ONLY"
   },
   "migrationVersionPolicy": "A migration version is not a source identity. Source identity is the exact path plus pinned Git blob SHA-1. The two 202607260007 sources are distinct entries and must never be merged.",
   "objectReferencePolicy": "Qualified tokens are lexical observations, not resolved PostgreSQL object identities. Unqualified references, overloads, dynamic SQL, search_path effects, and extension-owned objects are not resolved.",
