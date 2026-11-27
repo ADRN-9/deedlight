@@ -187,7 +187,7 @@ echo "PASS: real PGHOSTADDR redirection reached the adversarial server but fixtu
 psql -X -v ON_ERROR_STOP=1 --file scripts/test-production-migration-readonly-audit-postgres16-fixture.sql
 
 # Capture effective privileges as the real collector login and validate the exact signed-evidence contract.
-psql_as deedlight_catalog_auditor -X -qAt -v ON_ERROR_STOP=1 <<'SQL' | node scripts/test-collector-privilege-contract-postgres16.mjs
+DEEDLIGHT_PSQL_USER=deedlight_catalog_auditor DEEDLIGHT_PSQL_PASSWORD="$DEEDLIGHT_FIXTURE_AUDITOR_PASSWORD" psql -X -qAt -v ON_ERROR_STOP=1 <<'SQL' | node scripts/test-collector-privilege-contract-postgres16.mjs
 WITH schemas AS (
   SELECT n.oid, n.nspname
   FROM pg_catalog.pg_namespace n
