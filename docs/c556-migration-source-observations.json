@@ -5147,6 +5147,866 @@
           "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
         }
       }
+    },
+    {
+      "path": "supabase/migrations/202611230035_private_offering_base_table_rls.sql",
+      "blobSha1": "3d0ce8dfd4abb88fccccd23c5ffb9c35f699c098",
+      "byteLength": 564,
+      "lineCount": 16,
+      "observations": {
+        "transformations": [],
+        "foreignKeyReferences": [],
+        "guards": [
+          {
+            "line": 9,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"offerings_select_public_or_own\""
+          },
+          {
+            "line": 12,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"offerings_public_approved_read\""
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unknown",
+          "reason": "No simple top-level DML candidate found; dynamic SQL and function bodies prevent a safe none assertion."
+        },
+        "backfills": {
+          "disposition": "unknown",
+          "reason": "No simple DML candidate found; absence of a source match is not proof of no backfill."
+        },
+        "dependencies": {
+          "disposition": "unknown",
+          "reason": "No REFERENCES candidate found; view, routine and procedural dependencies remain unparsed."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202611230036_private_daily_reflection_admin_isolation.sql",
+      "blobSha1": "61a1fbf48b4557873ba6016e74fd3995bc62ba14",
+      "byteLength": 2042,
+      "lineCount": 82,
+      "observations": {
+        "transformations": [],
+        "foreignKeyReferences": [],
+        "guards": [
+          {
+            "line": 11,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"daily_reflections_select_own_or_admin\""
+          },
+          {
+            "line": 14,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"daily reflections select own or admin\""
+          },
+          {
+            "line": 17,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"daily_reflections_select_own\""
+          },
+          {
+            "line": 28,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"daily_reflections_insert_own\""
+          },
+          {
+            "line": 31,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"daily reflections insert own\""
+          },
+          {
+            "line": 38,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check ("
+          },
+          {
+            "line": 42,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"daily_reflections_update_own\""
+          },
+          {
+            "line": 45,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"daily reflections update own or admin\""
+          },
+          {
+            "line": 55,
+            "kind": "check_constraint",
+            "sourceExcerpt": "with check ("
+          },
+          {
+            "line": 60,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"daily_reflections_delete_admin\""
+          },
+          {
+            "line": 63,
+            "kind": "existence_guard",
+            "sourceExcerpt": "drop policy if exists \"daily reflections delete admin\""
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unknown",
+          "reason": "No simple top-level DML candidate found; dynamic SQL and function bodies prevent a safe none assertion."
+        },
+        "backfills": {
+          "disposition": "unknown",
+          "reason": "No simple DML candidate found; absence of a source match is not proof of no backfill."
+        },
+        "dependencies": {
+          "disposition": "unknown",
+          "reason": "No REFERENCES candidate found; view, routine and procedural dependencies remain unparsed."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202611240037_delivery_provider_integrity_conflict_evidence.sql",
+      "blobSha1": "ac0449b50a881e3a895ef40a8eee28bea95a6ec0",
+      "byteLength": 44182,
+      "lineCount": 1166,
+      "observations": {
+        "transformations": [
+          {
+            "line": 239,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_provider_integrity_cases",
+            "sourceExcerpt": "insert into public.delivery_provider_integrity_cases ("
+          },
+          {
+            "line": 252,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_provider_integrity_conflict_evidence",
+            "sourceExcerpt": "insert into public.delivery_provider_integrity_conflict_evidence ("
+          },
+          {
+            "line": 356,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_provider_integrity_cases",
+            "sourceExcerpt": "insert into public.delivery_provider_integrity_cases ("
+          },
+          {
+            "line": 382,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_provider_integrity_conflict_evidence",
+            "sourceExcerpt": "insert into public.delivery_provider_integrity_conflict_evidence ("
+          },
+          {
+            "line": 434,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_provider_integrity_conflict_history",
+            "sourceExcerpt": "insert into public.delivery_provider_integrity_conflict_history ("
+          },
+          {
+            "line": 446,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_provider_integrity_cases",
+            "sourceExcerpt": "update public.delivery_provider_integrity_cases"
+          },
+          {
+            "line": 594,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_provider_lifecycle",
+            "sourceExcerpt": "update public.delivery_provider_lifecycle"
+          },
+          {
+            "line": 663,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_provider_lifecycle",
+            "sourceExcerpt": "update public.delivery_provider_lifecycle"
+          },
+          {
+            "line": 1125,
+            "operation": "INSERT_INTO",
+            "targetCandidate": "public.delivery_provider_integrity_conflict_history",
+            "sourceExcerpt": "insert into public.delivery_provider_integrity_conflict_history ("
+          },
+          {
+            "line": 1136,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_provider_integrity_cases",
+            "sourceExcerpt": "update public.delivery_provider_integrity_cases"
+          }
+        ],
+        "foreignKeyReferences": [
+          {
+            "line": 73,
+            "targetCandidate": "auth.users",
+            "sourceExcerpt": "resolved_by uuid references auth.users(id) on delete restrict,"
+          },
+          {
+            "line": 94,
+            "targetCandidate": "public.delivery_provider_integrity_cases",
+            "sourceExcerpt": "references public.delivery_provider_integrity_cases(conflict_id) on delete restrict,"
+          },
+          {
+            "line": 104,
+            "targetCandidate": "public.delivery_provider_events",
+            "sourceExcerpt": "references public.delivery_provider_events(event_id) on delete restrict,"
+          },
+          {
+            "line": 144,
+            "targetCandidate": "public.delivery_provider_events",
+            "sourceExcerpt": "references public.delivery_provider_events(event_id) on delete restrict,"
+          },
+          {
+            "line": 177,
+            "targetCandidate": "public.delivery_provider_integrity_cases",
+            "sourceExcerpt": "references public.delivery_provider_integrity_cases(conflict_id) on delete restrict,"
+          },
+          {
+            "line": 179,
+            "targetCandidate": "auth.users",
+            "sourceExcerpt": "actor_id uuid references auth.users(id) on delete restrict,"
+          },
+          {
+            "line": 182,
+            "targetCandidate": "public.delivery_provider_integrity_conflict_evidence",
+            "sourceExcerpt": "references public.delivery_provider_integrity_conflict_evidence(evidence_id) on delete restrict,"
+          }
+        ],
+        "guards": [
+          {
+            "line": 24,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 037 requires the reviewed provider RPC, suppression-state, integrity and admin prerequisites.';"
+          },
+          {
+            "line": 38,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 037 refuses an unrecognized provider RPC implementation.';"
+          },
+          {
+            "line": 46,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 037 refuses pre-existing objects with an unknown origin.';"
+          },
+          {
+            "line": 54,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check ("
+          },
+          {
+            "line": 61,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (anomaly_type in ("
+          },
+          {
+            "line": 69,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (state in ('open', 'resolved')),"
+          },
+          {
+            "line": 78,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check ("
+          },
+          {
+            "line": 96,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check ("
+          },
+          {
+            "line": 102,
+            "kind": "check_constraint",
+            "sourceExcerpt": "event_id text not null check (char_length(event_id) between 1 and 255),"
+          },
+          {
+            "line": 106,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (event_type in ("
+          },
+          {
+            "line": 121,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (bounce_type is null or bounce_type in ('Permanent', 'Transient', 'Unknown')),"
+          },
+          {
+            "line": 123,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (failure_class is null or failure_class in ("
+          },
+          {
+            "line": 132,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (suppression_reason is null or suppression_reason in ("
+          },
+          {
+            "line": 138,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (suppression_origin is null or suppression_origin in ('bounce', 'complaint', 'manual')),"
+          },
+          {
+            "line": 142,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (payload_fingerprint is null or payload_fingerprint ~ '^[0-9a-f]{64}$'),"
+          },
+          {
+            "line": 146,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check ("
+          },
+          {
+            "line": 153,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check (evidence_source in ('provider_rpc', 'legacy_anomaly_backfill')),"
+          },
+          {
+            "line": 156,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check ("
+          },
+          {
+            "line": 178,
+            "kind": "check_constraint",
+            "sourceExcerpt": "action text not null check (action in ('resolved', 'reopened')),"
+          },
+          {
+            "line": 180,
+            "kind": "check_constraint",
+            "sourceExcerpt": "note text not null check (char_length(btrim(note)) between 12 and 2000),"
+          },
+          {
+            "line": 185,
+            "kind": "check_constraint",
+            "sourceExcerpt": "check ("
+          },
+          {
+            "line": 219,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Provider-integrity evidence and resolution history are append-only.'"
+          },
+          {
+            "line": 353,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid normalized provider-integrity conflict evidence.' using errcode = '22023';"
+          },
+          {
+            "line": 379,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Provider-integrity case could not be locked.' using errcode = 'XX000';"
+          },
+          {
+            "line": 520,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid delivery provider lifecycle event.' using errcode = '22023';"
+          },
+          {
+            "line": 526,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid delivery provider recipient.' using errcode = '22023';"
+          },
+          {
+            "line": 531,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid delivery bounce classification.' using errcode = '22023';"
+          },
+          {
+            "line": 534,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Bounce classification is only valid for bounced events.' using errcode = '22023';"
+          },
+          {
+            "line": 542,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid normalized provider failure classification.' using errcode = '22023';"
+          },
+          {
+            "line": 545,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Failure classification is only valid for failed events.' using errcode = '22023';"
+          },
+          {
+            "line": 552,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid normalized provider suppression reason.' using errcode = '22023';"
+          },
+          {
+            "line": 555,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Suppression reason is only valid for suppressed events.' using errcode = '22023';"
+          },
+          {
+            "line": 625,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Provider lifecycle conflict was not durably classified.' using errcode = 'XX000';"
+          },
+          {
+            "line": 635,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Conflicting duplicate provider event has no canonical event row.' using errcode = 'XX000';"
+          },
+          {
+            "line": 650,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Contradictory provider event has no related canonical event.' using errcode = 'XX000';"
+          },
+          {
+            "line": 818,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid provider suppression event.' using errcode = '22023';"
+          },
+          {
+            "line": 824,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid provider suppression recipient.' using errcode = '22023';"
+          },
+          {
+            "line": 882,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Conflicting suppression event has no canonical event row.' using errcode = 'XX000';"
+          },
+          {
+            "line": 905,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Provider suppression conflict was not durably classified.' using errcode = 'XX000';"
+          },
+          {
+            "line": 944,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Administrator authorization is required.' using errcode = '42501';"
+          },
+          {
+            "line": 948,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid provider-integrity conflict list parameters.' using errcode = '22023';"
+          },
+          {
+            "line": 1011,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Administrator authorization is required.' using errcode = '42501';"
+          },
+          {
+            "line": 1014,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid provider-integrity evidence list parameters.' using errcode = '22023';"
+          },
+          {
+            "line": 1070,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Administrator authorization is required.' using errcode = '42501';"
+          },
+          {
+            "line": 1073,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid provider-integrity history list parameters.' using errcode = '22023';"
+          },
+          {
+            "line": 1106,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Administrator authorization is required.' using errcode = '42501';"
+          },
+          {
+            "line": 1110,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'A conflict ID and meaningful resolution note are required.' using errcode = '22023';"
+          },
+          {
+            "line": 1119,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Provider-integrity conflict case was not found.' using errcode = '22023';"
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unsupported",
+          "reason": "Foreign-key reference candidates found, but prerequisite migration ownership and execution ordering are not established by the SQL line alone."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202611240038_delivery_provider_integrity_lock_order_pagination.sql",
+      "blobSha1": "38951751fc5abeb79b75c4e37e55da01262a18b8",
+      "byteLength": 43748,
+      "lineCount": 1030,
+      "observations": {
+        "transformations": [
+          {
+            "line": 267,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_provider_lifecycle",
+            "sourceExcerpt": "update public.delivery_provider_lifecycle"
+          },
+          {
+            "line": 336,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_provider_lifecycle",
+            "sourceExcerpt": "update public.delivery_provider_lifecycle"
+          }
+        ],
+        "foreignKeyReferences": [],
+        "guards": [
+          {
+            "line": 19,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 038 requires the complete migration-037 provider-integrity and administrator contract.';"
+          },
+          {
+            "line": 28,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 038 requires pgcrypto for exact provider RPC source attestation.';"
+          },
+          {
+            "line": 37,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 038 refuses pre-existing pagination objects with an unknown origin.';"
+          },
+          {
+            "line": 60,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 038 requires reviewed function signature %.', v_expected.signature;"
+          },
+          {
+            "line": 70,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 038 rejected SECURITY DEFINER/search_path drift in %.', v_expected.signature;"
+          },
+          {
+            "line": 79,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 038 rejected unreviewed function source for %.', v_expected.signature;"
+          },
+          {
+            "line": 86,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 038 rejected non-service provider RPC grants for %.', v_expected.signature;"
+          },
+          {
+            "line": 92,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 038 rejected administrator RPC grants for %.', v_expected.signature;"
+          },
+          {
+            "line": 98,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 038 rejected is_admin() public execution contract drift.';"
+          },
+          {
+            "line": 104,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 038 rejected private helper grants for %.', v_expected.signature;"
+          },
+          {
+            "line": 107,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 038 has an invalid preflight access contract.';"
+          },
+          {
+            "line": 123,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 038 rejected provider-integrity table privacy drift.';"
+          },
+          {
+            "line": 126,
+            "kind": "existence_guard",
+            "sourceExcerpt": "if not exists ("
+          },
+          {
+            "line": 143,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Migration 038 requires both append-only audit triggers.';"
+          },
+          {
+            "line": 193,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid delivery provider lifecycle event.' using errcode = '22023';"
+          },
+          {
+            "line": 199,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid delivery provider recipient.' using errcode = '22023';"
+          },
+          {
+            "line": 204,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid delivery bounce classification.' using errcode = '22023';"
+          },
+          {
+            "line": 207,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Bounce classification is only valid for bounced events.' using errcode = '22023';"
+          },
+          {
+            "line": 215,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid normalized provider failure classification.' using errcode = '22023';"
+          },
+          {
+            "line": 218,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Failure classification is only valid for failed events.' using errcode = '22023';"
+          },
+          {
+            "line": 225,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid normalized provider suppression reason.' using errcode = '22023';"
+          },
+          {
+            "line": 228,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Suppression reason is only valid for suppressed events.' using errcode = '22023';"
+          },
+          {
+            "line": 298,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Provider lifecycle conflict was not durably classified.' using errcode = 'XX000';"
+          },
+          {
+            "line": 308,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Conflicting duplicate provider event has no canonical event row.' using errcode = 'XX000';"
+          },
+          {
+            "line": 323,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Contradictory provider event has no related canonical event.' using errcode = 'XX000';"
+          },
+          {
+            "line": 375,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid legacy delivery provider event identity.' using errcode = '22023';"
+          },
+          {
+            "line": 381,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid legacy delivery provider recipient.' using errcode = '22023';"
+          },
+          {
+            "line": 433,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid legacy delivery provider event identity.' using errcode = '22023';"
+          },
+          {
+            "line": 439,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid legacy delivery provider recipient.' using errcode = '22023';"
+          },
+          {
+            "line": 476,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Unsupported legacy provider event type.' using errcode = '22023';"
+          },
+          {
+            "line": 481,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid legacy delivery provider event identity.' using errcode = '22023';"
+          },
+          {
+            "line": 487,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid legacy delivery provider recipient.' using errcode = '22023';"
+          },
+          {
+            "line": 546,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid provider suppression event.' using errcode = '22023';"
+          },
+          {
+            "line": 552,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid provider suppression recipient.' using errcode = '22023';"
+          },
+          {
+            "line": 611,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Conflicting suppression event has no canonical event row.' using errcode = 'XX000';"
+          },
+          {
+            "line": 634,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Provider suppression conflict was not durably classified.' using errcode = 'XX000';"
+          },
+          {
+            "line": 658,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Administrator authorization is required.' using errcode = '42501';"
+          },
+          {
+            "line": 665,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid provider-integrity case page parameters.' using errcode = '22023';"
+          },
+          {
+            "line": 747,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Administrator authorization is required.' using errcode = '42501';"
+          },
+          {
+            "line": 750,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'A valid provider-integrity case ID is required.' using errcode = '22023';"
+          },
+          {
+            "line": 807,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Administrator authorization is required.' using errcode = '42501';"
+          },
+          {
+            "line": 813,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid provider-integrity evidence page parameters.' using errcode = '22023';"
+          },
+          {
+            "line": 815,
+            "kind": "existence_guard",
+            "sourceExcerpt": "if not exists (select 1 from public.delivery_provider_integrity_cases c where c.conflict_id = p_conflict_id) then"
+          },
+          {
+            "line": 816,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Provider-integrity conflict case was not found.' using errcode = '22023';"
+          },
+          {
+            "line": 902,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Administrator authorization is required.' using errcode = '42501';"
+          },
+          {
+            "line": 908,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Invalid provider-integrity history page parameters.' using errcode = '22023';"
+          },
+          {
+            "line": 910,
+            "kind": "existence_guard",
+            "sourceExcerpt": "if not exists (select 1 from public.delivery_provider_integrity_cases c where c.conflict_id = p_conflict_id) then"
+          },
+          {
+            "line": 911,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'Provider-integrity conflict case was not found.' using errcode = '22023';"
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unknown",
+          "reason": "No REFERENCES candidate found; view, routine and procedural dependencies remain unparsed."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
+    },
+    {
+      "path": "supabase/migrations/202611260039_delivery_kind_scoped_claims.sql",
+      "blobSha1": "39eba637aa9f93fa77855f82f3fcc27b580b25da",
+      "byteLength": 6177,
+      "lineCount": 227,
+      "observations": {
+        "transformations": [
+          {
+            "line": 29,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger dl"
+          },
+          {
+            "line": 69,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger dl"
+          },
+          {
+            "line": 124,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger dl"
+          },
+          {
+            "line": 164,
+            "operation": "UPDATE",
+            "targetCandidate": "public.delivery_ledger",
+            "sourceExcerpt": "update public.delivery_ledger dl"
+          }
+        ],
+        "foreignKeyReferences": [],
+        "guards": [
+          {
+            "line": 25,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'p_limit must be between 1 and 1000.' using errcode = '22023';"
+          },
+          {
+            "line": 120,
+            "kind": "exception_guard",
+            "sourceExcerpt": "raise exception 'p_limit must be between 1 and 1000.' using errcode = '22023';"
+          }
+        ]
+      },
+      "classifications": {
+        "dataTransformations": {
+          "disposition": "unsupported",
+          "reason": "DML candidates found, but SQL statement boundaries and full source/target semantics require PostgreSQL-aware parsing."
+        },
+        "backfills": {
+          "disposition": "unsupported",
+          "reason": "DML candidates may be backfills, but predicates and affected-row measurements are not established by source text."
+        },
+        "dependencies": {
+          "disposition": "unknown",
+          "reason": "No REFERENCES candidate found; view, routine and procedural dependencies remain unparsed."
+        },
+        "preconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but executable precondition semantics and historical outcomes require independent verification."
+        },
+        "postconditions": {
+          "disposition": "unsupported",
+          "reason": "Guard/constraint candidates found, but expected postconditions and their observed outcomes are not independently measured."
+        }
+      }
     }
   ]
 }
