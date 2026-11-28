@@ -263,60 +263,76 @@ BEGIN
 END $fn$;
 
 CREATE OR REPLACE FUNCTION deedlight_execution_ledger.capture_snapshot(
-  p_execution_id uuid,p_phase text,p_query_id text,p_authorization jsonb
+  p_execution_id uuid,p_phase text,p_query_id text,p_source_identity jsonb,p_authorization jsonb
 ) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, deedlight_execution_ledger AS $fn$
 DECLARE v_source jsonb;
 BEGIN
-  SELECT source_identity INTO STRICT v_source FROM deedlight_execution_ledger.executions
-  WHERE execution_id=p_execution_id;
   PERFORM deedlight_execution_ledger.authorize_request(p_authorization,'capture_snapshot',
     'deedlight_ledger_observer',p_execution_id,
     pg_catalog.jsonb_build_object('executionId',p_execution_id,'phase',p_phase,
-      'queryId',p_query_id,'sourceIdentity',v_source));
+      'queryId',p_query_id,'sourceIdentity',p_source_identity));
+  SELECT source_identity INTO STRICT v_source FROM deedlight_execution_ledger.executions
+  WHERE execution_id=p_execution_id;
+  IF v_source IS DISTINCT FROM p_source_identity THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust','authorization_source_identity_mismatch','{}'::jsonb);
+  END IF;
   RETURN deedlight_execution_ledger.capture_snapshot_impl(p_execution_id,p_phase,p_query_id);
 END $fn$;
 
 CREATE OR REPLACE FUNCTION deedlight_execution_ledger.start_execution(
-  p_execution_id uuid,p_authorization jsonb
+  p_execution_id uuid,p_source_identity jsonb,p_authorization jsonb
 ) RETURNS void LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, deedlight_execution_ledger AS $fn$
 DECLARE v_source jsonb;
 BEGIN
-  SELECT source_identity INTO STRICT v_source FROM deedlight_execution_ledger.executions
-  WHERE execution_id=p_execution_id;
   PERFORM deedlight_execution_ledger.authorize_request(p_authorization,'start_execution',
     'deedlight_ledger_runner',p_execution_id,
-    pg_catalog.jsonb_build_object('executionId',p_execution_id,'sourceIdentity',v_source));
+    pg_catalog.jsonb_build_object('executionId',p_execution_id,'sourceIdentity',p_source_identity));
+  SELECT source_identity INTO STRICT v_source FROM deedlight_execution_ledger.executions
+  WHERE execution_id=p_execution_id;
+  IF v_source IS DISTINCT FROM p_source_identity THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust','authorization_source_identity_mismatch','{}'::jsonb);
+  END IF;
   PERFORM deedlight_execution_ledger.start_execution_impl(p_execution_id);
 END $fn$;
 
 CREATE OR REPLACE FUNCTION deedlight_execution_ledger.heartbeat_execution(
-  p_execution_id uuid,p_authorization jsonb
+  p_execution_id uuid,p_source_identity jsonb,p_authorization jsonb
 ) RETURNS void LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, deedlight_execution_ledger AS $fn$
 DECLARE v_source jsonb;
 BEGIN
-  SELECT source_identity INTO STRICT v_source FROM deedlight_execution_ledger.executions
-  WHERE execution_id=p_execution_id;
   PERFORM deedlight_execution_ledger.authorize_request(p_authorization,'heartbeat_execution',
     'deedlight_ledger_runner',p_execution_id,
-    pg_catalog.jsonb_build_object('executionId',p_execution_id,'sourceIdentity',v_source));
+    pg_catalog.jsonb_build_object('executionId',p_execution_id,'sourceIdentity',p_source_identity));
+  SELECT source_identity INTO STRICT v_source FROM deedlight_execution_ledger.executions
+  WHERE execution_id=p_execution_id;
+  IF v_source IS DISTINCT FROM p_source_identity THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust','authorization_source_identity_mismatch','{}'::jsonb);
+  END IF;
   PERFORM deedlight_execution_ledger.heartbeat_execution_impl(p_execution_id);
 END $fn$;
 
 CREATE OR REPLACE FUNCTION deedlight_execution_ledger.finalize_execution(
-  p_execution_id uuid,p_outcome text,p_outcome_detail jsonb,p_authorization jsonb
+  p_execution_id uuid,p_outcome text,p_outcome_detail jsonb,p_source_identity jsonb,p_authorization jsonb
 ) RETURNS void LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, deedlight_execution_ledger AS $fn$
 DECLARE v_source jsonb;
 BEGIN
-  SELECT source_identity INTO STRICT v_source FROM deedlight_execution_ledger.executions
-  WHERE execution_id=p_execution_id;
   PERFORM deedlight_execution_ledger.authorize_request(p_authorization,'finalize_execution',
     'deedlight_ledger_runner',p_execution_id,
     pg_catalog.jsonb_build_object('executionId',p_execution_id,'outcome',p_outcome,
-      'outcomeDetail',p_outcome_detail,'sourceIdentity',v_source));
+      'outcomeDetail',p_outcome_detail,'sourceIdentity',p_source_identity));
+  SELECT source_identity INTO STRICT v_source FROM deedlight_execution_ledger.executions
+  WHERE execution_id=p_execution_id;
+  IF v_source IS DISTINCT FROM p_source_identity THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust','authorization_source_identity_mismatch','{}'::jsonb);
+  END IF;
   PERFORM deedlight_execution_ledger.finalize_execution_impl(p_execution_id,p_outcome,p_outcome_detail);
 END $fn$;
 
@@ -344,17 +360,21 @@ BEGIN
 END $fn$;
 
 CREATE OR REPLACE FUNCTION deedlight_execution_ledger.record_verification(
-  p_execution_id uuid,p_verdict text,p_evidence jsonb,p_authorization jsonb
+  p_execution_id uuid,p_verdict text,p_evidence jsonb,p_source_identity jsonb,p_authorization jsonb
 ) RETURNS void LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, deedlight_execution_ledger AS $fn$
 DECLARE v_source jsonb;
 BEGIN
-  SELECT source_identity INTO STRICT v_source FROM deedlight_execution_ledger.executions
-  WHERE execution_id=p_execution_id;
   PERFORM deedlight_execution_ledger.authorize_request(p_authorization,'record_verification',
     'deedlight_ledger_verifier',p_execution_id,
     pg_catalog.jsonb_build_object('executionId',p_execution_id,'verdict',p_verdict,
-      'evidence',p_evidence,'sourceIdentity',v_source));
+      'evidence',p_evidence,'sourceIdentity',p_source_identity));
+  SELECT source_identity INTO STRICT v_source FROM deedlight_execution_ledger.executions
+  WHERE execution_id=p_execution_id;
+  IF v_source IS DISTINCT FROM p_source_identity THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust','authorization_source_identity_mismatch','{}'::jsonb);
+  END IF;
   PERFORM deedlight_execution_ledger.record_verification_impl(p_execution_id,p_verdict,p_evidence);
 END $fn$;
 
@@ -372,22 +392,22 @@ GRANT USAGE ON SCHEMA deedlight_execution_ledger TO
 ALTER FUNCTION deedlight_execution_ledger.approve_execution(uuid,uuid,uuid,jsonb,jsonb) OWNER TO deedlight_ledger_owner;
 ALTER FUNCTION deedlight_execution_ledger.reserve_execution(uuid,uuid,uuid,jsonb,jsonb) OWNER TO deedlight_ledger_owner;
 ALTER FUNCTION deedlight_execution_ledger.record_effect_commit_marker(uuid,jsonb,jsonb) OWNER TO deedlight_ledger_owner;
-ALTER FUNCTION deedlight_execution_ledger.capture_snapshot(uuid,text,text,jsonb) OWNER TO deedlight_ledger_owner;
-ALTER FUNCTION deedlight_execution_ledger.start_execution(uuid,jsonb) OWNER TO deedlight_ledger_owner;
-ALTER FUNCTION deedlight_execution_ledger.heartbeat_execution(uuid,jsonb) OWNER TO deedlight_ledger_owner;
-ALTER FUNCTION deedlight_execution_ledger.finalize_execution(uuid,text,jsonb,jsonb) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.capture_snapshot(uuid,text,text,jsonb,jsonb) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.start_execution(uuid,jsonb,jsonb) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.heartbeat_execution(uuid,jsonb,jsonb) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.finalize_execution(uuid,text,jsonb,jsonb,jsonb) OWNER TO deedlight_ledger_owner;
 ALTER FUNCTION deedlight_execution_ledger.recover_stale_executions(interval,jsonb) OWNER TO deedlight_ledger_owner;
-ALTER FUNCTION deedlight_execution_ledger.record_verification(uuid,text,jsonb,jsonb) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.record_verification(uuid,text,jsonb,jsonb,jsonb) OWNER TO deedlight_ledger_owner;
 
 GRANT EXECUTE ON FUNCTION deedlight_execution_ledger.approve_execution(uuid,uuid,uuid,jsonb,jsonb) TO deedlight_ledger_approver;
 GRANT EXECUTE ON FUNCTION deedlight_execution_ledger.reserve_execution(uuid,uuid,uuid,jsonb,jsonb),
   deedlight_execution_ledger.record_effect_commit_marker(uuid,jsonb,jsonb),
-  deedlight_execution_ledger.start_execution(uuid,jsonb),
-  deedlight_execution_ledger.heartbeat_execution(uuid,jsonb),
-  deedlight_execution_ledger.finalize_execution(uuid,text,jsonb,jsonb) TO deedlight_ledger_runner;
-GRANT EXECUTE ON FUNCTION deedlight_execution_ledger.capture_snapshot(uuid,text,text,jsonb) TO deedlight_ledger_observer;
+  deedlight_execution_ledger.start_execution(uuid,jsonb,jsonb),
+  deedlight_execution_ledger.heartbeat_execution(uuid,jsonb,jsonb),
+  deedlight_execution_ledger.finalize_execution(uuid,text,jsonb,jsonb,jsonb) TO deedlight_ledger_runner;
+GRANT EXECUTE ON FUNCTION deedlight_execution_ledger.capture_snapshot(uuid,text,text,jsonb,jsonb) TO deedlight_ledger_observer;
 GRANT EXECUTE ON FUNCTION deedlight_execution_ledger.recover_stale_executions(interval,jsonb) TO deedlight_ledger_recovery;
-GRANT EXECUTE ON FUNCTION deedlight_execution_ledger.record_verification(uuid,text,jsonb,jsonb) TO deedlight_ledger_verifier;
+GRANT EXECUTE ON FUNCTION deedlight_execution_ledger.record_verification(uuid,text,jsonb,jsonb,jsonb) TO deedlight_ledger_verifier;
 REVOKE CREATE ON SCHEMA deedlight_execution_ledger FROM deedlight_ledger_owner;
 
 -- The definer is deliberately a NOLOGIN, non-superuser role.
