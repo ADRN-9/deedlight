@@ -646,7 +646,7 @@ SELECT c603_test.sign_recovery(jsonb_build_object('staleAfter','00:01:00','targe
     'expectedHeartbeatAt',pg_catalog.clock_timestamp()::text,
     'expectedRowVersion',1,'unexpected','extra')))) AS c618_extra_field_auth \gset
 SELECT c603_test.sign_recovery(jsonb_build_object('staleAfter','00:01:00','targets',
-  jsonb_build_array('not-an-object'::jsonb))) AS c618_scalar_element_auth \gset
+  jsonb_build_array(pg_catalog.to_jsonb('not-an-object'::text)))) AS c618_scalar_element_auth \gset
 SET SESSION AUTHORIZATION deedlight_ledger_recovery;
 SELECT c608_test.assert_trust_failure(format(
   'SELECT deedlight_execution_ledger.recover_stale_executions(%L::interval,%L::jsonb)',
