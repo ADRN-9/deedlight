@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { closeSync, mkdtempSync, openSync, readdirSync, rmSync } from 'node:fs';
+import { closeSync, fsyncSync, mkdtempSync, openSync, readdirSync, rmSync } from 'node:fs';
 import { createHash, generateKeyPairSync, randomUUID, sign, timingSafeEqual, verify } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -78,10 +78,23 @@ class FileNonceStore {
   }
 
   consume(nonce) {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(nonce)) {
+      throw new TypeError('nonce must be a canonical UUID');
+    }
     const path = join(this.directory, nonce);
     try {
       const descriptor = openSync(path, 'wx', 0o600);
-      closeSync(descriptor);
+      try {
+        fsyncSync(descriptor);
+      } finally {
+        closeSync(descriptor);
+      }
+      const directoryDescriptor = openSync(this.directory, 'r');
+      try {
+        fsyncSync(directoryDescriptor);
+      } finally {
+        closeSync(directoryDescriptor);
+      }
       return true;
     } catch (error) {
       if (error.code === 'EEXIST') return false;
