@@ -10,7 +10,7 @@ END
 $owner$;
 
 GRANT pg_monitor TO deedlight_ledger_owner;
-GRANT USAGE ON SCHEMA deedlight_execution_ledger TO deedlight_ledger_owner;
+GRANT USAGE, CREATE ON SCHEMA deedlight_execution_ledger TO deedlight_ledger_owner;
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA deedlight_execution_ledger TO deedlight_ledger_owner;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA deedlight_execution_ledger TO deedlight_ledger_owner;
 
@@ -332,6 +332,7 @@ GRANT EXECUTE ON FUNCTION deedlight_execution_ledger.reserve_execution(uuid,uuid
 GRANT EXECUTE ON FUNCTION deedlight_execution_ledger.capture_snapshot(uuid,text,text,jsonb) TO deedlight_ledger_observer;
 GRANT EXECUTE ON FUNCTION deedlight_execution_ledger.recover_stale_executions(interval,jsonb) TO deedlight_ledger_recovery;
 GRANT EXECUTE ON FUNCTION deedlight_execution_ledger.record_verification(uuid,text,jsonb,jsonb) TO deedlight_ledger_verifier;
+REVOKE CREATE ON SCHEMA deedlight_execution_ledger FROM deedlight_ledger_owner;
 
 -- The definer is deliberately a NOLOGIN, non-superuser role.
 DO $assert$
