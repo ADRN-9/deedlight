@@ -336,28 +336,99 @@ BEGIN
   PERFORM deedlight_execution_ledger.finalize_execution_impl(p_execution_id,p_outcome,p_outcome_detail);
 END $fn$;
 
+-- The recovery implementation receives the exact, already-authorized target IDs.
+-- It never re-runs the broad stale-row predicate to discover additional targets.
+CREATE OR REPLACE FUNCTION deedlight_execution_ledger.recover_stale_executions_targets_impl(
+  p_execution_ids uuid[],p_stale_after interval
+) RETURNS integer
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, deedlight_execution_ledger
+AS $fn$
+DECLARE
+  v_identity record;
+  v_count integer;
+BEGIN
+  IF p_execution_ids IS NULL OR p_stale_after IS NULL
+    OR p_stale_after <= interval '0 seconds'
+    OR p_stale_after > interval '7 days'
+    OR pg_catalog.cardinality(p_execution_ids) <> (
+      SELECT pg_catalog.count(DISTINCT x) FROM pg_catalog.unnest(p_execution_ids) AS x
+    ) THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'incomplete_preconditions','recovery_target_arguments_invalid','{}'::jsonb);
+  END IF;
+  SELECT * INTO STRICT v_identity
+  FROM deedlight_execution_ledger.current_database_identity();
+  UPDATE deedlight_execution_ledger.executions
+  SET status = CASE WHEN status = 'reserved' THEN 'interrupted' ELSE 'unknown' END,
+      completed_at = pg_catalog.clock_timestamp(),
+      outcome_detail = CASE WHEN status='running'
+        THEN pg_catalog.jsonb_build_object('category','ambiguous_execution_outcome',
+          'diagnosticCode','D1008','reason','running_execution_stale_after_heartbeat',
+          'recoveryActor','deedlight_ledger_recovery')
+        ELSE pg_catalog.jsonb_build_object('category','incomplete_preconditions',
+          'reason','reserved_execution_expired_before_start',
+          'recoveryActor','deedlight_ledger_recovery') END
+  WHERE execution_id = ANY(p_execution_ids)
+    AND system_identifier = v_identity.system_identifier
+    AND database_oid = v_identity.database_oid
+    AND status IN ('reserved','running')
+    AND heartbeat_at < pg_catalog.clock_timestamp() - p_stale_after;
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  IF v_count <> pg_catalog.cardinality(p_execution_ids) THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'stale_state','recovery_target_set_changed','{}'::jsonb);
+  END IF;
+  RETURN v_count;
+END
+$fn$;
+
 CREATE OR REPLACE FUNCTION deedlight_execution_ledger.recover_stale_executions(
   p_stale_after interval,p_authorization jsonb
 ) RETURNS integer LANGUAGE plpgsql SECURITY DEFINER
-SET search_path = pg_catalog, deedlight_execution_ledger AS $fn$
-DECLARE v_targets jsonb; v_digest text; v_count integer;
+SET search_path = pg_catalog, deedlight_execution_ledger
+AS $fn$
+DECLARE
+  v_targets jsonb := '[]'::jsonb;
+  v_ids uuid[] := ARRAY[]::uuid[];
+  v_row deedlight_execution_ledger.executions%ROWTYPE;
+  v_digest text;
+  v_count integer;
 BEGIN
-  SELECT coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
-      'executionId',execution_id,'sourceIdentity',source_identity,
-      'status',status,'heartbeatAt',heartbeat_at) ORDER BY execution_id),'[]'::jsonb)
-    INTO v_targets
-  FROM deedlight_execution_ledger.executions
-  WHERE status IN ('reserved','running')
-    AND heartbeat_at < pg_catalog.clock_timestamp() - p_stale_after;
-  v_count := pg_catalog.jsonb_array_length(v_targets);
+  IF p_stale_after IS NULL OR p_stale_after <= interval '0 seconds'
+    OR p_stale_after > interval '7 days' THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'incomplete_preconditions','recovery_timeout_outside_safe_bounds','{}'::jsonb);
+  END IF;
+
+  -- Lock the exact candidate rows in stable order before calculating the signed set.
+  FOR v_row IN
+    SELECT * FROM deedlight_execution_ledger.executions
+    WHERE status IN ('reserved','running')
+      AND heartbeat_at < pg_catalog.clock_timestamp() - p_stale_after
+    ORDER BY execution_id
+    FOR UPDATE
+  LOOP
+    v_ids := pg_catalog.array_append(v_ids,v_row.execution_id);
+    v_targets := v_targets || pg_catalog.jsonb_build_array(
+      pg_catalog.jsonb_build_object('executionId',v_row.execution_id,
+        'sourceIdentity',v_row.source_identity,'status',v_row.status,
+        'heartbeatAt',v_row.heartbeat_at));
+  END LOOP;
+
+  v_count := pg_catalog.cardinality(v_ids);
   v_digest := pg_catalog.encode(deedlight_execution_ledger.digest(
     pg_catalog.convert_to(v_targets::text,'UTF8'),'sha256'),'hex');
-  PERFORM deedlight_execution_ledger.authorize_request(p_authorization,'recover_stale_executions',
-    'deedlight_ledger_recovery',NULL,
+
+  PERFORM deedlight_execution_ledger.authorize_request(p_authorization,
+    'recover_stale_executions','deedlight_ledger_recovery',NULL,
     pg_catalog.jsonb_build_object('staleAfter',p_stale_after::text,
       'sourceSetDigest',v_digest,'targetCount',v_count));
-  RETURN deedlight_execution_ledger.recover_stale_executions_impl(p_stale_after);
-END $fn$;
+
+  -- Mutate only the rows whose IDs and immutable snapshot were just authorized.
+  RETURN deedlight_execution_ledger.recover_stale_executions_targets_impl(v_ids,p_stale_after);
+END
+$fn$;
 
 CREATE OR REPLACE FUNCTION deedlight_execution_ledger.record_verification(
   p_execution_id uuid,p_verdict text,p_evidence jsonb,p_source_identity jsonb,p_authorization jsonb
@@ -397,6 +468,7 @@ ALTER FUNCTION deedlight_execution_ledger.start_execution(uuid,jsonb,jsonb) OWNE
 ALTER FUNCTION deedlight_execution_ledger.heartbeat_execution(uuid,jsonb,jsonb) OWNER TO deedlight_ledger_owner;
 ALTER FUNCTION deedlight_execution_ledger.finalize_execution(uuid,text,jsonb,jsonb,jsonb) OWNER TO deedlight_ledger_owner;
 ALTER FUNCTION deedlight_execution_ledger.recover_stale_executions(interval,jsonb) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.recover_stale_executions_targets_impl(uuid[],interval) OWNER TO deedlight_ledger_owner;
 ALTER FUNCTION deedlight_execution_ledger.record_verification(uuid,text,jsonb,jsonb,jsonb) OWNER TO deedlight_ledger_owner;
 
 GRANT EXECUTE ON FUNCTION deedlight_execution_ledger.approve_execution(uuid,uuid,uuid,jsonb,jsonb) TO deedlight_ledger_approver;
