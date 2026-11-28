@@ -6,9 +6,21 @@ const AUDIENCE = 'deedlight.execution-ledger.dispatch.v2';
 const MAX_TTL_MS = 2_000;
 const CLOCK_SKEW_MS = 250;
 
+function isUnicodeScalarString(value) {
+  for (let index = 0; index < value.length; index += 1) {
+    const unit = value.charCodeAt(index);
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return false;
+      index += 1;
+    } else if (unit >= 0xdc00 && unit <= 0xdfff) return false;
+  }
+  return true;
+}
+
 function canonicalize(value) {
   if (value === null || typeof value === 'boolean' || typeof value === 'string') {
-    if (typeof value === 'string' && value.normalize('NFC') !== value) {
+    if (typeof value === 'string' && (!isUnicodeScalarString(value) || value.normalize('NFC') !== value)) {
       throw new TypeError('strings must be NFC-normalized');
     }
     return JSON.stringify(value);
@@ -18,9 +30,16 @@ function canonicalize(value) {
     return JSON.stringify(value);
   }
   if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      if (!Object.hasOwn(value, index)) throw new TypeError('sparse arrays are not canonical');
+    }
     return '[' + value.map((item) => canonicalize(item)).join(',') + ']';
   }
   if (typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
+    const ownKeys = Reflect.ownKeys(value);
+    if (ownKeys.some((key) => typeof key !== 'string') || ownKeys.length !== Object.keys(value).length) {
+      throw new TypeError('objects must contain only enumerable string keys');
+    }
     const keys = Object.keys(value).sort();
     return '{' + keys.map((key) => {
       if (key.normalize('NFC') !== key) throw new TypeError('keys must be NFC-normalized');
@@ -152,8 +171,16 @@ test('canonical JSON profile matches cross-language vector', () => {
   const value = { z: 1, a: { y: true, x: 'é' }, arr: [3, 'ok'] };
   assert.equal(canonicalize(value), '{"a":{"x":"é","y":true},"arr":[3,"ok"],"z":1}');
   assert.equal(digest({ a: 1, b: 2 }), '43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777');
+  assert.equal(digest(value), 'b998c4dfd549775bb9ddd3ab0545d44e64fd98cb0d8c04254f8e4e0f6d86d484');
+  assert.equal(digest({ message: 'café', n: 0, ok: true }),
+    '7baabaafc3c9275b12e78c02044e44aed5536a5543916209083c50f6e99e8abe');
   assert.throws(() => canonicalize({ value: 1.5 }), /safe integers/);
   assert.throws(() => canonicalize({ value: 'e\u0301' }), /NFC-normalized/);
+  assert.throws(() => canonicalize({ value: Number.NaN }), /safe integers/);
+  const sparse = [];
+  sparse[1] = 'gap';
+  assert.throws(() => canonicalize(sparse), /sparse arrays/);
+  assert.throws(() => canonicalize({ value: '\ud800' }), /NFC-normalized/);
 });
 
 test('Ed25519 provider, policy and nonce authorities are independently verifiable', () => {
@@ -230,7 +257,7 @@ test('generation transition fences stale receipts and compare-and-swap is monoto
   assert.throws(() => authority.rotate('resource-generation', 1), /generation_compare_and_swap_failed/);
 });
 
-test('revocation and dispatch admission are serialized at the authority linearization point', () => {
+test('revocation and dispatch admission serialize at one authority linearization point', async () => {
   const authority = new IndependentAuthority(() => 1_800_000_000_000);
   authority.registerResource('resource-revocation');
   const nonce = randomUUID();
@@ -240,8 +267,28 @@ test('revocation and dispatch admission are serialized at the authority lineariz
     actor: 'runner', operation: 'heartbeat_execution', requestDigest: digest({ id: 9 }),
     resourceId: 'resource-revocation', nonce, now,
   });
-  authority.revoke('resource-revocation', 1);
-  assert.throws(() => authority.consumeDispatch({ resourceAttestation, policyAuthorization, now }), /resource_generation_revoked/);
+  const admitted = Promise.resolve().then(() =>
+    authority.consumeDispatch({ resourceAttestation, policyAuthorization, now }));
+  const revoked = Promise.resolve().then(() => authority.revoke('resource-revocation', 1));
+  const [receipt] = await Promise.all([admitted, revoked]);
+  assert.equal(validSignature(receipt, authority.nonce.publicKey), true);
+  assert.equal(authority.resources.get('resource-revocation').state, 'REVOKED');
+
+  const second = new IndependentAuthority(() => now);
+  second.registerResource('resource-revocation-second');
+  const nonce2 = randomUUID();
+  const attestation2 = second.attestResource({ resourceId: 'resource-revocation-second', nonce: nonce2, now });
+  const policy2 = second.authorizePolicy({
+    actor: 'runner', operation: 'heartbeat_execution', requestDigest: digest({ id: 10 }),
+    resourceId: 'resource-revocation-second', nonce: nonce2, now,
+  });
+  const revokedFirst = Promise.resolve().then(() => second.revoke('resource-revocation-second', 1));
+  const consumedSecond = Promise.resolve().then(() =>
+    second.consumeDispatch({ resourceAttestation: attestation2, policyAuthorization: policy2, now }));
+  const outcomes = await Promise.allSettled([revokedFirst, consumedSecond]);
+  assert.equal(outcomes[0].status, 'fulfilled');
+  assert.equal(outcomes[1].status, 'rejected');
+  assert.match(outcomes[1].reason.message, /resource_generation_revoked/);
 });
 
 test('expiry boundaries fail closed', () => {
@@ -255,6 +302,51 @@ test('expiry boundaries fail closed', () => {
     resourceId: 'resource-expiry', nonce, now, ttl: 1,
   });
   assert.throws(() => authority.consumeDispatch({ resourceAttestation, policyAuthorization, now: now + 1 }), /authorization_claims_invalid/);
+});
+
+test('tampered and substituted authorization claims are rejected', () => {
+  const authority = new IndependentAuthority(() => 1_800_000_000_000);
+  authority.registerResource('resource-substitution');
+  const nonce = randomUUID();
+  const now = 1_800_000_000_000;
+  const resourceAttestation = authority.attestResource({ resourceId: 'resource-substitution', nonce, now });
+  const policyAuthorization = authority.authorizePolicy({
+    actor: 'runner', operation: 'start_execution', requestDigest: digest({ executionId: 'one' }),
+    resourceId: 'resource-substitution', nonce, now,
+  });
+  const tampered = {
+    ...policyAuthorization,
+    payload: { ...policyAuthorization.payload, requestDigest: digest({ executionId: 'two' }) },
+  };
+  assert.throws(() => authority.consumeDispatch({
+    resourceAttestation, policyAuthorization: tampered, now,
+  }), /policy_authorization_invalid/);
+});
+
+test('future-issued and overlong authorization windows are rejected', () => {
+  const authority = new IndependentAuthority(() => 1_800_000_000_000);
+  authority.registerResource('resource-clock');
+  const nonce = randomUUID();
+  const now = 1_800_000_000_000;
+  const future = authority.attestResource({ resourceId: 'resource-clock', nonce, now: now + 10_000 });
+  const policy = authority.authorizePolicy({
+    actor: 'runner', operation: 'start_execution', requestDigest: digest({ id: 12 }),
+    resourceId: 'resource-clock', nonce, now: now + 10_000,
+  });
+  assert.throws(() => authority.consumeDispatch({
+    resourceAttestation: future, policyAuthorization: policy, now,
+  }), /authorization_claims_invalid/);
+  const longNonce = randomUUID();
+  const longAttestation = authority.attestResource({
+    resourceId: 'resource-clock', nonce: longNonce, now, ttl: MAX_TTL_MS + 1,
+  });
+  const longPolicy = authority.authorizePolicy({
+    actor: 'runner', operation: 'start_execution', requestDigest: digest({ id: 13 }),
+    resourceId: 'resource-clock', nonce: longNonce, now, ttl: MAX_TTL_MS + 1,
+  });
+  assert.throws(() => authority.consumeDispatch({
+    resourceAttestation: longAttestation, policyAuthorization: longPolicy, now,
+  }), /authorization_claims_invalid/);
 });
 
 test('ambiguous database rollback consumes the external nonce; retry requires a new challenge', () => {
