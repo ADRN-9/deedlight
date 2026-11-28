@@ -139,3 +139,21 @@ C602 must not provision Production credentials, modify Production roles, claim p
 ## 8. Evidence register
 
 The adjacent JSON file is the machine-readable evidence source of record for this assessment. It includes exact refs, PR states, workflow/run/job IDs, PostgreSQL marker strings, migration blob comparisons, F-01…F-08 classifications, approval dependencies and C602 acceptance criteria.
+
+
+## 9. C601 documentation-branch exact-head CI reconciliation
+
+The C601 documentation branch itself was validated after the evidence report and register were committed. This is a documentation-only PR and its CI is not evidence for the C593/C598 security implementation.
+
+Exact C601 HEAD: `da89faceed290483ac567a34a6e2e059e9bca462` (PR #39, draft, open, unmerged; base `main` at `d83813ba29831498846d9fa915ae210769c94e48`). The branch is three commits ahead of main and changes only the two C601 evidence files.
+
+Workflow ID `365241434`:
+- Branch push run #2372 / `46094938414`: **FAIL, 2/5 jobs successful**. Jobs: `delivery_reliability_database_behavior` #`140824044022` PASS; `auth_pgcrypto_database_behavior` #`140824044241` PASS; `gentle_delivery_transport_database_behavior` #`140824044183` FAIL; `validate` #`140824044206` FAIL; `sprint12_2_database_behavior` #`140824044255` FAIL.
+- PR run #2373 / `46094954115`: **FAIL, 3/5 jobs successful**. Jobs: `sprint12_2_database_behavior` #`140824077432` PASS; `auth_pgcrypto_database_behavior` #`140824077549` PASS; `delivery_reliability_database_behavior` #`140824077607` PASS; `validate` #`140824077637` FAIL; `gentle_delivery_transport_database_behavior` #`140824077647` FAIL.
+
+Decoded failure logs were fetched and inspected:
+1. Both `validate` jobs fail the high/critical dependency audit. The log reports 21 vulnerabilities (12 moderate, 7 high, 2 critical), including the three advisories already called out in the run summary: `GHSA-6pq8-jhm2-2vcw`, `GHSA-3wwx-pv8p-q78v`, and `GHSA-xjj6-f33q-929c`. The audit output includes `qs` and `undici` findings. No dependency or lockfile changes were made in C601.
+2. Both `gentle_delivery_transport_database_behavior` jobs fail at `authorize_delivery_job` with `Delivery claim is not authorized`. The unchanged main-branch fixture `scripts/test-gentle-delivery-transport.sql` creates and claims the fixed `2026-10-26` delivery, while the database requires `claim_expires_at > now()`; the fixture's claim is expired on the 2026-11-28 run date. The PR log shows the exact fixed timestamps and SQL location (line 96).
+3. Branch run #2372 additionally fails `sprint12_2_database_behavior` because repeated `postgres:16` Docker image-layer downloads from Docker Hub/CloudFront terminate with TCP `connection reset by peer`. The corresponding PR run succeeds, so this is recorded as an infrastructure/transient runner failure, not a source regression.
+
+These are baseline `main` validation blockers exposed by the C601 documentation PR; they do not establish a failure in the C601 evidence content. They remain FAIL for the exact C601 head and must not be represented as passing. The C601 branch contains no code, dependency, migration or Production changes. The workflow ran only five jobs and did not run `migration_execution_ledger_postgres16`; no C601 ledger-regression claim is made from these runs.
