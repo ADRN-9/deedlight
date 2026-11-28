@@ -725,7 +725,7 @@ later_nonce_count="$(clean_psql --tuples-only --no-align --command "
   echo "FAIL: C610 later-target rejection consumed its authorization nonce ($later_nonce_count)" >&2
   exit 1
 }
-echo "C610_LATER_TARGET_FINALIZED_WHILE_EARLIER_LOCKED_REJECTED_ZERO_RECOVERY_MUTATION nonce_rolled_back=$later_nonce_count"
+echo "C610_LATER_TARGET_RESERVED_TO_RUNNING_WHILE_EARLIER_LOCKED_REJECTED_ZERO_RECOVERY_MUTATION nonce_rolled_back=$later_nonce_count"
 
 # Two independently signed, overlapping multi-target requests use canonical lock order.
 # Use dedicated targets that have not been mutated by the preceding C608 heartbeat/finalization races.
@@ -734,8 +734,8 @@ clean_psql --command "
   SELECT c608_test.seed_execution('c6080000-0000-4000-8000-000000000026','running',pg_catalog.clock_timestamp()-interval '1 hour');
   SELECT c608_test.seed_execution('c6080000-0000-4000-8000-000000000027','running',pg_catalog.clock_timestamp()-interval '1 hour');
 "
-# A=[009,010] must lock 009 before waiting for shared target 010; B=[010,011]
-# queues behind A. A wins after release; B rejects before reaching target 011.
+# A=[025,026] must lock 025 before waiting for shared target 026; B=[026,027]
+# queues behind A. A wins after release; B rejects before reaching target 027.
 overlap_auth_a="$(clean_psql --tuples-only --no-align --command "
   SELECT c608_test.request(ARRAY[
     'c6080000-0000-4000-8000-000000000025',
@@ -752,7 +752,7 @@ overlap_auth_b="$(clean_psql --tuples-only --no-align --command "
   echo "FAIL: could not create distinct signed overlapping multi-target recovery requests" >&2
   exit 1
 }
-overlap_target_011_before="$(clean_psql --tuples-only --no-align --command "
+overlap_target_027_before="$(clean_psql --tuples-only --no-align --command "
   SELECT pg_catalog.to_jsonb(row_data)::text
   FROM deedlight_execution_ledger.executions AS row_data
   WHERE execution_id='c6080000-0000-4000-8000-000000000027'
@@ -810,7 +810,7 @@ for attempt in $(seq 1 200); do
   [[ -n "$c617_recovery_a_backend_pid" ]] && break
   kill -0 "$c617_pid_a" 2>/dev/null || {
     cat "$tmp_dir/c617-recovery-a.log"
-    echo "FAIL: C617 first recovery did not wait on shared target 010" >&2
+    echo "FAIL: C617 first recovery did not wait on shared target 026" >&2
     exit 1
   }
   sleep 0.05
@@ -819,14 +819,14 @@ done
   echo "FAIL: C617 first recovery wait was not observed" >&2
   exit 1
 }
-# A's first target 009 must already be locked while A waits on its second target 010.
+# A's first target 025 must already be locked while A waits on its second target 026.
 set +e
 clean_psql --command "SELECT 1 FROM deedlight_execution_ledger.executions WHERE execution_id='c6080000-0000-4000-8000-000000000025' FOR UPDATE NOWAIT" \
   >"$tmp_dir/c617-order-probe.log" 2>&1
 c617_probe_status=$?
 set -e
 [[ "$c617_probe_status" -ne 0 ]] && grep -qi "could not obtain lock on row" "$tmp_dir/c617-order-probe.log" || {
-  echo "FAIL: C617 did not prove the first canonical target was locked before the shared second target" >&2
+  echo "FAIL: C617 did not prove target 025 was locked before shared target 026" >&2
   cat "$tmp_dir/c617-order-probe.log"
   exit 1
 }
@@ -899,13 +899,13 @@ grep -q "DEEDLIGHT_TRUST_FAILURE:incomplete_preconditions" "$tmp_dir/c617-recove
   cat "$tmp_dir/c617-recovery-b.log"
   exit 1
 }
-overlap_target_011_after="$(clean_psql --tuples-only --no-align --command "
+overlap_target_027_after="$(clean_psql --tuples-only --no-align --command "
   SELECT pg_catalog.to_jsonb(row_data)::text
   FROM deedlight_execution_ledger.executions AS row_data
   WHERE execution_id='c6080000-0000-4000-8000-000000000027'
 ")"
-[[ "$overlap_target_011_after" == "$overlap_target_011_before" ]] || {
-  echo "FAIL: losing C617 request partially mutated its later, not-yet-locked target 011" >&2
+[[ "$overlap_target_027_after" == "$overlap_target_027_before" ]] || {
+  echo "FAIL: losing C617 request partially mutated its later, not-yet-locked target 027" >&2
   exit 1
 }
 cat >"$tmp_dir/c617-nonce-count.sql" <<'SQL'
@@ -919,6 +919,30 @@ overlap_nonce_b="$(clean_psql --tuples-only --no-align \
   --set "auth=$overlap_auth_b" --file "$tmp_dir/c617-nonce-count.sql")"
 [[ "$overlap_nonce_a" == "1" && "$overlap_nonce_b" == "0" ]] || {
   echo "FAIL: C617 competing multi-target nonce outcomes A=$overlap_nonce_a B=$overlap_nonce_b" >&2
+  exit 1
+}
+c617_status_025="$(clean_psql --tuples-only --no-align --command "
+  SELECT status FROM deedlight_execution_ledger.executions
+  WHERE execution_id='c6080000-0000-4000-8000-000000000025'
+")"
+[[ "$c617_status_025" == "unknown" ]] || {
+  echo "FAIL: C617 execution 025 must be unknown after winning recovery (status=$c617_status_025)" >&2
+  exit 1
+}
+c617_status_026="$(clean_psql --tuples-only --no-align --command "
+  SELECT status FROM deedlight_execution_ledger.executions
+  WHERE execution_id='c6080000-0000-4000-8000-000000000026'
+")"
+[[ "$c617_status_026" == "unknown" ]] || {
+  echo "FAIL: C617 execution 026 must be unknown after winning recovery (status=$c617_status_026)" >&2
+  exit 1
+}
+c617_status_027="$(clean_psql --tuples-only --no-align --command "
+  SELECT status FROM deedlight_execution_ledger.executions
+  WHERE execution_id='c6080000-0000-4000-8000-000000000027'
+")"
+[[ "$c617_status_027" == "running" ]] || {
+  echo "FAIL: C617 execution 027 must remain running after losing recovery (status=$c617_status_027)" >&2
   exit 1
 }
 c617_final_states="$(clean_psql --tuples-only --no-align --command "
