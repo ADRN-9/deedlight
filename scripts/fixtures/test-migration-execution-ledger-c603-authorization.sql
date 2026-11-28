@@ -104,7 +104,7 @@ SELECT pg_temp.c603_sign('deedlight_ledger_observer','capture_snapshot',
 ) AS pre_auth \gset
 SET SESSION AUTHORIZATION deedlight_ledger_observer;
 SELECT deedlight_execution_ledger.capture_snapshot(
- 'c6030000-0000-4000-8000-000000000021','pre','test_effects_v1',:'pre_auth'::jsonb);
+ 'c6030000-0000-4000-8000-000000000021','pre','test_effects_v1','{"path":"supabase/migrations/c603-positive.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb,:'pre_auth'::jsonb);
 RESET SESSION AUTHORIZATION;
 
 SELECT pg_temp.c603_sign('deedlight_ledger_runner','start_execution',
@@ -113,7 +113,7 @@ SELECT pg_temp.c603_sign('deedlight_ledger_runner','start_execution',
  'sourceIdentity','{"path":"supabase/migrations/c603-positive.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb)
 ) AS start_auth \gset
 SET SESSION AUTHORIZATION deedlight_ledger_runner;
-SELECT deedlight_execution_ledger.start_execution('c6030000-0000-4000-8000-000000000021',:'start_auth'::jsonb);
+SELECT deedlight_execution_ledger.start_execution('c6030000-0000-4000-8000-000000000021','{"path":"supabase/migrations/c603-positive.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb,:'start_auth'::jsonb);
 RESET SESSION AUTHORIZATION;
 
 SELECT pg_temp.c603_sign('deedlight_ledger_runner','heartbeat_execution',
@@ -122,7 +122,7 @@ SELECT pg_temp.c603_sign('deedlight_ledger_runner','heartbeat_execution',
  'sourceIdentity','{"path":"supabase/migrations/c603-positive.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb)
 ) AS heartbeat_auth \gset
 SET SESSION AUTHORIZATION deedlight_ledger_runner;
-SELECT deedlight_execution_ledger.heartbeat_execution('c6030000-0000-4000-8000-000000000021',:'heartbeat_auth'::jsonb);
+SELECT deedlight_execution_ledger.heartbeat_execution('c6030000-0000-4000-8000-000000000021','{"path":"supabase/migrations/c603-positive.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb,:'heartbeat_auth'::jsonb);
 RESET SESSION AUTHORIZATION;
 
 SELECT pg_temp.c603_sign('deedlight_ledger_runner','record_effect_commit_marker',
@@ -147,7 +147,7 @@ SELECT pg_temp.c603_sign('deedlight_ledger_observer','capture_snapshot',
 ) AS post_auth \gset
 SET SESSION AUTHORIZATION deedlight_ledger_observer;
 SELECT deedlight_execution_ledger.capture_snapshot(
- 'c6030000-0000-4000-8000-000000000021','post','test_effects_v1',:'post_auth'::jsonb);
+ 'c6030000-0000-4000-8000-000000000021','post','test_effects_v1','{"path":"supabase/migrations/c603-positive.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb,:'post_auth'::jsonb);
 RESET SESSION AUTHORIZATION;
 
 SELECT pg_temp.c603_sign('deedlight_ledger_runner','finalize_execution',
@@ -158,7 +158,7 @@ SELECT pg_temp.c603_sign('deedlight_ledger_runner','finalize_execution',
 ) AS finalize_auth \gset
 SET SESSION AUTHORIZATION deedlight_ledger_runner;
 SELECT deedlight_execution_ledger.finalize_execution(
- 'c6030000-0000-4000-8000-000000000021','succeeded','{"result":"signed"}'::jsonb,:'finalize_auth'::jsonb);
+ 'c6030000-0000-4000-8000-000000000021','succeeded','{"result":"signed"}'::jsonb,'{"path":"supabase/migrations/c603-positive.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb,:'finalize_auth'::jsonb);
 RESET SESSION AUTHORIZATION;
 
 SELECT pg_temp.c603_sign('deedlight_ledger_verifier','record_verification',
@@ -169,7 +169,7 @@ SELECT pg_temp.c603_sign('deedlight_ledger_verifier','record_verification',
 ) AS verify_auth \gset
 SET SESSION AUTHORIZATION deedlight_ledger_verifier;
 SELECT deedlight_execution_ledger.record_verification(
- 'c6030000-0000-4000-8000-000000000021','verified','{"independent":true}'::jsonb,:'verify_auth'::jsonb);
+ 'c6030000-0000-4000-8000-000000000021','verified','{"independent":true}'::jsonb,'{"path":"supabase/migrations/c603-positive.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb,:'verify_auth'::jsonb);
 RESET SESSION AUTHORIZATION;
 SELECT 'C603_ALL_NINE_SIGNED_POSITIVE_PATHS_PASS' AS evidence;
 
@@ -225,12 +225,12 @@ DECLARE v_rpc text[] := ARRAY[
  'approve_execution(uuid,uuid,uuid,jsonb,jsonb)',
  'reserve_execution(uuid,uuid,uuid,jsonb,jsonb)',
  'record_effect_commit_marker(uuid,jsonb,jsonb)',
- 'capture_snapshot(uuid,text,text,jsonb)',
- 'start_execution(uuid,jsonb)',
- 'heartbeat_execution(uuid,jsonb)',
- 'finalize_execution(uuid,text,jsonb,jsonb)',
+ 'capture_snapshot(uuid,text,text,jsonb,jsonb)',
+ 'start_execution(uuid,jsonb,jsonb)',
+ 'heartbeat_execution(uuid,jsonb,jsonb)',
+ 'finalize_execution(uuid,text,jsonb,jsonb,jsonb)',
  'recover_stale_executions(interval,jsonb)',
- 'record_verification(uuid,text,jsonb,jsonb)'
+ 'record_verification(uuid,text,jsonb,jsonb,jsonb)'
 ];
 DECLARE v_actors text[] := ARRAY[
  'deedlight_ledger_approver','deedlight_ledger_runner','deedlight_ledger_observer',
@@ -282,60 +282,60 @@ SET SESSION AUTHORIZATION deedlight_ledger_approver;
 SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.approve_execution(NULL,NULL,NULL,NULL,NULL)','D1001');
 SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.reserve_execution(NULL,NULL,NULL,NULL,NULL)','42501');
 SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.record_effect_commit_marker(NULL,NULL,NULL)','42501');
-SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.capture_snapshot(NULL,NULL,NULL,NULL)','42501');
-SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.start_execution(NULL,NULL)','42501');
-SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.heartbeat_execution(NULL,NULL)','42501');
-SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.finalize_execution(NULL,NULL,NULL,NULL)','42501');
+SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.capture_snapshot(NULL,NULL,NULL,NULL,NULL)','42501');
+SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.start_execution(NULL,NULL,NULL)','42501');
+SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.heartbeat_execution(NULL,NULL,NULL)','42501');
+SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.finalize_execution(NULL,NULL,NULL,NULL,NULL)','42501');
 SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.recover_stale_executions(NULL,NULL)','42501');
-SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.record_verification(NULL,NULL,NULL,NULL)','42501');
+SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.record_verification(NULL,NULL,NULL,NULL,NULL)','42501');
 RESET SESSION AUTHORIZATION;
 
 SET SESSION AUTHORIZATION deedlight_ledger_runner;
 SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.approve_execution(NULL,NULL,NULL,NULL,NULL)','42501');
 SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.reserve_execution(NULL,NULL,NULL,NULL,NULL)','D1001');
 SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.record_effect_commit_marker(NULL,NULL,NULL)','D1001');
-SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.capture_snapshot(NULL,NULL,NULL,NULL)','42501');
-SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.start_execution(NULL,NULL)','D1001');
-SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.heartbeat_execution(NULL,NULL)','D1001');
-SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.finalize_execution(NULL,NULL,NULL,NULL)','D1001');
+SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.capture_snapshot(NULL,NULL,NULL,NULL,NULL)','42501');
+SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.start_execution(NULL,NULL,NULL)','D1001');
+SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.heartbeat_execution(NULL,NULL,NULL)','D1001');
+SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.finalize_execution(NULL,NULL,NULL,NULL,NULL)','D1001');
 SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.recover_stale_executions(NULL,NULL)','42501');
-SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.record_verification(NULL,NULL,NULL,NULL)','42501');
+SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.record_verification(NULL,NULL,NULL,NULL,NULL)','42501');
 RESET SESSION AUTHORIZATION;
 
 SET SESSION AUTHORIZATION deedlight_ledger_observer;
 SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.approve_execution(NULL,NULL,NULL,NULL,NULL)','42501');
 SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.reserve_execution(NULL,NULL,NULL,NULL,NULL)','42501');
 SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.record_effect_commit_marker(NULL,NULL,NULL)','42501');
-SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.capture_snapshot(NULL,NULL,NULL,NULL)','D1001');
-SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.start_execution(NULL,NULL)','42501');
-SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.heartbeat_execution(NULL,NULL)','42501');
-SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.finalize_execution(NULL,NULL,NULL,NULL)','42501');
+SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.capture_snapshot(NULL,NULL,NULL,NULL,NULL)','D1001');
+SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.start_execution(NULL,NULL,NULL)','42501');
+SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.heartbeat_execution(NULL,NULL,NULL)','42501');
+SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.finalize_execution(NULL,NULL,NULL,NULL,NULL)','42501');
 SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.recover_stale_executions(NULL,NULL)','42501');
-SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.record_verification(NULL,NULL,NULL,NULL)','42501');
+SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.record_verification(NULL,NULL,NULL,NULL,NULL)','42501');
 RESET SESSION AUTHORIZATION;
 
 SET SESSION AUTHORIZATION deedlight_ledger_recovery;
 SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.approve_execution(NULL,NULL,NULL,NULL,NULL)','42501');
 SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.reserve_execution(NULL,NULL,NULL,NULL,NULL)','42501');
 SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.record_effect_commit_marker(NULL,NULL,NULL)','42501');
-SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.capture_snapshot(NULL,NULL,NULL,NULL)','42501');
-SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.start_execution(NULL,NULL)','42501');
-SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.heartbeat_execution(NULL,NULL)','42501');
-SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.finalize_execution(NULL,NULL,NULL,NULL)','42501');
+SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.capture_snapshot(NULL,NULL,NULL,NULL,NULL)','42501');
+SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.start_execution(NULL,NULL,NULL)','42501');
+SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.heartbeat_execution(NULL,NULL,NULL)','42501');
+SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.finalize_execution(NULL,NULL,NULL,NULL,NULL)','42501');
 SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.recover_stale_executions(NULL,NULL)','D1001');
-SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.record_verification(NULL,NULL,NULL,NULL)','42501');
+SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.record_verification(NULL,NULL,NULL,NULL,NULL)','42501');
 RESET SESSION AUTHORIZATION;
 
 SET SESSION AUTHORIZATION deedlight_ledger_verifier;
 SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.approve_execution(NULL,NULL,NULL,NULL,NULL)','42501');
 SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.reserve_execution(NULL,NULL,NULL,NULL,NULL)','42501');
 SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.record_effect_commit_marker(NULL,NULL,NULL)','42501');
-SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.capture_snapshot(NULL,NULL,NULL,NULL)','42501');
-SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.start_execution(NULL,NULL)','42501');
-SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.heartbeat_execution(NULL,NULL)','42501');
-SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.finalize_execution(NULL,NULL,NULL,NULL)','42501');
+SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.capture_snapshot(NULL,NULL,NULL,NULL,NULL)','42501');
+SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.start_execution(NULL,NULL,NULL)','42501');
+SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.heartbeat_execution(NULL,NULL,NULL)','42501');
+SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.finalize_execution(NULL,NULL,NULL,NULL,NULL)','42501');
 SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.recover_stale_executions(NULL,NULL)','42501');
-SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.record_verification(NULL,NULL,NULL,NULL)','D1001');
+SELECT c603_test.assert_rejected('SELECT deedlight_execution_ledger.record_verification(NULL,NULL,NULL,NULL,NULL)','D1001');
 RESET SESSION AUTHORIZATION;
 
 DO $side_effects$
