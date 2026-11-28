@@ -1,0 +1,530 @@
+{
+  "schema_version": "1.0",
+  "assessment_id": "C602",
+  "project": "DeedLight",
+  "repository": "ADRN-9/deedlight",
+  "base_commit": "0d81fa5bd3892d3ec063c41a4275b9a60c14b30c",
+  "c601_reference": {
+    "pr": 39,
+    "branch": "docs/c601-exact-repository-pr-evidence",
+    "head": "d87eeb5a70b938d72ccb758acaeb65f9727eadb6"
+  },
+  "scope": {
+    "production_mutation": false,
+    "credentials_accessed": false,
+    "trust_roots_changed": false,
+    "privilege_changes": false,
+    "pr36_or_pr37_merged": false,
+    "gateway_remediation_implemented": false
+  },
+  "source_files": [
+    "scripts/fixtures/migration-execution-ledger-v1.sql",
+    "scripts/fixtures/test-migration-execution-ledger-v1.sql",
+    "scripts/fixtures/test-migration-execution-ledger-c600.sql",
+    "scripts/test-migration-execution-ledger-postgres16.sh",
+    "docs/C600_EXTERNAL_TRUST_FINDINGS_REMEDIATION.md"
+  ],
+  "fixture_boundary": {
+    "functions_created_by": "postgres",
+    "runner_connection": "PGUSER=postgres; PGHOST=127.0.0.1; PGDATABASE=deedlight_ledger_test",
+    "functions_security_definer": true,
+    "function_search_path": "pg_catalog, deedlight_execution_ledger",
+    "public_execute_revoked": true,
+    "roles": {
+      "deedlight_ledger_approver": {
+        "login": false,
+        "inherit": false
+      },
+      "deedlight_ledger_runner": {
+        "login": false,
+        "inherit": false
+      },
+      "deedlight_ledger_observer": {
+        "login": false,
+        "inherit": false
+      },
+      "deedlight_ledger_recovery": {
+        "login": false,
+        "inherit": false
+      },
+      "deedlight_ledger_verifier": {
+        "login": false,
+        "inherit": false
+      }
+    },
+    "postgres_memberships": [
+      "deedlight_ledger_approver",
+      "deedlight_ledger_runner",
+      "deedlight_ledger_observer",
+      "deedlight_ledger_recovery",
+      "deedlight_ledger_verifier"
+    ],
+    "actor_role_implementation": "current_setting('role', true)",
+    "impersonation_finding": "postgres can SET ROLE to each actor role; this fixture simulates effective roles, not independent authenticated principals."
+  },
+  "actor_roles": {
+    "approver": [
+      "approve_execution"
+    ],
+    "runner": [
+      "reserve_execution",
+      "record_effect_commit_marker",
+      "start_execution",
+      "heartbeat_execution",
+      "finalize_execution"
+    ],
+    "observer": [
+      "capture_snapshot"
+    ],
+    "recovery": [
+      "recover_stale_executions"
+    ],
+    "verifier": [
+      "record_verification"
+    ]
+  },
+  "rpc_matrix": [
+    {
+      "name": "approve_execution",
+      "signature": "(uuid,uuid,uuid,jsonb) RETURNS void",
+      "parameters": [
+        "p_approval_id uuid",
+        "p_record_id uuid",
+        "p_execution_id uuid",
+        "p_source_identity jsonb"
+      ],
+      "actor": "approver",
+      "owner": "postgres (disposable fixture)",
+      "execute_grant": [
+        "deedlight_ledger_approver"
+      ],
+      "identity_checks": [
+        "live current_database_identity",
+        "actor_role=approver",
+        "three UUIDs nonnull",
+        "source JSON object"
+      ],
+      "request_binding": "stores caller source JSON object; no source shape validation here; later reserve requires exact equality; no signature/canonical envelope",
+      "failure": [
+        "identity mismatch",
+        "approver authority required",
+        "approval scope incomplete",
+        "unique violation"
+      ],
+      "negative_side_effects": "no approval insert",
+      "positive_tests": [
+        "test-migration-execution-ledger-v1.sql lines 19-25,129-135,240-246,292-298,429-435,497-503"
+      ],
+      "negative_tests": [
+        "duplicate execution and record identity uniqueness; C600 untrusted direct invocation"
+      ]
+    },
+    {
+      "name": "reserve_execution",
+      "signature": "(uuid,uuid,uuid,jsonb) RETURNS void",
+      "parameters": [
+        "p_approval_id uuid",
+        "p_record_id uuid",
+        "p_execution_id uuid",
+        "p_source_identity jsonb"
+      ],
+      "actor": "runner",
+      "owner": "postgres (disposable fixture)",
+      "execute_grant": [
+        "deedlight_ledger_runner"
+      ],
+      "identity_checks": [
+        "live DB identity",
+        "actor_role=runner",
+        "valid_source_identity relative path + lowercase SHA-256",
+        "unused approval",
+        "approval DB/record/execution/source exact match"
+      ],
+      "request_binding": "typed UUIDs and exact stored approval/source equality; no cryptographic signature, audience, generation, expiry or nonce",
+      "failure": [
+        "D1001",
+        "D1002",
+        "D1005",
+        "unique violation"
+      ],
+      "negative_side_effects": "no execution insert or approval consumption on rejection; successful insert/consume atomic",
+      "positive_tests": [
+        "test-migration-execution-ledger-v1.sql lines 47-55,137-144,248-255,300-307,437-444,505-512"
+      ],
+      "negative_tests": [
+        "rollback atomicity",
+        "consumed/interrupted/unknown replay",
+        "concurrent replay one-winner"
+      ]
+    },
+    {
+      "name": "record_effect_commit_marker",
+      "signature": "(uuid,jsonb) RETURNS void",
+      "parameters": [
+        "p_execution_id uuid",
+        "p_source_identity jsonb"
+      ],
+      "actor": "runner",
+      "owner": "postgres (disposable fixture)",
+      "execute_grant": [
+        "deedlight_ledger_runner"
+      ],
+      "identity_checks": [
+        "live DB identity",
+        "actor_role=runner",
+        "valid source identity",
+        "execution exists",
+        "source matches execution",
+        "status running and runner identity matches"
+      ],
+      "request_binding": "execution UUID and exact source JSON; role label/transaction ID stored; no signed workload identity",
+      "failure": [
+        "D1001",
+        "D1002",
+        "D1003",
+        "D1008 family",
+        "runner/state/source mismatch"
+      ],
+      "negative_side_effects": "no marker insert; caller effect transaction must roll back",
+      "positive_tests": [
+        "test-migration-execution-ledger-v1.sql lines 65-73,153-160"
+      ],
+      "negative_tests": [
+        "C578 client crash rolls back effect+marker",
+        "C600 untrusted direct call"
+      ]
+    },
+    {
+      "name": "capture_snapshot",
+      "signature": "(uuid,text,text) RETURNS jsonb",
+      "parameters": [
+        "p_execution_id uuid",
+        "p_phase text",
+        "p_query_id text"
+      ],
+      "actor": "observer",
+      "owner": "postgres (disposable fixture)",
+      "execute_grant": [
+        "deedlight_ledger_observer"
+      ],
+      "identity_checks": [
+        "live DB identity",
+        "actor_role=observer",
+        "phase pre/post",
+        "execution exists",
+        "observer distinct from approver and runner",
+        "pre=reserved; post=running and marker exists",
+        "registered query digest",
+        "bundle digest/member checks"
+      ],
+      "request_binding": "execution UUID, phase, registered query id, SQL SHA-256, canonical manifest digest/member; no signed external observer identity",
+      "failure": [
+        "D1001",
+        "D1003",
+        "D1004",
+        "invalid phase/state/query"
+      ],
+      "negative_side_effects": "no snapshot insert or accepted snapshot result",
+      "positive_tests": [
+        "test-migration-execution-ledger-v1.sql lines 56-60,74-78,145-166"
+      ],
+      "negative_tests": [
+        "post snapshot without marker",
+        "manifest/query substitution",
+        "C600 untrusted direct call"
+      ]
+    },
+    {
+      "name": "start_execution",
+      "signature": "(uuid) RETURNS void",
+      "parameters": [
+        "p_execution_id uuid"
+      ],
+      "actor": "runner",
+      "owner": "postgres (disposable fixture)",
+      "execute_grant": [
+        "deedlight_ledger_runner"
+      ],
+      "identity_checks": [
+        "live DB identity",
+        "actor_role=runner",
+        "pre snapshot exists",
+        "status reserved"
+      ],
+      "request_binding": "execution UUID and ledger state only; no signed source/workload/generation/nonce",
+      "failure": [
+        "D1001",
+        "D1003",
+        "migration runner authority required",
+        "execution not reservable"
+      ],
+      "negative_side_effects": "no state, runner identity or timestamp update",
+      "positive_tests": [
+        "test-migration-execution-ledger-v1.sql lines 61-64,150-152,313-315,518-520"
+      ],
+      "negative_tests": [
+        "precondition ordering; C600 untrusted direct call"
+      ]
+    },
+    {
+      "name": "heartbeat_execution",
+      "signature": "(uuid) RETURNS void",
+      "parameters": [
+        "p_execution_id uuid"
+      ],
+      "actor": "runner",
+      "owner": "postgres (disposable fixture)",
+      "execute_grant": [
+        "deedlight_ledger_runner"
+      ],
+      "identity_checks": [
+        "live DB identity",
+        "actor_role=runner",
+        "status running",
+        "runner_identity matches role label"
+      ],
+      "request_binding": "execution UUID and role label only; no heartbeat sequence/nonce or generation fence",
+      "failure": [
+        "D1001",
+        "migration runner authority required",
+        "active execution owned by this runner not found"
+      ],
+      "negative_side_effects": "heartbeat timestamp unchanged",
+      "positive_tests": [
+        "test-migration-execution-ledger-v1.sql lines 61-64"
+      ],
+      "negative_tests": [
+        "function state/owner checks; no explicit cross-login spoofing test"
+      ]
+    },
+    {
+      "name": "finalize_execution",
+      "signature": "(uuid,text,jsonb) RETURNS void",
+      "parameters": [
+        "p_execution_id uuid",
+        "p_outcome text",
+        "p_outcome_detail jsonb"
+      ],
+      "actor": "runner",
+      "owner": "postgres (disposable fixture)",
+      "execute_grant": [
+        "deedlight_ledger_runner"
+      ],
+      "identity_checks": [
+        "live DB identity",
+        "actor_role=runner",
+        "supported outcome and JSON object",
+        "marker exists",
+        "pre/post snapshots exist and query id/hash/bundle digest match",
+        "running and runner-owned"
+      ],
+      "request_binding": "execution UUID/outcome/detail plus persisted source/snapshot identity; no signed finalization envelope or verifier receipt",
+      "failure": [
+        "D1001",
+        "D1003",
+        "D1004",
+        "D1006",
+        "D1007",
+        "runner/state mismatch"
+      ],
+      "negative_side_effects": "execution remains running; no completion timestamp/outcome detail",
+      "positive_tests": [
+        "test-migration-execution-ledger-v1.sql lines 79-83,167-179"
+      ],
+      "negative_tests": [
+        "pre/post query mismatch lines 428-480",
+        "terminal transition immutability lines 357-369",
+        "C600 untrusted direct call"
+      ]
+    },
+    {
+      "name": "recover_stale_executions",
+      "signature": "(interval) RETURNS integer",
+      "parameters": [
+        "p_stale_after interval"
+      ],
+      "actor": "recovery",
+      "owner": "postgres (disposable fixture)",
+      "execute_grant": [
+        "deedlight_ledger_recovery"
+      ],
+      "identity_checks": [
+        "live DB identity",
+        "actor_role=recovery",
+        "interval > 0 and <= 7 days",
+        "stale heartbeat"
+      ],
+      "request_binding": "caller interval and DB clock/heartbeat; no signed reason/ticket/generation/target-set digest/nonce",
+      "failure": [
+        "D1001",
+        "D1006",
+        "recovery authority missing"
+      ],
+      "negative_side_effects": "no status changes on rejection; success reserved->interrupted, running->unknown",
+      "positive_tests": [
+        "test-migration-execution-ledger-v1.sql lines 239-267,291-327",
+        "Postgres runner crash recovery"
+      ],
+      "negative_tests": [
+        "replay interrupted/unknown rejected",
+        "C600 untrusted direct call"
+      ]
+    },
+    {
+      "name": "record_verification",
+      "signature": "(uuid,text,jsonb) RETURNS void",
+      "parameters": [
+        "p_execution_id uuid",
+        "p_verdict text",
+        "p_evidence jsonb"
+      ],
+      "actor": "verifier",
+      "owner": "postgres (disposable fixture)",
+      "execute_grant": [
+        "deedlight_ledger_verifier"
+      ],
+      "identity_checks": [
+        "live DB identity",
+        "actor_role=verifier",
+        "verdict allowed",
+        "evidence JSON object",
+        "execution terminal",
+        "verifier differs from approver and runner"
+      ],
+      "request_binding": "execution UUID/verdict/evidence JSON; no signed verifier identity or evidence digest",
+      "failure": [
+        "D1001",
+        "independent verifier authority required",
+        "verification evidence invalid",
+        "verification requires terminal execution and independent verifier"
+      ],
+      "negative_side_effects": "no verification event insert; status never changed",
+      "positive_tests": [
+        "test-migration-execution-ledger-v1.sql lines 121-126"
+      ],
+      "negative_tests": [
+        "runner/approver lack EXECUTE lines 329-355",
+        "terminal state immutable lines 357-369",
+        "C600 untrusted direct call"
+      ]
+    }
+  ],
+  "grant_matrix": {
+    "functions": [
+      "approve_execution",
+      "reserve_execution",
+      "record_effect_commit_marker",
+      "capture_snapshot",
+      "start_execution",
+      "heartbeat_execution",
+      "finalize_execution",
+      "recover_stale_executions",
+      "record_verification"
+    ],
+    "roles": [
+      "approver",
+      "runner",
+      "observer",
+      "recovery",
+      "verifier"
+    ],
+    "allow": [
+      [
+        "approve_execution",
+        "approver"
+      ],
+      [
+        "reserve_execution",
+        "runner"
+      ],
+      [
+        "record_effect_commit_marker",
+        "runner"
+      ],
+      [
+        "capture_snapshot",
+        "observer"
+      ],
+      [
+        "start_execution",
+        "runner"
+      ],
+      [
+        "heartbeat_execution",
+        "runner"
+      ],
+      [
+        "finalize_execution",
+        "runner"
+      ],
+      [
+        "recover_stale_executions",
+        "recovery"
+      ],
+      [
+        "record_verification",
+        "verifier"
+      ]
+    ],
+    "public_execute": false,
+    "all_roles_schema_usage": true,
+    "all_roles_current_database_identity_execute": true
+  },
+  "existing_test_inventory": {
+    "positive_paths": [
+      "approve",
+      "reserve",
+      "capture pre/post",
+      "start",
+      "heartbeat",
+      "commit marker",
+      "finalize",
+      "recover",
+      "verify"
+    ],
+    "negative_paths": [
+      "C600 untrusted role direct invocation all nine",
+      "runner/approver cannot execute verifier RPC",
+      "replay and duplicate identity rejection",
+      "snapshot marker and query integrity checks",
+      "terminal mutation rejection",
+      "runner direct ledger read/write denied",
+      "observer fixture mutation denied",
+      "crash rollback and replay"
+    ],
+    "missing": [
+      "catalog-derived exact owner/ACL assertion in CI",
+      "full 5x9 cross-actor direct invocation matrix",
+      "SET ROLE/session authorization adversarial proof for real non-superuser logins",
+      "session_user-to-independent-principal binding",
+      "privileged gateway legacy direct call without signed envelope",
+      "full row hashes/counts for every wrong actor/expired/mismatched authorization"
+    ]
+  },
+  "migration_preservation": {
+    "inventory_blob_sha": "4e63f31368d446e905f4f44565be73337c7188fb",
+    "migration_sql_count": 40,
+    "unique_versions": 39,
+    "intentional_duplicate_version_groups": 1,
+    "c575_c576_status": "PARTIAL; C601/C600 evidence and no migration change; no full independent re-audit",
+    "production_reconciliation": false
+  },
+  "classifications": {
+    "signatures_and_actor_checks": "PASS",
+    "security_definer_and_search_path": "PASS",
+    "explicit_execute_grants_and_public_revoke": "PASS",
+    "fixture_owner_postgres": "PASS_DISPOSABLE_ONLY",
+    "five_independent_production_principals": "NOT_ESTABLISHED",
+    "c600_untrusted_role_all_nine_zero_side_effects": "PASS",
+    "full_5x9_cross_actor_tests": "NOT_ESTABLISHED",
+    "set_role_impersonation_resistance": "FAIL_FIXTURE_MODEL",
+    "canonical_signed_request_binding": "NOT_ESTABLISHED",
+    "production_catalog_parity": "NOT_ESTABLISHED",
+    "production_readiness": "NO_GO"
+  },
+  "next_assignment": {
+    "id": "C603",
+    "title": "Enforce signed gateway authorization and immutable five-principal identity at the database boundary",
+    "no_production_changes_without_separate_security_dba_approval": true
+  }
+}
