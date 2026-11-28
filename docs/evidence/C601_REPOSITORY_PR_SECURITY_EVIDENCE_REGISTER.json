@@ -1,0 +1,475 @@
+{
+  "schema_version": "1.0",
+  "assessment_id": "C601",
+  "project": "DeedLight",
+  "repository": {
+    "full_name": "ADRN-9/deedlight",
+    "id": 1308367373,
+    "visibility": "public",
+    "default_branch": "main",
+    "default_branch_head": "d83813ba29831498846d9fa915ae210769c94e48",
+    "default_branch_protected": false,
+    "archived": false,
+    "source": "https://api.github.com/repos/ADRN-9/deedlight"
+  },
+  "observed_at": "2026-11-27T17:42:00-08:00",
+  "scope": {
+    "prs": [
+      36,
+      37,
+      38
+    ],
+    "no_merge_performed": true,
+    "no_production_mutation_performed": true,
+    "c599_original_review_artifact": "NOT_LOCATED",
+    "c599_reconciliation_basis": "The eight F-01 through F-08 labels in the C600 assignment and C600 remediation document; not an independent copy of the original C599 review."
+  },
+  "branches": [
+    {
+      "name": "main",
+      "head": "d83813ba29831498846d9fa915ae210769c94e48",
+      "protected": false
+    },
+    {
+      "name": "feat/c585-trust-diagnostics-bundle-manifest",
+      "head": "ba906e7c06e1efc52dc7185c9125277e08400220",
+      "protected": false
+    },
+    {
+      "name": "feat/c593-ledger-live-identity-manifest-trust",
+      "head": "f26a7dfea5c8d1342a31952363476127d97b0607",
+      "protected": false
+    },
+    {
+      "name": "docs/production-external-trust-binding-architecture",
+      "head": "5da7cde1f1d02a47bde1575c20a32e091d051ab3",
+      "protected": false
+    },
+    {
+      "name": "docs/c600-external-trust-findings-remediation",
+      "head": "0d81fa5bd3892d3ec063c41a4275b9a60c14b30c",
+      "protected": false
+    },
+    {
+      "name": "docs/c601-exact-repository-pr-evidence",
+      "head": "created_from_main_d83813ba29831498846d9fa915ae210769c94e48",
+      "protected": false
+    }
+  ],
+  "pull_requests": [
+    {
+      "number": 36,
+      "title": "C593: harden ledger identity and query-manifest trust",
+      "url": "https://github.com/ADRN-9/deedlight/pull/36",
+      "state": "open",
+      "draft": false,
+      "merged": false,
+      "mergeable": true,
+      "mergeable_state": "clean",
+      "head_branch": "feat/c593-ledger-live-identity-manifest-trust",
+      "head_sha": "f26a7dfea5c8d1342a31952363476127d97b0607",
+      "base_branch": "feat/c585-trust-diagnostics-bundle-manifest",
+      "base_sha": "ba906e7c06e1efc52dc7185c9125277e08400220",
+      "commit_count": 18,
+      "changed_files": 5,
+      "requested_reviewers": [],
+      "reviews": 0,
+      "inline_review_comments": 0,
+      "conversation_comments": 0,
+      "base_branch_protected": false,
+      "ancestry": {
+        "first_pr_commit_parent": "ba906e7c06e1efc52dc7185c9125277e08400220",
+        "stacked_on_pr": 35
+      },
+      "approval_status": "NOT_ESTABLISHED",
+      "notes": [
+        "PR mergeability is reported clean, but it targets the C585 feature branch, not main.",
+        "C593 report records a C596 independent review recommendation for merge; GitHub review API has zero submitted review records, so this is not a formal GitHub approval.",
+        "Security, DBA/provider trust-boundary approvals remain outstanding."
+      ]
+    },
+    {
+      "number": 37,
+      "title": "C598: Specify Production external trust-binding architecture",
+      "url": "https://github.com/ADRN-9/deedlight/pull/37",
+      "state": "open",
+      "draft": true,
+      "merged": false,
+      "mergeable": true,
+      "mergeable_state": "unstable",
+      "head_branch": "docs/production-external-trust-binding-architecture",
+      "head_sha": "5da7cde1f1d02a47bde1575c20a32e091d051ab3",
+      "base_branch": "feat/c593-ledger-live-identity-manifest-trust",
+      "base_sha": "f26a7dfea5c8d1342a31952363476127d97b0607",
+      "commit_count": 1,
+      "changed_files": 1,
+      "requested_reviewers": [],
+      "reviews": 0,
+      "inline_review_comments": 0,
+      "conversation_comments": 0,
+      "base_branch_protected": false,
+      "ancestry": {
+        "first_pr_commit_parent": "f26a7dfea5c8d1342a31952363476127d97b0607",
+        "stacked_on_pr": 36
+      },
+      "approval_status": "NOT_ESTABLISHED",
+      "notes": [
+        "Documentation-only architecture proposal; physical-clone protection is explicitly NOT ESTABLISHED.",
+        "PR #36 remains unchanged and unmerged.",
+        "Security, Infrastructure, DBA/Database Security and Product/Operations approval gates are listed in C598."
+      ]
+    },
+    {
+      "number": 38,
+      "title": "C600: Remediate external trust architecture findings F-01–F-08",
+      "url": "https://github.com/ADRN-9/deedlight/pull/38",
+      "state": "open",
+      "draft": true,
+      "merged": false,
+      "mergeable": true,
+      "mergeable_state": "clean",
+      "head_branch": "docs/c600-external-trust-findings-remediation",
+      "head_sha": "0d81fa5bd3892d3ec063c41a4275b9a60c14b30c",
+      "base_branch": "docs/production-external-trust-binding-architecture",
+      "base_sha": "5da7cde1f1d02a47bde1575c20a32e091d051ab3",
+      "commit_count": 7,
+      "changed_files": 3,
+      "requested_reviewers": [],
+      "reviews": 0,
+      "inline_review_comments": 0,
+      "conversation_comments": 0,
+      "base_branch_protected": false,
+      "ancestry": {
+        "first_pr_commit_parent": "5da7cde1f1d02a47bde1575c20a32e091d051ab3",
+        "stacked_on_pr": 37
+      },
+      "approval_status": "NOT_ESTABLISHED",
+      "notes": [
+        "Existing C600 work was recovered; do not duplicate or overwrite it.",
+        "PR #38 is stacked on PR #37; both remain open and unmerged.",
+        "Contains design specification plus a disposable ordinary-untrusted-role nine-RPC EXECUTE denial test, not Production gateway enforcement."
+      ]
+    }
+  ],
+  "workflow": {
+    "id": 365241434,
+    "name": "PR Validation",
+    "runs": [
+      {
+        "run_id": 46082355732,
+        "run_number": 2353,
+        "event": "push",
+        "pr": 36,
+        "head_sha": "f26a7dfea5c8d1342a31952363476127d97b0607",
+        "status": "completed",
+        "conclusion": "success",
+        "jobs_total": 13,
+        "jobs_success": 13,
+        "postgres_job_id": 140783977729,
+        "postgres_log_markers": [
+          "C593_BYTEWISE_CANONICAL_DIGEST_VECTOR_PASS",
+          "C595_LOCALE_DISCRIMINATING_BYTEWISE_VECTOR_PASS",
+          "C595_VALID_MANIFEST_NONMEMBER_REJECTED",
+          "C593_FORGED_MANIFEST_DIGEST_REJECTED",
+          "C593_SOURCE_IDENTITY_IMMUTABILITY_PASS",
+          "C593_LIVE_DATABASE_IDENTITY_FAIL_CLOSED_PASS",
+          "C578_CRASH_RECOVERY",
+          "C585_REPLAY_ONE_WINNER"
+        ]
+      },
+      {
+        "run_id": 46082361933,
+        "run_number": 2354,
+        "event": "pull_request",
+        "pr": 36,
+        "head_sha": "f26a7dfea5c8d1342a31952363476127d97b0607",
+        "status": "completed",
+        "conclusion": "success",
+        "jobs_total": 13,
+        "jobs_success": 13,
+        "postgres_job_id": 140783998725,
+        "postgres_log_markers": [
+          "C593_BYTEWISE_CANONICAL_DIGEST_VECTOR_PASS",
+          "C595_LOCALE_DISCRIMINATING_BYTEWISE_VECTOR_PASS",
+          "C595_VALID_MANIFEST_NONMEMBER_REJECTED",
+          "C593_FORGED_MANIFEST_DIGEST_REJECTED",
+          "C593_SOURCE_IDENTITY_IMMUTABILITY_PASS",
+          "C593_LIVE_DATABASE_IDENTITY_FAIL_CLOSED_PASS",
+          "C578_CRASH_RECOVERY",
+          "C585_REPLAY_ONE_WINNER"
+        ]
+      },
+      {
+        "run_id": 46084795810,
+        "run_number": 2356,
+        "event": "push",
+        "pr": 37,
+        "head_sha": "5da7cde1f1d02a47bde1575c20a32e091d051ab3",
+        "status": "completed",
+        "conclusion": "success",
+        "jobs_total": 13,
+        "jobs_success": 13,
+        "postgres_job_id": 140791739624,
+        "postgres_log_markers": [
+          "C593_LIVE_DATABASE_IDENTITY_FAIL_CLOSED_PASS",
+          "C595_VALID_MANIFEST_NONMEMBER_REJECTED",
+          "C593_FORGED_MANIFEST_DIGEST_REJECTED",
+          "C578_CRASH_RECOVERY",
+          "C585_REPLAY_ONE_WINNER"
+        ]
+      },
+      {
+        "run_id": 46084820756,
+        "run_number": 2357,
+        "event": "pull_request",
+        "pr": 37,
+        "head_sha": "5da7cde1f1d02a47bde1575c20a32e091d051ab3",
+        "status": "completed",
+        "conclusion": "success",
+        "jobs_total": 13,
+        "jobs_success": 13,
+        "postgres_job_id": 140791819943,
+        "postgres_log_markers": [
+          "C593_LIVE_DATABASE_IDENTITY_FAIL_CLOSED_PASS",
+          "C595_VALID_MANIFEST_NONMEMBER_REJECTED",
+          "C593_FORGED_MANIFEST_DIGEST_REJECTED",
+          "C578_CRASH_RECOVERY",
+          "C585_REPLAY_ONE_WINNER"
+        ]
+      },
+      {
+        "run_id": 46086776651,
+        "run_number": 2367,
+        "event": "push",
+        "pr": 38,
+        "head_sha": "0d81fa5bd3892d3ec063c41a4275b9a60c14b30c",
+        "status": "completed",
+        "conclusion": "success",
+        "jobs_total": 13,
+        "jobs_success": 13,
+        "postgres_job_id": 140798079632,
+        "postgres_log_markers": [
+          "C600_NINE_RPC_UNAUTHORIZED_DIRECT_CALLS_DENIED_ZERO_SIDE_EFFECTS",
+          "C593_LIVE_DATABASE_IDENTITY_FAIL_CLOSED_PASS",
+          "C595_VALID_MANIFEST_NONMEMBER_REJECTED",
+          "C593_FORGED_MANIFEST_DIGEST_REJECTED",
+          "C578_CRASH_RECOVERY",
+          "C585_REPLAY_ONE_WINNER"
+        ]
+      },
+      {
+        "run_id": 46086781316,
+        "run_number": 2368,
+        "event": "pull_request",
+        "pr": 38,
+        "head_sha": "0d81fa5bd3892d3ec063c41a4275b9a60c14b30c",
+        "status": "completed",
+        "conclusion": "success",
+        "jobs_total": 13,
+        "jobs_success": 13,
+        "postgres_job_id": 140798094143,
+        "postgres_log_markers": [
+          "C600_NINE_RPC_UNAUTHORIZED_DIRECT_CALLS_DENIED_ZERO_SIDE_EFFECTS",
+          "C593_LIVE_DATABASE_IDENTITY_FAIL_CLOSED_PASS",
+          "C595_VALID_MANIFEST_NONMEMBER_REJECTED",
+          "C593_FORGED_MANIFEST_DIGEST_REJECTED",
+          "C578_CRASH_RECOVERY",
+          "C585_REPLAY_ONE_WINNER"
+        ]
+      }
+    ],
+    "interpretation": "All six runs validate the exact PR head SHA listed for their PR. Older runs on earlier SHAs (including C595 candidate 5a075ee and early C600 failed/cancelled attempts) are historical, not substitutes for these exact-head runs. PostgreSQL logs were fetched and inspected for each listed job."
+  },
+  "migrations": {
+    "inventory_path": "supabase/migration-inventory.json",
+    "candidate_inventory_blob_sha": "4e63f31368d446e905f4f44565be73337c7188fb",
+    "expected_migration_count": 40,
+    "expected_unique_version_count": 39,
+    "main_actual_migration_files": 23,
+    "main_inventory_file": "ABSENT",
+    "candidate_actual_migration_files": 40,
+    "comparisons": [
+      {
+        "from": "feat/c585-trust-diagnostics-bundle-manifest@ba906e7c06e1efc52dc7185c9125277e08400220",
+        "to": "feat/c593-ledger-live-identity-manifest-trust@f26a7dfea5c8d1342a31952363476127d97b0607",
+        "migration_blob_changes": 0,
+        "status": "PASS"
+      },
+      {
+        "from": "feat/c593-ledger-live-identity-manifest-trust@f26a7dfea5c8d1342a31952363476127d97b0607",
+        "to": "docs/production-external-trust-binding-architecture@5da7cde1f1d02a47bde1575c20a32e091d051ab3",
+        "migration_blob_changes": 0,
+        "status": "PASS"
+      },
+      {
+        "from": "docs/production-external-trust-binding-architecture@5da7cde1f1d02a47bde1575c20a32e091d051ab3",
+        "to": "docs/c600-external-trust-findings-remediation@0d81fa5bd3892d3ec063c41a4275b9a60c14b30c",
+        "migration_blob_changes": 0,
+        "status": "PASS"
+      }
+    ],
+    "contracts": [
+      "C575 schema/validator contract",
+      "C576 pre/postcondition contract",
+      "catalog_only_v1"
+    ],
+    "contracts_status": "PRESERVED_BY_SCOPE_AND_DOCUMENTED_CHECKS; no C575/C576 migration or contract files appear in PR #36/#37/#38 changed-file lists.",
+    "important_caveat": "The 40-file candidate inventory is inherited from the C585 base chain and is not the main-branch inventory. Main currently has 23 migration SQL files and no supabase/migration-inventory.json. Do not describe the 40-file candidate inventory as already merged into main or reconciled with Production."
+  },
+  "c599_findings": [
+    {
+      "id": "F-01",
+      "topic": "Gateway authorization boundary",
+      "status": "PARTIAL",
+      "evidence": "C600 disposable PostgreSQL 16 fixture denies direct EXECUTE on all nine legacy RPCs to a NOLOGIN untrusted role and asserts full protected ledger row equality; marker C600_NINE_RPC_UNAUTHORIZED_DIRECT_CALLS_DENIED_ZERO_SIDE_EFFECTS in both C600 exact-head PostgreSQL logs.",
+      "gap": "Does not test direct invocation by a privileged gateway actor identity without a valid signed envelope; gateway, signed wrappers and DB cryptographic validation are not implemented."
+    },
+    {
+      "id": "F-02",
+      "topic": "Approver/runner/observer/recovery/verifier separation",
+      "status": "NOT_ESTABLISHED",
+      "evidence": "C600 architecture document defines five distinct principals and permissions.",
+      "gap": "Production principals, role grants, identity registry and adversarial cross-role tests are not implemented."
+    },
+    {
+      "id": "F-03",
+      "topic": "Independently authenticated live database resource identity",
+      "status": "PARTIAL",
+      "evidence": "C593 PostgreSQL fixture tests live system identifier, database OID/name and server version on all nine privileged RPCs; fail-closed marker present in PR36/37/38 PostgreSQL logs.",
+      "gap": "Those values are database-local and may be copied by physical clone; provider-signed unique live resource and endpoint identity/failover binding is design only and NOT ESTABLISHED."
+    },
+    {
+      "id": "F-04",
+      "topic": "Verifier compromise containment",
+      "status": "NOT_ESTABLISHED",
+      "evidence": "C600 proposes dual independent verifier/policy signatures, separate key custody and nonce authority.",
+      "gap": "No independently deployed authorities, key custody or compromise simulation exists."
+    },
+    {
+      "id": "F-05",
+      "topic": "Linearizable generation fencing and delayed dispatch",
+      "status": "NOT_ESTABLISHED",
+      "evidence": "C600 specifies generation state machine, dispatch leases and bounded delayed-send behavior.",
+      "gap": "No external linearizable fencing authority or concurrency/failover implementation/tests."
+    },
+    {
+      "id": "F-06",
+      "topic": "Fresh provider workload evidence and artifact provenance",
+      "status": "NOT_ESTABLISHED",
+      "evidence": "C600 specifies provider workload attestation and build provenance binding.",
+      "gap": "No provider evidence adapter, verified artifact provenance or DB-enforced binding."
+    },
+    {
+      "id": "F-07",
+      "topic": "Typed canonical request and signed consume receipt",
+      "status": "NOT_ESTABLISHED",
+      "evidence": "C600 proposes deterministic typed CBOR and signed one-use consume receipt.",
+      "gap": "No canonical encoding implementation, signature verification wrappers or receipt validation tests."
+    },
+    {
+      "id": "F-08",
+      "topic": "Nonce anti-rollback recovery and audit outage",
+      "status": "NOT_ESTABLISHED",
+      "evidence": "C600 specifies consensus nonce state, independent witness, durable audit outbox and fail-closed outage.",
+      "gap": "No nonce service, witness, rollback-recovery or audit-outage implementation/tests."
+    }
+  ],
+  "approval_dependencies": [
+    {
+      "owner": "Security",
+      "requirement": "Approve threat model, independent authorities, trust roots, signing formats, residual risk, canonical encoding and adversarial acceptance.",
+      "status": "OUTSTANDING"
+    },
+    {
+      "owner": "Infrastructure",
+      "requirement": "Approve provider workload identity, unique database resource/endpoint identity, failover, verifier/policy/nonce deployment and independent witness.",
+      "status": "OUTSTANDING"
+    },
+    {
+      "owner": "DBA / Database Security",
+      "requirement": "Approve exact nine-RPC catalog/grants, actor principal mapping, signed wrapper enforcement and DB-side signature verification.",
+      "status": "OUTSTANDING"
+    },
+    {
+      "owner": "Operations",
+      "requirement": "Approve fencing/drain SLO, audit retention/outage behavior, disable/re-enable and failover/restore runbooks.",
+      "status": "OUTSTANDING"
+    }
+  ],
+  "evidence_register": [
+    {
+      "id": "E-001",
+      "classification": "PASS",
+      "claim": "Repository identity/default branch/current main SHA independently retrieved.",
+      "source": "https://api.github.com/repos/ADRN-9/deedlight and https://api.github.com/repos/ADRN-9/deedlight/branches/main"
+    },
+    {
+      "id": "E-002",
+      "classification": "PASS",
+      "claim": "PR #36 exact state/head/base/ancestry and review records retrieved.",
+      "source": "https://api.github.com/repos/ADRN-9/deedlight/pulls/36 plus /reviews, /comments, /commits, /files"
+    },
+    {
+      "id": "E-003",
+      "classification": "PASS",
+      "claim": "PR #37 exact state/head/base/ancestry and review records retrieved.",
+      "source": "https://api.github.com/repos/ADRN-9/deedlight/pulls/37 plus /reviews, /comments, /commits, /files"
+    },
+    {
+      "id": "E-004",
+      "classification": "PASS",
+      "claim": "Existing C600 PR #38 and seven commits recovered; no duplicate remediation branch created.",
+      "source": "https://api.github.com/repos/ADRN-9/deedlight/pulls/38 plus /commits and /files"
+    },
+    {
+      "id": "E-005",
+      "classification": "PASS",
+      "claim": "Exact-head branch and PR CI runs for PRs #36, #37 and #38 all completed 13/13 successful.",
+      "source": "https://api.github.com/repos/ADRN-9/deedlight/actions/runs"
+    },
+    {
+      "id": "E-006",
+      "classification": "PASS",
+      "claim": "PostgreSQL 16 job logs fetched and required C593/C595/C578/C585 markers inspected; C600 marker inspected for #38.",
+      "source": "workflow job IDs in workflow.runs"
+    },
+    {
+      "id": "E-007",
+      "classification": "PASS",
+      "claim": "Migration file blob SHA comparison shows zero migration changes across C585 base -> C593 -> C598 -> C600.",
+      "source": "Git tree endpoints for the exact refs listed in migrations.comparisons"
+    },
+    {
+      "id": "E-008",
+      "classification": "PARTIAL",
+      "claim": "C575/C576 contracts and catalog_only_v1 are reported preserved and are not in PR changed-file lists.",
+      "source": "C593 report and PR #36/#37/#38 files endpoints"
+    },
+    {
+      "id": "E-009",
+      "classification": "NOT_ESTABLISHED",
+      "claim": "Original independent C599 review artifact and formal GitHub review approvals are not located.",
+      "source": "PR #36/#37/#38 reviews/comments, branch inventory, repo issue search"
+    },
+    {
+      "id": "E-010",
+      "classification": "NOT_ESTABLISHED",
+      "claim": "Production physical-clone protection and external trust architecture implementation.",
+      "source": "C593, C598 and C600 reports; no Production trust evidence"
+    }
+  ],
+  "recommended_c602_handoff": {
+    "title": "C602 — Close F-01 privileged-gateway bypass and prove the database authorization boundary",
+    "reason": "C600's only executable external-trust security control tests a NOLOGIN untrusted role without EXECUTE. The highest-risk gap is direct invocation through one of the privileged gateway actor credentials without a valid signed authorization envelope. This is narrower and prerequisite to F-02 through F-08 implementation.",
+    "scope": [
+      "Obtain and attach original C599 report if available; otherwise explicitly retain the assigned F-01..F-08 list as the accepted review specification.",
+      "Catalog all nine privileged function signatures, owners, SECURITY DEFINER properties, grants, memberships and alternate invocation paths on disposable PostgreSQL 16.",
+      "Design and implement versioned v2 wrappers with DB-side signature/claim validation; revoke direct legacy RPC execution from every runtime actor role.",
+      "Create distinct approver, runner, observer, recovery and verifier roles with fail-closed session_user-to-principal mapping; include F-02 tests as prerequisite guardrails.",
+      "Test each of nine direct calls from anon/authenticated/application and every gateway actor login with absent, invalid, expired, replayed and mismatched envelope; assert full row hashes/counts and zero external dispatch side effects.",
+      "Run exact-head branch and PR CI, inspect PostgreSQL logs, preserve all 40 inherited migration blobs and C575/C576 contracts; do not modify Production."
+    ],
+    "acceptance": "Every legacy direct invocation denied; only a correctly signed, operation/resource/generation/actor-bound wrapper call succeeds exactly once; all negative tests have zero side effects; exact-head CI PASS; DBA and Security approve the disposable enforcement design.",
+    "not_scope": "Do not build or claim Production provider physical-clone protection; do not provision secrets, modify Production roles, or merge PR #36/#37."
+  }
+}
