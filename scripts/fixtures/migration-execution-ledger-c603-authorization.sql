@@ -34,7 +34,6 @@ CREATE TABLE deedlight_execution_ledger.authorization_keys (
   generation bigint NOT NULL,
   audience text NOT NULL,
   PRIMARY KEY (actor, key_id),
-  UNIQUE (principal),
   CHECK (octet_length(signing_key) >= 32)
 );
 
