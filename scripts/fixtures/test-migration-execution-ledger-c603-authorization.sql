@@ -54,18 +54,22 @@ GRANT USAGE ON SCHEMA c603_test TO deedlight_ledger_approver,
   deedlight_ledger_recovery,deedlight_ledger_verifier;
 CREATE OR REPLACE FUNCTION c603_test.assert_rejected(p_sql text,p_expected_state text)
 RETURNS void LANGUAGE plpgsql AS $fn$
-DECLARE v_state text;
+DECLARE v_state text; v_rejected boolean := false;
 BEGIN
   BEGIN
     EXECUTE p_sql;
-    RAISE EXCEPTION 'C603 expected rejection but statement succeeded: %',p_sql;
   EXCEPTION WHEN OTHERS THEN
     GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE;
-    IF v_state IS DISTINCT FROM p_expected_state THEN
-      RAISE EXCEPTION 'C603 wrong rejection SQLSTATE: expected %, got % for %',
-        p_expected_state,v_state,p_sql;
-    END IF;
+    v_rejected := true;
   END;
+  IF NOT v_rejected THEN
+    RAISE EXCEPTION USING ERRCODE='P0002',
+      MESSAGE='C603 expected rejection but statement succeeded: '||p_sql;
+  END IF;
+  IF v_state IS DISTINCT FROM p_expected_state THEN
+    RAISE EXCEPTION 'C603 wrong rejection SQLSTATE: expected %, got % for %',
+      p_expected_state,v_state,p_sql;
+  END IF;
 END
 $fn$;
 REVOKE ALL ON FUNCTION c603_test.assert_rejected(text,text) FROM PUBLIC;
