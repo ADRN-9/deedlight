@@ -223,6 +223,135 @@ SELECT deedlight_execution_ledger.recover_stale_executions(interval '1 microseco
 RESET SESSION AUTHORIZATION;
 SELECT 'C603_RECOVERY_SIGNED_POSITIVE_PATH_PASS' AS evidence;
 
+-- A second execution is made stale only after a receipt for the empty target set
+-- has been signed. Recovery must reject the stale receipt and leave every row intact.
+SELECT pg_temp.c603_sign('deedlight_ledger_approver','approve_execution',
+ 'c6030000-0000-4000-8000-000000000023',
+ pg_catalog.jsonb_build_object('approvalId','c6030000-0000-4000-8000-000000000003'::uuid,
+ 'recordId','c6030000-0000-4000-8000-000000000013'::uuid,
+ 'executionId','c6030000-0000-4000-8000-000000000023'::uuid,
+ 'sourceIdentity','{"path":"supabase/migrations/c603-race.sql","sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}'::jsonb)
+) AS race_approval_auth \gset
+SET SESSION AUTHORIZATION deedlight_ledger_approver;
+SELECT deedlight_execution_ledger.approve_execution(
+ 'c6030000-0000-4000-8000-000000000003','c6030000-0000-4000-8000-000000000013',
+ 'c6030000-0000-4000-8000-000000000023',
+ '{"path":"supabase/migrations/c603-race.sql","sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}'::jsonb,
+ :'race_approval_auth'::jsonb);
+RESET SESSION AUTHORIZATION;
+SELECT pg_temp.c603_sign('deedlight_ledger_runner','reserve_execution',
+ 'c6030000-0000-4000-8000-000000000023',
+ pg_catalog.jsonb_build_object('approvalId','c6030000-0000-4000-8000-000000000003'::uuid,
+ 'recordId','c6030000-0000-4000-8000-000000000013'::uuid,
+ 'executionId','c6030000-0000-4000-8000-000000000023'::uuid,
+ 'sourceIdentity','{"path":"supabase/migrations/c603-race.sql","sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}'::jsonb)
+) AS race_reserve_auth \gset
+SET SESSION AUTHORIZATION deedlight_ledger_runner;
+SELECT deedlight_execution_ledger.reserve_execution(
+ 'c6030000-0000-4000-8000-000000000003','c6030000-0000-4000-8000-000000000013',
+ 'c6030000-0000-4000-8000-000000000023',
+ '{"path":"supabase/migrations/c603-race.sql","sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}'::jsonb,
+ :'race_reserve_auth'::jsonb);
+RESET SESSION AUTHORIZATION;
+
+SELECT pg_temp.c603_sign('deedlight_ledger_recovery','recover_stale_executions',NULL,
+ pg_catalog.jsonb_build_object('staleAfter','00:00:00.000001',
+ 'sourceSetDigest',pg_catalog.encode(deedlight_execution_ledger.digest(
+   pg_catalog.convert_to('[]'::jsonb::text,'UTF8'),'sha256'),'hex'),
+ 'targetCount',0)) AS empty_set_recovery_auth \gset
+SELECT pg_catalog.pg_sleep(0.02);
+CREATE TEMP TABLE c605_recovery_before AS
+SELECT pg_catalog.to_jsonb(e) AS execution_row
+FROM deedlight_execution_ledger.executions e
+WHERE execution_id='c6030000-0000-4000-8000-000000000023';
+
+SET SESSION AUTHORIZATION deedlight_ledger_recovery;
+SELECT c603_test.assert_rejected(
+ format('SELECT deedlight_execution_ledger.recover_stale_executions(%L::interval,%L::jsonb)',
+   '1 microsecond', :'empty_set_recovery_auth'),
+ 'D1001');
+RESET SESSION AUTHORIZATION;
+
+DO $recovery_race$
+BEGIN
+ IF (SELECT status FROM deedlight_execution_ledger.executions
+     WHERE execution_id='c6030000-0000-4000-8000-000000000023') <> 'reserved' THEN
+   RAISE EXCEPTION 'C605 mismatched signed target set changed execution state';
+ END IF;
+END
+$recovery_race$;
+SELECT 'C605_RECOVERY_SIGNED_TARGET_SET_MISMATCH_ZERO_MUTATION_PASS' AS evidence;
+
+SELECT pg_temp.c603_sign('deedlight_ledger_recovery','recover_stale_executions',NULL,
+ pg_catalog.jsonb_build_object('staleAfter','00:00:00.000001',
+ 'sourceSetDigest',(SELECT pg_catalog.encode(deedlight_execution_ledger.digest(
+   pg_catalog.convert_to(coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
+     'executionId',execution_id,'sourceIdentity',source_identity,'status',status,
+     'heartbeatAt',heartbeat_at) ORDER BY execution_id),'[]'::jsonb)::text,'UTF8'),'sha256'),'hex')
+   FROM deedlight_execution_ledger.executions WHERE status IN ('reserved','running')
+     AND heartbeat_at < pg_catalog.clock_timestamp()-interval '1 microsecond'),
+ 'targetCount',(SELECT pg_catalog.count(*) FROM deedlight_execution_ledger.executions
+   WHERE status IN ('reserved','running') AND heartbeat_at < pg_catalog.clock_timestamp()-interval '1 microsecond'))) AS exact_set_recovery_auth \gset
+SET SESSION AUTHORIZATION deedlight_ledger_recovery;
+SELECT deedlight_execution_ledger.recover_stale_executions(interval '1 microsecond',:'exact_set_recovery_auth'::jsonb);
+RESET SESSION AUTHORIZATION;
+DO $recovery_exact$
+BEGIN
+ IF (SELECT status FROM deedlight_execution_ledger.executions
+     WHERE execution_id='c6030000-0000-4000-8000-000000000023') <> 'interrupted' THEN
+   RAISE EXCEPTION 'C605 exact authorized target was not recovered';
+ END IF;
+END
+$recovery_exact$;
+SELECT 'C605_RECOVERY_MUTATES_EXACT_SIGNED_TARGETS_PASS' AS evidence;
+
+-- Generation rotation is compare-and-swap, monotonic and revokes the prior key.
+SELECT pg_temp.c603_sign('deedlight_ledger_runner','heartbeat_execution',
+ 'c6030000-0000-4000-8000-000000000021',
+ pg_catalog.jsonb_build_object('executionId','c6030000-0000-4000-8000-000000000021'::uuid,
+ 'sourceIdentity','{"path":"supabase/migrations/c603-positive.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb)
+) AS runner_generation_one_auth \gset
+SELECT deedlight_execution_ledger.rotate_authorization_generation(
+ 'deedlight_ledger_runner',1,'c603-runner-v2',decode(repeat('66',32),'hex'));
+SET SESSION AUTHORIZATION deedlight_ledger_runner;
+SELECT c603_test.assert_rejected(
+ format('SELECT deedlight_execution_ledger.heartbeat_execution(%L,%L::jsonb,%L::jsonb)',
+  'c6030000-0000-4000-8000-000000000021',
+  '{"path":"supabase/migrations/c603-positive.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}',
+  :'runner_generation_one_auth'),
+ 'D1001');
+RESET SESSION AUTHORIZATION;
+SELECT pg_temp.c603_sign('deedlight_ledger_runner','heartbeat_execution',
+ 'c6030000-0000-4000-8000-000000000021',
+ pg_catalog.jsonb_build_object('executionId','c6030000-0000-4000-8000-000000000021'::uuid,
+ 'sourceIdentity','{"path":"supabase/migrations/c603-positive.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb)
+) AS runner_generation_two_auth \gset
+SET SESSION AUTHORIZATION deedlight_ledger_runner;
+SELECT c603_test.assert_rejected(
+ format('SELECT deedlight_execution_ledger.heartbeat_execution(%L,%L::jsonb,%L::jsonb)',
+  'c6030000-0000-4000-8000-000000000021',
+  '{"path":"supabase/migrations/c603-positive.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}',
+  :'runner_generation_two_auth'),
+ 'P0001');
+RESET SESSION AUTHORIZATION;
+SELECT deedlight_execution_ledger.revoke_authorization_generation('deedlight_ledger_observer',1);
+SELECT pg_temp.c603_sign('deedlight_ledger_observer','capture_snapshot',
+ 'c6030000-0000-4000-8000-000000000021',
+ pg_catalog.jsonb_build_object('executionId','c6030000-0000-4000-8000-000000000021'::uuid,
+ 'phase','pre','queryId','test_effects_v1','sourceIdentity','{"path":"supabase/migrations/c603-positive.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb)
+) AS revoked_observer_auth \gset
+SET SESSION AUTHORIZATION deedlight_ledger_observer;
+SELECT c603_test.assert_rejected(
+ format('SELECT deedlight_execution_ledger.capture_snapshot(%L,%L,%L,%L::jsonb,%L::jsonb)',
+  'c6030000-0000-4000-8000-000000000021','pre','test_effects_v1',
+  '{"path":"supabase/migrations/c603-positive.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}',
+  :'revoked_observer_auth'),
+ 'D1001');
+RESET SESSION AUTHORIZATION;
+SELECT 'C605_MONOTONIC_GENERATION_ROTATION_AND_REVOCATION_PASS' AS evidence;
+
+
+
 -- Assert the owner/actor separation and exact 5 x 9 EXECUTE matrix.
 DO $catalog$
 DECLARE v_proc text; v_actor text; v_allowed text; v_impl text; v_owner oid; v_oid oid;
