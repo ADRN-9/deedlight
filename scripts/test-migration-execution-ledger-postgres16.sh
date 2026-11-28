@@ -552,14 +552,18 @@ FOR EACH ROW WHEN (NEW.execution_id='c6030000-0000-4000-8000-000000000022'::uuid
 EXECUTE FUNCTION c603_test.pause_verification_insert();
 SQL
 
+verifier_source="$(clean_psql --tuples-only --no-align --command "
+  SELECT source_identity FROM deedlight_execution_ledger.executions
+  WHERE execution_id='c6030000-0000-4000-8000-000000000022'
+")"
+[[ -n "$verifier_source" ]] || { echo "FAIL: missing C605 verifier source identity" >&2; exit 1; }
 verifier_auth="$(clean_psql --tuples-only --no-align --command "
   SELECT c603_test.sign('deedlight_ledger_verifier','record_verification',
     'c6030000-0000-4000-8000-000000000022'::uuid,
     pg_catalog.jsonb_build_object(
       'executionId','c6030000-0000-4000-8000-000000000022'::uuid,
       'verdict','verified','evidence','{\"c605\":\"generation-revocation-race\"}'::jsonb,
-      'sourceIdentity',(SELECT source_identity FROM deedlight_execution_ledger.executions
-        WHERE execution_id='c6030000-0000-4000-8000-000000000022')
+      'sourceIdentity','$verifier_source'::jsonb
     )
   )
 ")"
@@ -570,8 +574,7 @@ SET SESSION AUTHORIZATION deedlight_ledger_verifier;
 SELECT deedlight_execution_ledger.record_verification(
   'c6030000-0000-4000-8000-000000000022','verified',
   '{"c605":"generation-revocation-race"}'::jsonb,
-  (SELECT source_identity FROM deedlight_execution_ledger.executions
-    WHERE execution_id='c6030000-0000-4000-8000-000000000022'),
+  '$verifier_source'::jsonb,
   '$verifier_auth'::jsonb
 );
 RESET SESSION AUTHORIZATION;
