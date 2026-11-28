@@ -406,19 +406,28 @@ SELECT c603_test.sign_recovery(jsonb_build_object(
   )
 )) AS duplicate_signed_auth \gset
 SET SESSION AUTHORIZATION deedlight_ledger_recovery;
+CREATE TEMP TABLE c614_duplicate_business_before ON COMMIT PRESERVE ROWS AS
+SELECT * FROM deedlight_execution_ledger.executions
+WHERE execution_id='c6080000-0000-4000-8000-000000000017';
 SELECT c603_test.assert_rejected(format(
   'SELECT deedlight_execution_ledger.recover_stale_executions(%L::interval,%L::jsonb)',
   '1 minute',:'duplicate_signed_auth'),'D1006');
 RESET SESSION AUTHORIZATION;
 DO $assert$
+DECLARE v_before jsonb; v_after jsonb;
 BEGIN
-  IF (SELECT status FROM deedlight_execution_ledger.executions
-      WHERE execution_id='c6080000-0000-4000-8000-000000000017') IS DISTINCT FROM 'running' THEN
-    RAISE EXCEPTION 'C610 duplicate signed target rejection mutated an execution';
+  SELECT coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(row_data) ORDER BY row_data.execution_id),'[]'::jsonb)
+    INTO v_before FROM pg_temp.c614_duplicate_business_before AS row_data;
+  SELECT coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(row_data) ORDER BY row_data.execution_id),'[]'::jsonb)
+    INTO v_after FROM deedlight_execution_ledger.executions AS row_data
+    WHERE execution_id='c6080000-0000-4000-8000-000000000017';
+  IF v_before IS DISTINCT FROM v_after THEN
+    RAISE EXCEPTION 'C610 duplicate signed target rejection partially mutated business row';
   END IF;
 END
 $assert$;
-SELECT 'C610_DUPLICATE_SIGNED_TARGETS_REJECTED_ZERO_MUTATION_PASS' AS evidence;
+SELECT c608_test.assert_nonce_absent(:'duplicate_signed_auth'::jsonb);
+SELECT 'C610_DUPLICATE_SIGNED_TARGETS_REJECTED_ZERO_MUTATION_NONCE_ROLLBACK_PASS' AS evidence;
 
 -- A valid signature containing descending IDs is rejected before any mutation.
 SELECT c608_test.seed_execution('c6080000-0000-4000-8000-000000000019','running',
@@ -437,21 +446,34 @@ SELECT c603_test.sign_recovery(jsonb_build_object(
   )
 )) AS unordered_signed_auth \gset
 SET SESSION AUTHORIZATION deedlight_ledger_recovery;
+CREATE TEMP TABLE c614_unordered_business_before ON COMMIT PRESERVE ROWS AS
+SELECT * FROM deedlight_execution_ledger.executions
+WHERE execution_id IN (
+  'c6080000-0000-4000-8000-000000000019',
+  'c6080000-0000-4000-8000-000000000020'
+);
 SELECT c603_test.assert_rejected(format(
   'SELECT deedlight_execution_ledger.recover_stale_executions(%L::interval,%L::jsonb)',
   '1 minute',:'unordered_signed_auth'),'D1006');
 RESET SESSION AUTHORIZATION;
 DO $assert$
+DECLARE v_before jsonb; v_after jsonb;
 BEGIN
-  IF (SELECT status FROM deedlight_execution_ledger.executions
-      WHERE execution_id='c6080000-0000-4000-8000-000000000019') IS DISTINCT FROM 'running'
-    OR (SELECT status FROM deedlight_execution_ledger.executions
-      WHERE execution_id='c6080000-0000-4000-8000-000000000020') IS DISTINCT FROM 'reserved' THEN
-    RAISE EXCEPTION 'C610 unordered target rejection partially mutated the target set';
+  SELECT coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(row_data) ORDER BY row_data.execution_id),'[]'::jsonb)
+    INTO v_before FROM pg_temp.c614_unordered_business_before AS row_data;
+  SELECT coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(row_data) ORDER BY row_data.execution_id),'[]'::jsonb)
+    INTO v_after FROM deedlight_execution_ledger.executions AS row_data
+    WHERE execution_id IN (
+      'c6080000-0000-4000-8000-000000000019',
+      'c6080000-0000-4000-8000-000000000020'
+    );
+  IF v_before IS DISTINCT FROM v_after THEN
+    RAISE EXCEPTION 'C610 unordered target rejection partially mutated business rows';
   END IF;
 END
 $assert$;
-SELECT 'C610_UNORDERED_TARGET_IDS_REJECTED_ZERO_MUTATION_PASS' AS evidence;
+SELECT c608_test.assert_nonce_absent(:'unordered_signed_auth'::jsonb);
+SELECT 'C610_UNORDERED_TARGET_IDS_REJECTED_ZERO_MUTATION_NONCE_ROLLBACK_PASS' AS evidence;
 
 -- C613: the runtime implementation must reject an empty signed target set.
 SELECT c608_test.seed_execution('c6080000-0000-4000-8000-000000000023','running',
