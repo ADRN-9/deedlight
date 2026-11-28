@@ -248,6 +248,7 @@ AFTER UPDATE OF status ON deedlight_execution_ledger.executions
 FOR EACH ROW WHEN (OLD.execution_id='c6030000-0000-4000-8000-000000000023'::uuid
   AND NEW.status='interrupted')
 EXECUTE FUNCTION c603_test.inject_new_stale_recovery_target();
+REVOKE ALL ON FUNCTION c603_test.inject_new_stale_recovery_target() FROM PUBLIC;
 
 SELECT pg_temp.c603_sign('deedlight_ledger_recovery','recover_stale_executions',NULL,
  pg_catalog.jsonb_build_object('staleAfter','00:00:00.000001',
