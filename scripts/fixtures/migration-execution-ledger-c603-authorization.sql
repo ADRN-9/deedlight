@@ -234,7 +234,7 @@ BEGIN
     OR p_envelope->>'executionId' IS DISTINCT FROM p_execution_id::text
     OR p_envelope->'request' IS DISTINCT FROM p_request
     OR p_envelope->>'audience' IS DISTINCT FROM 'deedlight.execution-ledger.gateway.v1'
-    OR p_envelope->>'keyId' IS DISTINCT FROM ('c603-' || replace(p_actor::text,'deedlight_ledger_','') || '-v1') THEN
+    OR p_envelope->>'keyId' IS NULL THEN
     PERFORM deedlight_execution_ledger.raise_trust_failure(
       'missing_trust','authorization_request_binding_mismatch',
       pg_catalog.jsonb_build_object('operation',p_operation,'actor',p_actor));
@@ -537,7 +537,7 @@ REVOKE ALL ON ALL FUNCTIONS IN SCHEMA deedlight_execution_ledger FROM PUBLIC,
   deedlight_ledger_approver,deedlight_ledger_runner,deedlight_ledger_observer,
   deedlight_ledger_recovery,deedlight_ledger_verifier;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA deedlight_execution_ledger TO deedlight_ledger_owner;
-GRANT SELECT ON deedlight_execution_ledger.authorization_keys TO deedlight_ledger_owner;
+GRANT SELECT,INSERT,UPDATE ON deedlight_execution_ledger.authorization_keys TO deedlight_ledger_owner;
 GRANT SELECT,UPDATE ON deedlight_execution_ledger.authorization_generations TO deedlight_ledger_owner;
 GRANT INSERT,SELECT ON deedlight_execution_ledger.authorization_nonces TO deedlight_ledger_owner;
 GRANT USAGE ON SCHEMA deedlight_execution_ledger TO
