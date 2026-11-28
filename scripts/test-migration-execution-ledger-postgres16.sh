@@ -660,17 +660,6 @@ nonce_before_revoked_replay="$(clean_psql --tuples-only --no-align --command \
   "SELECT count(*) FROM deedlight_execution_ledger.authorization_nonces")"
 verification_before_revoked_replay="$(clean_psql --tuples-only --no-align --command \
   "SELECT count(*) FROM deedlight_execution_ledger.verification_events")"
-revoked_replay_sql="
-  SET SESSION AUTHORIZATION deedlight_ledger_verifier;
-  SELECT deedlight_execution_ledger.record_verification(
-    'c6030000-0000-4000-8000-000000000022','verified',
-    '{\"c605\":\"generation-revocation-race\"}'::jsonb,
-    (SELECT source_identity FROM deedlight_execution_ledger.executions
-      WHERE execution_id='c6030000-0000-4000-8000-000000000022'),
-    :'authorization'::jsonb
-  );
-  RESET SESSION AUTHORIZATION;
-"
 if app_psql deedlight_c605_revoked_replay --file "$tmp_dir/c605-verifier.sql" \
   >"$tmp_dir/c605-revoked-replay.log" 2>&1; then
   echo "FAIL: revoked verifier authorization unexpectedly replayed" >&2
