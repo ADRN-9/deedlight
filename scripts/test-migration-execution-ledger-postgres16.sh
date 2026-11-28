@@ -638,7 +638,7 @@ set -e
   exit 1
 }
 clean_psql --command "
-  DO \\$assert\\$
+  DO \$assert\$
   BEGIN
     IF (SELECT state FROM deedlight_execution_ledger.authorization_generations
         WHERE actor='deedlight_ledger_verifier') <> 'revoked'
@@ -650,7 +650,7 @@ clean_psql --command "
       RAISE EXCEPTION 'C605 revocation did not serialize after admitted operation';
     END IF;
   END
-  \\$assert\\$;
+  \$assert\$;
   DROP TRIGGER c605_pause_verification_insert ON deedlight_execution_ledger.verification_events;
 "
 echo "C605_GENERATION_REVOCATION_SERIALIZED_AFTER_INFLIGHT_AUTHORIZATION_PASS"
