@@ -152,6 +152,7 @@ REVOKE ALL ON FUNCTION c608_test.assert_trust_failure(text,text),
   c608_test.assert_nonce_absent(jsonb),c608_test.assert_business_snapshot() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION c608_test.assert_trust_failure(text,text)
   TO deedlight_ledger_recovery;
+GRANT USAGE ON SCHEMA c608_test TO deedlight_ledger_recovery;
 
 -- Heartbeat change after signing invalidates the entire two-row request.
 SELECT c608_test.seed_execution('c6080000-0000-4000-8000-000000000001','running',
