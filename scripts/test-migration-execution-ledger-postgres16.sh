@@ -934,7 +934,7 @@ c617_final_states="$(clean_psql --tuples-only --no-align --command "
   echo "FAIL: C617 winning request did not recover its two-target set ($c617_final_states)" >&2
   exit 1
 }
-printf 'C617_OVERLAPPING_MULTI_TARGET_ONE_WINNER A=%s B=%s nonce_A=%s nonce_B=%s untouched_target_011=PASS states=%s\n' \
+printf 'C617_OVERLAPPING_MULTI_TARGET_ONE_WINNER A=%s B=%s nonce_A=%s nonce_B=%s untouched_target_027=PASS states=%s\n' \
   "$c617_status_a" "$c617_status_b" "$overlap_nonce_a" "$overlap_nonce_b" "$c617_final_states"
 clean_psql --command "DROP SCHEMA c608_test CASCADE; DROP SCHEMA c603_test CASCADE;"
 echo "C608_RECOVERY_AUTHORIZATION_CONCURRENCY_PASS"
