@@ -655,6 +655,45 @@ clean_psql --command "
 "
 echo "C605_GENERATION_REVOCATION_SERIALIZED_AFTER_INFLIGHT_AUTHORIZATION_PASS"
 
+# A token that was valid before revocation cannot be replayed after the revocation
+# linearization point, even though its local PostgreSQL nonce record still exists.
+nonce_before_revoked_replay="$(clean_psql --tuples-only --no-align --command \
+  "SELECT count(*) FROM deedlight_execution_ledger.authorization_nonces")"
+verification_before_revoked_replay="$(clean_psql --tuples-only --no-align --command \
+  "SELECT count(*) FROM deedlight_execution_ledger.verification_events")"
+revoked_replay_sql="
+  SET SESSION AUTHORIZATION deedlight_ledger_verifier;
+  SELECT deedlight_execution_ledger.record_verification(
+    'c6030000-0000-4000-8000-000000000022','verified',
+    '{\"c605\":\"generation-revocation-race\"}'::jsonb,
+    (SELECT source_identity FROM deedlight_execution_ledger.executions
+      WHERE execution_id='c6030000-0000-4000-8000-000000000022'),
+    :'authorization'::jsonb
+  );
+  RESET SESSION AUTHORIZATION;
+"
+if app_psql deedlight_c605_revoked_replay --set "authorization=$verifier_auth" \
+  --command "$revoked_replay_sql" >"$tmp_dir/c605-revoked-replay.log" 2>&1; then
+  echo "FAIL: revoked verifier authorization unexpectedly replayed" >&2
+  exit 1
+fi
+grep -q "authorization_generation_revoked" "$tmp_dir/c605-revoked-replay.log" || {
+  cat "$tmp_dir/c605-revoked-replay.log"
+  echo "FAIL: revoked verifier request failed for an unexpected reason" >&2
+  exit 1
+}
+nonce_after_revoked_replay="$(clean_psql --tuples-only --no-align --command \
+  "SELECT count(*) FROM deedlight_execution_ledger.authorization_nonces")"
+verification_after_revoked_replay="$(clean_psql --tuples-only --no-align --command \
+  "SELECT count(*) FROM deedlight_execution_ledger.verification_events")"
+[[ "$nonce_after_revoked_replay" == "$nonce_before_revoked_replay" \
+  && "$verification_after_revoked_replay" == "$verification_before_revoked_replay" ]] || {
+  echo "FAIL: revoked token replay changed protected ledger state" >&2
+  exit 1
+}
+echo "C605_REVOKED_TOKEN_REPLAY_REJECTED_ZERO_SIDE_EFFECTS_PASS"
+
+
 
 
 # Prove a non-superuser actor cannot switch to another actor role.
