@@ -1,5 +1,8 @@
 \set ON_ERROR_STOP on
 
+CREATE TEMP TABLE c603_temp_bootstrap(id integer);
+DROP TABLE c603_temp_bootstrap;
+
 -- Test-only signer: it runs in the disposable CI database and is not shipped.
 CREATE OR REPLACE FUNCTION pg_temp.c603_sign(
   p_actor text,p_operation text,p_execution_id uuid,p_request jsonb
