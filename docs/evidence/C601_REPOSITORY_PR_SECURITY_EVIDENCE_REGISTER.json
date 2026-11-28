@@ -49,11 +49,6 @@
       "name": "docs/c600-external-trust-findings-remediation",
       "head": "0d81fa5bd3892d3ec063c41a4275b9a60c14b30c",
       "protected": false
-    },
-    {
-      "name": "docs/c601-exact-repository-pr-evidence",
-      "head": "created_from_main_d83813ba29831498846d9fa915ae210769c94e48",
-      "protected": false
     }
   ],
   "pull_requests": [
@@ -471,5 +466,12 @@
     ],
     "acceptance": "Every legacy direct invocation denied; only a correctly signed, operation/resource/generation/actor-bound wrapper call succeeds exactly once; all negative tests have zero side effects; exact-head CI PASS; DBA and Security approve the disposable enforcement design.",
     "not_scope": "Do not build or claim Production provider physical-clone protection; do not provision secrets, modify Production roles, or merge PR #36/#37."
+  },
+  "c601_artifacts": {
+    "branch": "docs/c601-exact-repository-pr-evidence",
+    "base_branch": "main",
+    "base_sha": "d83813ba29831498846d9fa915ae210769c94e48",
+    "evidence_register_initial_commit": "5416820af78dd32f265b584bfdfb3643b41955dd",
+    "reconciliation_report_commit": "41d0383a5d297621e1314227c074a15fac6854cd"
   }
 }
