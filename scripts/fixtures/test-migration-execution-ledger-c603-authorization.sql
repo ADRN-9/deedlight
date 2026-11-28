@@ -482,6 +482,7 @@ BEGIN
      OR pg_catalog.has_table_privilege(v_actor,'deedlight_execution_ledger.execution_commit_markers','SELECT')
      OR pg_catalog.has_table_privilege(v_actor,'deedlight_execution_ledger.verification_events','SELECT')
      OR pg_catalog.has_table_privilege(v_actor,'deedlight_execution_ledger.authorization_keys','SELECT')
+     OR pg_catalog.has_table_privilege(v_actor,'deedlight_execution_ledger.authorization_generations','SELECT')
      OR pg_catalog.has_table_privilege(v_actor,'deedlight_execution_ledger.authorization_nonces','SELECT') THEN
      RAISE EXCEPTION 'C603 actor has direct protected-table read access: %',v_actor;
    END IF;
@@ -515,6 +516,7 @@ BEGIN
    'heartbeat_execution_impl(uuid)',
    'finalize_execution_impl(uuid,text,jsonb)',
    'recover_stale_executions_impl(interval)',
+   'recover_stale_executions_targets_impl(uuid[],interval)',
    'record_verification_impl(uuid,text,jsonb)'
  ] LOOP
    v_proc := 'deedlight_execution_ledger.'||v_impl;
