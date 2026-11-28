@@ -878,7 +878,7 @@ done
   cat "$tmp_dir/c617-recovery-a.log" "$tmp_dir/c617-recovery-b.log"
   exit 1
 }
-printf 'C617_CANONICAL_MULTI_TARGET_LOCK_ORDER_PROVEN first_target_locked=009 shared_second_target=010 waiters=2\n'
+printf 'C617_CANONICAL_MULTI_TARGET_LOCK_ORDER_PROVEN first_target_locked=025 shared_second_target=026 waiters=2\n'
 cancelled="$(clean_psql --tuples-only --no-align --command "SELECT pg_catalog.pg_cancel_backend($c617_holder_backend_pid)")"
 [[ "$cancelled" == "t" ]] || {
   echo "FAIL: could not release C617 shared-target lock holder" >&2
@@ -908,14 +908,18 @@ overlap_target_011_after="$(clean_psql --tuples-only --no-align --command "
   echo "FAIL: losing C617 request partially mutated its later, not-yet-locked target 011" >&2
   exit 1
 }
-overlap_nonce_a="$(clean_psql --tuples-only --no-align --set "auth=$overlap_auth_a" --command "
-  SELECT count(*) FROM deedlight_execution_ledger.authorization_nonces
-  WHERE actor='deedlight_ledger_recovery' AND nonce=(:'auth'::jsonb->>'nonce')::uuid
-")"
-overlap_nonce_b="$(clean_psql --tuples-only --no-align --set "auth=$overlap_auth_b" --command "
-  SELECT count(*) FROM deedlight_execution_ledger.authorization_nonces
-  WHERE actor='deedlight_ledger_recovery' AND nonce=(:'auth'::jsonb->>'nonce')::uuid
-")"
+cat >"$tmp_dir/c617-nonce-count.sql" <<'SQL'
+SELECT
+  (SELECT count(*) FROM deedlight_execution_ledger.authorization_nonces
+   WHERE actor='deedlight_ledger_recovery'
+     AND nonce=(:'auth_a'::jsonb->>'nonce')::uuid) AS winner_nonce,
+  (SELECT count(*) FROM deedlight_execution_ledger.authorization_nonces
+   WHERE actor='deedlight_ledger_recovery'
+     AND nonce=(:'auth_b'::jsonb->>'nonce')::uuid) AS rejected_nonce;
+SQL
+read -r overlap_nonce_a overlap_nonce_b < <(clean_psql --tuples-only --no-align \
+  --set "auth_a=$overlap_auth_a" --set "auth_b=$overlap_auth_b" \
+  --file "$tmp_dir/c617-nonce-count.sql")
 [[ "$overlap_nonce_a" == "1" && "$overlap_nonce_b" == "0" ]] || {
   echo "FAIL: C617 competing multi-target nonce outcomes A=$overlap_nonce_a B=$overlap_nonce_b" >&2
   exit 1
