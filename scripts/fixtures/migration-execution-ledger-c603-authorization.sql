@@ -477,6 +477,10 @@ DECLARE
   v_digest text;
   v_count integer;
 BEGIN
+  IF p_authorization IS NULL THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust','authorization_envelope_missing','{}'::jsonb);
+  END IF;
   IF p_stale_after IS NULL OR p_stale_after <= interval '0 seconds'
     OR p_stale_after > interval '7 days' THEN
     PERFORM deedlight_execution_ledger.raise_trust_failure(
