@@ -427,12 +427,12 @@ nonce_before="$(clean_psql --tuples-only --no-align --command \
 holder_sql="
   BEGIN;
   SELECT 1 FROM deedlight_execution_ledger.executions
-    WHERE execution_id='c6050000-0000-4000-8000-000000000021' FOR UPDATE;
+    WHERE execution_id='c6050000-0000-4000-8000-000000000026' FOR UPDATE;
   SELECT pg_catalog.pg_sleep(3);
   UPDATE deedlight_execution_ledger.executions
     SET status='interrupted', completed_at=pg_catalog.clock_timestamp(),
         outcome_detail='{\"reason\":\"concurrent_recovery_race_holder\"}'::jsonb
-    WHERE execution_id='c6050000-0000-4000-8000-000000000021';
+    WHERE execution_id='c6050000-0000-4000-8000-000000000026';
   COMMIT;
 "
 app_psql deedlight_c605_recovery_holder --command "$holder_sql" >"$tmp_dir/c605-holder.log" 2>&1 &
@@ -520,9 +520,9 @@ clean_psql --command "
   DO \\$assert\\$
   BEGIN
     IF (SELECT status FROM deedlight_execution_ledger.executions
-        WHERE execution_id='c6050000-0000-4000-8000-000000000021') <> 'interrupted'
+        WHERE execution_id='c6050000-0000-4000-8000-000000000026') <> 'interrupted'
       OR (SELECT outcome_detail->>'reason' FROM deedlight_execution_ledger.executions
-        WHERE execution_id='c6050000-0000-4000-8000-000000000021')
+        WHERE execution_id='c6050000-0000-4000-8000-000000000026')
         <> 'concurrent_recovery_race_holder' THEN
       RAISE EXCEPTION 'C605 recovery changed concurrent writer outcome';
     END IF;
