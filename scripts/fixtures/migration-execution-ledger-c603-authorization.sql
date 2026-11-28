@@ -48,6 +48,551 @@ VALUES
  ('deedlight_ledger_recovery','deedlight_ledger_recovery','c603-recovery-v1',decode(repeat('44',32),'hex'),1,'deedlight.execution-ledger.gateway.v1'),
  ('deedlight_ledger_verifier','deedlight_ledger_verifier','c603-verifier-v1',decode(repeat('55',32),'hex'),1,'deedlight.execution-ledger.gateway.v1');
 
+CREATE TABLE deedlight_execution_ledger.authorization_generations (
+  actor name PRIMARY KEY,
+  generation bigint NOT NULL CHECK (generation > 0),
+  state text NOT NULL CHECK (state IN ('active','revoked')),
+  updated_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp()
+);
+INSERT INTO deedlight_execution_ledger.authorization_generations(actor,generation,state)
+VALUES
+ ('deedlight_ledger_approver',1,'active'),
+ ('deedlight_ledger_runner',1,'active'),
+ ('deedlight_ledger_observer',1,'active'),
+ ('deedlight_ledger_recovery',1,'active'),
+ ('deedlight_ledger_verifier',1,'active');
+
+CREATE OR REPLACE FUNCTION deedlight_execution_ledger.guard_authorization_generation()
+RETURNS trigger LANGUAGE plpgsql
+SET search_path = pg_catalog, deedlight_execution_ledger
+AS $fn$
+BEGIN
+  IF OLD.state='revoked'
+    OR NEW.generation < OLD.generation
+    OR NEW.generation > OLD.generation+1
+    OR (NEW.state='active' AND NEW.generation <> OLD.generation+1)
+    OR (NEW.state='revoked' AND NEW.generation NOT IN (OLD.generation,OLD.generation+1)) THEN
+    RAISE EXCEPTION 'authorization generation must advance monotonically or be revoked';
+  END IF;
+  NEW.updated_at := pg_catalog.clock_timestamp();
+  RETURN NEW;
+END
+$fn$;
+CREATE TRIGGER authorization_generation_monotonic
+BEFORE UPDATE ON deedlight_execution_ledger.authorization_generations
+FOR EACH ROW EXECUTE FUNCTION deedlight_execution_ledger.guard_authorization_generation();
+
+CREATE OR REPLACE FUNCTION deedlight_execution_ledger.rotate_authorization_generation(
+  p_actor name,p_expected_generation bigint,p_new_key_id text,p_new_signing_key bytea
+) RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, deedlight_execution_ledger
+AS $fn$
+DECLARE v_next bigint;
+BEGIN
+  IF p_new_signing_key IS NULL OR pg_catalog.octet_length(p_new_signing_key)<32
+    OR p_new_key_id IS NULL OR p_new_key_id !~ '^[a-z0-9-]{8,80}
+  actor name NOT NULL,
+  nonce uuid NOT NULL,
+  request_digest text NOT NULL CHECK (request_digest ~ '^[a-f0-9]{64}$'),
+  accepted_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
+  expires_at timestamptz NOT NULL,
+  PRIMARY KEY (actor,nonce)
+);
+
+-- Actor identity is the authenticated login principal (session_user), never SET ROLE.
+CREATE OR REPLACE FUNCTION deedlight_execution_ledger.actor_role()
+RETURNS name
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = pg_catalog, deedlight_execution_ledger
+AS $fn$
+  SELECT CASE session_user::text
+    WHEN 'deedlight_ledger_approver' THEN 'deedlight_ledger_approver'::name
+    WHEN 'deedlight_ledger_runner' THEN 'deedlight_ledger_runner'::name
+    WHEN 'deedlight_ledger_observer' THEN 'deedlight_ledger_observer'::name
+    WHEN 'deedlight_ledger_recovery' THEN 'deedlight_ledger_recovery'::name
+    WHEN 'deedlight_ledger_verifier' THEN 'deedlight_ledger_verifier'::name
+    ELSE NULL
+  END
+$fn$;
+
+-- Retain the original business logic as owner-only implementation functions.
+ALTER FUNCTION deedlight_execution_ledger.approve_execution(uuid,uuid,uuid,jsonb) RENAME TO approve_execution_impl;
+ALTER FUNCTION deedlight_execution_ledger.reserve_execution(uuid,uuid,uuid,jsonb) RENAME TO reserve_execution_impl;
+ALTER FUNCTION deedlight_execution_ledger.record_effect_commit_marker(uuid,jsonb) RENAME TO record_effect_commit_marker_impl;
+ALTER FUNCTION deedlight_execution_ledger.capture_snapshot(uuid,text,text) RENAME TO capture_snapshot_impl;
+ALTER FUNCTION deedlight_execution_ledger.start_execution(uuid) RENAME TO start_execution_impl;
+ALTER FUNCTION deedlight_execution_ledger.heartbeat_execution(uuid) RENAME TO heartbeat_execution_impl;
+ALTER FUNCTION deedlight_execution_ledger.finalize_execution(uuid,text,jsonb) RENAME TO finalize_execution_impl;
+ALTER FUNCTION deedlight_execution_ledger.recover_stale_executions(interval) RENAME TO recover_stale_executions_impl;
+ALTER FUNCTION deedlight_execution_ledger.record_verification(uuid,text,jsonb) RENAME TO record_verification_impl;
+
+ALTER FUNCTION deedlight_execution_ledger.approve_execution_impl(uuid,uuid,uuid,jsonb) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.reserve_execution_impl(uuid,uuid,uuid,jsonb) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.record_effect_commit_marker_impl(uuid,jsonb) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.capture_snapshot_impl(uuid,text,text) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.start_execution_impl(uuid) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.heartbeat_execution_impl(uuid) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.finalize_execution_impl(uuid,text,jsonb) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.recover_stale_executions_impl(interval) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.record_verification_impl(uuid,text,jsonb) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.current_database_identity() OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.actor_role() OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.raise_trust_failure(text,text,jsonb) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.valid_source_identity(jsonb) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.canonical_query_bundle_digest(jsonb) OWNER TO deedlight_ledger_owner;
+
+CREATE OR REPLACE FUNCTION deedlight_execution_ledger.authorize_request(
+  p_envelope jsonb,
+  p_operation text,
+  p_actor name,
+  p_execution_id uuid,
+  p_request jsonb
+) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, deedlight_execution_ledger
+AS $fn$
+DECLARE
+  v_principal name := session_user::name;
+  v_generation bigint;
+  v_key deedlight_execution_ledger.authorization_keys%ROWTYPE;
+  v_resource jsonb;
+  v_request_digest text;
+  v_expected_signature text;
+  v_issued_at timestamptz;
+  v_expires_at timestamptz;
+  v_rows integer;
+BEGIN
+  IF p_envelope IS NULL OR pg_catalog.jsonb_typeof(p_envelope) IS DISTINCT FROM 'object'
+    OR (SELECT pg_catalog.count(*) FROM pg_catalog.jsonb_object_keys(p_envelope)) <> 15
+    OR NOT (p_envelope ?& ARRAY['version','operation','actor','principal','executionId',
+      'databaseResource','generation','audience','nonce','issuedAt','expiresAt',
+      'request','requestDigest','keyId','signature']) THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust','authorization_envelope_shape_invalid','{}'::jsonb);
+  END IF;
+  IF pg_catalog.jsonb_typeof(p_envelope->'version') IS DISTINCT FROM 'number'
+    OR pg_catalog.jsonb_typeof(p_envelope->'generation') IS DISTINCT FROM 'number'
+    OR pg_catalog.jsonb_typeof(p_envelope->'actor') IS DISTINCT FROM 'string'
+    OR pg_catalog.jsonb_typeof(p_envelope->'principal') IS DISTINCT FROM 'string'
+    OR pg_catalog.jsonb_typeof(p_envelope->'operation') IS DISTINCT FROM 'string'
+    OR pg_catalog.jsonb_typeof(p_envelope->'audience') IS DISTINCT FROM 'string'
+    OR pg_catalog.jsonb_typeof(p_envelope->'keyId') IS DISTINCT FROM 'string'
+    OR pg_catalog.jsonb_typeof(p_envelope->'nonce') IS DISTINCT FROM 'string'
+    OR pg_catalog.jsonb_typeof(p_envelope->'signature') IS DISTINCT FROM 'string'
+    OR pg_catalog.jsonb_typeof(p_envelope->'issuedAt') IS DISTINCT FROM 'string'
+    OR pg_catalog.jsonb_typeof(p_envelope->'expiresAt') IS DISTINCT FROM 'string'
+    OR pg_catalog.jsonb_typeof(p_envelope->'request') IS DISTINCT FROM 'object'
+    OR pg_catalog.jsonb_typeof(p_envelope->'databaseResource') IS DISTINCT FROM 'object'
+    OR (p_envelope->'executionId' IS NOT NULL
+      AND pg_catalog.jsonb_typeof(p_envelope->'executionId') NOT IN ('string','null')) THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust','authorization_envelope_type_invalid','{}'::jsonb);
+  END IF;
+
+  SELECT generation INTO v_generation
+  FROM deedlight_execution_ledger.authorization_generations
+  WHERE actor=p_actor AND state='active'
+  FOR SHARE;
+  IF NOT FOUND THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust','authorization_generation_revoked','{}'::jsonb);
+  END IF;
+
+  IF p_envelope->>'version' IS DISTINCT FROM '1'
+    OR p_envelope->>'generation' IS DISTINCT FROM v_generation::text
+    OR p_envelope->>'operation' IS DISTINCT FROM p_operation
+    OR p_envelope->>'actor' IS DISTINCT FROM p_actor::text
+    OR p_envelope->>'principal' IS DISTINCT FROM v_principal::text
+    OR p_envelope->>'executionId' IS DISTINCT FROM p_execution_id::text
+    OR p_envelope->'request' IS DISTINCT FROM p_request
+    OR p_envelope->>'audience' IS DISTINCT FROM 'deedlight.execution-ledger.gateway.v1'
+    OR p_envelope->>'keyId' IS DISTINCT FROM ('c603-' || replace(p_actor::text,'deedlight_ledger_','') || '-v1') THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust','authorization_request_binding_mismatch',
+      pg_catalog.jsonb_build_object('operation',p_operation,'actor',p_actor));
+  END IF;
+
+  v_request_digest := pg_catalog.encode(
+    deedlight_execution_ledger.digest(
+      pg_catalog.convert_to(p_request::text,'UTF8'),'sha256'),'hex');
+  IF p_envelope->>'requestDigest' IS DISTINCT FROM v_request_digest THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust','authorization_request_digest_mismatch','{}'::jsonb);
+  END IF;
+
+  v_resource := deedlight_execution_ledger.current_database_identity();
+  IF p_envelope->'databaseResource' IS DISTINCT FROM v_resource THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust','authorization_database_resource_mismatch','{}'::jsonb);
+  END IF;
+
+  SELECT * INTO v_key
+  FROM deedlight_execution_ledger.authorization_keys
+  WHERE actor=p_actor AND principal=v_principal
+    AND key_id=p_envelope->>'keyId' AND enabled AND generation=v_generation
+    AND audience='deedlight.execution-ledger.gateway.v1'
+  FOR SHARE;
+  IF NOT FOUND THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust','authorization_key_not_found','{}'::jsonb);
+  END IF;
+  IF deedlight_execution_ledger.actor_role() IS DISTINCT FROM p_actor THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust','authorization_principal_not_authorized','{}'::jsonb);
+  END IF;
+
+  v_issued_at := (p_envelope->>'issuedAt')::timestamptz;
+  v_expires_at := (p_envelope->>'expiresAt')::timestamptz;
+  IF v_issued_at > pg_catalog.clock_timestamp() + interval '15 seconds'
+    OR v_expires_at <= pg_catalog.clock_timestamp()
+    OR v_expires_at <= v_issued_at
+    OR v_expires_at > v_issued_at + interval '2 minutes' THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust','authorization_envelope_expired_or_out_of_window','{}'::jsonb);
+  END IF;
+
+  IF coalesce(p_envelope->>'nonce','') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+    OR coalesce(p_envelope->>'signature','') !~ '^[a-f0-9]{64}$' THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust','authorization_nonce_or_signature_invalid','{}'::jsonb);
+  END IF;
+
+  v_expected_signature := pg_catalog.encode(
+    deedlight_execution_ledger.hmac(
+      pg_catalog.convert_to((p_envelope - 'signature')::text,'UTF8'),
+      v_key.signing_key,'sha256'),'hex');
+  IF v_expected_signature IS DISTINCT FROM p_envelope->>'signature' THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust','authorization_signature_invalid','{}'::jsonb);
+  END IF;
+
+  INSERT INTO deedlight_execution_ledger.authorization_nonces
+    (actor,nonce,request_digest,expires_at)
+  VALUES (p_actor,(p_envelope->>'nonce')::uuid,v_request_digest,v_expires_at)
+  ON CONFLICT DO NOTHING;
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows <> 1 THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'replay','authorization_nonce_replayed','{}'::jsonb);
+  END IF;
+END
+$fn$;
+
+ALTER FUNCTION deedlight_execution_ledger.authorize_request(jsonb,text,name,uuid,jsonb) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.rotate_authorization_generation(name,bigint,text,bytea) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.revoke_authorization_generation(name,bigint) OWNER TO deedlight_ledger_owner;
+
+CREATE OR REPLACE FUNCTION deedlight_execution_ledger.approve_execution(
+  p_approval_id uuid,p_record_id uuid,p_execution_id uuid,p_source_identity jsonb,p_authorization jsonb
+) RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, deedlight_execution_ledger AS $fn$
+BEGIN
+  PERFORM deedlight_execution_ledger.authorize_request(p_authorization,'approve_execution',
+    'deedlight_ledger_approver',p_execution_id,
+    pg_catalog.jsonb_build_object('approvalId',p_approval_id,'recordId',p_record_id,
+      'executionId',p_execution_id,'sourceIdentity',p_source_identity));
+  PERFORM deedlight_execution_ledger.approve_execution_impl(p_approval_id,p_record_id,p_execution_id,p_source_identity);
+END $fn$;
+
+CREATE OR REPLACE FUNCTION deedlight_execution_ledger.reserve_execution(
+  p_approval_id uuid,p_record_id uuid,p_execution_id uuid,p_source_identity jsonb,p_authorization jsonb
+) RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, deedlight_execution_ledger AS $fn$
+BEGIN
+  PERFORM deedlight_execution_ledger.authorize_request(p_authorization,'reserve_execution',
+    'deedlight_ledger_runner',p_execution_id,
+    pg_catalog.jsonb_build_object('approvalId',p_approval_id,'recordId',p_record_id,
+      'executionId',p_execution_id,'sourceIdentity',p_source_identity));
+  PERFORM deedlight_execution_ledger.reserve_execution_impl(p_approval_id,p_record_id,p_execution_id,p_source_identity);
+END $fn$;
+
+CREATE OR REPLACE FUNCTION deedlight_execution_ledger.record_effect_commit_marker(
+  p_execution_id uuid,p_source_identity jsonb,p_authorization jsonb
+) RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, deedlight_execution_ledger AS $fn$
+BEGIN
+  PERFORM deedlight_execution_ledger.authorize_request(p_authorization,'record_effect_commit_marker',
+    'deedlight_ledger_runner',p_execution_id,
+    pg_catalog.jsonb_build_object('executionId',p_execution_id,'sourceIdentity',p_source_identity));
+  PERFORM deedlight_execution_ledger.record_effect_commit_marker_impl(p_execution_id,p_source_identity);
+END $fn$;
+
+CREATE OR REPLACE FUNCTION deedlight_execution_ledger.capture_snapshot(
+  p_execution_id uuid,p_phase text,p_query_id text,p_source_identity jsonb,p_authorization jsonb
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, deedlight_execution_ledger AS $fn$
+DECLARE v_source jsonb;
+BEGIN
+  PERFORM deedlight_execution_ledger.authorize_request(p_authorization,'capture_snapshot',
+    'deedlight_ledger_observer',p_execution_id,
+    pg_catalog.jsonb_build_object('executionId',p_execution_id,'phase',p_phase,
+      'queryId',p_query_id,'sourceIdentity',p_source_identity));
+  SELECT source_identity INTO STRICT v_source FROM deedlight_execution_ledger.executions
+  WHERE execution_id=p_execution_id;
+  IF v_source IS DISTINCT FROM p_source_identity THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust','authorization_source_identity_mismatch','{}'::jsonb);
+  END IF;
+  RETURN deedlight_execution_ledger.capture_snapshot_impl(p_execution_id,p_phase,p_query_id);
+END $fn$;
+
+CREATE OR REPLACE FUNCTION deedlight_execution_ledger.start_execution(
+  p_execution_id uuid,p_source_identity jsonb,p_authorization jsonb
+) RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, deedlight_execution_ledger AS $fn$
+DECLARE v_source jsonb;
+BEGIN
+  PERFORM deedlight_execution_ledger.authorize_request(p_authorization,'start_execution',
+    'deedlight_ledger_runner',p_execution_id,
+    pg_catalog.jsonb_build_object('executionId',p_execution_id,'sourceIdentity',p_source_identity));
+  SELECT source_identity INTO STRICT v_source FROM deedlight_execution_ledger.executions
+  WHERE execution_id=p_execution_id;
+  IF v_source IS DISTINCT FROM p_source_identity THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust','authorization_source_identity_mismatch','{}'::jsonb);
+  END IF;
+  PERFORM deedlight_execution_ledger.start_execution_impl(p_execution_id);
+END $fn$;
+
+CREATE OR REPLACE FUNCTION deedlight_execution_ledger.heartbeat_execution(
+  p_execution_id uuid,p_source_identity jsonb,p_authorization jsonb
+) RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, deedlight_execution_ledger AS $fn$
+DECLARE v_source jsonb;
+BEGIN
+  PERFORM deedlight_execution_ledger.authorize_request(p_authorization,'heartbeat_execution',
+    'deedlight_ledger_runner',p_execution_id,
+    pg_catalog.jsonb_build_object('executionId',p_execution_id,'sourceIdentity',p_source_identity));
+  SELECT source_identity INTO STRICT v_source FROM deedlight_execution_ledger.executions
+  WHERE execution_id=p_execution_id;
+  IF v_source IS DISTINCT FROM p_source_identity THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust','authorization_source_identity_mismatch','{}'::jsonb);
+  END IF;
+  PERFORM deedlight_execution_ledger.heartbeat_execution_impl(p_execution_id);
+END $fn$;
+
+CREATE OR REPLACE FUNCTION deedlight_execution_ledger.finalize_execution(
+  p_execution_id uuid,p_outcome text,p_outcome_detail jsonb,p_source_identity jsonb,p_authorization jsonb
+) RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, deedlight_execution_ledger AS $fn$
+DECLARE v_source jsonb;
+BEGIN
+  PERFORM deedlight_execution_ledger.authorize_request(p_authorization,'finalize_execution',
+    'deedlight_ledger_runner',p_execution_id,
+    pg_catalog.jsonb_build_object('executionId',p_execution_id,'outcome',p_outcome,
+      'outcomeDetail',p_outcome_detail,'sourceIdentity',p_source_identity));
+  SELECT source_identity INTO STRICT v_source FROM deedlight_execution_ledger.executions
+  WHERE execution_id=p_execution_id;
+  IF v_source IS DISTINCT FROM p_source_identity THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust','authorization_source_identity_mismatch','{}'::jsonb);
+  END IF;
+  PERFORM deedlight_execution_ledger.finalize_execution_impl(p_execution_id,p_outcome,p_outcome_detail);
+END $fn$;
+
+-- The recovery implementation receives the exact, already-authorized target IDs.
+-- It never re-runs the broad stale-row predicate to discover additional targets.
+CREATE OR REPLACE FUNCTION deedlight_execution_ledger.recover_stale_executions_targets_impl(
+  p_execution_ids uuid[],p_stale_after interval
+) RETURNS integer
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, deedlight_execution_ledger
+AS $fn$
+DECLARE
+  v_identity jsonb;
+  v_count integer;
+BEGIN
+  IF p_execution_ids IS NULL OR p_stale_after IS NULL
+    OR p_stale_after <= interval '0 seconds'
+    OR p_stale_after > interval '7 days'
+    OR pg_catalog.cardinality(p_execution_ids) <> (
+      SELECT pg_catalog.count(DISTINCT execution_id)
+      FROM pg_catalog.unnest(p_execution_ids) AS u(execution_id)
+    ) THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'incomplete_preconditions','recovery_target_arguments_invalid','{}'::jsonb);
+  END IF;
+  v_identity := deedlight_execution_ledger.current_database_identity();
+  UPDATE deedlight_execution_ledger.executions
+  SET status = CASE WHEN status = 'reserved' THEN 'interrupted' ELSE 'unknown' END,
+      completed_at = pg_catalog.clock_timestamp(),
+      outcome_detail = CASE WHEN status='running'
+        THEN pg_catalog.jsonb_build_object('category','ambiguous_execution_outcome',
+          'diagnosticCode','D1008','reason','running_execution_stale_after_heartbeat',
+          'recoveryActor','deedlight_ledger_recovery')
+        ELSE pg_catalog.jsonb_build_object('category','incomplete_preconditions',
+          'reason','reserved_execution_expired_before_start',
+          'recoveryActor','deedlight_ledger_recovery') END
+  WHERE execution_id = ANY(p_execution_ids)
+    AND system_identifier = v_identity->>'systemIdentifier'
+    AND database_oid = (v_identity->>'databaseOid')::oid
+    AND status IN ('reserved','running')
+    AND heartbeat_at < pg_catalog.clock_timestamp() - p_stale_after;
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  IF v_count <> pg_catalog.cardinality(p_execution_ids) THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'stale_state','recovery_target_set_changed','{}'::jsonb);
+  END IF;
+  RETURN v_count;
+END
+$fn$;
+
+CREATE OR REPLACE FUNCTION deedlight_execution_ledger.recover_stale_executions(
+  p_stale_after interval,p_authorization jsonb
+) RETURNS integer LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, deedlight_execution_ledger
+AS $fn$
+DECLARE
+  v_targets jsonb := '[]'::jsonb;
+  v_ids uuid[] := ARRAY[]::uuid[];
+  v_row deedlight_execution_ledger.executions%ROWTYPE;
+  v_digest text;
+  v_count integer;
+BEGIN
+  IF p_stale_after IS NULL OR p_stale_after <= interval '0 seconds'
+    OR p_stale_after > interval '7 days' THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'incomplete_preconditions','recovery_timeout_outside_safe_bounds','{}'::jsonb);
+  END IF;
+
+  -- Lock the exact candidate rows in stable order before calculating the signed set.
+  FOR v_row IN
+    SELECT * FROM deedlight_execution_ledger.executions
+    WHERE status IN ('reserved','running')
+      AND heartbeat_at < pg_catalog.clock_timestamp() - p_stale_after
+    ORDER BY execution_id
+    FOR UPDATE
+  LOOP
+    v_ids := pg_catalog.array_append(v_ids,v_row.execution_id);
+    v_targets := v_targets || pg_catalog.jsonb_build_array(
+      pg_catalog.jsonb_build_object('executionId',v_row.execution_id,
+        'sourceIdentity',v_row.source_identity,'status',v_row.status,
+        'heartbeatAt',v_row.heartbeat_at));
+  END LOOP;
+
+  v_count := pg_catalog.cardinality(v_ids);
+  v_digest := pg_catalog.encode(deedlight_execution_ledger.digest(
+    pg_catalog.convert_to(v_targets::text,'UTF8'),'sha256'),'hex');
+
+  PERFORM deedlight_execution_ledger.authorize_request(p_authorization,
+    'recover_stale_executions','deedlight_ledger_recovery',NULL,
+    pg_catalog.jsonb_build_object('staleAfter',p_stale_after::text,
+      'sourceSetDigest',v_digest,'targetCount',v_count));
+
+  -- Mutate only the rows whose IDs and immutable snapshot were just authorized.
+  RETURN deedlight_execution_ledger.recover_stale_executions_targets_impl(v_ids,p_stale_after);
+END
+$fn$;
+
+CREATE OR REPLACE FUNCTION deedlight_execution_ledger.record_verification(
+  p_execution_id uuid,p_verdict text,p_evidence jsonb,p_source_identity jsonb,p_authorization jsonb
+) RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, deedlight_execution_ledger AS $fn$
+DECLARE v_source jsonb;
+BEGIN
+  PERFORM deedlight_execution_ledger.authorize_request(p_authorization,'record_verification',
+    'deedlight_ledger_verifier',p_execution_id,
+    pg_catalog.jsonb_build_object('executionId',p_execution_id,'verdict',p_verdict,
+      'evidence',p_evidence,'sourceIdentity',p_source_identity));
+  SELECT source_identity INTO STRICT v_source FROM deedlight_execution_ledger.executions
+  WHERE execution_id=p_execution_id;
+  IF v_source IS DISTINCT FROM p_source_identity THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust','authorization_source_identity_mismatch','{}'::jsonb);
+  END IF;
+  PERFORM deedlight_execution_ledger.record_verification_impl(p_execution_id,p_verdict,p_evidence);
+END $fn$;
+
+-- Owner-only internals; public and runtime actors cannot call the old RPC bodies.
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA deedlight_execution_ledger FROM PUBLIC,
+  deedlight_ledger_approver,deedlight_ledger_runner,deedlight_ledger_observer,
+  deedlight_ledger_recovery,deedlight_ledger_verifier;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA deedlight_execution_ledger TO deedlight_ledger_owner;
+GRANT SELECT ON deedlight_execution_ledger.authorization_keys TO deedlight_ledger_owner;
+GRANT SELECT,UPDATE ON deedlight_execution_ledger.authorization_generations TO deedlight_ledger_owner;
+GRANT INSERT,SELECT ON deedlight_execution_ledger.authorization_nonces TO deedlight_ledger_owner;
+GRANT USAGE ON SCHEMA deedlight_execution_ledger TO
+  deedlight_ledger_approver,deedlight_ledger_runner,deedlight_ledger_observer,
+  deedlight_ledger_recovery,deedlight_ledger_verifier;
+
+ALTER FUNCTION deedlight_execution_ledger.approve_execution(uuid,uuid,uuid,jsonb,jsonb) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.reserve_execution(uuid,uuid,uuid,jsonb,jsonb) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.record_effect_commit_marker(uuid,jsonb,jsonb) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.capture_snapshot(uuid,text,text,jsonb,jsonb) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.start_execution(uuid,jsonb,jsonb) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.heartbeat_execution(uuid,jsonb,jsonb) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.finalize_execution(uuid,text,jsonb,jsonb,jsonb) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.recover_stale_executions(interval,jsonb) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.recover_stale_executions_targets_impl(uuid[],interval) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.record_verification(uuid,text,jsonb,jsonb,jsonb) OWNER TO deedlight_ledger_owner;
+
+GRANT EXECUTE ON FUNCTION deedlight_execution_ledger.approve_execution(uuid,uuid,uuid,jsonb,jsonb) TO deedlight_ledger_approver;
+GRANT EXECUTE ON FUNCTION deedlight_execution_ledger.reserve_execution(uuid,uuid,uuid,jsonb,jsonb),
+  deedlight_execution_ledger.record_effect_commit_marker(uuid,jsonb,jsonb),
+  deedlight_execution_ledger.start_execution(uuid,jsonb,jsonb),
+  deedlight_execution_ledger.heartbeat_execution(uuid,jsonb,jsonb),
+  deedlight_execution_ledger.finalize_execution(uuid,text,jsonb,jsonb,jsonb) TO deedlight_ledger_runner;
+GRANT EXECUTE ON FUNCTION deedlight_execution_ledger.capture_snapshot(uuid,text,text,jsonb,jsonb) TO deedlight_ledger_observer;
+GRANT EXECUTE ON FUNCTION deedlight_execution_ledger.recover_stale_executions(interval,jsonb) TO deedlight_ledger_recovery;
+GRANT EXECUTE ON FUNCTION deedlight_execution_ledger.record_verification(uuid,text,jsonb,jsonb,jsonb) TO deedlight_ledger_verifier;
+REVOKE CREATE ON SCHEMA deedlight_execution_ledger FROM deedlight_ledger_owner;
+
+-- The definer is deliberately a NOLOGIN, non-superuser role.
+DO $assert$
+DECLARE v_actor name;
+BEGIN
+  IF (SELECT rolsuper OR rolcanlogin FROM pg_catalog.pg_roles WHERE rolname='deedlight_ledger_owner') THEN
+    RAISE EXCEPTION 'C603 definer owner must be NOLOGIN and NOSUPERUSER';
+  END IF;
+  FOREACH v_actor IN ARRAY ARRAY['deedlight_ledger_approver','deedlight_ledger_runner',
+    'deedlight_ledger_observer','deedlight_ledger_recovery','deedlight_ledger_verifier']::name[] LOOP
+    IF EXISTS (
+      SELECT 1 FROM pg_catalog.pg_auth_members m
+      JOIN pg_catalog.pg_roles r ON r.oid=m.roleid
+      JOIN pg_catalog.pg_roles member ON member.oid=m.member
+      WHERE r.rolname IN ('deedlight_ledger_approver','deedlight_ledger_runner',
+        'deedlight_ledger_observer','deedlight_ledger_recovery','deedlight_ledger_verifier')
+        AND member.rolname=v_actor
+    ) THEN RAISE EXCEPTION 'C603 actor role membership must be empty: %',v_actor; END IF;
+  END LOOP;
+END
+$assert$;
+
+SELECT 'C603_SIGNED_AUTHORIZATION_OVERLAY_INSTALLED' AS evidence;
+ THEN
+    RAISE EXCEPTION 'new authorization key material invalid';
+  END IF;
+  UPDATE deedlight_execution_ledger.authorization_generations
+  SET generation=generation+1
+  WHERE actor=p_actor AND generation=p_expected_generation AND state='active'
+  RETURNING generation INTO v_next;
+  IF NOT FOUND THEN RAISE EXCEPTION 'authorization generation compare-and-swap failed'; END IF;
+  UPDATE deedlight_execution_ledger.authorization_keys
+  SET enabled=false WHERE actor=p_actor AND enabled;
+  INSERT INTO deedlight_execution_ledger.authorization_keys
+    (actor,principal,key_id,signing_key,enabled,generation,audience)
+  VALUES (p_actor,p_actor,p_new_key_id,p_new_signing_key,true,v_next,
+    'deedlight.execution-ledger.gateway.v1');
+  RETURN v_next;
+END
+$fn$;
+
+CREATE OR REPLACE FUNCTION deedlight_execution_ledger.revoke_authorization_generation(
+  p_actor name,p_expected_generation bigint
+) RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, deedlight_execution_ledger
+AS $fn$
+BEGIN
+  UPDATE deedlight_execution_ledger.authorization_generations
+  SET state='revoked'
+  WHERE actor=p_actor AND generation=p_expected_generation AND state='active';
+  IF NOT FOUND THEN RAISE EXCEPTION 'authorization generation revocation compare-and-swap failed'; END IF;
+  UPDATE deedlight_execution_ledger.authorization_keys
+  SET enabled=false WHERE actor=p_actor;
+END
+$fn$;
+
 CREATE TABLE deedlight_execution_ledger.authorization_nonces (
   actor name NOT NULL,
   nonce uuid NOT NULL,
