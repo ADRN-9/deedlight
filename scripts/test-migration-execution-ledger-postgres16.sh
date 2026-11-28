@@ -540,7 +540,7 @@ RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, deedlight_execution_ledger, c603_test
 AS $fn$
 BEGIN
-  PERFORM pg_catalog.pg_sleep(3);
+  PERFORM pg_catalog.pg_sleep(8);
   RETURN NEW;
 END
 $fn$;
@@ -609,12 +609,13 @@ c605_revoke_pid=$!
 revoke_waiting=false
 for attempt in $(seq 1 200); do
   blocker_proof="$(clean_psql --tuples-only --no-align --command "
-    SELECT (wait_event_type='Lock' AND $verifier_backend_pid = ANY(pg_catalog.pg_blocking_pids(pid)))::text
+    SELECT coalesce(wait_event_type,'') || '|' || coalesce(wait_event,'') || '|'
+      || pg_catalog.pg_blocking_pids(pid)::text
     FROM pg_catalog.pg_stat_activity
     WHERE application_name='deedlight_c605_generation_revoke'
       AND state='active'
   ")"
-  if [[ "$blocker_proof" == "t" ]]; then
+  if [[ "$blocker_proof" == *"Lock|"* && "$blocker_proof" == *"$verifier_backend_pid"* ]]; then
     revoke_waiting=true
     break
   fi
