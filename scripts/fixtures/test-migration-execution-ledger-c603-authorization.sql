@@ -44,6 +44,34 @@ CREATE SCHEMA c603_test;
 GRANT USAGE ON SCHEMA c603_test TO deedlight_ledger_approver,
   deedlight_ledger_runner,deedlight_ledger_observer,
   deedlight_ledger_recovery,deedlight_ledger_verifier;
+CREATE OR REPLACE FUNCTION c603_test.sign_recovery(p_request jsonb)
+RETURNS jsonb LANGUAGE plpgsql AS $fn$
+DECLARE
+  v_key bytea := decode(repeat('44',32),'hex');
+  v_envelope jsonb;
+BEGIN
+  v_envelope := pg_catalog.jsonb_build_object(
+    'version',1,'operation','recover_stale_executions',
+    'actor','deedlight_ledger_recovery','principal','deedlight_ledger_recovery',
+    'executionId',NULL,
+    'databaseResource',deedlight_execution_ledger.current_database_identity(),
+    'generation',1,'audience','deedlight.execution-ledger.gateway.v1',
+    'nonce',deedlight_execution_ledger.gen_random_uuid(),
+    'issuedAt',pg_catalog.clock_timestamp(),
+    'expiresAt',pg_catalog.clock_timestamp()+interval '1 minute',
+    'request',p_request,
+    'requestDigest',pg_catalog.encode(deedlight_execution_ledger.digest(
+      pg_catalog.convert_to(p_request::text,'UTF8'),'sha256'),'hex'),
+    'keyId','c603-recovery-v1'
+  );
+  RETURN v_envelope || pg_catalog.jsonb_build_object('signature',
+    pg_catalog.encode(deedlight_execution_ledger.hmac(
+      pg_catalog.convert_to(v_envelope::text,'UTF8'),v_key,'sha256'),'hex'));
+END
+$fn$;
+REVOKE ALL ON FUNCTION c603_test.sign_recovery(jsonb) FROM PUBLIC,
+  deedlight_ledger_approver,deedlight_ledger_runner,deedlight_ledger_observer,
+  deedlight_ledger_recovery,deedlight_ledger_verifier;
 CREATE OR REPLACE FUNCTION c603_test.assert_rejected(p_sql text,p_expected_state text)
 RETURNS void LANGUAGE plpgsql AS $fn$
 DECLARE v_state text;
@@ -173,48 +201,51 @@ SELECT deedlight_execution_ledger.record_verification(
 RESET SESSION AUTHORIZATION;
 SELECT 'C603_ALL_NINE_SIGNED_POSITIVE_PATHS_PASS' AS evidence;
 
--- Recovery positive path with an independently signed, bounded stale interval.
+-- Recovery positive path: the signed request contains every exact target's
+-- expected status, heartbeat and disposable row version.
 SELECT pg_temp.c603_sign('deedlight_ledger_approver','approve_execution',
- 'c6030000-0000-4000-8000-000000000022',
- pg_catalog.jsonb_build_object('approvalId','c6030000-0000-4000-8000-000000000002'::uuid,
- 'recordId','c6030000-0000-4000-8000-000000000012'::uuid,
- 'executionId','c6030000-0000-4000-8000-000000000022'::uuid,
- 'sourceIdentity','{"path":"supabase/migrations/c603-recovery.sql","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}'::jsonb)
+  'c6030000-0000-4000-8000-000000000022',
+  pg_catalog.jsonb_build_object('approvalId','c6030000-0000-4000-8000-000000000002'::uuid,
+  'recordId','c6030000-0000-4000-8000-000000000012'::uuid,
+  'executionId','c6030000-0000-4000-8000-000000000022'::uuid,
+  'sourceIdentity','{"path":"supabase/migrations/c603-recovery.sql","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}'::jsonb)
 ) AS recovery_approval_auth \gset
 SET SESSION AUTHORIZATION deedlight_ledger_approver;
 SELECT deedlight_execution_ledger.approve_execution(
- 'c6030000-0000-4000-8000-000000000002','c6030000-0000-4000-8000-000000000012',
- 'c6030000-0000-4000-8000-000000000022',
- '{"path":"supabase/migrations/c603-recovery.sql","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}'::jsonb,
- :'recovery_approval_auth'::jsonb);
+  'c6030000-0000-4000-8000-000000000002','c6030000-0000-4000-8000-000000000012',
+  'c6030000-0000-4000-8000-000000000022',
+  '{"path":"supabase/migrations/c603-recovery.sql","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}'::jsonb,
+  :'recovery_approval_auth'::jsonb);
 RESET SESSION AUTHORIZATION;
 SELECT pg_temp.c603_sign('deedlight_ledger_runner','reserve_execution',
- 'c6030000-0000-4000-8000-000000000022',
- pg_catalog.jsonb_build_object('approvalId','c6030000-0000-4000-8000-000000000002'::uuid,
- 'recordId','c6030000-0000-4000-8000-000000000012'::uuid,
- 'executionId','c6030000-0000-4000-8000-000000000022'::uuid,
- 'sourceIdentity','{"path":"supabase/migrations/c603-recovery.sql","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}'::jsonb)
+  'c6030000-0000-4000-8000-000000000022',
+  pg_catalog.jsonb_build_object('approvalId','c6030000-0000-4000-8000-000000000002'::uuid,
+  'recordId','c6030000-0000-4000-8000-000000000012'::uuid,
+  'executionId','c6030000-0000-4000-8000-000000000022'::uuid,
+  'sourceIdentity','{"path":"supabase/migrations/c603-recovery.sql","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}'::jsonb)
 ) AS recovery_reserve_auth \gset
 SET SESSION AUTHORIZATION deedlight_ledger_runner;
 SELECT deedlight_execution_ledger.reserve_execution(
- 'c6030000-0000-4000-8000-000000000002','c6030000-0000-4000-8000-000000000012',
- 'c6030000-0000-4000-8000-000000000022',
- '{"path":"supabase/migrations/c603-recovery.sql","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}'::jsonb,
- :'recovery_reserve_auth'::jsonb);
+  'c6030000-0000-4000-8000-000000000002','c6030000-0000-4000-8000-000000000012',
+  'c6030000-0000-4000-8000-000000000022',
+  '{"path":"supabase/migrations/c603-recovery.sql","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}'::jsonb,
+  :'recovery_reserve_auth'::jsonb);
 RESET SESSION AUTHORIZATION;
 SELECT pg_catalog.pg_sleep(0.02);
-SELECT pg_temp.c603_sign('deedlight_ledger_recovery','recover_stale_executions',NULL,
- pg_catalog.jsonb_build_object('staleAfter','00:00:00.000001',
- 'sourceSetDigest',(SELECT pg_catalog.encode(deedlight_execution_ledger.digest(
-   pg_catalog.convert_to(coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
-     'executionId',execution_id,'sourceIdentity',source_identity,'status',status,
-     'heartbeatAt',heartbeat_at) ORDER BY execution_id),'[]'::jsonb)::text,'UTF8'),'sha256'),'hex')
-   FROM deedlight_execution_ledger.executions WHERE status IN ('reserved','running')
-     AND heartbeat_at < pg_catalog.clock_timestamp()-interval '1 microsecond'),
- 'targetCount',(SELECT pg_catalog.count(*) FROM deedlight_execution_ledger.executions
-   WHERE status IN ('reserved','running') AND heartbeat_at < pg_catalog.clock_timestamp()-interval '1 microsecond'))) AS recover_auth \gset
+SELECT c603_test.sign_recovery(pg_catalog.jsonb_build_object(
+  'staleAfter','00:00:00.000001',
+  'targets',(SELECT coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
+    'executionId',execution_id,'expectedStatus',status,
+    'expectedSourceIdentity',source_identity,
+    'expectedHeartbeatAt',heartbeat_at,'expectedRowVersion',c603_row_version)
+    ORDER BY execution_id),'[]'::jsonb)
+    FROM deedlight_execution_ledger.executions
+    WHERE status IN ('reserved','running')
+      AND heartbeat_at < pg_catalog.clock_timestamp()-interval '1 microsecond')
+)) AS recover_auth \gset
 SET SESSION AUTHORIZATION deedlight_ledger_recovery;
-SELECT deedlight_execution_ledger.recover_stale_executions(interval '1 microsecond',:'recover_auth'::jsonb);
+SELECT deedlight_execution_ledger.recover_stale_executions(
+  interval '1 microsecond',:'recover_auth'::jsonb);
 RESET SESSION AUTHORIZATION;
 SELECT 'C603_RECOVERY_SIGNED_POSITIVE_PATH_PASS' AS evidence;
 
@@ -303,6 +334,7 @@ BEGIN
    'heartbeat_execution_impl(uuid)',
    'finalize_execution_impl(uuid,text,jsonb)',
    'recover_stale_executions_impl(interval)',
+   'recover_stale_executions_targets_impl(jsonb,interval)',
    'record_verification_impl(uuid,text,jsonb)'
  ] LOOP
    v_proc := 'deedlight_execution_ledger.'||v_impl;
@@ -532,4 +564,5 @@ SELECT 'C603_SIGNATURE_REPLAY_BINDING_ZERO_SIDE_EFFECTS_PASS' AS evidence;
 SELECT 'C603_LEGACY_UNWRAPPED_RPC_SIGNATURES_REMOVED_PASS' AS evidence;
 
 
-DROP SCHEMA c603_test CASCADE;
+-- c603_test.sign_recovery remains available to the disposable C608 multi-session harness.
+
