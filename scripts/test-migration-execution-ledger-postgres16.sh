@@ -456,15 +456,15 @@ done
   exit 1
 }
 
-recovery_sql="
-  SET SESSION AUTHORIZATION deedlight_ledger_recovery;
-  SELECT deedlight_execution_ledger.recover_stale_executions(
-    interval '1 microsecond', :'authorization'::jsonb
-  );
-  RESET SESSION AUTHORIZATION;
-"
-app_psql deedlight_c605_recovery --set "authorization=$recovery_auth" \
-  --command "$recovery_sql" >"$tmp_dir/c605-recovery.log" 2>&1 &
+cat >"$tmp_dir/c605-recovery.sql" <<SQL
+SET SESSION AUTHORIZATION deedlight_ledger_recovery;
+SELECT deedlight_execution_ledger.recover_stale_executions(
+  interval '1 microsecond', '$recovery_auth'::jsonb
+);
+RESET SESSION AUTHORIZATION;
+SQL
+app_psql deedlight_c605_recovery --file "$tmp_dir/c605-recovery.sql" \
+  >"$tmp_dir/c605-recovery.log" 2>&1 &
 c605_recovery_pid=$!
 recovery_waiting=false
 for attempt in $(seq 1 200); do
@@ -565,19 +565,19 @@ verifier_auth="$(clean_psql --tuples-only --no-align --command "
 ")"
 [[ -n "$verifier_auth" ]] || { echo "FAIL: failed to sign C605 verifier request" >&2; exit 1; }
 
-verifier_sql="
-  SET SESSION AUTHORIZATION deedlight_ledger_verifier;
-  SELECT deedlight_execution_ledger.record_verification(
-    'c6030000-0000-4000-8000-000000000022','verified',
-    '{\"c605\":\"generation-revocation-race\"}'::jsonb,
-    (SELECT source_identity FROM deedlight_execution_ledger.executions
-      WHERE execution_id='c6030000-0000-4000-8000-000000000022'),
-    :'authorization'::jsonb
-  );
-  RESET SESSION AUTHORIZATION;
-"
-app_psql deedlight_c605_verifier --set "authorization=$verifier_auth" \
-  --command "$verifier_sql" >"$tmp_dir/c605-verifier.log" 2>&1 &
+cat >"$tmp_dir/c605-verifier.sql" <<SQL
+SET SESSION AUTHORIZATION deedlight_ledger_verifier;
+SELECT deedlight_execution_ledger.record_verification(
+  'c6030000-0000-4000-8000-000000000022','verified',
+  '{"c605":"generation-revocation-race"}'::jsonb,
+  (SELECT source_identity FROM deedlight_execution_ledger.executions
+    WHERE execution_id='c6030000-0000-4000-8000-000000000022'),
+  '$verifier_auth'::jsonb
+);
+RESET SESSION AUTHORIZATION;
+SQL
+app_psql deedlight_c605_verifier --file "$tmp_dir/c605-verifier.sql" \
+  >"$tmp_dir/c605-verifier.log" 2>&1 &
 c605_verifier_pid=$!
 verifier_backend_pid=""
 for attempt in $(seq 1 200); do
@@ -671,8 +671,8 @@ revoked_replay_sql="
   );
   RESET SESSION AUTHORIZATION;
 "
-if app_psql deedlight_c605_revoked_replay --set "authorization=$verifier_auth" \
-  --command "$revoked_replay_sql" >"$tmp_dir/c605-revoked-replay.log" 2>&1; then
+if app_psql deedlight_c605_revoked_replay --file "$tmp_dir/c605-verifier.sql" \
+  >"$tmp_dir/c605-revoked-replay.log" 2>&1; then
   echo "FAIL: revoked verifier authorization unexpectedly replayed" >&2
   exit 1
 fi
