@@ -712,7 +712,7 @@ SELECT :'c618_expired_unsigned'::jsonb
 SET SESSION AUTHORIZATION deedlight_ledger_recovery;
 SELECT c603_test.assert_rejected(format(
   'SELECT deedlight_execution_ledger.recover_stale_executions(%L::interval,%L::jsonb)',
-  '1 minute',:'c618_expired_auth'),'D1006');
+  '1 minute',:'c618_expired_auth'),'D1001');
 RESET SESSION AUTHORIZATION;
 SELECT c608_test.assert_full_business_snapshot('pg_temp.c618_malformed_business_before'::regclass);
 SELECT c608_test.assert_nonce_absent(:'c618_expired_auth'::jsonb);
