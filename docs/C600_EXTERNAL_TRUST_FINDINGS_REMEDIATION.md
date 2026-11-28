@@ -342,6 +342,21 @@ Rollback disables privileged v2 dispatch and revokes gateway actor login access 
 
 ## 15. Validation and honest status
 
+### Exact-head CI evidence for implementation commit
+
+The implementation/test commit `c7fcecc2a2a3abd9b799504ef38f163e9a5a0f0f` completed both fresh workflow runs:
+
+- Branch push run #2365: `46086529718`, **13/13 jobs successful**.
+- PR validation run #2366: `46086534720`, **13/13 jobs successful**.
+- PostgreSQL 16 branch job: `140797361956`, successful.
+- PostgreSQL 16 PR job: `140797383916`, successful.
+- Validation branch job: `140797361855`, successful.
+- Validation PR job: `140797383389`, successful.
+
+The actual PostgreSQL logs for both runs contain `C600_NINE_RPC_UNAUTHORIZED_DIRECT_CALLS_DENIED_ZERO_SIDE_EFFECTS`, the inherited C593/C595 manifest/identity assertions, C585 one-winner replay marker, and C578 PostgreSQL 16 remediation PASS marker. The expected cancellation/replay SQL errors in the concurrency test are asserted test behavior, not CI failures.
+
+The validation logs show successful TypeScript checks, Next.js production builds, Cloudflare/OpenNext packaging, and zero dependency advisories. This validates the current source and disposable test harness only; it does not validate the proposed external trust services or Production authorization.
+
 - C600 SQL test: **IMPLEMENTED**; fresh PostgreSQL 16 exact-head CI is required before it is called PASS.
 - C598 branch/PR CI: predecessor evidence only; not evidence for this new commit.
 - External verifier, policy authority, gateway, nonce/fencing service, resource identity adapter, DB cryptographic wrappers and key custody: **NOT IMPLEMENTED**.
