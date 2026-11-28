@@ -427,3 +427,175 @@ BEGIN
       OR pg_catalog.jsonb_typeof(v_item->'expectedHeartbeatAt') IS DISTINCT FROM 'string'
       OR pg_catalog.jsonb_typeof(v_item->'expectedRowVersion') IS DISTINCT FROM 'number'
       OR coalesce(v_item->>'expectedRowVersion','') !~ '^[1-9][0-9]*$'
+      -- Validate textual casts explicitly so malformed signed data fails with a trust error.
+      OR NOT pg_catalog.pg_input_is_valid(v_item->>'executionId','uuid')
+      OR NOT pg_catalog.pg_input_is_valid(v_item->>'expectedHeartbeatAt','timestamp with time zone')
+      OR NOT pg_catalog.pg_input_is_valid(v_item->>'expectedRowVersion','bigint') THEN
+      PERFORM deedlight_execution_ledger.raise_trust_failure(
+        'incomplete_preconditions','recovery_target_shape_invalid','{}'::jsonb);
+    END IF;
+
+    v_execution_id := (v_item->>'executionId')::uuid;
+    IF v_execution_id::text IS DISTINCT FROM v_item->>'executionId' THEN
+      PERFORM deedlight_execution_ledger.raise_trust_failure(
+        'incomplete_preconditions','recovery_target_id_not_canonical','{}'::jsonb);
+    END IF;
+    v_expected_status := v_item->>'expectedStatus';
+    v_expected_source_identity := v_item->'expectedSourceIdentity';
+    v_expected_heartbeat := (v_item->>'expectedHeartbeatAt')::timestamptz;
+    v_expected_row_version := (v_item->>'expectedRowVersion')::bigint;
+    IF v_expected_status NOT IN ('reserved','running')
+      OR v_expected_row_version < 1
+      OR (v_previous_id IS NOT NULL AND v_execution_id <= v_previous_id) THEN
+      PERFORM deedlight_execution_ledger.raise_trust_failure(
+        'incomplete_preconditions','recovery_target_order_or_state_invalid','{}'::jsonb);
+    END IF;
+
+    -- Lock each exact target in the signed, strictly increasing UUID order.
+    SELECT * INTO v_execution
+    FROM deedlight_execution_ledger.executions
+    WHERE system_identifier=v_identity.system_identifier
+      AND database_oid=v_identity.database_oid
+      AND execution_id=v_execution_id
+    FOR UPDATE;
+    IF NOT FOUND
+      OR v_execution.status IS DISTINCT FROM v_expected_status
+      OR v_execution.source_identity IS DISTINCT FROM v_expected_source_identity
+      OR v_execution.heartbeat_at IS DISTINCT FROM v_expected_heartbeat
+      OR v_execution.c603_row_version IS DISTINCT FROM v_expected_row_version
+      OR v_execution.status NOT IN ('reserved','running')
+      OR v_execution.heartbeat_at >= pg_catalog.clock_timestamp()-p_stale_after THEN
+      PERFORM deedlight_execution_ledger.raise_trust_failure(
+        'incomplete_preconditions','recovery_target_missing_changed_or_ineligible',
+        pg_catalog.jsonb_build_object('executionId',v_execution_id));
+    END IF;
+    v_locked_count := v_locked_count + 1;
+    v_previous_id := v_execution_id;
+  END LOOP;
+
+  IF v_locked_count <> v_target_count THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'incomplete_preconditions','recovery_target_count_mismatch','{}'::jsonb);
+  END IF;
+
+  -- This UPDATE joins only the authorized UUIDs. It never scans for other stale rows.
+  UPDATE deedlight_execution_ledger.executions AS execution
+  SET status = CASE WHEN execution.status='reserved' THEN 'interrupted' ELSE 'unknown' END,
+      completed_at = pg_catalog.clock_timestamp(),
+      outcome_detail = CASE WHEN execution.status='running'
+        THEN pg_catalog.jsonb_build_object('category','ambiguous_execution_outcome',
+          'diagnosticCode','D1008','reason','running_execution_stale_after_heartbeat',
+          'recoveryActor','deedlight_ledger_recovery')
+        ELSE pg_catalog.jsonb_build_object('category','incomplete_preconditions',
+          'reason','reserved_execution_expired_before_start',
+          'recoveryActor','deedlight_ledger_recovery') END
+  FROM pg_catalog.jsonb_to_recordset(p_targets) AS target(
+    "executionId" uuid,"expectedStatus" text,"expectedSourceIdentity" jsonb,
+    "expectedHeartbeatAt" timestamptz,"expectedRowVersion" bigint)
+  WHERE execution.system_identifier=v_identity.system_identifier
+    AND execution.database_oid=v_identity.database_oid
+    AND execution.execution_id=target."executionId"
+    AND execution.status=target."expectedStatus"
+    AND execution.source_identity=target."expectedSourceIdentity"
+    AND execution.heartbeat_at=target."expectedHeartbeatAt"
+    AND execution.c603_row_version=target."expectedRowVersion"
+    AND execution.status IN ('reserved','running')
+    AND execution.heartbeat_at < pg_catalog.clock_timestamp()-p_stale_after;
+  GET DIAGNOSTICS v_updated_count = ROW_COUNT;
+  IF v_updated_count <> v_target_count THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'incomplete_preconditions','recovery_target_set_changed_during_mutation',
+      pg_catalog.jsonb_build_object('expected',v_target_count,'updated',v_updated_count));
+  END IF;
+  RETURN v_updated_count;
+END
+$fn$;
+ALTER FUNCTION deedlight_execution_ledger.recover_stale_executions_targets_impl(jsonb,interval)
+  OWNER TO deedlight_ledger_owner;
+
+CREATE OR REPLACE FUNCTION deedlight_execution_ledger.recover_stale_executions(
+  p_stale_after interval,p_authorization jsonb
+) RETURNS integer LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, deedlight_execution_ledger AS $fn$
+DECLARE v_targets jsonb;
+BEGIN
+  v_targets := p_authorization #> '{request,targets}';
+  PERFORM deedlight_execution_ledger.authorize_request(p_authorization,'recover_stale_executions',
+    'deedlight_ledger_recovery',NULL,
+    pg_catalog.jsonb_build_object('staleAfter',p_stale_after::text,'targets',v_targets));
+  RETURN deedlight_execution_ledger.recover_stale_executions_targets_impl(v_targets,p_stale_after);
+END $fn$;
+
+CREATE OR REPLACE FUNCTION deedlight_execution_ledger.record_verification(
+  p_execution_id uuid,p_verdict text,p_evidence jsonb,p_source_identity jsonb,p_authorization jsonb
+) RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, deedlight_execution_ledger AS $fn$
+DECLARE v_source jsonb;
+BEGIN
+  PERFORM deedlight_execution_ledger.authorize_request(p_authorization,'record_verification',
+    'deedlight_ledger_verifier',p_execution_id,
+    pg_catalog.jsonb_build_object('executionId',p_execution_id,'verdict',p_verdict,
+      'evidence',p_evidence,'sourceIdentity',p_source_identity));
+  SELECT source_identity INTO STRICT v_source FROM deedlight_execution_ledger.executions
+  WHERE execution_id=p_execution_id;
+  IF v_source IS DISTINCT FROM p_source_identity THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust','authorization_source_identity_mismatch','{}'::jsonb);
+  END IF;
+  PERFORM deedlight_execution_ledger.record_verification_impl(p_execution_id,p_verdict,p_evidence);
+END $fn$;
+
+-- Owner-only internals; public and runtime actors cannot call the old RPC bodies.
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA deedlight_execution_ledger FROM PUBLIC,
+  deedlight_ledger_approver,deedlight_ledger_runner,deedlight_ledger_observer,
+  deedlight_ledger_recovery,deedlight_ledger_verifier;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA deedlight_execution_ledger TO deedlight_ledger_owner;
+GRANT SELECT ON deedlight_execution_ledger.authorization_keys TO deedlight_ledger_owner;
+GRANT INSERT,SELECT ON deedlight_execution_ledger.authorization_nonces TO deedlight_ledger_owner;
+GRANT USAGE ON SCHEMA deedlight_execution_ledger TO
+  deedlight_ledger_approver,deedlight_ledger_runner,deedlight_ledger_observer,
+  deedlight_ledger_recovery,deedlight_ledger_verifier;
+
+ALTER FUNCTION deedlight_execution_ledger.approve_execution(uuid,uuid,uuid,jsonb,jsonb) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.reserve_execution(uuid,uuid,uuid,jsonb,jsonb) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.record_effect_commit_marker(uuid,jsonb,jsonb) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.capture_snapshot(uuid,text,text,jsonb,jsonb) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.start_execution(uuid,jsonb,jsonb) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.heartbeat_execution(uuid,jsonb,jsonb) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.finalize_execution(uuid,text,jsonb,jsonb,jsonb) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.recover_stale_executions(interval,jsonb) OWNER TO deedlight_ledger_owner;
+ALTER FUNCTION deedlight_execution_ledger.record_verification(uuid,text,jsonb,jsonb,jsonb) OWNER TO deedlight_ledger_owner;
+
+GRANT EXECUTE ON FUNCTION deedlight_execution_ledger.approve_execution(uuid,uuid,uuid,jsonb,jsonb) TO deedlight_ledger_approver;
+GRANT EXECUTE ON FUNCTION deedlight_execution_ledger.reserve_execution(uuid,uuid,uuid,jsonb,jsonb),
+  deedlight_execution_ledger.record_effect_commit_marker(uuid,jsonb,jsonb),
+  deedlight_execution_ledger.start_execution(uuid,jsonb,jsonb),
+  deedlight_execution_ledger.heartbeat_execution(uuid,jsonb,jsonb),
+  deedlight_execution_ledger.finalize_execution(uuid,text,jsonb,jsonb,jsonb) TO deedlight_ledger_runner;
+GRANT EXECUTE ON FUNCTION deedlight_execution_ledger.capture_snapshot(uuid,text,text,jsonb,jsonb) TO deedlight_ledger_observer;
+GRANT EXECUTE ON FUNCTION deedlight_execution_ledger.recover_stale_executions(interval,jsonb) TO deedlight_ledger_recovery;
+GRANT EXECUTE ON FUNCTION deedlight_execution_ledger.record_verification(uuid,text,jsonb,jsonb,jsonb) TO deedlight_ledger_verifier;
+REVOKE CREATE ON SCHEMA deedlight_execution_ledger FROM deedlight_ledger_owner;
+
+-- The definer is deliberately a NOLOGIN, non-superuser role.
+DO $assert$
+DECLARE v_actor name;
+BEGIN
+  IF (SELECT rolsuper OR rolcanlogin FROM pg_catalog.pg_roles WHERE rolname='deedlight_ledger_owner') THEN
+    RAISE EXCEPTION 'C603 definer owner must be NOLOGIN and NOSUPERUSER';
+  END IF;
+  FOREACH v_actor IN ARRAY ARRAY['deedlight_ledger_approver','deedlight_ledger_runner',
+    'deedlight_ledger_observer','deedlight_ledger_recovery','deedlight_ledger_verifier']::name[] LOOP
+    IF EXISTS (
+      SELECT 1 FROM pg_catalog.pg_auth_members m
+      JOIN pg_catalog.pg_roles r ON r.oid=m.roleid
+      JOIN pg_catalog.pg_roles member ON member.oid=m.member
+      WHERE r.rolname IN ('deedlight_ledger_approver','deedlight_ledger_runner',
+        'deedlight_ledger_observer','deedlight_ledger_recovery','deedlight_ledger_verifier')
+        AND member.rolname=v_actor
+    ) THEN RAISE EXCEPTION 'C603 actor role membership must be empty: %',v_actor; END IF;
+  END LOOP;
+END
+$assert$;
+
+SELECT 'C603_SIGNED_AUTHORIZATION_OVERLAY_INSTALLED' AS evidence;
