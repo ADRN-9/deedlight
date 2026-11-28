@@ -405,10 +405,10 @@ SELECT c603_test.sign_recovery(jsonb_build_object(
     :'duplicate_base_auth'::jsonb->'request'->'targets'->0
   )
 )) AS duplicate_signed_auth \gset
-SET SESSION AUTHORIZATION deedlight_ledger_recovery;
 CREATE TEMP TABLE c614_duplicate_business_before ON COMMIT PRESERVE ROWS AS
 SELECT * FROM deedlight_execution_ledger.executions
 WHERE execution_id='c6080000-0000-4000-8000-000000000017';
+SET SESSION AUTHORIZATION deedlight_ledger_recovery;
 SELECT c603_test.assert_rejected(format(
   'SELECT deedlight_execution_ledger.recover_stale_executions(%L::interval,%L::jsonb)',
   '1 minute',:'duplicate_signed_auth'),'D1006');
@@ -445,13 +445,13 @@ SELECT c603_test.sign_recovery(jsonb_build_object(
     :'unordered_base_auth'::jsonb->'request'->'targets'->0
   )
 )) AS unordered_signed_auth \gset
-SET SESSION AUTHORIZATION deedlight_ledger_recovery;
 CREATE TEMP TABLE c614_unordered_business_before ON COMMIT PRESERVE ROWS AS
 SELECT * FROM deedlight_execution_ledger.executions
 WHERE execution_id IN (
   'c6080000-0000-4000-8000-000000000019',
   'c6080000-0000-4000-8000-000000000020'
 );
+SET SESSION AUTHORIZATION deedlight_ledger_recovery;
 SELECT c603_test.assert_rejected(format(
   'SELECT deedlight_execution_ledger.recover_stale_executions(%L::interval,%L::jsonb)',
   '1 minute',:'unordered_signed_auth'),'D1006');
