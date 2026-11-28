@@ -220,7 +220,7 @@ SELECT 'C603_RECOVERY_SIGNED_POSITIVE_PATH_PASS' AS evidence;
 
 -- Assert the owner/actor separation and exact 5 x 9 EXECUTE matrix.
 DO $catalog$
-DECLARE v_proc text; v_actor text; v_allowed text; v_impl text; v_owner oid;
+DECLARE v_proc text; v_actor text; v_allowed text; v_impl text; v_owner oid; v_oid oid;
 DECLARE v_rpc text[] := ARRAY[
  'approve_execution(uuid,uuid,uuid,jsonb,jsonb)',
  'reserve_execution(uuid,uuid,uuid,jsonb,jsonb)',
@@ -276,24 +276,22 @@ BEGIN
  END LOOP;
 
  FOREACH v_proc IN ARRAY v_rpc LOOP
-   DECLARE v_oid oid := pg_catalog.to_regprocedure('deedlight_execution_ledger.'||v_proc);
-   BEGIN
-     IF v_oid IS NULL OR NOT EXISTS (
-       SELECT 1 FROM pg_catalog.pg_proc p
-       WHERE p.oid=v_oid AND p.proowner=v_owner AND p.prosecdef
-         AND p.proconfig @> ARRAY['search_path=pg_catalog, deedlight_execution_ledger']
-     ) THEN
-       RAISE EXCEPTION 'C603 wrapper owner/SECURITY DEFINER/search_path assertion failed: %',v_proc;
-     END IF;
-     IF EXISTS (
-       SELECT 1 FROM pg_catalog.pg_proc p
-       CROSS JOIN LATERAL pg_catalog.aclexplode(
-         coalesce(p.proacl,pg_catalog.acldefault('f',p.proowner))) acl
-       WHERE p.oid=v_oid AND acl.grantee=0 AND acl.privilege_type='EXECUTE'
-     ) THEN
-       RAISE EXCEPTION 'C603 wrapper still grants PUBLIC EXECUTE: %',v_proc;
-     END IF;
-   END;
+   v_oid := pg_catalog.to_regprocedure('deedlight_execution_ledger.'||v_proc);
+   IF v_oid IS NULL OR NOT EXISTS (
+     SELECT 1 FROM pg_catalog.pg_proc p
+     WHERE p.oid=v_oid AND p.proowner=v_owner AND p.prosecdef
+       AND p.proconfig @> ARRAY['search_path=pg_catalog, deedlight_execution_ledger']
+   ) THEN
+     RAISE EXCEPTION 'C603 wrapper owner/SECURITY DEFINER/search_path assertion failed: %',v_proc;
+   END IF;
+   IF EXISTS (
+     SELECT 1 FROM pg_catalog.pg_proc p
+     CROSS JOIN LATERAL pg_catalog.aclexplode(
+       coalesce(p.proacl,pg_catalog.acldefault('f',p.proowner))) acl
+     WHERE p.oid=v_oid AND acl.grantee=0 AND acl.privilege_type='EXECUTE'
+   ) THEN
+     RAISE EXCEPTION 'C603 wrapper still grants PUBLIC EXECUTE: %',v_proc;
+   END IF;
  END LOOP;
 
  FOREACH v_impl IN ARRAY ARRAY[
