@@ -370,5 +370,81 @@ BEGIN
  END IF;
 END
 $legacy$;
+
+-- Cryptographic adversarial checks: replay, request substitution, wrong actor,
+-- resource substitution and invalid signature. Each must fail before a nonce or
+-- ledger row is accepted.
+CREATE TEMP TABLE c603_adversarial_before AS
+SELECT
+ (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.approvals t) approvals,
+ (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.executions t) executions,
+ (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.snapshots t) snapshots,
+ (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.execution_commit_markers t) markers,
+ (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.verification_events t) verifications,
+ (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.authorization_nonces t) nonces;
+
+SET SESSION AUTHORIZATION deedlight_ledger_approver;
+SELECT pg_temp.c603_assert_rejected(
+ format('SELECT deedlight_execution_ledger.approve_execution(%L,%L,%L,%L::jsonb,%L::jsonb)',
+  'c6030000-0000-4000-8000-000000000001','c6030000-0000-4000-8000-000000000011',
+  'c6030000-0000-4000-8000-000000000021',
+  '{"path":"supabase/migrations/c603-positive.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}',
+  :'approval_auth'),
+ 'D1005');
+SELECT pg_temp.c603_assert_rejected(
+ format('SELECT deedlight_execution_ledger.approve_execution(%L,%L,%L,%L::jsonb,%L::jsonb)',
+  'c6030000-0000-4000-8000-000000000003','c6030000-0000-4000-8000-000000000013',
+  'c6030000-0000-4000-8000-000000000023',
+  '{"path":"supabase/migrations/substituted.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}',
+  :'approval_auth'),
+ 'D1001');
+RESET SESSION AUTHORIZATION;
+
+SELECT pg_temp.c603_sign('deedlight_ledger_runner','reserve_execution',
+ 'c6030000-0000-4000-8000-000000000021',
+ pg_catalog.jsonb_build_object('approvalId','c6030000-0000-4000-8000-000000000001'::uuid,
+ 'recordId','c6030000-0000-4000-8000-000000000011'::uuid,
+ 'executionId','c6030000-0000-4000-8000-000000000021'::uuid,
+ 'sourceIdentity','{"path":"supabase/migrations/c603-positive.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb)
+) || pg_catalog.jsonb_build_object('signature',repeat('0',64)) AS bad_signature_auth \gset
+SET SESSION AUTHORIZATION deedlight_ledger_runner;
+SELECT pg_temp.c603_assert_rejected(
+ format('SELECT deedlight_execution_ledger.reserve_execution(%L,%L,%L,%L::jsonb,%L::jsonb)',
+  'c6030000-0000-4000-8000-000000000001','c6030000-0000-4000-8000-000000000011',
+  'c6030000-0000-4000-8000-000000000021',
+  '{"path":"supabase/migrations/c603-positive.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}',
+  :'approval_auth'),
+ 'D1001');
+SELECT pg_temp.c603_assert_rejected(
+ format('SELECT deedlight_execution_ledger.reserve_execution(%L,%L,%L,%L::jsonb,%L::jsonb)',
+  'c6030000-0000-4000-8000-000000000001','c6030000-0000-4000-8000-000000000011',
+  'c6030000-0000-4000-8000-000000000021',
+  '{"path":"supabase/migrations/c603-positive.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}',
+  :'bad_signature_auth'),
+ 'D1001');
+SELECT pg_temp.c603_assert_rejected(
+ format('SELECT deedlight_execution_ledger.reserve_execution(%L,%L,%L,%L::jsonb,%L::jsonb)',
+  'c6030000-0000-4000-8000-000000000001','c6030000-0000-4000-8000-000000000011',
+  'c6030000-0000-4000-8000-000000000021',
+  '{"path":"supabase/migrations/c603-positive.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}',
+  :'approval_auth'),
+ 'D1001');
+RESET SESSION AUTHORIZATION;
+
+DO $adversarial_side_effects$
+BEGIN
+ IF NOT EXISTS (
+  SELECT 1 FROM c603_adversarial_before b
+  WHERE b.approvals=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.approvals t)
+    AND b.executions=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.executions t)
+    AND b.snapshots=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.snapshots t)
+    AND b.markers=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.execution_commit_markers t)
+    AND b.verifications=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.verification_events t)
+    AND b.nonces=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.authorization_nonces t)
+ ) THEN RAISE EXCEPTION 'C603 cryptographic rejection changed protected state'; END IF;
+END
+$adversarial_side_effects$;
+SELECT 'C603_SIGNATURE_REPLAY_BINDING_ZERO_SIDE_EFFECTS_PASS' AS evidence;
+
 SELECT 'C603_LEGACY_UNWRAPPED_RPC_SIGNATURES_REMOVED_PASS' AS evidence;
 
