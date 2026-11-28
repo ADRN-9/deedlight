@@ -574,6 +574,136 @@ run_c608_state_race "finalize" "c6080000-0000-4000-8000-000000000011" \
   "UPDATE deedlight_execution_ledger.executions SET status='succeeded',completed_at=pg_catalog.clock_timestamp(),outcome_detail='{\"result\":\"finalized-after-recovery-authorization\"}'::jsonb WHERE execution_id='c6080000-0000-4000-8000-000000000011';" \
   "succeeded"
 
+# Change the later authorized target while recovery is blocked on the earlier target.
+later_target_auth="$(clean_psql --tuples-only --no-align --command "
+  SELECT c608_test.request(ARRAY[
+    'c6080000-0000-4000-8000-000000000021',
+    'c6080000-0000-4000-8000-000000000022'
+  ]::uuid[],interval '1 minute')
+")"
+[[ -n "$later_target_auth" ]] || {
+  echo "FAIL: could not sign C610 two-target recovery request" >&2
+  exit 1
+}
+cat >"$tmp_dir/c610-later-holder.sql" <<'SQL'
+BEGIN;
+SELECT 1 FROM deedlight_execution_ledger.executions
+WHERE execution_id='c6080000-0000-4000-8000-000000000021' FOR UPDATE;
+SELECT pg_catalog.pg_sleep(30);
+COMMIT;
+SQL
+cat >"$tmp_dir/c610-later-recovery.sql" <<'SQL'
+SET SESSION AUTHORIZATION deedlight_ledger_recovery;
+SELECT deedlight_execution_ledger.recover_stale_executions(interval '1 minute', :'authorization'::jsonb);
+RESET SESSION AUTHORIZATION;
+SQL
+cat >"$tmp_dir/c610-later-update.sql" <<'SQL'
+UPDATE deedlight_execution_ledger.executions
+SET status='running',runner_identity='c610-race-runner',
+    started_at=pg_catalog.clock_timestamp()
+WHERE execution_id='c6080000-0000-4000-8000-000000000022';
+SQL
+cat >"$tmp_dir/c610-later-snapshots.sql" <<'SQL'
+SELECT c608_test.assert_execution_snapshot(
+  'c6080000-0000-4000-8000-000000000021','running',
+  (:'authorization'::jsonb->'request'->'targets'->0->>'expectedHeartbeatAt')::timestamptz,
+  :'authorization'::jsonb->'request'->'targets'->0->'expectedSourceIdentity',
+  (:'authorization'::jsonb->'request'->'targets'->0->>'expectedRowVersion')::bigint
+);
+SELECT c608_test.assert_execution_snapshot(
+  'c6080000-0000-4000-8000-000000000022','running',
+  (:'authorization'::jsonb->'request'->'targets'->1->>'expectedHeartbeatAt')::timestamptz,
+  :'authorization'::jsonb->'request'->'targets'->1->'expectedSourceIdentity',
+  (:'authorization'::jsonb->'request'->'targets'->1->>'expectedRowVersion')::bigint+1
+);
+SQL
+app_psql deedlight_c610_later_holder --file "$tmp_dir/c610-later-holder.sql" \
+  >"$tmp_dir/c610-later-holder.log" 2>&1 &
+c610_holder_client_pid=$!
+c610_holder_backend_pid=""
+for attempt in $(seq 1 200); do
+  c610_holder_backend_pid="$(clean_psql --tuples-only --no-align --command "
+    SELECT pid FROM pg_catalog.pg_stat_activity
+    WHERE application_name='deedlight_c610_later_holder' AND state='active'
+      AND wait_event='PgSleep' AND query LIKE '%pg_sleep(30)%'
+  ")"
+  [[ -n "$c610_holder_backend_pid" ]] && break
+  kill -0 "$c610_holder_client_pid" 2>/dev/null || {
+    cat "$tmp_dir/c610-later-holder.log"
+    echo "FAIL: C610 earlier-target lock holder exited early" >&2
+    exit 1
+  }
+  sleep 0.05
+done
+[[ -n "$c610_holder_backend_pid" ]] || {
+  echo "FAIL: C610 timed out waiting for earlier-target lock holder" >&2
+  exit 1
+}
+
+app_psql deedlight_c610_later_recovery --set "authorization=$later_target_auth" \
+  --file "$tmp_dir/c610-later-recovery.sql" \
+  >"$tmp_dir/c610-later-recovery.log" 2>&1 &
+c610_recovery_client_pid=$!
+c610_recovery_backend_pid=""
+for attempt in $(seq 1 200); do
+  c610_recovery_backend_pid="$(clean_psql --tuples-only --no-align --command "
+    SELECT pid FROM pg_catalog.pg_stat_activity
+    WHERE application_name='deedlight_c610_later_recovery' AND state='active'
+      AND wait_event_type='Lock'
+      AND $c610_holder_backend_pid = ANY(pg_catalog.pg_blocking_pids(pid))
+  ")"
+  [[ -n "$c610_recovery_backend_pid" ]] && break
+  kill -0 "$c610_recovery_client_pid" 2>/dev/null || {
+    cat "$tmp_dir/c610-later-recovery.log"
+    echo "FAIL: C610 recovery did not wait on the earlier authorized target" >&2
+    exit 1
+  }
+  sleep 0.05
+done
+[[ -n "$c610_recovery_backend_pid" ]] || {
+  echo "FAIL: C610 recovery wait on earlier target was not observed" >&2
+  exit 1
+}
+
+app_psql deedlight_c610_later_update --file "$tmp_dir/c610-later-update.sql" \
+  >"$tmp_dir/c610-later-update.log" 2>&1 || {
+  cat "$tmp_dir/c610-later-update.log"
+  echo "FAIL: C610 later-target concurrent update did not complete" >&2
+  exit 1
+}
+cancelled="$(clean_psql --tuples-only --no-align --command "SELECT pg_catalog.pg_cancel_backend($c610_holder_backend_pid)")"
+[[ "$cancelled" == "t" ]] || {
+  echo "FAIL: could not release C610 earlier-target lock holder" >&2
+  exit 1
+}
+set +e
+wait "$c610_holder_client_pid"; c610_holder_status=$?
+wait "$c610_recovery_client_pid"; c610_recovery_status=$?
+set -e
+[[ "$c610_holder_status" -ne 0 && "$c610_recovery_status" -ne 0 ]] \
+  && grep -q "canceling statement due to user request" "$tmp_dir/c610-later-holder.log" || {
+  echo "FAIL: C610 later-target race statuses holder=$c610_holder_status recovery=$c610_recovery_status" >&2
+  cat "$tmp_dir/c610-later-holder.log" "$tmp_dir/c610-later-recovery.log"
+  exit 1
+}
+grep -q "DEEDLIGHT_TRUST_FAILURE:incomplete_preconditions" "$tmp_dir/c610-later-recovery.log" || {
+  echo "FAIL: C610 recovery did not reject the later target changed while first was locked" >&2
+  cat "$tmp_dir/c610-later-recovery.log"
+  exit 1
+}
+clean_psql --set "authorization=$later_target_auth" \
+  --file "$tmp_dir/c610-later-snapshots.sql"
+later_nonce_count="$(clean_psql --tuples-only --no-align --command "
+  SELECT count(*) FROM deedlight_execution_ledger.authorization_nonces
+  WHERE actor='deedlight_ledger_recovery'
+    AND nonce=('$later_target_auth'::jsonb->>'nonce')::uuid
+")"
+[[ "$later_nonce_count" == "0" ]] || {
+  echo "FAIL: C610 later-target rejection consumed its authorization nonce ($later_nonce_count)" >&2
+  exit 1
+}
+echo "C610_LATER_TARGET_FINALIZED_WHILE_EARLIER_LOCKED_REJECTED_ZERO_RECOVERY_MUTATION nonce_rolled_back=$later_nonce_count"
+
 # Two independently signed overlapping recovery requests wait on the same row.
 # Releasing a deterministic lock holder must produce one winner and one fail-closed loser.
 overlap_auth_a="$(clean_psql --tuples-only --no-align --command "
