@@ -9,22 +9,30 @@ CREATE OR REPLACE FUNCTION pg_temp.c603_sign(
 ) RETURNS jsonb LANGUAGE plpgsql AS $fn$
 DECLARE
   v_key bytea;
+  v_generation bigint;
   v_key_id text := 'c603-' || replace(p_actor,'deedlight_ledger_','') || '-v1';
   v_envelope jsonb;
 BEGIN
-  v_key := CASE p_actor
+  SELECT generation INTO STRICT v_generation
+  FROM deedlight_execution_ledger.authorization_generations WHERE actor=p_actor;
+  IF v_generation > 1 THEN
+    v_key_id := 'c603-' || replace(p_actor,'deedlight_ledger_','') || '-v' || v_generation::text;
+  END IF;
+  v_key := CASE
+    WHEN p_actor='deedlight_ledger_runner' AND v_generation=2 THEN decode(repeat('66',32),'hex')
+    ELSE CASE p_actor
     WHEN 'deedlight_ledger_approver' THEN decode(repeat('11',32),'hex')
     WHEN 'deedlight_ledger_runner' THEN decode(repeat('22',32),'hex')
     WHEN 'deedlight_ledger_observer' THEN decode(repeat('33',32),'hex')
     WHEN 'deedlight_ledger_recovery' THEN decode(repeat('44',32),'hex')
     WHEN 'deedlight_ledger_verifier' THEN decode(repeat('55',32),'hex')
-    ELSE NULL END;
+    ELSE NULL END END;
   IF v_key IS NULL THEN RAISE EXCEPTION 'unknown test actor'; END IF;
   v_envelope := pg_catalog.jsonb_build_object(
     'version',1,'operation',p_operation,'actor',p_actor,'principal',p_actor,
     'executionId',p_execution_id,
     'databaseResource',deedlight_execution_ledger.current_database_identity(),
-    'generation',1,'audience','deedlight.execution-ledger.gateway.v1',
+    'generation',v_generation,'audience','deedlight.execution-ledger.gateway.v1',
     'nonce',deedlight_execution_ledger.gen_random_uuid(),
     'issuedAt',pg_catalog.clock_timestamp(),
     'expiresAt',pg_catalog.clock_timestamp()+interval '1 minute',
@@ -46,18 +54,22 @@ GRANT USAGE ON SCHEMA c603_test TO deedlight_ledger_approver,
   deedlight_ledger_recovery,deedlight_ledger_verifier;
 CREATE OR REPLACE FUNCTION c603_test.assert_rejected(p_sql text,p_expected_state text)
 RETURNS void LANGUAGE plpgsql AS $fn$
-DECLARE v_state text;
+DECLARE v_state text; v_rejected boolean := false;
 BEGIN
   BEGIN
     EXECUTE p_sql;
-    RAISE EXCEPTION 'C603 expected rejection but statement succeeded: %',p_sql;
   EXCEPTION WHEN OTHERS THEN
     GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE;
-    IF v_state IS DISTINCT FROM p_expected_state THEN
-      RAISE EXCEPTION 'C603 wrong rejection SQLSTATE: expected %, got % for %',
-        p_expected_state,v_state,p_sql;
-    END IF;
+    v_rejected := true;
   END;
+  IF NOT v_rejected THEN
+    RAISE EXCEPTION USING ERRCODE='P0002',
+      MESSAGE='C603 expected rejection but statement succeeded: '||p_sql;
+  END IF;
+  IF v_state IS DISTINCT FROM p_expected_state THEN
+    RAISE EXCEPTION 'C603 wrong rejection SQLSTATE: expected %, got % for %',
+      p_expected_state,v_state,p_sql;
+  END IF;
 END
 $fn$;
 REVOKE ALL ON FUNCTION c603_test.assert_rejected(text,text) FROM PUBLIC;
@@ -203,6 +215,41 @@ SELECT deedlight_execution_ledger.reserve_execution(
  :'recovery_reserve_auth'::jsonb);
 RESET SESSION AUTHORIZATION;
 SELECT pg_catalog.pg_sleep(0.02);
+CREATE OR REPLACE FUNCTION c603_test.inject_new_stale_recovery_target()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, deedlight_execution_ledger, c603_test
+AS $fn$
+DECLARE v_resource jsonb := deedlight_execution_ledger.current_database_identity();
+BEGIN
+  INSERT INTO deedlight_execution_ledger.approvals
+    (approval_id,system_identifier,database_oid,database_name,record_id,
+     execution_id,source_identity,approver_identity)
+  VALUES ('c6030000-0000-4000-8000-000000000004'::uuid,
+    v_resource->>'systemIdentifier',(v_resource->>'databaseOid')::oid,
+    v_resource->>'databaseName','c6030000-0000-4000-8000-000000000014'::uuid,
+    'c6030000-0000-4000-8000-000000000024'::uuid,
+    '{"path":"supabase/migrations/c603-concurrent-new-target.sql","sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}'::jsonb,
+    'deedlight_ledger_approver');
+  INSERT INTO deedlight_execution_ledger.executions
+    (system_identifier,database_oid,database_name,record_id,execution_id,
+     approval_id,source_identity,status,approver_identity,heartbeat_at)
+  VALUES (v_resource->>'systemIdentifier',(v_resource->>'databaseOid')::oid,
+    v_resource->>'databaseName','c6030000-0000-4000-8000-000000000014'::uuid,
+    'c6030000-0000-4000-8000-000000000024'::uuid,
+    'c6030000-0000-4000-8000-000000000004'::uuid,
+    '{"path":"supabase/migrations/c603-concurrent-new-target.sql","sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}'::jsonb,
+    'reserved','deedlight_ledger_approver',
+    pg_catalog.clock_timestamp()-interval '1 hour');
+  RETURN NEW;
+END
+$fn$;
+CREATE TRIGGER c605_inject_new_stale_target
+AFTER UPDATE OF status ON deedlight_execution_ledger.executions
+FOR EACH ROW WHEN (OLD.execution_id='c6030000-0000-4000-8000-000000000023'::uuid
+  AND NEW.status='interrupted')
+EXECUTE FUNCTION c603_test.inject_new_stale_recovery_target();
+REVOKE ALL ON FUNCTION c603_test.inject_new_stale_recovery_target() FROM PUBLIC;
+
 SELECT pg_temp.c603_sign('deedlight_ledger_recovery','recover_stale_executions',NULL,
  pg_catalog.jsonb_build_object('staleAfter','00:00:00.000001',
  'sourceSetDigest',(SELECT pg_catalog.encode(deedlight_execution_ledger.digest(
@@ -217,6 +264,196 @@ SET SESSION AUTHORIZATION deedlight_ledger_recovery;
 SELECT deedlight_execution_ledger.recover_stale_executions(interval '1 microsecond',:'recover_auth'::jsonb);
 RESET SESSION AUTHORIZATION;
 SELECT 'C603_RECOVERY_SIGNED_POSITIVE_PATH_PASS' AS evidence;
+
+-- A second execution is made stale only after a receipt for the empty target set
+-- has been signed. Recovery must reject the stale receipt and leave every row intact.
+SELECT pg_temp.c603_sign('deedlight_ledger_approver','approve_execution',
+ 'c6030000-0000-4000-8000-000000000023',
+ pg_catalog.jsonb_build_object('approvalId','c6030000-0000-4000-8000-000000000003'::uuid,
+ 'recordId','c6030000-0000-4000-8000-000000000013'::uuid,
+ 'executionId','c6030000-0000-4000-8000-000000000023'::uuid,
+ 'sourceIdentity','{"path":"supabase/migrations/c603-race.sql","sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}'::jsonb)
+) AS race_approval_auth \gset
+SET SESSION AUTHORIZATION deedlight_ledger_approver;
+SELECT deedlight_execution_ledger.approve_execution(
+ 'c6030000-0000-4000-8000-000000000003','c6030000-0000-4000-8000-000000000013',
+ 'c6030000-0000-4000-8000-000000000023',
+ '{"path":"supabase/migrations/c603-race.sql","sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}'::jsonb,
+ :'race_approval_auth'::jsonb);
+RESET SESSION AUTHORIZATION;
+SELECT pg_temp.c603_sign('deedlight_ledger_runner','reserve_execution',
+ 'c6030000-0000-4000-8000-000000000023',
+ pg_catalog.jsonb_build_object('approvalId','c6030000-0000-4000-8000-000000000003'::uuid,
+ 'recordId','c6030000-0000-4000-8000-000000000013'::uuid,
+ 'executionId','c6030000-0000-4000-8000-000000000023'::uuid,
+ 'sourceIdentity','{"path":"supabase/migrations/c603-race.sql","sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}'::jsonb)
+) AS race_reserve_auth \gset
+SET SESSION AUTHORIZATION deedlight_ledger_runner;
+SELECT deedlight_execution_ledger.reserve_execution(
+ 'c6030000-0000-4000-8000-000000000003','c6030000-0000-4000-8000-000000000013',
+ 'c6030000-0000-4000-8000-000000000023',
+ '{"path":"supabase/migrations/c603-race.sql","sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}'::jsonb,
+ :'race_reserve_auth'::jsonb);
+RESET SESSION AUTHORIZATION;
+
+SELECT pg_temp.c603_sign('deedlight_ledger_recovery','recover_stale_executions',NULL,
+ pg_catalog.jsonb_build_object('staleAfter','00:00:00.000001',
+ 'sourceSetDigest',pg_catalog.encode(deedlight_execution_ledger.digest(
+   pg_catalog.convert_to('[]'::jsonb::text,'UTF8'),'sha256'),'hex'),
+ 'targetCount',0)) AS empty_set_recovery_auth \gset
+SELECT pg_catalog.pg_sleep(0.02);
+CREATE TEMP TABLE c605_recovery_before AS
+SELECT
+ (SELECT pg_catalog.to_jsonb(e) FROM deedlight_execution_ledger.executions e
+  WHERE execution_id='c6030000-0000-4000-8000-000000000023') AS execution_row,
+ (SELECT pg_catalog.count(*) FROM deedlight_execution_ledger.authorization_nonces) AS nonce_count,
+ (SELECT coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(t) ORDER BY pg_catalog.to_jsonb(t)::text),'[]'::jsonb)
+  FROM deedlight_execution_ledger.test_effects t) AS effects,
+ (SELECT coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(t) ORDER BY pg_catalog.to_jsonb(t)::text),'[]'::jsonb)
+  FROM deedlight_execution_ledger.execution_commit_markers t) AS markers;
+
+SET SESSION AUTHORIZATION deedlight_ledger_recovery;
+SELECT c603_test.assert_rejected(
+ format('SELECT deedlight_execution_ledger.recover_stale_executions(%L::interval,%L::jsonb)',
+   '1 microsecond', :'empty_set_recovery_auth'),
+ 'D1001');
+RESET SESSION AUTHORIZATION;
+
+DO $recovery_race$
+BEGIN
+ IF NOT EXISTS (
+   SELECT 1 FROM c605_recovery_before b
+   WHERE b.execution_row=(SELECT pg_catalog.to_jsonb(e) FROM deedlight_execution_ledger.executions e
+     WHERE execution_id='c6030000-0000-4000-8000-000000000023')
+     AND b.nonce_count=(SELECT pg_catalog.count(*) FROM deedlight_execution_ledger.authorization_nonces)
+     AND b.effects=(SELECT coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(t) ORDER BY pg_catalog.to_jsonb(t)::text),'[]'::jsonb)
+       FROM deedlight_execution_ledger.test_effects t)
+     AND b.markers=(SELECT coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(t) ORDER BY pg_catalog.to_jsonb(t)::text),'[]'::jsonb)
+       FROM deedlight_execution_ledger.execution_commit_markers t)
+ ) THEN
+   RAISE EXCEPTION 'C605 rejected recovery target set changed protected state or consumed nonce';
+ END IF;
+END
+$recovery_race$;
+SELECT 'C605_RECOVERY_SIGNED_TARGET_SET_MISMATCH_ZERO_MUTATION_PASS' AS evidence;
+
+SELECT pg_temp.c603_sign('deedlight_ledger_recovery','recover_stale_executions',NULL,
+ pg_catalog.jsonb_build_object('staleAfter','00:00:00.000001',
+ 'sourceSetDigest',(SELECT pg_catalog.encode(deedlight_execution_ledger.digest(
+   pg_catalog.convert_to(coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
+     'executionId',execution_id,'sourceIdentity',source_identity,'status',status,
+     'heartbeatAt',heartbeat_at) ORDER BY execution_id),'[]'::jsonb)::text,'UTF8'),'sha256'),'hex')
+   FROM deedlight_execution_ledger.executions WHERE status IN ('reserved','running')
+     AND heartbeat_at < pg_catalog.clock_timestamp()-interval '1 microsecond'),
+ 'targetCount',(SELECT pg_catalog.count(*) FROM deedlight_execution_ledger.executions
+   WHERE status IN ('reserved','running') AND heartbeat_at < pg_catalog.clock_timestamp()-interval '1 microsecond'))) AS exact_set_recovery_auth \gset
+SET SESSION AUTHORIZATION deedlight_ledger_recovery;
+SELECT deedlight_execution_ledger.recover_stale_executions(interval '1 microsecond',:'exact_set_recovery_auth'::jsonb);
+RESET SESSION AUTHORIZATION;
+DROP TRIGGER c605_inject_new_stale_target ON deedlight_execution_ledger.executions;
+DO $recovery_exact$
+BEGIN
+ IF (SELECT status FROM deedlight_execution_ledger.executions
+     WHERE execution_id='c6030000-0000-4000-8000-000000000023') <> 'interrupted' THEN
+   RAISE EXCEPTION 'C605 exact authorized target was not recovered';
+ END IF;
+ IF (SELECT status FROM deedlight_execution_ledger.executions
+     WHERE execution_id='c6030000-0000-4000-8000-000000000024') <> 'reserved' THEN
+   RAISE EXCEPTION 'C605 recovery mutated a row inserted after target authorization';
+ END IF;
+END
+$recovery_exact$;
+SELECT 'C605_RECOVERY_MUTATES_ONLY_SIGNED_TARGET_SET_PASS' AS evidence;
+
+SELECT pg_temp.c603_sign('deedlight_ledger_recovery','recover_stale_executions',NULL,
+ pg_catalog.jsonb_build_object('staleAfter','00:00:00.000001',
+ 'sourceSetDigest',(SELECT pg_catalog.encode(deedlight_execution_ledger.digest(
+   pg_catalog.convert_to(coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
+     'executionId',execution_id,'sourceIdentity',source_identity,'status',status,
+     'heartbeatAt',heartbeat_at) ORDER BY execution_id),'[]'::jsonb)::text,'UTF8'),'sha256'),'hex')
+   FROM deedlight_execution_ledger.executions WHERE status IN ('reserved','running')
+     AND heartbeat_at < pg_catalog.clock_timestamp()-interval '1 microsecond'),
+ 'targetCount',(SELECT pg_catalog.count(*) FROM deedlight_execution_ledger.executions
+   WHERE status IN ('reserved','running') AND heartbeat_at < pg_catalog.clock_timestamp()-interval '1 microsecond'))) AS second_exact_set_auth \gset
+SET SESSION AUTHORIZATION deedlight_ledger_recovery;
+SELECT deedlight_execution_ledger.recover_stale_executions(interval '1 microsecond',:'second_exact_set_auth'::jsonb);
+RESET SESSION AUTHORIZATION;
+DO $recovery_second$
+BEGIN
+ IF (SELECT status FROM deedlight_execution_ledger.executions
+     WHERE execution_id='c6030000-0000-4000-8000-000000000024') <> 'interrupted' THEN
+   RAISE EXCEPTION 'C605 later recovery did not process the newly stale row';
+ END IF;
+END
+$recovery_second$;
+SELECT 'C605_RECOVERY_NEW_STALE_ROW_DEFERRED_TO_NEXT_PASS_PASS' AS evidence;
+
+-- Generation rotation is compare-and-swap, monotonic and revokes the prior key.
+SELECT pg_temp.c603_sign('deedlight_ledger_runner','heartbeat_execution',
+ 'c6030000-0000-4000-8000-000000000021',
+ pg_catalog.jsonb_build_object('executionId','c6030000-0000-4000-8000-000000000021'::uuid,
+ 'sourceIdentity','{"path":"supabase/migrations/c603-positive.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb)
+) AS runner_generation_one_auth \gset
+SELECT deedlight_execution_ledger.rotate_authorization_generation(
+ 'deedlight_ledger_runner',1,'c603-runner-v2',decode(repeat('66',32),'hex'));
+CREATE TEMP TABLE c605_runner_nonce_before AS
+SELECT pg_catalog.count(*) AS nonce_count FROM deedlight_execution_ledger.authorization_nonces;
+SET SESSION AUTHORIZATION deedlight_ledger_runner;
+SELECT c603_test.assert_rejected(
+ format('SELECT deedlight_execution_ledger.heartbeat_execution(%L,%L::jsonb,%L::jsonb)',
+  'c6030000-0000-4000-8000-000000000021',
+  '{"path":"supabase/migrations/c603-positive.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}',
+  :'runner_generation_one_auth'),
+ 'D1001');
+RESET SESSION AUTHORIZATION;
+DO $generation_rollback$
+BEGIN
+ IF (SELECT nonce_count FROM c605_runner_nonce_before)
+   <> (SELECT pg_catalog.count(*) FROM deedlight_execution_ledger.authorization_nonces) THEN
+   RAISE EXCEPTION 'C605 stale-generation or failed business operation retained nonce';
+ END IF;
+END
+$generation_rollback$;
+SELECT pg_temp.c603_sign('deedlight_ledger_runner','heartbeat_execution',
+ 'c6030000-0000-4000-8000-000000000021',
+ pg_catalog.jsonb_build_object('executionId','c6030000-0000-4000-8000-000000000021'::uuid,
+ 'sourceIdentity','{"path":"supabase/migrations/c603-positive.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb)
+) AS runner_generation_two_auth \gset
+SET SESSION AUTHORIZATION deedlight_ledger_runner;
+SELECT c603_test.assert_rejected(
+ format('SELECT deedlight_execution_ledger.heartbeat_execution(%L,%L::jsonb,%L::jsonb)',
+  'c6030000-0000-4000-8000-000000000021',
+  '{"path":"supabase/migrations/c603-positive.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}',
+  :'runner_generation_two_auth'),
+ 'P0001');
+RESET SESSION AUTHORIZATION;
+SELECT deedlight_execution_ledger.revoke_authorization_generation('deedlight_ledger_observer',1);
+CREATE TEMP TABLE c605_observer_nonce_before AS
+SELECT pg_catalog.count(*) AS nonce_count FROM deedlight_execution_ledger.authorization_nonces;
+SELECT pg_temp.c603_sign('deedlight_ledger_observer','capture_snapshot',
+ 'c6030000-0000-4000-8000-000000000021',
+ pg_catalog.jsonb_build_object('executionId','c6030000-0000-4000-8000-000000000021'::uuid,
+ 'phase','pre','queryId','test_effects_v1','sourceIdentity','{"path":"supabase/migrations/c603-positive.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb)
+) AS revoked_observer_auth \gset
+SET SESSION AUTHORIZATION deedlight_ledger_observer;
+SELECT c603_test.assert_rejected(
+ format('SELECT deedlight_execution_ledger.capture_snapshot(%L,%L,%L,%L::jsonb,%L::jsonb)',
+  'c6030000-0000-4000-8000-000000000021','pre','test_effects_v1',
+  '{"path":"supabase/migrations/c603-positive.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}',
+  :'revoked_observer_auth'),
+ 'D1001');
+RESET SESSION AUTHORIZATION;
+DO $revocation_no_effects$
+BEGIN
+ IF (SELECT nonce_count FROM c605_observer_nonce_before)
+   <> (SELECT pg_catalog.count(*) FROM deedlight_execution_ledger.authorization_nonces) THEN
+   RAISE EXCEPTION 'C605 revoked actor request consumed a nonce';
+ END IF;
+END
+$revocation_no_effects$;
+SELECT 'C605_MONOTONIC_GENERATION_ROTATION_AND_REVOCATION_PASS' AS evidence;
+
+
 
 -- Assert the owner/actor separation and exact 5 x 9 EXECUTE matrix.
 DO $catalog$
@@ -270,6 +507,7 @@ BEGIN
      OR pg_catalog.has_table_privilege(v_actor,'deedlight_execution_ledger.execution_commit_markers','SELECT')
      OR pg_catalog.has_table_privilege(v_actor,'deedlight_execution_ledger.verification_events','SELECT')
      OR pg_catalog.has_table_privilege(v_actor,'deedlight_execution_ledger.authorization_keys','SELECT')
+     OR pg_catalog.has_table_privilege(v_actor,'deedlight_execution_ledger.authorization_generations','SELECT')
      OR pg_catalog.has_table_privilege(v_actor,'deedlight_execution_ledger.authorization_nonces','SELECT') THEN
      RAISE EXCEPTION 'C603 actor has direct protected-table read access: %',v_actor;
    END IF;
@@ -303,6 +541,7 @@ BEGIN
    'heartbeat_execution_impl(uuid)',
    'finalize_execution_impl(uuid,text,jsonb)',
    'recover_stale_executions_impl(interval)',
+   'recover_stale_executions_targets_impl(uuid[],interval)',
    'record_verification_impl(uuid,text,jsonb)'
  ] LOOP
    v_proc := 'deedlight_execution_ledger.'||v_impl;
@@ -342,11 +581,17 @@ SELECT 'C603_FIVE_ACTOR_NINE_RPC_EXECUTE_MATRIX_PASS' AS evidence;
 -- missing signatures; the other eight fail at the EXECUTE boundary.
 CREATE TEMP TABLE c603_before AS
 SELECT
+ (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.database_identity t) database_identity,
+ (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.query_bundle_manifests t) query_bundles,
+ (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.observation_queries t) observation_queries,
  (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.approvals t) approvals,
  (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.executions t) executions,
  (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.snapshots t) snapshots,
  (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.execution_commit_markers t) markers,
  (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.verification_events t) verifications,
+ (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.test_effects t) effects,
+ (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.authorization_keys t) keys,
+ (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.authorization_generations t) generations,
  (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.authorization_nonces t) nonces;
 
 SET SESSION AUTHORIZATION deedlight_ledger_approver;
@@ -413,11 +658,17 @@ DO $side_effects$
 BEGIN
  IF NOT EXISTS (
   SELECT 1 FROM c603_before b
-  WHERE b.approvals=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.approvals t)
+  WHERE b.database_identity=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.database_identity t)
+    AND b.query_bundles=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.query_bundle_manifests t)
+    AND b.observation_queries=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.observation_queries t)
+    AND b.approvals=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.approvals t)
     AND b.executions=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.executions t)
     AND b.snapshots=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.snapshots t)
     AND b.markers=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.execution_commit_markers t)
     AND b.verifications=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.verification_events t)
+    AND b.effects=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.test_effects t)
+    AND b.keys=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.authorization_keys t)
+    AND b.generations=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.authorization_generations t)
     AND b.nonces=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.authorization_nonces t)
  ) THEN RAISE EXCEPTION 'C603 rejected requests caused protected side effects'; END IF;
 END
@@ -459,11 +710,17 @@ $legacy$;
 -- ledger row is accepted.
 CREATE TEMP TABLE c603_adversarial_before AS
 SELECT
+ (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.database_identity t) database_identity,
+ (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.query_bundle_manifests t) query_bundles,
+ (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.observation_queries t) observation_queries,
  (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.approvals t) approvals,
  (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.executions t) executions,
  (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.snapshots t) snapshots,
  (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.execution_commit_markers t) markers,
  (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.verification_events t) verifications,
+ (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.test_effects t) effects,
+ (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.authorization_keys t) keys,
+ (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.authorization_generations t) generations,
  (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.authorization_nonces t) nonces;
 
 SET SESSION AUTHORIZATION deedlight_ledger_approver;
@@ -518,11 +775,17 @@ DO $adversarial_side_effects$
 BEGIN
  IF NOT EXISTS (
   SELECT 1 FROM c603_adversarial_before b
-  WHERE b.approvals=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.approvals t)
+  WHERE b.database_identity=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.database_identity t)
+    AND b.query_bundles=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.query_bundle_manifests t)
+    AND b.observation_queries=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.observation_queries t)
+    AND b.approvals=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.approvals t)
     AND b.executions=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.executions t)
     AND b.snapshots=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.snapshots t)
     AND b.markers=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.execution_commit_markers t)
     AND b.verifications=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.verification_events t)
+    AND b.effects=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.test_effects t)
+    AND b.keys=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.authorization_keys t)
+    AND b.generations=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.authorization_generations t)
     AND b.nonces=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.authorization_nonces t)
  ) THEN RAISE EXCEPTION 'C603 cryptographic rejection changed protected state'; END IF;
 END
@@ -532,4 +795,44 @@ SELECT 'C603_SIGNATURE_REPLAY_BINDING_ZERO_SIDE_EFFECTS_PASS' AS evidence;
 SELECT 'C603_LEGACY_UNWRAPPED_RPC_SIGNATURES_REMOVED_PASS' AS evidence;
 
 
-DROP SCHEMA c603_test CASCADE;
+-- Persistent signer exists only in the disposable CI database so the shell runner
+-- can create a signed token for the multi-session PostgreSQL recovery race.
+CREATE OR REPLACE FUNCTION c603_test.sign(
+  p_actor text,p_operation text,p_execution_id uuid,p_request jsonb
+) RETURNS jsonb LANGUAGE plpgsql
+SET search_path = pg_catalog, deedlight_execution_ledger, c603_test
+AS $fn$
+DECLARE
+  v_key deedlight_execution_ledger.authorization_keys%ROWTYPE;
+  v_envelope jsonb;
+BEGIN
+  SELECT * INTO STRICT v_key
+  FROM deedlight_execution_ledger.authorization_keys
+  WHERE actor=p_actor AND principal=p_actor AND enabled;
+  v_envelope := pg_catalog.jsonb_build_object(
+    'version',1,'operation',p_operation,'actor',p_actor,'principal',p_actor,
+    'executionId',p_execution_id,
+    'databaseResource',deedlight_execution_ledger.current_database_identity(),
+    'generation',v_key.generation,'audience',v_key.audience,
+    'nonce',deedlight_execution_ledger.gen_random_uuid(),
+    'issuedAt',pg_catalog.clock_timestamp(),
+    'expiresAt',pg_catalog.clock_timestamp()+interval '1 minute',
+    'request',p_request,
+    'requestDigest',pg_catalog.encode(deedlight_execution_ledger.digest(
+      pg_catalog.convert_to(p_request::text,'UTF8'),'sha256'),'hex'),
+    'keyId',v_key.key_id
+  );
+  RETURN v_envelope || pg_catalog.jsonb_build_object('signature',
+    pg_catalog.encode(deedlight_execution_ledger.hmac(
+      pg_catalog.convert_to(v_envelope::text,'UTF8'),v_key.signing_key,'sha256'),'hex'));
+END
+$fn$;
+REVOKE ALL ON FUNCTION c603_test.sign(text,text,uuid,jsonb) FROM PUBLIC,
+  deedlight_ledger_approver,deedlight_ledger_runner,deedlight_ledger_observer,
+  deedlight_ledger_recovery,deedlight_ledger_verifier;
+REVOKE ALL ON FUNCTION c603_test.assert_rejected(text,text) FROM
+  deedlight_ledger_approver,deedlight_ledger_runner,deedlight_ledger_observer,
+  deedlight_ledger_recovery,deedlight_ledger_verifier;
+REVOKE USAGE ON SCHEMA c603_test FROM
+  deedlight_ledger_approver,deedlight_ledger_runner,deedlight_ledger_observer,
+  deedlight_ledger_recovery,deedlight_ledger_verifier;

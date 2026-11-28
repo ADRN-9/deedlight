@@ -398,6 +398,296 @@ echo "C578 disposable PostgreSQL 16 execution-ledger remediation tests: PASS"
 clean_psql --file scripts/fixtures/migration-execution-ledger-c603-authorization.sql
 clean_psql --file scripts/fixtures/test-migration-execution-ledger-c603-authorization.sql
 
+# C605 multi-session recovery race: a concurrent writer changes the selected row
+# while the signed recovery wrapper is waiting on its FOR UPDATE lock. PostgreSQL
+# must re-check the predicate, reject the now-stale signed target digest, and write
+# no recovery nonce or second mutation.
+clean_psql --file scripts/fixtures/test-c605-recovery-concurrency.sql
+
+recovery_auth="$(clean_psql --tuples-only --no-align --command "
+  SELECT c603_test.sign('deedlight_ledger_recovery','recover_stale_executions',NULL,
+    pg_catalog.jsonb_build_object('staleAfter','00:00:00.000001',
+      'sourceSetDigest',(SELECT pg_catalog.encode(deedlight_execution_ledger.digest(
+        pg_catalog.convert_to(coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
+          'executionId',execution_id,'sourceIdentity',source_identity,'status',status,
+          'heartbeatAt',heartbeat_at) ORDER BY execution_id),'[]'::jsonb)::text,'UTF8'),'sha256'),'hex')
+        FROM deedlight_execution_ledger.executions
+        WHERE status IN ('reserved','running')
+          AND heartbeat_at < pg_catalog.clock_timestamp()-interval '1 microsecond'),
+      'targetCount',(SELECT pg_catalog.count(*) FROM deedlight_execution_ledger.executions
+        WHERE status IN ('reserved','running')
+          AND heartbeat_at < pg_catalog.clock_timestamp()-interval '1 microsecond'))
+  )
+")"
+[[ -n "$recovery_auth" ]] || { echo "FAIL: failed to sign C605 recovery race request" >&2; exit 1; }
+nonce_before="$(clean_psql --tuples-only --no-align --command \
+  "SELECT count(*) FROM deedlight_execution_ledger.authorization_nonces")"
+
+holder_sql="
+  BEGIN;
+  SELECT 1 FROM deedlight_execution_ledger.executions
+    WHERE execution_id='c6050000-0000-4000-8000-000000000026' FOR UPDATE;
+  SELECT pg_catalog.pg_sleep(3);
+  UPDATE deedlight_execution_ledger.executions
+    SET status='interrupted', completed_at=pg_catalog.clock_timestamp(),
+        outcome_detail='{\"reason\":\"concurrent_recovery_race_holder\"}'::jsonb
+    WHERE execution_id='c6050000-0000-4000-8000-000000000026';
+  COMMIT;
+"
+app_psql deedlight_c605_recovery_holder --command "$holder_sql" >"$tmp_dir/c605-holder.log" 2>&1 &
+c605_holder_pid=$!
+holder_backend_pid=""
+for attempt in $(seq 1 200); do
+  holder_backend_pid="$(clean_psql --tuples-only --no-align --command "
+    SELECT pid FROM pg_catalog.pg_stat_activity
+    WHERE application_name='deedlight_c605_recovery_holder'
+      AND state='active' AND wait_event='PgSleep'
+  ")"
+  [[ -n "$holder_backend_pid" ]] && break
+  kill -0 "$c605_holder_pid" 2>/dev/null || {
+    cat "$tmp_dir/c605-holder.log"
+    echo "FAIL: C605 recovery lock holder exited before acquiring the row lock" >&2
+    exit 1
+  }
+  sleep 0.05
+done
+[[ -n "$holder_backend_pid" ]] || {
+  echo "FAIL: timed out waiting for C605 recovery row lock holder" >&2
+  exit 1
+}
+
+cat >"$tmp_dir/c605-recovery.sql" <<SQL
+SET SESSION AUTHORIZATION deedlight_ledger_recovery;
+SELECT deedlight_execution_ledger.recover_stale_executions(
+  interval '1 microsecond', '$recovery_auth'::jsonb
+);
+RESET SESSION AUTHORIZATION;
+SQL
+app_psql deedlight_c605_recovery --file "$tmp_dir/c605-recovery.sql" \
+  >"$tmp_dir/c605-recovery.log" 2>&1 &
+c605_recovery_pid=$!
+recovery_waiting=false
+for attempt in $(seq 1 200); do
+  wait_event="$(clean_psql --tuples-only --no-align --command "
+    SELECT wait_event_type FROM pg_catalog.pg_stat_activity
+    WHERE application_name='deedlight_c605_recovery'
+      AND state='active'
+  ")"
+  if [[ "$wait_event" == "Lock" ]]; then
+    recovery_waiting=true
+    break
+  fi
+  kill -0 "$c605_recovery_pid" 2>/dev/null || {
+    cat "$tmp_dir/c605-recovery.log"
+    echo "FAIL: C605 recovery call did not wait on the locked target" >&2
+    exit 1
+  }
+  sleep 0.05
+done
+[[ "$recovery_waiting" == "true" ]] || {
+  echo "FAIL: recovery session was not observed waiting on the target row lock" >&2
+  cat "$tmp_dir/c605-recovery.log"
+  exit 1
+}
+
+set +e
+wait "$c605_holder_pid"; c605_holder_status=$?
+wait "$c605_recovery_pid"; c605_recovery_status=$?
+set -e
+[[ "$c605_holder_status" -eq 0 ]] || {
+  cat "$tmp_dir/c605-holder.log"
+  echo "FAIL: C605 recovery lock holder did not commit" >&2
+  exit 1
+}
+[[ "$c605_recovery_status" -ne 0 ]] || {
+  cat "$tmp_dir/c605-recovery.log"
+  echo "FAIL: stale signed recovery target was accepted after concurrent state transition" >&2
+  exit 1
+}
+grep -q "authorization_request_binding_mismatch" "$tmp_dir/c605-recovery.log" || {
+  cat "$tmp_dir/c605-recovery.log"
+  echo "FAIL: C605 recovery failed for an unexpected reason" >&2
+  exit 1
+}
+nonce_after="$(clean_psql --tuples-only --no-align --command \
+  "SELECT count(*) FROM deedlight_execution_ledger.authorization_nonces")"
+[[ "$nonce_after" == "$nonce_before" ]] || {
+  echo "FAIL: rejected concurrent recovery consumed a nonce" >&2
+  exit 1
+}
+clean_psql --command "
+  DO \$assert\$
+  BEGIN
+    IF (SELECT status FROM deedlight_execution_ledger.executions
+        WHERE execution_id='c6050000-0000-4000-8000-000000000026') <> 'interrupted'
+      OR (SELECT outcome_detail->>'reason' FROM deedlight_execution_ledger.executions
+        WHERE execution_id='c6050000-0000-4000-8000-000000000026')
+        <> 'concurrent_recovery_race_holder' THEN
+      RAISE EXCEPTION 'C605 recovery changed concurrent writer outcome';
+    END IF;
+  END
+  \$assert\$;
+"
+echo "C605_RECOVERY_CONCURRENT_ROW_CHANGE_REJECTED_ZERO_SIDE_EFFECTS_PASS"
+
+
+# C605 revocation race: authorization locks the active generation row through the
+# protected transaction. Revocation must wait for that admitted transaction, then
+# make subsequent tokens unusable.
+clean_psql <<'SQL'
+CREATE OR REPLACE FUNCTION c603_test.pause_verification_insert()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, deedlight_execution_ledger, c603_test
+AS $fn$
+BEGIN
+  PERFORM pg_catalog.pg_sleep(8);
+  RETURN NEW;
+END
+$fn$;
+REVOKE ALL ON FUNCTION c603_test.pause_verification_insert() FROM PUBLIC;
+DROP TRIGGER IF EXISTS c605_pause_verification_insert ON deedlight_execution_ledger.verification_events;
+CREATE TRIGGER c605_pause_verification_insert
+BEFORE INSERT ON deedlight_execution_ledger.verification_events
+FOR EACH ROW WHEN (NEW.execution_id='c6030000-0000-4000-8000-000000000022'::uuid)
+EXECUTE FUNCTION c603_test.pause_verification_insert();
+SQL
+
+verifier_source="$(clean_psql --tuples-only --no-align --command "
+  SELECT source_identity FROM deedlight_execution_ledger.executions
+  WHERE execution_id='c6030000-0000-4000-8000-000000000022'
+")"
+[[ -n "$verifier_source" ]] || { echo "FAIL: missing C605 verifier source identity" >&2; exit 1; }
+verifier_auth="$(clean_psql --tuples-only --no-align --command "
+  SELECT c603_test.sign('deedlight_ledger_verifier','record_verification',
+    'c6030000-0000-4000-8000-000000000022'::uuid,
+    pg_catalog.jsonb_build_object(
+      'executionId','c6030000-0000-4000-8000-000000000022'::uuid,
+      'verdict','verified','evidence','{\"c605\":\"generation-revocation-race\"}'::jsonb,
+      'sourceIdentity','$verifier_source'::jsonb
+    )
+  )
+")"
+[[ -n "$verifier_auth" ]] || { echo "FAIL: failed to sign C605 verifier request" >&2; exit 1; }
+
+cat >"$tmp_dir/c605-verifier.sql" <<SQL
+SET SESSION AUTHORIZATION deedlight_ledger_verifier;
+SELECT deedlight_execution_ledger.record_verification(
+  'c6030000-0000-4000-8000-000000000022','verified',
+  '{"c605":"generation-revocation-race"}'::jsonb,
+  '$verifier_source'::jsonb,
+  '$verifier_auth'::jsonb
+);
+RESET SESSION AUTHORIZATION;
+SQL
+app_psql deedlight_c605_verifier --file "$tmp_dir/c605-verifier.sql" \
+  >"$tmp_dir/c605-verifier.log" 2>&1 &
+c605_verifier_pid=$!
+verifier_backend_pid=""
+for attempt in $(seq 1 200); do
+  verifier_backend_pid="$(clean_psql --tuples-only --no-align --command "
+    SELECT pid FROM pg_catalog.pg_stat_activity
+    WHERE application_name='deedlight_c605_verifier'
+      AND state='active' AND wait_event='PgSleep'
+  ")"
+  [[ -n "$verifier_backend_pid" ]] && break
+  kill -0 "$c605_verifier_pid" 2>/dev/null || {
+    cat "$tmp_dir/c605-verifier.log"
+    echo "FAIL: verifier transaction exited before the protected insert" >&2
+    exit 1
+  }
+  sleep 0.05
+done
+[[ -n "$verifier_backend_pid" ]] || {
+  echo "FAIL: timed out waiting for verifier protected transaction" >&2
+  exit 1
+}
+
+revoke_launch_ns="$(date +%s%N)"
+app_psql deedlight_c605_generation_revoke --command \
+  "SELECT deedlight_execution_ledger.revoke_authorization_generation('deedlight_ledger_verifier',1)" \
+  >"$tmp_dir/c605-revoke.log" 2>&1 &
+c605_revoke_pid=$!
+revoke_waiting=false
+for attempt in $(seq 1 200); do
+  blocker_proof="$(clean_psql --tuples-only --no-align --command "
+    SELECT coalesce(wait_event_type,'') || '|' || coalesce(wait_event,'') || '|'
+      || pg_catalog.pg_blocking_pids(pid)::text
+    FROM pg_catalog.pg_stat_activity
+    WHERE application_name='deedlight_c605_generation_revoke'
+      AND state='active'
+  ")"
+  if [[ "$blocker_proof" == *"Lock|"* && "$blocker_proof" == *"$verifier_backend_pid"* ]]; then
+    revoke_waiting=true
+    break
+  fi
+  kill -0 "$c605_revoke_pid" 2>/dev/null || break
+  sleep 0.05
+done
+set +e
+wait "$c605_revoke_pid"; c605_revoke_status=$?
+revoke_end_ns="$(date +%s%N)"
+wait "$c605_verifier_pid"; c605_verifier_status=$?
+set -e
+revoke_wait_ms=$(( (revoke_end_ns - revoke_launch_ns) / 1000000 ))
+if [[ "$revoke_waiting" != "true" && "$revoke_wait_ms" -lt 6000 ]]; then
+  echo "FAIL: revocation completed without observable generation-lock serialization (\${revoke_wait_ms}ms)" >&2
+  cat "$tmp_dir/c605-revoke.log"
+  exit 1
+fi
+echo "C605_REVOCATION_WAIT_MS=$revoke_wait_ms BLOCKER_PID_OBSERVED=$revoke_waiting"
+[[ "$c605_verifier_status" -eq 0 && "$c605_revoke_status" -eq 0 ]] || {
+  cat "$tmp_dir/c605-verifier.log" "$tmp_dir/c605-revoke.log"
+  echo "FAIL: admitted verification or subsequent revocation failed" >&2
+  exit 1
+}
+clean_psql --command "
+  DO \$assert\$
+  BEGIN
+    IF (SELECT state FROM deedlight_execution_ledger.authorization_generations
+        WHERE actor='deedlight_ledger_verifier') <> 'revoked'
+      OR (SELECT enabled FROM deedlight_execution_ledger.authorization_keys
+        WHERE actor='deedlight_ledger_verifier') IS DISTINCT FROM false
+      OR (SELECT count(*) FROM deedlight_execution_ledger.verification_events
+        WHERE execution_id='c6030000-0000-4000-8000-000000000022'
+          AND verifier_identity='deedlight_ledger_verifier') <> 1 THEN
+      RAISE EXCEPTION 'C605 revocation did not serialize after admitted operation';
+    END IF;
+  END
+  \$assert\$;
+  DROP TRIGGER c605_pause_verification_insert ON deedlight_execution_ledger.verification_events;
+"
+echo "C605_GENERATION_REVOCATION_SERIALIZED_AFTER_INFLIGHT_AUTHORIZATION_PASS"
+
+# A token that was valid before revocation cannot be replayed after the revocation
+# linearization point, even though its local PostgreSQL nonce record still exists.
+nonce_before_revoked_replay="$(clean_psql --tuples-only --no-align --command \
+  "SELECT count(*) FROM deedlight_execution_ledger.authorization_nonces")"
+verification_before_revoked_replay="$(clean_psql --tuples-only --no-align --command \
+  "SELECT count(*) FROM deedlight_execution_ledger.verification_events")"
+if app_psql deedlight_c605_revoked_replay --file "$tmp_dir/c605-verifier.sql" \
+  >"$tmp_dir/c605-revoked-replay.log" 2>&1; then
+  echo "FAIL: revoked verifier authorization unexpectedly replayed" >&2
+  exit 1
+fi
+grep -q "authorization_generation_revoked" "$tmp_dir/c605-revoked-replay.log" || {
+  cat "$tmp_dir/c605-revoked-replay.log"
+  echo "FAIL: revoked verifier request failed for an unexpected reason" >&2
+  exit 1
+}
+nonce_after_revoked_replay="$(clean_psql --tuples-only --no-align --command \
+  "SELECT count(*) FROM deedlight_execution_ledger.authorization_nonces")"
+verification_after_revoked_replay="$(clean_psql --tuples-only --no-align --command \
+  "SELECT count(*) FROM deedlight_execution_ledger.verification_events")"
+[[ "$nonce_after_revoked_replay" == "$nonce_before_revoked_replay" \
+  && "$verification_after_revoked_replay" == "$verification_before_revoked_replay" ]] || {
+  echo "FAIL: revoked token replay changed protected ledger state" >&2
+  exit 1
+}
+echo "C605_REVOKED_TOKEN_REPLAY_REJECTED_ZERO_SIDE_EFFECTS_PASS"
+
+
+
+
 # Prove a non-superuser actor cannot switch to another actor role.
 if clean_psql --command "SET SESSION AUTHORIZATION deedlight_ledger_approver; SET ROLE deedlight_ledger_runner" \
   >"$tmp_dir/c603-set-role.log" 2>&1; then
@@ -411,3 +701,7 @@ grep -qi "permission denied to set role" "$tmp_dir/c603-set-role.log" || {
   exit 1
 }
 echo "C603_CROSS_ROLE_SET_ROLE_DENIED_PASS"
+
+# C605 external authorization prototype. This is a separate trust-domain simulation,
+# not proof that PostgreSQL itself verifies an external Ed25519 receipt.
+node --test scripts/test-c605-external-authorization.mjs
