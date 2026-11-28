@@ -42,7 +42,7 @@ function canonicalize(value) {
     }
     const keys = Object.keys(value).sort();
     return '{' + keys.map((key) => {
-      if (key.normalize('NFC') !== key) throw new TypeError('keys must be NFC-normalized');
+      if (!isUnicodeScalarString(key) || key.normalize('NFC') !== key) throw new TypeError('keys must be NFC-normalized Unicode scalar strings');
       return JSON.stringify(key) + ':' + canonicalize(value[key]);
     }).join(',') + '}';
   }
