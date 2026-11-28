@@ -836,10 +836,27 @@ c617_pid_b=$!
 c617_both_waiters_blocked=false
 for attempt in $(seq 1 200); do
   blocked_count="$(clean_psql --tuples-only --no-align --command "
-    SELECT count(DISTINCT pid) FROM pg_catalog.pg_stat_activity
-    WHERE application_name IN ('deedlight_c617_recovery_a','deedlight_c617_recovery_b')
-      AND wait_event_type='Lock'
-      AND $c617_holder_backend_pid = ANY(pg_catalog.pg_blocking_pids(pid))
+    WITH RECURSIVE waiters AS (
+      SELECT pid FROM pg_catalog.pg_stat_activity
+      WHERE application_name IN ('deedlight_c617_recovery_a','deedlight_c617_recovery_b')
+        AND wait_event_type='Lock'
+    ), blocker_chain(waiter_pid,blocker_pid,path,depth) AS (
+      SELECT waiter.pid,blocker.pid,ARRAY[waiter.pid,blocker.pid],1
+      FROM waiters AS waiter
+      CROSS JOIN LATERAL unnest(pg_catalog.pg_blocking_pids(waiter.pid)) AS blocker(pid)
+      UNION ALL
+      SELECT chain.waiter_pid,blocker.pid,chain.path || blocker.pid,chain.depth+1
+      FROM blocker_chain AS chain
+      CROSS JOIN LATERAL unnest(pg_catalog.pg_blocking_pids(chain.blocker_pid)) AS blocker(pid)
+      WHERE NOT blocker.pid=ANY(chain.path) AND chain.depth < 16
+    )
+    SELECT count(DISTINCT waiter.pid)
+    FROM waiters AS waiter
+    WHERE EXISTS (
+      SELECT 1 FROM blocker_chain AS chain
+      WHERE chain.waiter_pid=waiter.pid
+        AND chain.blocker_pid=$c617_holder_backend_pid
+    )
   ")"
   if [[ "$blocked_count" == "2" ]]; then
     c617_both_waiters_blocked=true
