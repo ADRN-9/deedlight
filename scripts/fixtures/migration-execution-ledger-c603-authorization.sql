@@ -345,20 +345,20 @@ LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, deedlight_execution_ledger
 AS $fn$
 DECLARE
-  v_identity record;
+  v_identity jsonb;
   v_count integer;
 BEGIN
   IF p_execution_ids IS NULL OR p_stale_after IS NULL
     OR p_stale_after <= interval '0 seconds'
     OR p_stale_after > interval '7 days'
     OR pg_catalog.cardinality(p_execution_ids) <> (
-      SELECT pg_catalog.count(DISTINCT x) FROM pg_catalog.unnest(p_execution_ids) AS x
+      SELECT pg_catalog.count(DISTINCT execution_id)
+      FROM pg_catalog.unnest(p_execution_ids) AS u(execution_id)
     ) THEN
     PERFORM deedlight_execution_ledger.raise_trust_failure(
       'incomplete_preconditions','recovery_target_arguments_invalid','{}'::jsonb);
   END IF;
-  SELECT * INTO STRICT v_identity
-  FROM deedlight_execution_ledger.current_database_identity();
+  v_identity := deedlight_execution_ledger.current_database_identity();
   UPDATE deedlight_execution_ledger.executions
   SET status = CASE WHEN status = 'reserved' THEN 'interrupted' ELSE 'unknown' END,
       completed_at = pg_catalog.clock_timestamp(),
@@ -370,8 +370,8 @@ BEGIN
           'reason','reserved_execution_expired_before_start',
           'recoveryActor','deedlight_ledger_recovery') END
   WHERE execution_id = ANY(p_execution_ids)
-    AND system_identifier = v_identity.system_identifier
-    AND database_oid = v_identity.database_oid
+    AND system_identifier = v_identity->>'systemIdentifier'
+    AND database_oid = (v_identity->>'databaseOid')::oid
     AND status IN ('reserved','running')
     AND heartbeat_at < pg_catalog.clock_timestamp() - p_stale_after;
   GET DIAGNOSTICS v_count = ROW_COUNT;
