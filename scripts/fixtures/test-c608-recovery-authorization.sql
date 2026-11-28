@@ -347,11 +347,36 @@ UPDATE deedlight_execution_ledger.executions
 SET c603_row_version=c603_row_version+1
 WHERE execution_id='c6080000-0000-4000-8000-000000000014';
 ALTER TABLE deedlight_execution_ledger.executions ENABLE TRIGGER a_c603_execution_row_version;
+-- Capture complete business rows after only the database row version was substituted.
+CREATE TEMP TABLE c616_row_version_business_before ON COMMIT PRESERVE ROWS AS
+SELECT * FROM deedlight_execution_ledger.executions
+WHERE execution_id IN (
+  'c6080000-0000-4000-8000-000000000014',
+  'c6080000-0000-4000-8000-000000000015'
+);
 SET SESSION AUTHORIZATION deedlight_ledger_recovery;
 SELECT c603_test.assert_rejected(format(
   'SELECT deedlight_execution_ledger.recover_stale_executions(%L::interval,%L::jsonb)',
   '1 minute',:'row_version_auth'),'D1006');
 RESET SESSION AUTHORIZATION;
+DO $assert$
+DECLARE v_before jsonb; v_after jsonb;
+BEGIN
+  SELECT coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(row_data) ORDER BY row_data.execution_id),'[]'::jsonb)
+    INTO v_before FROM pg_temp.c616_row_version_business_before AS row_data;
+  SELECT coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(row_data) ORDER BY row_data.execution_id),'[]'::jsonb)
+    INTO v_after FROM deedlight_execution_ledger.executions AS row_data
+    WHERE execution_id IN (
+      'c6080000-0000-4000-8000-000000000014',
+      'c6080000-0000-4000-8000-000000000015'
+    );
+  IF v_before IS DISTINCT FROM v_after THEN
+    RAISE EXCEPTION 'C616 row-version rejection partially mutated affected business rows';
+  END IF;
+END
+$assert$;
+SELECT c608_test.assert_nonce_absent(:'row_version_auth'::jsonb);
+SELECT 'C616_ROW_VERSION_ONLY_CHANGE_REJECTED_ZERO_MUTATION_NONCE_ROLLBACK_PASS' AS evidence;
 SELECT c608_test.assert_execution_snapshot(
   'c6080000-0000-4000-8000-000000000014','running',
   (:'row_version_auth'::jsonb->'request'->'targets'->0->>'expectedHeartbeatAt')::timestamptz,
