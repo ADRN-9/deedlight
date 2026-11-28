@@ -15,11 +15,16 @@ GRANT USAGE ON SCHEMA deedlight_execution_ledger TO deedlight_ledger_untrusted;
 
 CREATE TEMP TABLE c600_before AS
 SELECT
-  (SELECT count(*) FROM deedlight_execution_ledger.approvals) AS approvals,
-  (SELECT count(*) FROM deedlight_execution_ledger.executions) AS executions,
-  (SELECT count(*) FROM deedlight_execution_ledger.snapshots) AS snapshots,
-  (SELECT count(*) FROM deedlight_execution_ledger.execution_commit_markers) AS markers,
-  (SELECT count(*) FROM deedlight_execution_ledger.verification_events) AS verifications;
+  (SELECT pg_catalog.coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(t) ORDER BY pg_catalog.to_jsonb(t)::text), '[]'::jsonb)
+   FROM deedlight_execution_ledger.approvals t) AS approvals,
+  (SELECT pg_catalog.coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(t) ORDER BY pg_catalog.to_jsonb(t)::text), '[]'::jsonb)
+   FROM deedlight_execution_ledger.executions t) AS executions,
+  (SELECT pg_catalog.coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(t) ORDER BY pg_catalog.to_jsonb(t)::text), '[]'::jsonb)
+   FROM deedlight_execution_ledger.snapshots t) AS snapshots,
+  (SELECT pg_catalog.coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(t) ORDER BY pg_catalog.to_jsonb(t)::text), '[]'::jsonb)
+   FROM deedlight_execution_ledger.execution_commit_markers t) AS markers,
+  (SELECT pg_catalog.coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(t) ORDER BY pg_catalog.to_jsonb(t)::text), '[]'::jsonb)
+   FROM deedlight_execution_ledger.verification_events t) AS verifications;
 
 DO $privilege_assert$
 DECLARE
@@ -124,11 +129,11 @@ DO $side_effect_assert$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM c600_before b
-    WHERE b.approvals = (SELECT count(*) FROM deedlight_execution_ledger.approvals)
-      AND b.executions = (SELECT count(*) FROM deedlight_execution_ledger.executions)
-      AND b.snapshots = (SELECT count(*) FROM deedlight_execution_ledger.snapshots)
-      AND b.markers = (SELECT count(*) FROM deedlight_execution_ledger.execution_commit_markers)
-      AND b.verifications = (SELECT count(*) FROM deedlight_execution_ledger.verification_events)
+    WHERE b.approvals = (SELECT pg_catalog.coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(t) ORDER BY pg_catalog.to_jsonb(t)::text), '[]'::jsonb) FROM deedlight_execution_ledger.approvals t)
+      AND b.executions = (SELECT pg_catalog.coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(t) ORDER BY pg_catalog.to_jsonb(t)::text), '[]'::jsonb) FROM deedlight_execution_ledger.executions t)
+      AND b.snapshots = (SELECT pg_catalog.coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(t) ORDER BY pg_catalog.to_jsonb(t)::text), '[]'::jsonb) FROM deedlight_execution_ledger.snapshots t)
+      AND b.markers = (SELECT pg_catalog.coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(t) ORDER BY pg_catalog.to_jsonb(t)::text), '[]'::jsonb) FROM deedlight_execution_ledger.execution_commit_markers t)
+      AND b.verifications = (SELECT pg_catalog.coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(t) ORDER BY pg_catalog.to_jsonb(t)::text), '[]'::jsonb) FROM deedlight_execution_ledger.verification_events t)
   ) THEN
     RAISE EXCEPTION 'C600 unauthorized direct invocation changed ledger state';
   END IF;
