@@ -35,6 +35,7 @@ BEGIN
       pg_catalog.convert_to(v_envelope::text,'UTF8'),v_key,'sha256'),'hex'));
 END
 $fn$;
+REVOKE ALL ON FUNCTION pg_temp.c603_sign(text,text,uuid,jsonb) FROM PUBLIC;
 
 CREATE SCHEMA c603_test;
 GRANT USAGE ON SCHEMA c603_test TO deedlight_ledger_approver,
@@ -56,6 +57,7 @@ BEGIN
   END;
 END
 $fn$;
+REVOKE ALL ON FUNCTION c603_test.assert_rejected(text,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION c603_test.assert_rejected(text,text) TO
   deedlight_ledger_approver,deedlight_ledger_runner,deedlight_ledger_observer,
   deedlight_ledger_recovery,deedlight_ledger_verifier;
