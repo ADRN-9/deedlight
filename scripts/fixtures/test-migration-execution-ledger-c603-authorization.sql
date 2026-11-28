@@ -298,9 +298,14 @@ SELECT pg_temp.c603_sign('deedlight_ledger_recovery','recover_stale_executions',
  'targetCount',0)) AS empty_set_recovery_auth \gset
 SELECT pg_catalog.pg_sleep(0.02);
 CREATE TEMP TABLE c605_recovery_before AS
-SELECT pg_catalog.to_jsonb(e) AS execution_row
-FROM deedlight_execution_ledger.executions e
-WHERE execution_id='c6030000-0000-4000-8000-000000000023';
+SELECT
+ (SELECT pg_catalog.to_jsonb(e) FROM deedlight_execution_ledger.executions e
+  WHERE execution_id='c6030000-0000-4000-8000-000000000023') AS execution_row,
+ (SELECT pg_catalog.count(*) FROM deedlight_execution_ledger.authorization_nonces) AS nonce_count,
+ (SELECT coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(t) ORDER BY pg_catalog.to_jsonb(t)::text),'[]'::jsonb)
+  FROM deedlight_execution_ledger.test_effects t) AS effects,
+ (SELECT coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(t) ORDER BY pg_catalog.to_jsonb(t)::text),'[]'::jsonb)
+  FROM deedlight_execution_ledger.execution_commit_markers t) AS markers;
 
 SET SESSION AUTHORIZATION deedlight_ledger_recovery;
 SELECT c603_test.assert_rejected(
@@ -311,9 +316,17 @@ RESET SESSION AUTHORIZATION;
 
 DO $recovery_race$
 BEGIN
- IF (SELECT status FROM deedlight_execution_ledger.executions
-     WHERE execution_id='c6030000-0000-4000-8000-000000000023') <> 'reserved' THEN
-   RAISE EXCEPTION 'C605 mismatched signed target set changed execution state';
+ IF NOT EXISTS (
+   SELECT 1 FROM c605_recovery_before b
+   WHERE b.execution_row=(SELECT pg_catalog.to_jsonb(e) FROM deedlight_execution_ledger.executions e
+     WHERE execution_id='c6030000-0000-4000-8000-000000000023')
+     AND b.nonce_count=(SELECT pg_catalog.count(*) FROM deedlight_execution_ledger.authorization_nonces)
+     AND b.effects=(SELECT coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(t) ORDER BY pg_catalog.to_jsonb(t)::text),'[]'::jsonb)
+       FROM deedlight_execution_ledger.test_effects t)
+     AND b.markers=(SELECT coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(t) ORDER BY pg_catalog.to_jsonb(t)::text),'[]'::jsonb)
+       FROM deedlight_execution_ledger.execution_commit_markers t)
+ ) THEN
+   RAISE EXCEPTION 'C605 rejected recovery target set changed protected state or consumed nonce';
  END IF;
 END
 $recovery_race$;
