@@ -517,7 +517,7 @@ nonce_after="$(clean_psql --tuples-only --no-align --command \
   exit 1
 }
 clean_psql --command "
-  DO \\$assert\\$
+  DO \$assert\$
   BEGIN
     IF (SELECT status FROM deedlight_execution_ledger.executions
         WHERE execution_id='c6050000-0000-4000-8000-000000000026') <> 'interrupted'
@@ -527,7 +527,7 @@ clean_psql --command "
       RAISE EXCEPTION 'C605 recovery changed concurrent writer outcome';
     END IF;
   END
-  \\$assert\\$;
+  \$assert\$;
 "
 echo "C605_RECOVERY_CONCURRENT_ROW_CHANGE_REJECTED_ZERO_SIDE_EFFECTS_PASS"
 
