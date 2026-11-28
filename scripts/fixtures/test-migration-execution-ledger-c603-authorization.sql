@@ -211,6 +211,40 @@ SELECT deedlight_execution_ledger.reserve_execution(
  :'recovery_reserve_auth'::jsonb);
 RESET SESSION AUTHORIZATION;
 SELECT pg_catalog.pg_sleep(0.02);
+CREATE OR REPLACE FUNCTION c603_test.inject_new_stale_recovery_target()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, deedlight_execution_ledger, c603_test
+AS $fn$
+DECLARE v_resource jsonb := deedlight_execution_ledger.current_database_identity();
+BEGIN
+  INSERT INTO deedlight_execution_ledger.approvals
+    (approval_id,system_identifier,database_oid,database_name,record_id,
+     execution_id,source_identity,approver_identity)
+  VALUES ('c6030000-0000-4000-8000-000000000004'::uuid,
+    v_resource->>'systemIdentifier',(v_resource->>'databaseOid')::oid,
+    v_resource->>'databaseName','c6030000-0000-4000-8000-000000000014'::uuid,
+    'c6030000-0000-4000-8000-000000000024'::uuid,
+    '{"path":"supabase/migrations/c603-concurrent-new-target.sql","sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}'::jsonb,
+    'deedlight_ledger_approver');
+  INSERT INTO deedlight_execution_ledger.executions
+    (system_identifier,database_oid,database_name,record_id,execution_id,
+     approval_id,source_identity,status,approver_identity,heartbeat_at)
+  VALUES (v_resource->>'systemIdentifier',(v_resource->>'databaseOid')::oid,
+    v_resource->>'databaseName','c6030000-0000-4000-8000-000000000014'::uuid,
+    'c6030000-0000-4000-8000-000000000024'::uuid,
+    'c6030000-0000-4000-8000-000000000004'::uuid,
+    '{"path":"supabase/migrations/c603-concurrent-new-target.sql","sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}'::jsonb,
+    'reserved','deedlight_ledger_approver',
+    pg_catalog.clock_timestamp()-interval '1 hour');
+  RETURN NEW;
+END
+$fn$;
+CREATE TRIGGER c605_inject_new_stale_target
+AFTER UPDATE OF status ON deedlight_execution_ledger.executions
+FOR EACH ROW WHEN (OLD.execution_id='c6030000-0000-4000-8000-000000000023'::uuid
+  AND NEW.status='interrupted')
+EXECUTE FUNCTION c603_test.inject_new_stale_recovery_target();
+
 SELECT pg_temp.c603_sign('deedlight_ledger_recovery','recover_stale_executions',NULL,
  pg_catalog.jsonb_build_object('staleAfter','00:00:00.000001',
  'sourceSetDigest',(SELECT pg_catalog.encode(deedlight_execution_ledger.digest(
@@ -298,15 +332,43 @@ SELECT pg_temp.c603_sign('deedlight_ledger_recovery','recover_stale_executions',
 SET SESSION AUTHORIZATION deedlight_ledger_recovery;
 SELECT deedlight_execution_ledger.recover_stale_executions(interval '1 microsecond',:'exact_set_recovery_auth'::jsonb);
 RESET SESSION AUTHORIZATION;
+DROP TRIGGER c605_inject_new_stale_target ON deedlight_execution_ledger.executions;
 DO $recovery_exact$
 BEGIN
  IF (SELECT status FROM deedlight_execution_ledger.executions
      WHERE execution_id='c6030000-0000-4000-8000-000000000023') <> 'interrupted' THEN
    RAISE EXCEPTION 'C605 exact authorized target was not recovered';
  END IF;
+ IF (SELECT status FROM deedlight_execution_ledger.executions
+     WHERE execution_id='c6030000-0000-4000-8000-000000000024') <> 'reserved' THEN
+   RAISE EXCEPTION 'C605 recovery mutated a row inserted after target authorization';
+ END IF;
 END
 $recovery_exact$;
-SELECT 'C605_RECOVERY_MUTATES_EXACT_SIGNED_TARGETS_PASS' AS evidence;
+SELECT 'C605_RECOVERY_MUTATES_ONLY_SIGNED_TARGET_SET_PASS' AS evidence;
+
+SELECT pg_temp.c603_sign('deedlight_ledger_recovery','recover_stale_executions',NULL,
+ pg_catalog.jsonb_build_object('staleAfter','00:00:00.000001',
+ 'sourceSetDigest',(SELECT pg_catalog.encode(deedlight_execution_ledger.digest(
+   pg_catalog.convert_to(coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
+     'executionId',execution_id,'sourceIdentity',source_identity,'status',status,
+     'heartbeatAt',heartbeat_at) ORDER BY execution_id),'[]'::jsonb)::text,'UTF8'),'sha256'),'hex')
+   FROM deedlight_execution_ledger.executions WHERE status IN ('reserved','running')
+     AND heartbeat_at < pg_catalog.clock_timestamp()-interval '1 microsecond'),
+ 'targetCount',(SELECT pg_catalog.count(*) FROM deedlight_execution_ledger.executions
+   WHERE status IN ('reserved','running') AND heartbeat_at < pg_catalog.clock_timestamp()-interval '1 microsecond'))) AS second_exact_set_auth \gset
+SET SESSION AUTHORIZATION deedlight_ledger_recovery;
+SELECT deedlight_execution_ledger.recover_stale_executions(interval '1 microsecond',:'second_exact_set_auth'::jsonb);
+RESET SESSION AUTHORIZATION;
+DO $recovery_second$
+BEGIN
+ IF (SELECT status FROM deedlight_execution_ledger.executions
+     WHERE execution_id='c6030000-0000-4000-8000-000000000024') <> 'interrupted' THEN
+   RAISE EXCEPTION 'C605 later recovery did not process the newly stale row';
+ END IF;
+END
+$recovery_second$;
+SELECT 'C605_RECOVERY_NEW_STALE_ROW_DEFERRED_TO_NEXT_PASS_PASS' AS evidence;
 
 -- Generation rotation is compare-and-swap, monotonic and revokes the prior key.
 SELECT pg_temp.c603_sign('deedlight_ledger_runner','heartbeat_execution',
