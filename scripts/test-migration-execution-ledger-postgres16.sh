@@ -909,17 +909,14 @@ overlap_target_011_after="$(clean_psql --tuples-only --no-align --command "
   exit 1
 }
 cat >"$tmp_dir/c617-nonce-count.sql" <<'SQL'
-SELECT
-  (SELECT count(*) FROM deedlight_execution_ledger.authorization_nonces
-   WHERE actor='deedlight_ledger_recovery'
-     AND nonce=(:'auth_a'::jsonb->>'nonce')::uuid) AS winner_nonce,
-  (SELECT count(*) FROM deedlight_execution_ledger.authorization_nonces
-   WHERE actor='deedlight_ledger_recovery'
-     AND nonce=(:'auth_b'::jsonb->>'nonce')::uuid) AS rejected_nonce;
+SELECT count(*) FROM deedlight_execution_ledger.authorization_nonces
+WHERE actor='deedlight_ledger_recovery'
+  AND nonce=(:'auth'::jsonb->>'nonce')::uuid;
 SQL
-read -r overlap_nonce_a overlap_nonce_b < <(clean_psql --tuples-only --no-align \
-  --set "auth_a=$overlap_auth_a" --set "auth_b=$overlap_auth_b" \
-  --file "$tmp_dir/c617-nonce-count.sql")
+overlap_nonce_a="$(clean_psql --tuples-only --no-align \
+  --set "auth=$overlap_auth_a" --file "$tmp_dir/c617-nonce-count.sql")"
+overlap_nonce_b="$(clean_psql --tuples-only --no-align \
+  --set "auth=$overlap_auth_b" --file "$tmp_dir/c617-nonce-count.sql")"
 [[ "$overlap_nonce_a" == "1" && "$overlap_nonce_b" == "0" ]] || {
   echo "FAIL: C617 competing multi-target nonce outcomes A=$overlap_nonce_a B=$overlap_nonce_b" >&2
   exit 1
