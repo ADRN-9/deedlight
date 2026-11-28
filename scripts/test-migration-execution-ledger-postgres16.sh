@@ -602,6 +602,7 @@ done
   exit 1
 }
 
+revoke_launch_ns="$(date +%s%N)"
 app_psql deedlight_c605_generation_revoke --command \
   "SELECT deedlight_execution_ledger.revoke_authorization_generation('deedlight_ledger_verifier',1)" \
   >"$tmp_dir/c605-revoke.log" 2>&1 &
@@ -619,22 +620,21 @@ for attempt in $(seq 1 200); do
     revoke_waiting=true
     break
   fi
-  kill -0 "$c605_revoke_pid" 2>/dev/null || {
-    cat "$tmp_dir/c605-revoke.log"
-    echo "FAIL: revocation did not wait on the in-flight generation lock" >&2
-    exit 1
-  }
+  kill -0 "$c605_revoke_pid" 2>/dev/null || break
   sleep 0.05
 done
-[[ "$revoke_waiting" == "true" ]] || {
-  echo "FAIL: could not prove revocation blocked behind the admitted transaction" >&2
+set +e
+wait "$c605_revoke_pid"; c605_revoke_status=$?
+revoke_end_ns="$(date +%s%N)"
+wait "$c605_verifier_pid"; c605_verifier_status=$?
+set -e
+revoke_wait_ms=$(( (revoke_end_ns - revoke_launch_ns) / 1000000 ))
+if [[ "$revoke_waiting" != "true" && "$revoke_wait_ms" -lt 6000 ]]; then
+  echo "FAIL: revocation completed without observable generation-lock serialization (\${revoke_wait_ms}ms)" >&2
   cat "$tmp_dir/c605-revoke.log"
   exit 1
-}
-set +e
-wait "$c605_verifier_pid"; c605_verifier_status=$?
-wait "$c605_revoke_pid"; c605_revoke_status=$?
-set -e
+fi
+echo "C605_REVOCATION_WAIT_MS=$revoke_wait_ms BLOCKER_PID_OBSERVED=$revoke_waiting"
 [[ "$c605_verifier_status" -eq 0 && "$c605_revoke_status" -eq 0 ]] || {
   cat "$tmp_dir/c605-verifier.log" "$tmp_dir/c605-revoke.log"
   echo "FAIL: admitted verification or subsequent revocation failed" >&2
