@@ -633,7 +633,7 @@ SELECT c603_test.sign_recovery(jsonb_build_object('staleAfter','00:01:00','targe
     || jsonb_build_object('expectedHeartbeatAt','not-a-timestamp')))) AS c618_bad_timestamp_auth \gset
 SELECT c603_test.sign_recovery(jsonb_build_object('staleAfter','00:01:00','targets',
   jsonb_build_array((:'c618_valid_base_auth'::jsonb->'request'->'targets'->0)
-    || jsonb_build_object('expectedRowVersion',9223372036854775808::numeric))) AS c618_bigint_overflow_auth \gset
+    || jsonb_build_object('expectedRowVersion',9223372036854775808::numeric)))) AS c618_bigint_overflow_auth \gset
 SELECT c603_test.sign_recovery(jsonb_build_object('staleAfter','00:01:00','targets',
   jsonb_build_array((:'c618_valid_base_auth'::jsonb->'request'->'targets'->0)
     || jsonb_build_object('expectedStatus','completed')))) AS c618_bad_status_auth \gset
