@@ -827,3 +827,9 @@ $fn$;
 REVOKE ALL ON FUNCTION c603_test.sign(text,text,uuid,jsonb) FROM PUBLIC,
   deedlight_ledger_approver,deedlight_ledger_runner,deedlight_ledger_observer,
   deedlight_ledger_recovery,deedlight_ledger_verifier;
+REVOKE ALL ON FUNCTION c603_test.assert_rejected(text,text) FROM
+  deedlight_ledger_approver,deedlight_ledger_runner,deedlight_ledger_observer,
+  deedlight_ledger_recovery,deedlight_ledger_verifier;
+REVOKE USAGE ON SCHEMA c603_test FROM
+  deedlight_ledger_approver,deedlight_ledger_runner,deedlight_ledger_observer,
+  deedlight_ledger_recovery,deedlight_ledger_verifier;
