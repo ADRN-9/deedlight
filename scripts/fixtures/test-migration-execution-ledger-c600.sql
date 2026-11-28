@@ -4,14 +4,14 @@
 -- external verifier or prove Production gateway enforcement.
 DO $roles$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='deedlight_ledger_untrusted') THEN
-    CREATE ROLE deedlight_ledger_untrusted NOLOGIN NOINHERIT;
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='deedlight_c600_untrusted') THEN
+    CREATE ROLE deedlight_c600_untrusted NOLOGIN NOINHERIT;
   END IF;
 END
 $roles$;
 
 -- Permit name resolution while deliberately granting no function EXECUTE.
-GRANT USAGE ON SCHEMA deedlight_execution_ledger TO deedlight_ledger_untrusted;
+GRANT USAGE ON SCHEMA deedlight_execution_ledger TO deedlight_c600_untrusted;
 
 CREATE TEMP TABLE c600_before AS
 SELECT
@@ -44,7 +44,7 @@ BEGIN
   FOREACH v_proc IN ARRAY v_procedures LOOP
     IF pg_catalog.to_regprocedure(v_proc) IS NULL
       OR pg_catalog.has_function_privilege(
-        'deedlight_ledger_untrusted', pg_catalog.to_regprocedure(v_proc), 'EXECUTE'
+        'deedlight_c600_untrusted', pg_catalog.to_regprocedure(v_proc), 'EXECUTE'
       ) THEN
       RAISE EXCEPTION 'C600 direct invocation privilege unexpectedly granted: %', v_proc;
     END IF;
@@ -52,7 +52,7 @@ BEGIN
 END
 $privilege_assert$;
 
-SET ROLE deedlight_ledger_untrusted;
+SET ROLE deedlight_c600_untrusted;
 
 DO $direct_call_assert$
 BEGIN
