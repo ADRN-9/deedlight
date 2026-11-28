@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import { closeSync, mkdtempSync, openSync, readdirSync, rmSync } from 'node:fs';
 import { createHash, generateKeyPairSync, randomUUID, sign, timingSafeEqual, verify } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
 const AUDIENCE = 'deedlight.execution-ledger.dispatch.v2';
@@ -69,13 +72,32 @@ const fixedTimeEqual = (left, right) => {
   return a.length === b.length && timingSafeEqual(a, b);
 };
 
+class FileNonceStore {
+  constructor(directory) {
+    this.directory = directory;
+  }
+
+  consume(nonce) {
+    const path = join(this.directory, nonce);
+    try {
+      const descriptor = openSync(path, 'wx', 0o600);
+      closeSync(descriptor);
+      return true;
+    } catch (error) {
+      if (error.code === 'EEXIST') return false;
+      throw error;
+    }
+  }
+}
+
 class IndependentAuthority {
-  constructor(now = () => Date.now()) {
+  constructor(now = () => Date.now(), options = {}) {
     this.now = now;
-    this.provider = keyPair();
-    this.policy = keyPair();
-    this.nonce = keyPair();
-    this.resources = new Map();
+    this.provider = options.provider ?? keyPair();
+    this.policy = options.policy ?? keyPair();
+    this.nonce = options.nonce ?? keyPair();
+    this.resources = options.resources ?? new Map();
+    this.nonceStore = options.nonceStore ?? null;
     this.consumed = new Set();
   }
 
@@ -119,9 +141,13 @@ class IndependentAuthority {
       || policy.expiresAt - policy.issuedAt > MAX_TTL_MS) {
       throw new Error('authorization_claims_invalid');
     }
-    if (this.consumed.has(policy.nonce)) throw new Error('nonce_replayed');
-    // This synchronous state transition is the authority's linearization point.
-    this.consumed.add(policy.nonce);
+    // Atomic create is the nonce authority's single-use linearization point.
+    if (this.nonceStore) {
+      if (!this.nonceStore.consume(policy.nonce)) throw new Error('nonce_replayed');
+    } else {
+      if (this.consumed.has(policy.nonce)) throw new Error('nonce_replayed');
+      this.consumed.add(policy.nonce);
+    }
     return signed({
       audience: AUDIENCE, nonce: policy.nonce, actor: policy.actor,
       operation: policy.operation, requestDigest: policy.requestDigest,
@@ -194,21 +220,33 @@ test('Ed25519 provider, policy and nonce authorities are independently verifiabl
   assert.equal(validSignature(result.receipt, authority.provider.publicKey), false);
 });
 
-test('concurrent nonce consumption has exactly one winner', async () => {
-  const authority = new IndependentAuthority(() => 1_800_000_000_000);
-  authority.registerResource('resource-a');
-  const nonce = randomUUID();
-  const now = 1_800_000_000_000;
-  const resourceAttestation = authority.attestResource({ resourceId: 'resource-a', nonce, now });
-  const policyAuthorization = authority.authorizePolicy({
-    actor: 'runner', operation: 'start_execution', requestDigest: digest({ id: 7 }),
-    resourceId: 'resource-a', nonce, now,
-  });
-  const attempts = await Promise.allSettled(Array.from({ length: 32 }, () =>
-    Promise.resolve().then(() => authority.consumeDispatch({ resourceAttestation, policyAuthorization, now }))));
-  assert.equal(attempts.filter((item) => item.status === 'fulfilled').length, 1);
-  assert.equal(attempts.filter((item) => item.status === 'rejected').length, 31);
-  assert.equal(authority.consumed.size, 1);
+test('concurrent nonce consumption across authority instances has exactly one winner', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'deedlight-nonce-race-'));
+  try {
+    const now = 1_800_000_000_000;
+    const authority = new IndependentAuthority(() => now, {
+      nonceStore: new FileNonceStore(directory),
+    });
+    authority.registerResource('resource-a');
+    const secondAuthority = new IndependentAuthority(() => now, {
+      provider: authority.provider, policy: authority.policy, nonce: authority.nonce,
+      resources: authority.resources, nonceStore: new FileNonceStore(directory),
+    });
+    const nonce = randomUUID();
+    const resourceAttestation = authority.attestResource({ resourceId: 'resource-a', nonce, now });
+    const policyAuthorization = authority.authorizePolicy({
+      actor: 'runner', operation: 'start_execution', requestDigest: digest({ id: 7 }),
+      resourceId: 'resource-a', nonce, now,
+    });
+    const attempts = await Promise.allSettled(Array.from({ length: 32 }, (_, index) =>
+      Promise.resolve().then(() => (index % 2 ? authority : secondAuthority)
+        .consumeDispatch({ resourceAttestation, policyAuthorization, now }))));
+    assert.equal(attempts.filter((item) => item.status === 'fulfilled').length, 1);
+    assert.equal(attempts.filter((item) => item.status === 'rejected').length, 31);
+    assert.equal(readdirSync(directory).length, 1);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test('physical clone with copied PostgreSQL system identifier has a different external resource identity', () => {
@@ -225,21 +263,37 @@ test('physical clone with copied PostgreSQL system identifier has a different ex
   }), /connected_resource_identity_mismatch/);
 });
 
-test('stale database backup cannot replay a nonce already consumed by external authority', () => {
-  const authority = new IndependentAuthority(() => 1_800_000_000_000);
-  authority.registerResource('resource-backup-test');
-  const nonce = randomUUID();
-  const now = 1_800_000_000_000;
-  const resourceAttestation = authority.attestResource({ resourceId: 'resource-backup-test', nonce, now });
-  const policyAuthorization = authority.authorizePolicy({
-    actor: 'runner', operation: 'finalize_execution', requestDigest: digest({ id: 8 }),
-    resourceId: 'resource-backup-test', nonce, now,
-  });
-  const receipt = authority.consumeDispatch({ resourceAttestation, policyAuthorization, now });
-  const restoredLocalNonceTable = new Set();
-  assert.equal(restoredLocalNonceTable.has(nonce), false);
-  assert.throws(() => authority.consumeDispatch({ resourceAttestation, policyAuthorization, now }), /nonce_replayed/);
-  assert.equal(validSignature(receipt, authority.nonce.publicKey), true);
+test('stale database backup cannot replay a nonce after nonce-authority object restart', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'deedlight-nonce-restore-'));
+  try {
+    const now = 1_800_000_000_000;
+    const authority = new IndependentAuthority(() => now, {
+      nonceStore: new FileNonceStore(directory),
+    });
+    authority.registerResource('resource-backup-test');
+    const nonce = randomUUID();
+    const resourceAttestation = authority.attestResource({ resourceId: 'resource-backup-test', nonce, now });
+    const policyAuthorization = authority.authorizePolicy({
+      actor: 'runner', operation: 'finalize_execution', requestDigest: digest({ id: 8 }),
+      resourceId: 'resource-backup-test', nonce, now,
+    });
+    const receipt = authority.consumeDispatch({ resourceAttestation, policyAuthorization, now });
+
+    // Recreate the authority process with the same independent keys and durable nonce store.
+    const restartedAuthority = new IndependentAuthority(() => now, {
+      provider: authority.provider, policy: authority.policy, nonce: authority.nonce,
+      resources: authority.resources, nonceStore: new FileNonceStore(directory),
+    });
+    const restoredLocalNonceTable = new Set();
+    assert.equal(restoredLocalNonceTable.has(nonce), false);
+    assert.throws(() => restartedAuthority.consumeDispatch({
+      resourceAttestation, policyAuthorization, now,
+    }), /nonce_replayed/);
+    assert.equal(readdirSync(directory).length, 1);
+    assert.equal(validSignature(receipt, authority.nonce.publicKey), true);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test('generation transition fences stale receipts and compare-and-swap is monotonic', () => {
