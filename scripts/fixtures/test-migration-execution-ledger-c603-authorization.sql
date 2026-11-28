@@ -718,6 +718,9 @@ SELECT
  (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.snapshots t) snapshots,
  (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.execution_commit_markers t) markers,
  (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.verification_events t) verifications,
+ (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.test_effects t) effects,
+ (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.authorization_keys t) keys,
+ (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.authorization_generations t) generations,
  (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.authorization_nonces t) nonces;
 
 SET SESSION AUTHORIZATION deedlight_ledger_approver;
@@ -780,6 +783,9 @@ BEGIN
     AND b.snapshots=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.snapshots t)
     AND b.markers=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.execution_commit_markers t)
     AND b.verifications=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.verification_events t)
+    AND b.effects=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.test_effects t)
+    AND b.keys=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.authorization_keys t)
+    AND b.generations=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.authorization_generations t)
     AND b.nonces=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.authorization_nonces t)
  ) THEN RAISE EXCEPTION 'C603 cryptographic rejection changed protected state'; END IF;
 END
