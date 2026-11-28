@@ -148,6 +148,22 @@ BEGIN
   END IF;
 END
 $fn$;
+
+CREATE OR REPLACE FUNCTION c608_test.assert_full_business_snapshot(p_snapshot regclass)
+RETURNS void LANGUAGE plpgsql AS $fn$
+DECLARE v_before jsonb; v_after jsonb;
+BEGIN
+  EXECUTE pg_catalog.format(
+    'SELECT coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(row_data) ORDER BY row_data.execution_id),''[]''::jsonb) FROM %s AS row_data',
+    p_snapshot
+  ) INTO v_before;
+  SELECT coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(row_data) ORDER BY row_data.execution_id),'[]'::jsonb)
+  INTO v_after FROM deedlight_execution_ledger.executions AS row_data;
+  IF v_before IS DISTINCT FROM v_after THEN
+    RAISE EXCEPTION 'C618 rejected recovery partially mutated complete business rows';
+  END IF;
+END
+$fn$;
 REVOKE ALL ON FUNCTION c608_test.assert_trust_failure(text,text),
   c608_test.assert_nonce_absent(jsonb),c608_test.assert_business_snapshot() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION c608_test.assert_trust_failure(text,text)
@@ -166,6 +182,8 @@ SELECT c608_test.request(ARRAY[
 UPDATE deedlight_execution_ledger.executions
 SET heartbeat_at=pg_catalog.clock_timestamp()
 WHERE execution_id='c6080000-0000-4000-8000-000000000001';
+CREATE TEMP TABLE c618_heartbeat_business_before ON COMMIT PRESERVE ROWS AS
+SELECT * FROM deedlight_execution_ledger.executions;
 SET SESSION AUTHORIZATION deedlight_ledger_recovery;
 SELECT c603_test.assert_rejected(format(
   'SELECT deedlight_execution_ledger.recover_stale_executions(%L::interval,%L::jsonb)',
@@ -181,6 +199,9 @@ BEGIN
   END IF;
 END
 $assert$;
+SELECT c608_test.assert_full_business_snapshot('pg_temp.c618_heartbeat_business_before'::regclass);
+SELECT c608_test.assert_nonce_absent(:'heartbeat_race_auth'::jsonb);
+SELECT 'C618_HEARTBEAT_REJECTION_FULL_ROW_IMMUTABILITY_NONCE_ROLLBACK_PASS' AS evidence;
 SELECT 'C608_HEARTBEAT_CHANGE_REJECTED_ZERO_PARTIAL_MUTATION_PASS' AS evidence;
 
 -- Finalization after signing invalidates the whole set; the other target stays active.
@@ -196,6 +217,8 @@ UPDATE deedlight_execution_ledger.executions
 SET status='succeeded',completed_at=pg_catalog.clock_timestamp(),
     outcome_detail='{"result":"completed-after-recovery-authorization"}'::jsonb
 WHERE execution_id='c6080000-0000-4000-8000-000000000003';
+CREATE TEMP TABLE c618_finalization_business_before ON COMMIT PRESERVE ROWS AS
+SELECT * FROM deedlight_execution_ledger.executions;
 SET SESSION AUTHORIZATION deedlight_ledger_recovery;
 SELECT c603_test.assert_rejected(format(
   'SELECT deedlight_execution_ledger.recover_stale_executions(%L::interval,%L::jsonb)',
@@ -211,6 +234,9 @@ BEGIN
   END IF;
 END
 $assert$;
+SELECT c608_test.assert_full_business_snapshot('pg_temp.c618_finalization_business_before'::regclass);
+SELECT c608_test.assert_nonce_absent(:'finalize_race_auth'::jsonb);
+SELECT 'C618_FINALIZATION_REJECTION_FULL_ROW_IMMUTABILITY_NONCE_ROLLBACK_PASS' AS evidence;
 SELECT 'C608_FINALIZATION_AFTER_AUTH_REJECTED_ZERO_PARTIAL_MUTATION_PASS' AS evidence;
 
 -- A row crosses the stale threshold after signing; it is excluded and untouched.
@@ -252,6 +278,8 @@ ALTER TABLE deedlight_execution_ledger.executions DISABLE TRIGGER execution_dele
 DELETE FROM deedlight_execution_ledger.executions
 WHERE execution_id='c6080000-0000-4000-8000-000000000007';
 ALTER TABLE deedlight_execution_ledger.executions ENABLE TRIGGER execution_delete_guard;
+CREATE TEMP TABLE c618_missing_business_before ON COMMIT PRESERVE ROWS AS
+SELECT * FROM deedlight_execution_ledger.executions;
 SET SESSION AUTHORIZATION deedlight_ledger_recovery;
 SELECT c603_test.assert_rejected(format(
   'SELECT deedlight_execution_ledger.recover_stale_executions(%L::interval,%L::jsonb)',
@@ -265,6 +293,9 @@ BEGIN
   END IF;
 END
 $assert$;
+SELECT c608_test.assert_full_business_snapshot('pg_temp.c618_missing_business_before'::regclass);
+SELECT c608_test.assert_nonce_absent(:'missing_target_auth'::jsonb);
+SELECT 'C618_MISSING_TARGET_REJECTION_FULL_ROW_IMMUTABILITY_NONCE_ROLLBACK_PASS' AS evidence;
 SELECT 'C608_MISSING_TARGET_REJECTED_ZERO_PARTIAL_MUTATION_PASS' AS evidence;
 
 -- Source identity is checked independently of heartbeat and row version.
@@ -587,6 +618,105 @@ RESET SESSION AUTHORIZATION;
 SELECT c608_test.assert_business_snapshot();
 SELECT c608_test.assert_nonce_absent(:'oversized_targets_auth'::jsonb);
 SELECT 'C613_OVERSIZED_TARGET_ARRAY_REJECTED_NONCE_ROLLBACK_PASS' AS evidence;
+
+-- C618: malformed signed target scalar values must produce explicit trust failures,
+-- not leak UUID/timestamp/bigint cast exceptions after authorization.
+SELECT c608_test.request(ARRAY['c6080000-0000-4000-8000-000000000017']::uuid[],
+  interval '1 minute') AS c618_valid_base_auth \gset
+CREATE TEMP TABLE c618_malformed_business_before ON COMMIT PRESERVE ROWS AS
+SELECT * FROM deedlight_execution_ledger.executions;
+SELECT c603_test.sign_recovery(jsonb_build_object('staleAfter','00:01:00','targets',
+  jsonb_build_array((:'c618_valid_base_auth'::jsonb->'request'->'targets'->0)
+    || jsonb_build_object('executionId','not-a-uuid')))) AS c618_bad_uuid_auth \gset
+SELECT c603_test.sign_recovery(jsonb_build_object('staleAfter','00:01:00','targets',
+  jsonb_build_array((:'c618_valid_base_auth'::jsonb->'request'->'targets'->0)
+    || jsonb_build_object('expectedHeartbeatAt','not-a-timestamp')))) AS c618_bad_timestamp_auth \gset
+SELECT c603_test.sign_recovery(jsonb_build_object('staleAfter','00:01:00','targets',
+  jsonb_build_array((:'c618_valid_base_auth'::jsonb->'request'->'targets'->0)
+    || jsonb_build_object('expectedRowVersion',9223372036854775808::numeric))) AS c618_bigint_overflow_auth \gset
+SELECT c603_test.sign_recovery(jsonb_build_object('staleAfter','00:01:00','targets',
+  jsonb_build_array((:'c618_valid_base_auth'::jsonb->'request'->'targets'->0)
+    || jsonb_build_object('expectedStatus','completed')))) AS c618_bad_status_auth \gset
+SELECT c603_test.sign_recovery(jsonb_build_object('staleAfter','00:01:00','targets',
+  jsonb_build_array(jsonb_build_object('executionId','c6080000-0000-4000-8000-000000000017'))))
+  AS c618_missing_fields_auth \gset
+SELECT c603_test.sign_recovery(jsonb_build_object('staleAfter','00:01:00','targets',
+  jsonb_build_array(jsonb_build_object('executionId','c6080000-0000-4000-8000-000000000017',
+    'expectedStatus','running','expectedSourceIdentity','{}'::jsonb,
+    'expectedHeartbeatAt',pg_catalog.clock_timestamp()::text,
+    'expectedRowVersion',1,'unexpected','extra')))) AS c618_extra_field_auth \gset
+SELECT c603_test.sign_recovery(jsonb_build_object('staleAfter','00:01:00','targets',
+  jsonb_build_array('not-an-object'::jsonb))) AS c618_scalar_element_auth \gset
+SET SESSION AUTHORIZATION deedlight_ledger_recovery;
+SELECT c608_test.assert_trust_failure(format(
+  'SELECT deedlight_execution_ledger.recover_stale_executions(%L::interval,%L::jsonb)',
+  '1 minute',:'c618_bad_uuid_auth'),'recovery_target_shape_invalid');
+RESET SESSION AUTHORIZATION;
+SELECT c608_test.assert_full_business_snapshot('pg_temp.c618_malformed_business_before'::regclass);
+SELECT c608_test.assert_nonce_absent(:'c618_bad_uuid_auth'::jsonb);
+SET SESSION AUTHORIZATION deedlight_ledger_recovery;
+SELECT c608_test.assert_trust_failure(format(
+  'SELECT deedlight_execution_ledger.recover_stale_executions(%L::interval,%L::jsonb)',
+  '1 minute',:'c618_bad_timestamp_auth'),'recovery_target_shape_invalid');
+RESET SESSION AUTHORIZATION;
+SELECT c608_test.assert_full_business_snapshot('pg_temp.c618_malformed_business_before'::regclass);
+SELECT c608_test.assert_nonce_absent(:'c618_bad_timestamp_auth'::jsonb);
+SET SESSION AUTHORIZATION deedlight_ledger_recovery;
+SELECT c608_test.assert_trust_failure(format(
+  'SELECT deedlight_execution_ledger.recover_stale_executions(%L::interval,%L::jsonb)',
+  '1 minute',:'c618_bigint_overflow_auth'),'recovery_target_shape_invalid');
+RESET SESSION AUTHORIZATION;
+SELECT c608_test.assert_full_business_snapshot('pg_temp.c618_malformed_business_before'::regclass);
+SELECT c608_test.assert_nonce_absent(:'c618_bigint_overflow_auth'::jsonb);
+SET SESSION AUTHORIZATION deedlight_ledger_recovery;
+SELECT c608_test.assert_trust_failure(format(
+  'SELECT deedlight_execution_ledger.recover_stale_executions(%L::interval,%L::jsonb)',
+  '1 minute',:'c618_bad_status_auth'),'recovery_target_order_or_state_invalid');
+RESET SESSION AUTHORIZATION;
+SELECT c608_test.assert_full_business_snapshot('pg_temp.c618_malformed_business_before'::regclass);
+SELECT c608_test.assert_nonce_absent(:'c618_bad_status_auth'::jsonb);
+SET SESSION AUTHORIZATION deedlight_ledger_recovery;
+SELECT c608_test.assert_trust_failure(format(
+  'SELECT deedlight_execution_ledger.recover_stale_executions(%L::interval,%L::jsonb)',
+  '1 minute',:'c618_missing_fields_auth'),'recovery_target_shape_invalid');
+RESET SESSION AUTHORIZATION;
+SELECT c608_test.assert_full_business_snapshot('pg_temp.c618_malformed_business_before'::regclass);
+SELECT c608_test.assert_nonce_absent(:'c618_missing_fields_auth'::jsonb);
+SET SESSION AUTHORIZATION deedlight_ledger_recovery;
+SELECT c608_test.assert_trust_failure(format(
+  'SELECT deedlight_execution_ledger.recover_stale_executions(%L::interval,%L::jsonb)',
+  '1 minute',:'c618_extra_field_auth'),'recovery_target_shape_invalid');
+RESET SESSION AUTHORIZATION;
+SELECT c608_test.assert_full_business_snapshot('pg_temp.c618_malformed_business_before'::regclass);
+SELECT c608_test.assert_nonce_absent(:'c618_extra_field_auth'::jsonb);
+SET SESSION AUTHORIZATION deedlight_ledger_recovery;
+SELECT c608_test.assert_trust_failure(format(
+  'SELECT deedlight_execution_ledger.recover_stale_executions(%L::interval,%L::jsonb)',
+  '1 minute',:'c618_scalar_element_auth'),'recovery_target_shape_invalid');
+RESET SESSION AUTHORIZATION;
+SELECT c608_test.assert_full_business_snapshot('pg_temp.c618_malformed_business_before'::regclass);
+SELECT c608_test.assert_nonce_absent(:'c618_scalar_element_auth'::jsonb);
+SELECT 'C618_MALFORMED_SIGNED_TARGETS_REJECTED_FULL_ROW_IMMUTABILITY_NONCE_ROLLBACK_PASS' AS evidence;
+
+-- Expired but correctly signed recovery authorization is rejected before nonce use.
+SELECT c603_test.sign_recovery(jsonb_build_object('staleAfter','00:01:00','targets',
+  :'c618_valid_base_auth'::jsonb->'request'->'targets')) AS c618_expired_base_auth \gset
+SELECT (:'c618_expired_base_auth'::jsonb - 'signature')
+  || jsonb_build_object('issuedAt',(pg_catalog.clock_timestamp()-interval '4 minutes')::text,
+    'expiresAt',(pg_catalog.clock_timestamp()-interval '3 minutes')::text) AS c618_expired_unsigned \gset
+SELECT :'c618_expired_unsigned'::jsonb
+  || jsonb_build_object('signature',pg_catalog.encode(
+    deedlight_execution_ledger.hmac(
+      pg_catalog.convert_to((:'c618_expired_unsigned'::jsonb)::text,'UTF8'),
+      decode(repeat('44',32),'hex'),'sha256'),'hex')) AS c618_expired_auth \gset
+SET SESSION AUTHORIZATION deedlight_ledger_recovery;
+SELECT c603_test.assert_rejected(format(
+  'SELECT deedlight_execution_ledger.recover_stale_executions(%L::interval,%L::jsonb)',
+  '1 minute',:'c618_expired_auth'),'D1006');
+RESET SESSION AUTHORIZATION;
+SELECT c608_test.assert_full_business_snapshot('pg_temp.c618_malformed_business_before'::regclass);
+SELECT c608_test.assert_nonce_absent(:'c618_expired_auth'::jsonb);
+SELECT 'C618_EXPIRED_SIGNED_AUTH_REJECTED_FULL_ROW_IMMUTABILITY_NONCE_ROLLBACK_PASS' AS evidence;
 
 -- Dedicated targets for the later-target-change-while-earlier-lock-is-held race.
 SELECT c608_test.seed_execution('c6080000-0000-4000-8000-000000000021','running',
