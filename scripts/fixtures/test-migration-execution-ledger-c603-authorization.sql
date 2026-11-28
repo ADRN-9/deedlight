@@ -88,7 +88,7 @@ RESET SESSION AUTHORIZATION;
 SELECT pg_temp.c603_sign('deedlight_ledger_observer','capture_snapshot',
  'c6030000-0000-4000-8000-000000000021',
  pg_catalog.jsonb_build_object('executionId','c6030000-0000-4000-8000-000000000021'::uuid,
- 'phase','pre','queryId','test_effects_v1')
+ 'phase','pre','queryId','test_effects_v1','sourceIdentity','{"path":"supabase/migrations/c603-positive.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb)
 ) AS pre_auth \gset
 SET SESSION AUTHORIZATION deedlight_ledger_observer;
 SELECT deedlight_execution_ledger.capture_snapshot(
@@ -97,7 +97,8 @@ RESET SESSION AUTHORIZATION;
 
 SELECT pg_temp.c603_sign('deedlight_ledger_runner','start_execution',
  'c6030000-0000-4000-8000-000000000021',
- pg_catalog.jsonb_build_object('executionId','c6030000-0000-4000-8000-000000000021'::uuid)
+ pg_catalog.jsonb_build_object('executionId','c6030000-0000-4000-8000-000000000021'::uuid,
+ 'sourceIdentity','{"path":"supabase/migrations/c603-positive.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb)
 ) AS start_auth \gset
 SET SESSION AUTHORIZATION deedlight_ledger_runner;
 SELECT deedlight_execution_ledger.start_execution('c6030000-0000-4000-8000-000000000021',:'start_auth'::jsonb);
@@ -105,7 +106,8 @@ RESET SESSION AUTHORIZATION;
 
 SELECT pg_temp.c603_sign('deedlight_ledger_runner','heartbeat_execution',
  'c6030000-0000-4000-8000-000000000021',
- pg_catalog.jsonb_build_object('executionId','c6030000-0000-4000-8000-000000000021'::uuid)
+ pg_catalog.jsonb_build_object('executionId','c6030000-0000-4000-8000-000000000021'::uuid,
+ 'sourceIdentity','{"path":"supabase/migrations/c603-positive.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb)
 ) AS heartbeat_auth \gset
 SET SESSION AUTHORIZATION deedlight_ledger_runner;
 SELECT deedlight_execution_ledger.heartbeat_execution('c6030000-0000-4000-8000-000000000021',:'heartbeat_auth'::jsonb);
@@ -129,7 +131,7 @@ RESET SESSION AUTHORIZATION;
 SELECT pg_temp.c603_sign('deedlight_ledger_observer','capture_snapshot',
  'c6030000-0000-4000-8000-000000000021',
  pg_catalog.jsonb_build_object('executionId','c6030000-0000-4000-8000-000000000021'::uuid,
- 'phase','post','queryId','test_effects_v1')
+ 'phase','post','queryId','test_effects_v1','sourceIdentity','{"path":"supabase/migrations/c603-positive.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb)
 ) AS post_auth \gset
 SET SESSION AUTHORIZATION deedlight_ledger_observer;
 SELECT deedlight_execution_ledger.capture_snapshot(
@@ -139,7 +141,8 @@ RESET SESSION AUTHORIZATION;
 SELECT pg_temp.c603_sign('deedlight_ledger_runner','finalize_execution',
  'c6030000-0000-4000-8000-000000000021',
  pg_catalog.jsonb_build_object('executionId','c6030000-0000-4000-8000-000000000021'::uuid,
- 'outcome','succeeded','outcomeDetail','{"result":"signed"}'::jsonb)
+ 'outcome','succeeded','outcomeDetail','{"result":"signed"}'::jsonb,
+ 'sourceIdentity','{"path":"supabase/migrations/c603-positive.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb)
 ) AS finalize_auth \gset
 SET SESSION AUTHORIZATION deedlight_ledger_runner;
 SELECT deedlight_execution_ledger.finalize_execution(
@@ -149,7 +152,8 @@ RESET SESSION AUTHORIZATION;
 SELECT pg_temp.c603_sign('deedlight_ledger_verifier','record_verification',
  'c6030000-0000-4000-8000-000000000021',
  pg_catalog.jsonb_build_object('executionId','c6030000-0000-4000-8000-000000000021'::uuid,
- 'verdict','verified','evidence','{"independent":true}'::jsonb)
+ 'verdict','verified','evidence','{"independent":true}'::jsonb,
+ 'sourceIdentity','{"path":"supabase/migrations/c603-positive.sql","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb)
 ) AS verify_auth \gset
 SET SESSION AUTHORIZATION deedlight_ledger_verifier;
 SELECT deedlight_execution_ledger.record_verification(
@@ -188,7 +192,15 @@ SELECT deedlight_execution_ledger.reserve_execution(
 RESET SESSION AUTHORIZATION;
 SELECT pg_catalog.pg_sleep(0.02);
 SELECT pg_temp.c603_sign('deedlight_ledger_recovery','recover_stale_executions',NULL,
- pg_catalog.jsonb_build_object('staleAfter','00:00:00.000001')) AS recover_auth \gset
+ pg_catalog.jsonb_build_object('staleAfter','00:00:00.000001',
+ 'sourceSetDigest',(SELECT pg_catalog.encode(deedlight_execution_ledger.digest(
+   pg_catalog.convert_to(coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
+     'executionId',execution_id,'sourceIdentity',source_identity,'status',status,
+     'heartbeatAt',heartbeat_at) ORDER BY execution_id),'[]'::jsonb)::text,'UTF8'),'sha256'),'hex')
+   FROM deedlight_execution_ledger.executions WHERE status IN ('reserved','running')
+     AND heartbeat_at < pg_catalog.clock_timestamp()-interval '1 microsecond'),
+ 'targetCount',(SELECT pg_catalog.count(*) FROM deedlight_execution_ledger.executions
+   WHERE status IN ('reserved','running') AND heartbeat_at < pg_catalog.clock_timestamp()-interval '1 microsecond'))) AS recover_auth \gset
 SET SESSION AUTHORIZATION deedlight_ledger_recovery;
 SELECT deedlight_execution_ledger.recover_stale_executions(interval '1 microsecond',:'recover_auth'::jsonb);
 RESET SESSION AUTHORIZATION;
@@ -330,10 +342,17 @@ $side_effects$;
 SELECT 'C603_5X9_ADVERSARIAL_MATRIX_ZERO_SIDE_EFFECTS_PASS' AS evidence;
 
 -- Role impersonation must fail for an authenticated actor principal.
-SET SESSION AUTHORIZATION deedlight_ledger_approver;
-SELECT pg_temp.c603_assert_rejected('SET ROLE deedlight_ledger_runner','42501');
-RESET SESSION AUTHORIZATION;
-SELECT 'C603_CROSS_ROLE_SET_ROLE_DENIED_PASS' AS evidence;
+DO $membership$
+BEGIN
+ IF pg_catalog.pg_has_role('deedlight_ledger_approver','deedlight_ledger_runner','MEMBER')
+   OR pg_catalog.pg_has_role('deedlight_ledger_runner','deedlight_ledger_approver','MEMBER')
+   OR pg_catalog.pg_has_role('deedlight_ledger_observer','deedlight_ledger_runner','MEMBER')
+   OR pg_catalog.pg_has_role('deedlight_ledger_recovery','deedlight_ledger_verifier','MEMBER') THEN
+   RAISE EXCEPTION 'C603 actor-to-actor SET ROLE membership exists';
+ END IF;
+END
+$membership$;
+SELECT 'C603_CROSS_ROLE_SET_ROLE_MEMBERSHIP_DENIED_PASS' AS evidence;
 
 -- Old unwrapped signatures are gone; internal implementation names are not executable by actors.
 DO $legacy$
