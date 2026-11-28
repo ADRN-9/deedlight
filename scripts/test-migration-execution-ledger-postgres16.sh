@@ -417,7 +417,6 @@ recovery_auth="$(clean_psql --tuples-only --no-align --command "
       'targetCount',(SELECT pg_catalog.count(*) FROM deedlight_execution_ledger.executions
         WHERE status IN ('reserved','running')
           AND heartbeat_at < pg_catalog.clock_timestamp()-interval '1 microsecond'))
-    )
   )
 ")"
 [[ -n "$recovery_auth" ]] || { echo "FAIL: failed to sign C605 recovery race request" >&2; exit 1; }
