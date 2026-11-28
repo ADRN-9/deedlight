@@ -396,6 +396,8 @@ SELECT pg_temp.c603_sign('deedlight_ledger_runner','heartbeat_execution',
 ) AS runner_generation_one_auth \gset
 SELECT deedlight_execution_ledger.rotate_authorization_generation(
  'deedlight_ledger_runner',1,'c603-runner-v2',decode(repeat('66',32),'hex'));
+CREATE TEMP TABLE c605_runner_nonce_before AS
+SELECT pg_catalog.count(*) AS nonce_count FROM deedlight_execution_ledger.authorization_nonces;
 SET SESSION AUTHORIZATION deedlight_ledger_runner;
 SELECT c603_test.assert_rejected(
  format('SELECT deedlight_execution_ledger.heartbeat_execution(%L,%L::jsonb,%L::jsonb)',
@@ -404,6 +406,14 @@ SELECT c603_test.assert_rejected(
   :'runner_generation_one_auth'),
  'D1001');
 RESET SESSION AUTHORIZATION;
+DO $generation_rollback$
+BEGIN
+ IF (SELECT nonce_count FROM c605_runner_nonce_before)
+   <> (SELECT pg_catalog.count(*) FROM deedlight_execution_ledger.authorization_nonces) THEN
+   RAISE EXCEPTION 'C605 stale-generation or failed business operation retained nonce';
+ END IF;
+END
+$generation_rollback$;
 SELECT pg_temp.c603_sign('deedlight_ledger_runner','heartbeat_execution',
  'c6030000-0000-4000-8000-000000000021',
  pg_catalog.jsonb_build_object('executionId','c6030000-0000-4000-8000-000000000021'::uuid,
@@ -418,6 +428,8 @@ SELECT c603_test.assert_rejected(
  'P0001');
 RESET SESSION AUTHORIZATION;
 SELECT deedlight_execution_ledger.revoke_authorization_generation('deedlight_ledger_observer',1);
+CREATE TEMP TABLE c605_observer_nonce_before AS
+SELECT pg_catalog.count(*) AS nonce_count FROM deedlight_execution_ledger.authorization_nonces;
 SELECT pg_temp.c603_sign('deedlight_ledger_observer','capture_snapshot',
  'c6030000-0000-4000-8000-000000000021',
  pg_catalog.jsonb_build_object('executionId','c6030000-0000-4000-8000-000000000021'::uuid,
@@ -431,6 +443,14 @@ SELECT c603_test.assert_rejected(
   :'revoked_observer_auth'),
  'D1001');
 RESET SESSION AUTHORIZATION;
+DO $revocation_no_effects$
+BEGIN
+ IF (SELECT nonce_count FROM c605_observer_nonce_before)
+   <> (SELECT pg_catalog.count(*) FROM deedlight_execution_ledger.authorization_nonces) THEN
+   RAISE EXCEPTION 'C605 revoked actor request consumed a nonce';
+ END IF;
+END
+$revocation_no_effects$;
 SELECT 'C605_MONOTONIC_GENERATION_ROTATION_AND_REVOCATION_PASS' AS evidence;
 
 
