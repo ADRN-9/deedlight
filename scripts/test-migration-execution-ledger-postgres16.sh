@@ -391,3 +391,23 @@ env -i PATH="$PATH" HOME="${HOME:-/tmp}" PGPASSWORD=postgres \
   "
 
 echo "C578 disposable PostgreSQL 16 execution-ledger remediation tests: PASS"
+
+
+# C603 signed gateway boundary is applied only after all historical fixture tests
+# and crash/replay harnesses have completed. This is a disposable CI-only overlay.
+clean_psql --file scripts/fixtures/migration-execution-ledger-c603-authorization.sql
+clean_psql --file scripts/fixtures/test-migration-execution-ledger-c603-authorization.sql
+
+# Prove a non-superuser actor cannot switch to another actor role.
+if clean_psql --command "SET SESSION AUTHORIZATION deedlight_ledger_approver; SET ROLE deedlight_ledger_runner" \
+  >"$tmp_dir/c603-set-role.log" 2>&1; then
+  echo "FAIL: Approver unexpectedly assumed Runner role" >&2
+  cat "$tmp_dir/c603-set-role.log" >&2
+  exit 1
+fi
+grep -qi "permission denied to set role" "$tmp_dir/c603-set-role.log" || {
+  echo "FAIL: SET ROLE failed for an unexpected reason" >&2
+  cat "$tmp_dir/c603-set-role.log" >&2
+  exit 1
+}
+echo "C603_CROSS_ROLE_SET_ROLE_DENIED_PASS"
