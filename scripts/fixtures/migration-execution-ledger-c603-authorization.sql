@@ -161,7 +161,11 @@ BEGIN
   WHERE actor=p_actor AND principal=v_principal
     AND key_id=p_envelope->>'keyId' AND enabled AND generation=1
     AND audience='deedlight.execution-ledger.gateway.v1';
-  IF NOT FOUND OR deedlight_execution_ledger.actor_role() IS DISTINCT FROM p_actor THEN
+  IF NOT FOUND THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'missing_trust','authorization_key_not_found','{}'::jsonb);
+  END IF;
+  IF deedlight_execution_ledger.actor_role() IS DISTINCT FROM p_actor THEN
     PERFORM deedlight_execution_ledger.raise_trust_failure(
       'missing_trust','authorization_principal_not_authorized','{}'::jsonb);
   END IF;
