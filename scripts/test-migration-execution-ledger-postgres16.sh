@@ -728,18 +728,24 @@ later_nonce_count="$(clean_psql --tuples-only --no-align --command "
 echo "C610_LATER_TARGET_FINALIZED_WHILE_EARLIER_LOCKED_REJECTED_ZERO_RECOVERY_MUTATION nonce_rolled_back=$later_nonce_count"
 
 # Two independently signed, overlapping multi-target requests use canonical lock order.
+# Use dedicated targets that have not been mutated by the preceding C608 heartbeat/finalization races.
+clean_psql --command "
+  SELECT c608_test.seed_execution('c6080000-0000-4000-8000-000000000025','running',pg_catalog.clock_timestamp()-interval '1 hour');
+  SELECT c608_test.seed_execution('c6080000-0000-4000-8000-000000000026','running',pg_catalog.clock_timestamp()-interval '1 hour');
+  SELECT c608_test.seed_execution('c6080000-0000-4000-8000-000000000027','running',pg_catalog.clock_timestamp()-interval '1 hour');
+"
 # A=[009,010] must lock 009 before waiting for shared target 010; B=[010,011]
 # queues behind A. A wins after release; B rejects before reaching target 011.
 overlap_auth_a="$(clean_psql --tuples-only --no-align --command "
   SELECT c608_test.request(ARRAY[
-    'c6080000-0000-4000-8000-000000000009',
-    'c6080000-0000-4000-8000-000000000010'
+    'c6080000-0000-4000-8000-000000000025',
+    'c6080000-0000-4000-8000-000000000026'
   ]::uuid[],interval '1 minute')
 ")"
 overlap_auth_b="$(clean_psql --tuples-only --no-align --command "
   SELECT c608_test.request(ARRAY[
-    'c6080000-0000-4000-8000-000000000010',
-    'c6080000-0000-4000-8000-000000000011'
+    'c6080000-0000-4000-8000-000000000026',
+    'c6080000-0000-4000-8000-000000000027'
   ]::uuid[],interval '1 minute')
 ")"
 [[ -n "$overlap_auth_a" && -n "$overlap_auth_b" && "$overlap_auth_a" != "$overlap_auth_b" ]] || {
@@ -749,12 +755,12 @@ overlap_auth_b="$(clean_psql --tuples-only --no-align --command "
 overlap_target_011_before="$(clean_psql --tuples-only --no-align --command "
   SELECT pg_catalog.to_jsonb(row_data)::text
   FROM deedlight_execution_ledger.executions AS row_data
-  WHERE execution_id='c6080000-0000-4000-8000-000000000011'
+  WHERE execution_id='c6080000-0000-4000-8000-000000000027'
 ")"
 holder_sql="
   BEGIN;
   SELECT 1 FROM deedlight_execution_ledger.executions
-    WHERE execution_id='c6080000-0000-4000-8000-000000000010' FOR UPDATE;
+    WHERE execution_id='c6080000-0000-4000-8000-000000000026' FOR UPDATE;
   SELECT pg_catalog.pg_sleep(30);
   COMMIT;
 "
@@ -815,7 +821,7 @@ done
 }
 # A's first target 009 must already be locked while A waits on its second target 010.
 set +e
-clean_psql --command "SELECT 1 FROM deedlight_execution_ledger.executions WHERE execution_id='c6080000-0000-4000-8000-000000000009' FOR UPDATE NOWAIT" \
+clean_psql --command "SELECT 1 FROM deedlight_execution_ledger.executions WHERE execution_id='c6080000-0000-4000-8000-000000000025' FOR UPDATE NOWAIT" \
   >"$tmp_dir/c617-order-probe.log" 2>&1
 c617_probe_status=$?
 set -e
@@ -879,7 +885,7 @@ grep -q "DEEDLIGHT_TRUST_FAILURE:incomplete_preconditions" "$tmp_dir/c617-recove
 overlap_target_011_after="$(clean_psql --tuples-only --no-align --command "
   SELECT pg_catalog.to_jsonb(row_data)::text
   FROM deedlight_execution_ledger.executions AS row_data
-  WHERE execution_id='c6080000-0000-4000-8000-000000000011'
+  WHERE execution_id='c6080000-0000-4000-8000-000000000027'
 ")"
 [[ "$overlap_target_011_after" == "$overlap_target_011_before" ]] || {
   echo "FAIL: losing C617 request partially mutated its later, not-yet-locked target 011" >&2
@@ -901,9 +907,9 @@ c617_final_states="$(clean_psql --tuples-only --no-align --command "
   SELECT string_agg(execution_id::text || ':' || status,',' ORDER BY execution_id)
   FROM deedlight_execution_ledger.executions
   WHERE execution_id IN (
-    'c6080000-0000-4000-8000-000000000009',
-    'c6080000-0000-4000-8000-000000000010',
-    'c6080000-0000-4000-8000-000000000011'
+    'c6080000-0000-4000-8000-000000000025',
+    'c6080000-0000-4000-8000-000000000026',
+    'c6080000-0000-4000-8000-000000000027'
   )
 ")"
 [[ "$c617_final_states" == *":unknown"* ]] || {
