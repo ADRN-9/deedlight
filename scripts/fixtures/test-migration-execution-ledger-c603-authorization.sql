@@ -581,6 +581,9 @@ SELECT 'C603_FIVE_ACTOR_NINE_RPC_EXECUTE_MATRIX_PASS' AS evidence;
 -- missing signatures; the other eight fail at the EXECUTE boundary.
 CREATE TEMP TABLE c603_before AS
 SELECT
+ (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.database_identity t) database_identity,
+ (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.query_bundle_manifests t) query_bundles,
+ (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.observation_queries t) observation_queries,
  (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.approvals t) approvals,
  (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.executions t) executions,
  (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.snapshots t) snapshots,
@@ -710,6 +713,9 @@ SELECT
  (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.database_identity t) database_identity,
  (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.query_bundle_manifests t) query_bundles,
  (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.observation_queries t) observation_queries,
+ (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.database_identity t) database_identity,
+ (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.query_bundle_manifests t) query_bundles,
+ (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.observation_queries t) observation_queries,
  (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.approvals t) approvals,
  (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.executions t) executions,
  (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.snapshots t) snapshots,
@@ -769,7 +775,10 @@ DO $adversarial_side_effects$
 BEGIN
  IF NOT EXISTS (
   SELECT 1 FROM c603_adversarial_before b
-  WHERE b.approvals=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.approvals t)
+  WHERE b.database_identity=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.database_identity t)
+    AND b.query_bundles=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.query_bundle_manifests t)
+    AND b.observation_queries=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.observation_queries t)
+    AND b.approvals=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.approvals t)
     AND b.executions=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.executions t)
     AND b.snapshots=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.snapshots t)
     AND b.markers=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.execution_commit_markers t)
