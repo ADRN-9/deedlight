@@ -105,6 +105,53 @@ REVOKE ALL ON FUNCTION c608_test.seed_execution(uuid,text,timestamptz),
   c608_test.request(uuid[],interval) FROM PUBLIC,
   deedlight_ledger_approver,deedlight_ledger_runner,deedlight_ledger_observer,
   deedlight_ledger_recovery,deedlight_ledger_verifier;
+CREATE OR REPLACE FUNCTION c608_test.assert_trust_failure(p_sql text,p_expected_reason text)
+RETURNS void LANGUAGE plpgsql AS $fn$
+DECLARE v_state text; v_detail text;
+BEGIN
+  BEGIN
+    EXECUTE p_sql;
+    RAISE EXCEPTION 'C613 expected trust failure but statement succeeded: %',p_sql;
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_state=RETURNED_SQLSTATE,v_detail=PG_EXCEPTION_DETAIL;
+    IF v_state IS DISTINCT FROM 'D1006'
+      OR v_detail IS NULL
+      OR (v_detail::jsonb->>'reason') IS DISTINCT FROM p_expected_reason THEN
+      RAISE EXCEPTION 'C613 wrong trust failure: expected D1006/% got %/% for %',
+        p_expected_reason,v_state,v_detail,p_sql;
+    END IF;
+  END;
+END
+$fn$;
+CREATE OR REPLACE FUNCTION c608_test.assert_nonce_absent(p_authorization jsonb)
+RETURNS void LANGUAGE plpgsql AS $fn$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM deedlight_execution_ledger.authorization_nonces
+    WHERE actor='deedlight_ledger_recovery'
+      AND nonce=(p_authorization->>'nonce')::uuid
+  ) THEN
+    RAISE EXCEPTION 'C613 rejected recovery request consumed its authorization nonce';
+  END IF;
+END
+$fn$;
+CREATE OR REPLACE FUNCTION c608_test.assert_business_snapshot()
+RETURNS void LANGUAGE plpgsql AS $fn$
+DECLARE v_before jsonb; v_after jsonb;
+BEGIN
+  SELECT coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(row_data) ORDER BY row_data.execution_id),'[]'::jsonb)
+  INTO v_before FROM pg_temp.c613_business_before AS row_data;
+  SELECT coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(row_data) ORDER BY row_data.execution_id),'[]'::jsonb)
+  INTO v_after FROM deedlight_execution_ledger.executions AS row_data;
+  IF v_before IS DISTINCT FROM v_after THEN
+    RAISE EXCEPTION 'C613 rejected request partially mutated business rows';
+  END IF;
+END
+$fn$;
+REVOKE ALL ON FUNCTION c608_test.assert_trust_failure(text,text),
+  c608_test.assert_nonce_absent(jsonb),c608_test.assert_business_snapshot() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION c608_test.assert_trust_failure(text,text)
+  TO deedlight_ledger_recovery;
 
 -- Heartbeat change after signing invalidates the entire two-row request.
 SELECT c608_test.seed_execution('c6080000-0000-4000-8000-000000000001','running',
@@ -311,6 +358,18 @@ END
 $assert$;
 SELECT 'C610_DUPLICATE_INPUT_IDS_REJECTED_ZERO_MUTATION_PASS' AS evidence;
 
+-- C613: reject malformed or excessive requested UUID arrays before signing.
+SELECT c603_test.assert_rejected(
+  'SELECT c608_test.request(NULL::uuid[],interval ''1 minute'')','D1006');
+SELECT c603_test.assert_rejected(
+  'SELECT c608_test.request(ARRAY[NULL::uuid],interval ''1 minute'')','D1006');
+SELECT c603_test.assert_rejected(
+  'SELECT c608_test.request(ARRAY[]::uuid[],interval ''1 minute'')','D1006');
+SELECT c603_test.assert_rejected(
+  'SELECT c608_test.request(pg_catalog.array_fill(''c6080000-0000-4000-8000-000000000016''::uuid,ARRAY[10001]),interval ''1 minute'')',
+  'D1006');
+SELECT 'C613_NULL_ARRAY_NULL_ELEMENT_EMPTY_AND_OVERSIZED_REQUESTS_REJECTED_PASS' AS evidence;
+
 -- Missing and ineligible requested IDs cannot be silently omitted by the signer.
 SELECT c608_test.seed_execution('c6080000-0000-4000-8000-000000000017','running',
   pg_catalog.clock_timestamp()-interval '1 hour');
@@ -392,6 +451,69 @@ BEGIN
 END
 $assert$;
 SELECT 'C610_UNORDERED_TARGET_IDS_REJECTED_ZERO_MUTATION_PASS' AS evidence;
+
+-- C613: the runtime implementation must reject an empty signed target set.
+SELECT c608_test.seed_execution('c6080000-0000-4000-8000-000000000023','running',
+  pg_catalog.clock_timestamp()-interval '1 hour');
+SELECT c608_test.seed_execution('c6080000-0000-4000-8000-000000000024','reserved',
+  pg_catalog.clock_timestamp()-interval '1 hour');
+CREATE TEMP TABLE c613_business_before ON COMMIT PRESERVE ROWS AS
+SELECT * FROM deedlight_execution_ledger.executions;
+SELECT c603_test.sign_recovery(jsonb_build_object(
+  'staleAfter','00:01:00','targets','[]'::jsonb
+)) AS empty_targets_auth \gset
+SET SESSION AUTHORIZATION deedlight_ledger_recovery;
+SELECT c608_test.assert_trust_failure(format(
+  'SELECT deedlight_execution_ledger.recover_stale_executions(%L::interval,%L::jsonb)',
+  '1 minute',:'empty_targets_auth'),'recovery_target_set_empty');
+RESET SESSION AUTHORIZATION;
+SELECT c608_test.assert_business_snapshot();
+SELECT c608_test.assert_nonce_absent(:'empty_targets_auth'::jsonb);
+SELECT 'C613_SIGNED_EMPTY_TARGETS_REJECTED_ZERO_MUTATION_NONCE_ROLLBACK_PASS' AS evidence;
+
+-- SQL NULL and JSON null target arrays both fail closed in the runtime implementation.
+SELECT c608_test.assert_trust_failure(
+  'SELECT deedlight_execution_ledger.recover_stale_executions_targets_impl(NULL::jsonb,interval ''1 minute'')',
+  'recovery_target_set_invalid');
+SELECT c603_test.sign_recovery(jsonb_build_object(
+  'staleAfter','00:01:00','targets',NULL::jsonb
+)) AS null_targets_auth \gset
+SET SESSION AUTHORIZATION deedlight_ledger_recovery;
+SELECT c608_test.assert_trust_failure(format(
+  'SELECT deedlight_execution_ledger.recover_stale_executions(%L::interval,%L::jsonb)',
+  '1 minute',:'null_targets_auth'),'recovery_target_set_invalid');
+RESET SESSION AUTHORIZATION;
+SELECT c608_test.assert_business_snapshot();
+SELECT c608_test.assert_nonce_absent(:'null_targets_auth'::jsonb);
+SELECT 'C613_NULL_TARGET_ARRAY_REJECTED_NONCE_ROLLBACK_PASS' AS evidence;
+
+-- A JSON null element is not a valid signed target object.
+SELECT c603_test.sign_recovery(jsonb_build_object(
+  'staleAfter','00:01:00','targets',jsonb_build_array(NULL::jsonb)
+)) AS null_element_auth \gset
+SET SESSION AUTHORIZATION deedlight_ledger_recovery;
+SELECT c608_test.assert_trust_failure(format(
+  'SELECT deedlight_execution_ledger.recover_stale_executions(%L::interval,%L::jsonb)',
+  '1 minute',:'null_element_auth'),'recovery_target_shape_invalid');
+RESET SESSION AUTHORIZATION;
+SELECT c608_test.assert_business_snapshot();
+SELECT c608_test.assert_nonce_absent(:'null_element_auth'::jsonb);
+SELECT 'C613_NULL_TARGET_ELEMENT_REJECTED_NONCE_ROLLBACK_PASS' AS evidence;
+
+-- Oversized signed arrays are rejected before inspecting or locking their elements.
+SELECT c603_test.sign_recovery(jsonb_build_object(
+  'staleAfter','00:01:00',
+  'targets',(SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('oversized',n))
+    FROM pg_catalog.generate_series(1,10001) AS generated(n))
+)) AS oversized_targets_auth \gset
+SET SESSION AUTHORIZATION deedlight_ledger_recovery;
+SELECT c608_test.assert_trust_failure(format(
+  'SELECT deedlight_execution_ledger.recover_stale_executions(%L::interval,%L::jsonb)',
+  '1 minute',:'oversized_targets_auth'),'recovery_target_set_too_large');
+RESET SESSION AUTHORIZATION;
+SELECT c608_test.assert_business_snapshot();
+SELECT c608_test.assert_nonce_absent(:'oversized_targets_auth'::jsonb);
+SELECT 'C613_OVERSIZED_TARGET_ARRAY_REJECTED_NONCE_ROLLBACK_PASS' AS evidence;
 
 -- Dedicated targets for the later-target-change-while-earlier-lock-is-held race.
 SELECT c608_test.seed_execution('c6080000-0000-4000-8000-000000000021','running',

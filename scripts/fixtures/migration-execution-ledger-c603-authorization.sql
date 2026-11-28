@@ -397,6 +397,10 @@ BEGIN
   END IF;
 
   v_target_count := pg_catalog.jsonb_array_length(p_targets);
+  IF v_target_count = 0 THEN
+    PERFORM deedlight_execution_ledger.raise_trust_failure(
+      'incomplete_preconditions','recovery_target_set_empty','{}'::jsonb);
+  END IF;
   IF v_target_count > 10000 THEN
     PERFORM deedlight_execution_ledger.raise_trust_failure(
       'incomplete_preconditions','recovery_target_set_too_large','{}'::jsonb);
