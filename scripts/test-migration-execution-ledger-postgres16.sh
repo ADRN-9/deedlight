@@ -398,6 +398,140 @@ echo "C578 disposable PostgreSQL 16 execution-ledger remediation tests: PASS"
 clean_psql --file scripts/fixtures/migration-execution-ledger-c603-authorization.sql
 clean_psql --file scripts/fixtures/test-migration-execution-ledger-c603-authorization.sql
 
+# C605 multi-session recovery race: a concurrent writer changes the selected row
+# while the signed recovery wrapper is waiting on its FOR UPDATE lock. PostgreSQL
+# must re-check the predicate, reject the now-stale signed target digest, and write
+# no recovery nonce or second mutation.
+clean_psql --file scripts/fixtures/test-c605-recovery-concurrency.sql
+
+recovery_auth="$(clean_psql --tuples-only --no-align --command "
+  SELECT c603_test.sign('deedlight_ledger_recovery','recover_stale_executions',NULL,
+    pg_catalog.jsonb_build_object('staleAfter','00:00:00.000001',
+      'sourceSetDigest',(SELECT pg_catalog.encode(deedlight_execution_ledger.digest(
+        pg_catalog.convert_to(coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
+          'executionId',execution_id,'sourceIdentity',source_identity,'status',status,
+          'heartbeatAt',heartbeat_at) ORDER BY execution_id),'[]'::jsonb)::text,'UTF8'),'sha256'),'hex')
+        FROM deedlight_execution_ledger.executions
+        WHERE status IN ('reserved','running')
+          AND heartbeat_at < pg_catalog.clock_timestamp()-interval '1 microsecond'),
+      'targetCount',(SELECT pg_catalog.count(*) FROM deedlight_execution_ledger.executions
+        WHERE status IN ('reserved','running')
+          AND heartbeat_at < pg_catalog.clock_timestamp()-interval '1 microsecond'))
+    )
+  )
+")"
+[[ -n "$recovery_auth" ]] || { echo "FAIL: failed to sign C605 recovery race request" >&2; exit 1; }
+nonce_before="$(clean_psql --tuples-only --no-align --command \
+  "SELECT count(*) FROM deedlight_execution_ledger.authorization_nonces")"
+
+holder_sql="
+  BEGIN;
+  SELECT 1 FROM deedlight_execution_ledger.executions
+    WHERE execution_id='c6050000-0000-4000-8000-000000000021' FOR UPDATE;
+  SELECT pg_catalog.pg_sleep(3);
+  UPDATE deedlight_execution_ledger.executions
+    SET status='interrupted', completed_at=pg_catalog.clock_timestamp(),
+        outcome_detail='{\"reason\":\"concurrent_recovery_race_holder\"}'::jsonb
+    WHERE execution_id='c6050000-0000-4000-8000-000000000021';
+  COMMIT;
+"
+app_psql deedlight_c605_recovery_holder --command "$holder_sql" >"$tmp_dir/c605-holder.log" 2>&1 &
+c605_holder_pid=$!
+holder_backend_pid=""
+for attempt in $(seq 1 200); do
+  holder_backend_pid="$(clean_psql --tuples-only --no-align --command "
+    SELECT pid FROM pg_catalog.pg_stat_activity
+    WHERE application_name='deedlight_c605_recovery_holder'
+      AND state='active' AND wait_event='PgSleep'
+  ")"
+  [[ -n "$holder_backend_pid" ]] && break
+  kill -0 "$c605_holder_pid" 2>/dev/null || {
+    cat "$tmp_dir/c605-holder.log"
+    echo "FAIL: C605 recovery lock holder exited before acquiring the row lock" >&2
+    exit 1
+  }
+  sleep 0.05
+done
+[[ -n "$holder_backend_pid" ]] || {
+  echo "FAIL: timed out waiting for C605 recovery row lock holder" >&2
+  exit 1
+}
+
+recovery_sql="
+  SET SESSION AUTHORIZATION deedlight_ledger_recovery;
+  SELECT deedlight_execution_ledger.recover_stale_executions(
+    interval '1 microsecond', :'authorization'::jsonb
+  );
+  RESET SESSION AUTHORIZATION;
+"
+app_psql deedlight_c605_recovery --set "authorization=$recovery_auth" \
+  --command "$recovery_sql" >"$tmp_dir/c605-recovery.log" 2>&1 &
+c605_recovery_pid=$!
+recovery_waiting=false
+for attempt in $(seq 1 200); do
+  wait_event="$(clean_psql --tuples-only --no-align --command "
+    SELECT wait_event_type FROM pg_catalog.pg_stat_activity
+    WHERE application_name='deedlight_c605_recovery'
+      AND state='active'
+  ")"
+  if [[ "$wait_event" == "Lock" ]]; then
+    recovery_waiting=true
+    break
+  fi
+  kill -0 "$c605_recovery_pid" 2>/dev/null || {
+    cat "$tmp_dir/c605-recovery.log"
+    echo "FAIL: C605 recovery call did not wait on the locked target" >&2
+    exit 1
+  }
+  sleep 0.05
+done
+[[ "$recovery_waiting" == "true" ]] || {
+  echo "FAIL: recovery session was not observed waiting on the target row lock" >&2
+  cat "$tmp_dir/c605-recovery.log"
+  exit 1
+}
+
+set +e
+wait "$c605_holder_pid"; c605_holder_status=$?
+wait "$c605_recovery_pid"; c605_recovery_status=$?
+set -e
+[[ "$c605_holder_status" -eq 0 ]] || {
+  cat "$tmp_dir/c605-holder.log"
+  echo "FAIL: C605 recovery lock holder did not commit" >&2
+  exit 1
+}
+[[ "$c605_recovery_status" -ne 0 ]] || {
+  cat "$tmp_dir/c605-recovery.log"
+  echo "FAIL: stale signed recovery target was accepted after concurrent state transition" >&2
+  exit 1
+}
+grep -q "authorization_request_binding_mismatch" "$tmp_dir/c605-recovery.log" || {
+  cat "$tmp_dir/c605-recovery.log"
+  echo "FAIL: C605 recovery failed for an unexpected reason" >&2
+  exit 1
+}
+nonce_after="$(clean_psql --tuples-only --no-align --command \
+  "SELECT count(*) FROM deedlight_execution_ledger.authorization_nonces")"
+[[ "$nonce_after" == "$nonce_before" ]] || {
+  echo "FAIL: rejected concurrent recovery consumed a nonce" >&2
+  exit 1
+}
+clean_psql --command "
+  DO \\$assert\\$
+  BEGIN
+    IF (SELECT status FROM deedlight_execution_ledger.executions
+        WHERE execution_id='c6050000-0000-4000-8000-000000000021') <> 'interrupted'
+      OR (SELECT outcome_detail->>'reason' FROM deedlight_execution_ledger.executions
+        WHERE execution_id='c6050000-0000-4000-8000-000000000021')
+        <> 'concurrent_recovery_race_holder' THEN
+      RAISE EXCEPTION 'C605 recovery changed concurrent writer outcome';
+    END IF;
+  END
+  \\$assert\\$;
+"
+echo "C605_RECOVERY_CONCURRENT_ROW_CHANGE_REJECTED_ZERO_SIDE_EFFECTS_PASS"
+
+
 # Prove a non-superuser actor cannot switch to another actor role.
 if clean_psql --command "SET SESSION AUTHORIZATION deedlight_ledger_approver; SET ROLE deedlight_ledger_runner" \
   >"$tmp_dir/c603-set-role.log" 2>&1; then
