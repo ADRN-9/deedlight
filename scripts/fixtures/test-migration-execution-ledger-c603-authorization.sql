@@ -9,22 +9,27 @@ CREATE OR REPLACE FUNCTION pg_temp.c603_sign(
 ) RETURNS jsonb LANGUAGE plpgsql AS $fn$
 DECLARE
   v_key bytea;
+  v_generation bigint;
   v_key_id text := 'c603-' || replace(p_actor,'deedlight_ledger_','') || '-v1';
   v_envelope jsonb;
 BEGIN
-  v_key := CASE p_actor
+  SELECT generation INTO STRICT v_generation
+  FROM deedlight_execution_ledger.authorization_generations WHERE actor=p_actor;
+  v_key := CASE
+    WHEN p_actor='deedlight_ledger_runner' AND v_generation=2 THEN decode(repeat('66',32),'hex')
+    ELSE CASE p_actor
     WHEN 'deedlight_ledger_approver' THEN decode(repeat('11',32),'hex')
     WHEN 'deedlight_ledger_runner' THEN decode(repeat('22',32),'hex')
     WHEN 'deedlight_ledger_observer' THEN decode(repeat('33',32),'hex')
     WHEN 'deedlight_ledger_recovery' THEN decode(repeat('44',32),'hex')
     WHEN 'deedlight_ledger_verifier' THEN decode(repeat('55',32),'hex')
-    ELSE NULL END;
+    ELSE NULL END END;
   IF v_key IS NULL THEN RAISE EXCEPTION 'unknown test actor'; END IF;
   v_envelope := pg_catalog.jsonb_build_object(
     'version',1,'operation',p_operation,'actor',p_actor,'principal',p_actor,
     'executionId',p_execution_id,
     'databaseResource',deedlight_execution_ledger.current_database_identity(),
-    'generation',1,'audience','deedlight.execution-ledger.gateway.v1',
+    'generation',v_generation,'audience','deedlight.execution-ledger.gateway.v1',
     'nonce',deedlight_execution_ledger.gen_random_uuid(),
     'issuedAt',pg_catalog.clock_timestamp(),
     'expiresAt',pg_catalog.clock_timestamp()+interval '1 minute',
@@ -347,6 +352,9 @@ SELECT
  (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.snapshots t) snapshots,
  (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.execution_commit_markers t) markers,
  (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.verification_events t) verifications,
+ (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.test_effects t) effects,
+ (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.authorization_keys t) keys,
+ (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.authorization_generations t) generations,
  (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.authorization_nonces t) nonces;
 
 SET SESSION AUTHORIZATION deedlight_ledger_approver;
@@ -418,6 +426,9 @@ BEGIN
     AND b.snapshots=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.snapshots t)
     AND b.markers=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.execution_commit_markers t)
     AND b.verifications=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.verification_events t)
+    AND b.effects=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.test_effects t)
+    AND b.keys=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.authorization_keys t)
+    AND b.generations=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.authorization_generations t)
     AND b.nonces=(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM deedlight_execution_ledger.authorization_nonces t)
  ) THEN RAISE EXCEPTION 'C603 rejected requests caused protected side effects'; END IF;
 END
