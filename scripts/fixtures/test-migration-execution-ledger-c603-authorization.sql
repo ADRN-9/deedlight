@@ -15,6 +15,9 @@ DECLARE
 BEGIN
   SELECT generation INTO STRICT v_generation
   FROM deedlight_execution_ledger.authorization_generations WHERE actor=p_actor;
+  IF v_generation > 1 THEN
+    v_key_id := 'c603-' || replace(p_actor,'deedlight_ledger_','') || '-v' || v_generation::text;
+  END IF;
   v_key := CASE
     WHEN p_actor='deedlight_ledger_runner' AND v_generation=2 THEN decode(repeat('66',32),'hex')
     ELSE CASE p_actor
