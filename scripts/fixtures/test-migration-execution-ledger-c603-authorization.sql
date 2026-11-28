@@ -750,4 +750,38 @@ SELECT 'C603_SIGNATURE_REPLAY_BINDING_ZERO_SIDE_EFFECTS_PASS' AS evidence;
 SELECT 'C603_LEGACY_UNWRAPPED_RPC_SIGNATURES_REMOVED_PASS' AS evidence;
 
 
-DROP SCHEMA c603_test CASCADE;
+-- Persistent signer exists only in the disposable CI database so the shell runner
+-- can create a signed token for the multi-session PostgreSQL recovery race.
+CREATE OR REPLACE FUNCTION c603_test.sign(
+  p_actor text,p_operation text,p_execution_id uuid,p_request jsonb
+) RETURNS jsonb LANGUAGE plpgsql
+SET search_path = pg_catalog, deedlight_execution_ledger, c603_test
+AS $fn$
+DECLARE
+  v_key deedlight_execution_ledger.authorization_keys%ROWTYPE;
+  v_envelope jsonb;
+BEGIN
+  SELECT * INTO STRICT v_key
+  FROM deedlight_execution_ledger.authorization_keys
+  WHERE actor=p_actor AND principal=p_actor AND enabled;
+  v_envelope := pg_catalog.jsonb_build_object(
+    'version',1,'operation',p_operation,'actor',p_actor,'principal',p_actor,
+    'executionId',p_execution_id,
+    'databaseResource',deedlight_execution_ledger.current_database_identity(),
+    'generation',v_key.generation,'audience',v_key.audience,
+    'nonce',deedlight_execution_ledger.gen_random_uuid(),
+    'issuedAt',pg_catalog.clock_timestamp(),
+    'expiresAt',pg_catalog.clock_timestamp()+interval '1 minute',
+    'request',p_request,
+    'requestDigest',pg_catalog.encode(deedlight_execution_ledger.digest(
+      pg_catalog.convert_to(p_request::text,'UTF8'),'sha256'),'hex'),
+    'keyId',v_key.key_id
+  );
+  RETURN v_envelope || pg_catalog.jsonb_build_object('signature',
+    pg_catalog.encode(deedlight_execution_ledger.hmac(
+      pg_catalog.convert_to(v_envelope::text,'UTF8'),v_key.signing_key,'sha256'),'hex'));
+END
+$fn$;
+REVOKE ALL ON FUNCTION c603_test.sign(text,text,uuid,jsonb) FROM PUBLIC,
+  deedlight_ledger_approver,deedlight_ledger_runner,deedlight_ledger_observer,
+  deedlight_ledger_recovery,deedlight_ledger_verifier;
