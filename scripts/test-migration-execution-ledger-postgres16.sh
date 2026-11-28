@@ -411,3 +411,7 @@ grep -qi "permission denied to set role" "$tmp_dir/c603-set-role.log" || {
   exit 1
 }
 echo "C603_CROSS_ROLE_SET_ROLE_DENIED_PASS"
+
+# C605 external authorization prototype. This is a separate trust-domain simulation,
+# not proof that PostgreSQL itself verifies an external Ed25519 receipt.
+node --test scripts/test-c605-external-authorization.mjs
