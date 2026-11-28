@@ -426,7 +426,11 @@ BEGIN
       OR pg_catalog.jsonb_typeof(v_item->'expectedSourceIdentity') IS DISTINCT FROM 'object'
       OR pg_catalog.jsonb_typeof(v_item->'expectedHeartbeatAt') IS DISTINCT FROM 'string'
       OR pg_catalog.jsonb_typeof(v_item->'expectedRowVersion') IS DISTINCT FROM 'number'
-      OR coalesce(v_item->>'expectedRowVersion','') !~ '^[1-9][0-9]*
+      OR coalesce(v_item->>'expectedRowVersion','') !~ '^[1-9][0-9]*$'
+      -- Validate textual casts explicitly so malformed signed data fails with a trust error.
+      OR NOT pg_catalog.pg_input_is_valid(v_item->>'executionId','uuid')
+      OR NOT pg_catalog.pg_input_is_valid(v_item->>'expectedHeartbeatAt','timestamp with time zone')
+      OR NOT pg_catalog.pg_input_is_valid(v_item->>'expectedRowVersion','bigint') THEN
       PERFORM deedlight_execution_ledger.raise_trust_failure(
         'incomplete_preconditions','recovery_target_shape_invalid','{}'::jsonb);
     END IF;
