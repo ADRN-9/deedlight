@@ -220,7 +220,7 @@ SELECT 'C603_RECOVERY_SIGNED_POSITIVE_PATH_PASS' AS evidence;
 
 -- Assert the owner/actor separation and exact 5 x 9 EXECUTE matrix.
 DO $catalog$
-DECLARE v_proc text; v_actor text; v_allowed text;
+DECLARE v_proc text; v_actor text; v_allowed text; v_impl text; v_owner oid;
 DECLARE v_rpc text[] := ARRAY[
  'approve_execution(uuid,uuid,uuid,jsonb,jsonb)',
  'reserve_execution(uuid,uuid,uuid,jsonb,jsonb)',
@@ -237,15 +237,88 @@ DECLARE v_actors text[] := ARRAY[
  'deedlight_ledger_recovery','deedlight_ledger_verifier'
 ];
 BEGIN
+ SELECT oid INTO STRICT v_owner FROM pg_catalog.pg_roles WHERE rolname='deedlight_ledger_owner';
+ IF (SELECT rolsuper OR rolcanlogin OR NOT rolinherit
+     FROM pg_catalog.pg_roles WHERE rolname='deedlight_ledger_owner') THEN
+   RAISE EXCEPTION 'C603 definer owner attributes invalid';
+ END IF;
+ IF pg_catalog.has_schema_privilege('deedlight_ledger_owner',
+   'deedlight_execution_ledger','CREATE') THEN
+   RAISE EXCEPTION 'C603 definer owner retained schema CREATE';
+ END IF;
  IF EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m
    JOIN pg_catalog.pg_roles r ON r.oid=m.roleid
    JOIN pg_catalog.pg_roles u ON u.oid=m.member
    WHERE r.rolname=ANY(v_actors) AND u.rolname=ANY(v_actors)) THEN
    RAISE EXCEPTION 'C603 cross-actor membership detected';
  END IF;
- IF (SELECT rolsuper OR rolcanlogin FROM pg_catalog.pg_roles WHERE rolname='deedlight_ledger_owner') THEN
-   RAISE EXCEPTION 'C603 definer owner is privileged/login-capable';
+ IF EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m
+   JOIN pg_catalog.pg_roles r ON r.oid=m.roleid
+   JOIN pg_catalog.pg_roles u ON u.oid=m.member
+   WHERE (r.rolname=ANY(v_actors) OR u.rolname=ANY(v_actors))
+     AND NOT (r.rolname='pg_monitor' AND u.rolname='deedlight_ledger_owner')) THEN
+   RAISE EXCEPTION 'C603 actor principal has unexpected role membership';
  END IF;
+ FOREACH v_actor IN ARRAY v_actors LOOP
+   IF NOT (SELECT rolcanlogin AND NOT rolsuper AND NOT rolinherit
+     FROM pg_catalog.pg_roles WHERE rolname=v_actor) THEN
+     RAISE EXCEPTION 'C603 actor principal attributes invalid: %',v_actor;
+   END IF;
+   IF pg_catalog.has_table_privilege(v_actor,'deedlight_execution_ledger.approvals','SELECT')
+     OR pg_catalog.has_table_privilege(v_actor,'deedlight_execution_ledger.executions','SELECT')
+     OR pg_catalog.has_table_privilege(v_actor,'deedlight_execution_ledger.snapshots','SELECT')
+     OR pg_catalog.has_table_privilege(v_actor,'deedlight_execution_ledger.execution_commit_markers','SELECT')
+     OR pg_catalog.has_table_privilege(v_actor,'deedlight_execution_ledger.verification_events','SELECT')
+     OR pg_catalog.has_table_privilege(v_actor,'deedlight_execution_ledger.authorization_keys','SELECT')
+     OR pg_catalog.has_table_privilege(v_actor,'deedlight_execution_ledger.authorization_nonces','SELECT') THEN
+     RAISE EXCEPTION 'C603 actor has direct protected-table read access: %',v_actor;
+   END IF;
+ END LOOP;
+
+ FOREACH v_proc IN ARRAY v_rpc LOOP
+   DECLARE v_oid oid := pg_catalog.to_regprocedure('deedlight_execution_ledger.'||v_proc);
+   BEGIN
+     IF v_oid IS NULL OR NOT EXISTS (
+       SELECT 1 FROM pg_catalog.pg_proc p
+       WHERE p.oid=v_oid AND p.proowner=v_owner AND p.prosecdef
+         AND p.proconfig @> ARRAY['search_path=pg_catalog, deedlight_execution_ledger']
+     ) THEN
+       RAISE EXCEPTION 'C603 wrapper owner/SECURITY DEFINER/search_path assertion failed: %',v_proc;
+     END IF;
+     IF EXISTS (
+       SELECT 1 FROM pg_catalog.pg_proc p
+       CROSS JOIN LATERAL pg_catalog.aclexplode(
+         coalesce(p.proacl,pg_catalog.acldefault('f',p.proowner))) acl
+       WHERE p.oid=v_oid AND acl.grantee=0 AND acl.privilege_type='EXECUTE'
+     ) THEN
+       RAISE EXCEPTION 'C603 wrapper still grants PUBLIC EXECUTE: %',v_proc;
+     END IF;
+   END;
+ END LOOP;
+
+ FOREACH v_impl IN ARRAY ARRAY[
+   'approve_execution_impl(uuid,uuid,uuid,jsonb)',
+   'reserve_execution_impl(uuid,uuid,uuid,jsonb)',
+   'record_effect_commit_marker_impl(uuid,jsonb)',
+   'capture_snapshot_impl(uuid,text,text)',
+   'start_execution_impl(uuid)',
+   'heartbeat_execution_impl(uuid)',
+   'finalize_execution_impl(uuid,text,jsonb)',
+   'recover_stale_executions_impl(interval)',
+   'record_verification_impl(uuid,text,jsonb)'
+ ] LOOP
+   v_proc := 'deedlight_execution_ledger.'||v_impl;
+   IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_proc p
+     WHERE p.oid=pg_catalog.to_regprocedure(v_proc) AND p.proowner=v_owner AND p.prosecdef) THEN
+     RAISE EXCEPTION 'C603 implementation owner/SECURITY DEFINER assertion failed: %',v_impl;
+   END IF;
+   FOREACH v_actor IN ARRAY v_actors LOOP
+     IF pg_catalog.has_function_privilege(v_actor,pg_catalog.to_regprocedure(v_proc),'EXECUTE') THEN
+       RAISE EXCEPTION 'C603 actor can execute owner-only implementation: actor=% function=%',v_actor,v_impl;
+     END IF;
+   END LOOP;
+ END LOOP;
+
  FOREACH v_actor IN ARRAY v_actors LOOP
    FOREACH v_proc IN ARRAY v_rpc LOOP
      v_allowed := CASE
