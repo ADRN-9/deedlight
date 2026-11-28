@@ -9,6 +9,7 @@ BEGIN
 END
 $owner$;
 
+ALTER ROLE deedlight_ledger_owner INHERIT;
 GRANT pg_monitor TO deedlight_ledger_owner;
 GRANT USAGE, CREATE ON SCHEMA deedlight_execution_ledger TO deedlight_ledger_owner;
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA deedlight_execution_ledger TO deedlight_ledger_owner;
@@ -243,10 +244,14 @@ CREATE OR REPLACE FUNCTION deedlight_execution_ledger.capture_snapshot(
   p_execution_id uuid,p_phase text,p_query_id text,p_authorization jsonb
 ) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, deedlight_execution_ledger AS $fn$
+DECLARE v_source jsonb;
 BEGIN
+  SELECT source_identity INTO STRICT v_source FROM deedlight_execution_ledger.executions
+  WHERE execution_id=p_execution_id;
   PERFORM deedlight_execution_ledger.authorize_request(p_authorization,'capture_snapshot',
     'deedlight_ledger_observer',p_execution_id,
-    pg_catalog.jsonb_build_object('executionId',p_execution_id,'phase',p_phase,'queryId',p_query_id));
+    pg_catalog.jsonb_build_object('executionId',p_execution_id,'phase',p_phase,
+      'queryId',p_query_id,'sourceIdentity',v_source));
   RETURN deedlight_execution_ledger.capture_snapshot_impl(p_execution_id,p_phase,p_query_id);
 END $fn$;
 
@@ -254,9 +259,13 @@ CREATE OR REPLACE FUNCTION deedlight_execution_ledger.start_execution(
   p_execution_id uuid,p_authorization jsonb
 ) RETURNS void LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, deedlight_execution_ledger AS $fn$
+DECLARE v_source jsonb;
 BEGIN
+  SELECT source_identity INTO STRICT v_source FROM deedlight_execution_ledger.executions
+  WHERE execution_id=p_execution_id;
   PERFORM deedlight_execution_ledger.authorize_request(p_authorization,'start_execution',
-    'deedlight_ledger_runner',p_execution_id,pg_catalog.jsonb_build_object('executionId',p_execution_id));
+    'deedlight_ledger_runner',p_execution_id,
+    pg_catalog.jsonb_build_object('executionId',p_execution_id,'sourceIdentity',v_source));
   PERFORM deedlight_execution_ledger.start_execution_impl(p_execution_id);
 END $fn$;
 
@@ -264,9 +273,13 @@ CREATE OR REPLACE FUNCTION deedlight_execution_ledger.heartbeat_execution(
   p_execution_id uuid,p_authorization jsonb
 ) RETURNS void LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, deedlight_execution_ledger AS $fn$
+DECLARE v_source jsonb;
 BEGIN
+  SELECT source_identity INTO STRICT v_source FROM deedlight_execution_ledger.executions
+  WHERE execution_id=p_execution_id;
   PERFORM deedlight_execution_ledger.authorize_request(p_authorization,'heartbeat_execution',
-    'deedlight_ledger_runner',p_execution_id,pg_catalog.jsonb_build_object('executionId',p_execution_id));
+    'deedlight_ledger_runner',p_execution_id,
+    pg_catalog.jsonb_build_object('executionId',p_execution_id,'sourceIdentity',v_source));
   PERFORM deedlight_execution_ledger.heartbeat_execution_impl(p_execution_id);
 END $fn$;
 
@@ -274,10 +287,14 @@ CREATE OR REPLACE FUNCTION deedlight_execution_ledger.finalize_execution(
   p_execution_id uuid,p_outcome text,p_outcome_detail jsonb,p_authorization jsonb
 ) RETURNS void LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, deedlight_execution_ledger AS $fn$
+DECLARE v_source jsonb;
 BEGIN
+  SELECT source_identity INTO STRICT v_source FROM deedlight_execution_ledger.executions
+  WHERE execution_id=p_execution_id;
   PERFORM deedlight_execution_ledger.authorize_request(p_authorization,'finalize_execution',
     'deedlight_ledger_runner',p_execution_id,
-    pg_catalog.jsonb_build_object('executionId',p_execution_id,'outcome',p_outcome,'outcomeDetail',p_outcome_detail));
+    pg_catalog.jsonb_build_object('executionId',p_execution_id,'outcome',p_outcome,
+      'outcomeDetail',p_outcome_detail,'sourceIdentity',v_source));
   PERFORM deedlight_execution_ledger.finalize_execution_impl(p_execution_id,p_outcome,p_outcome_detail);
 END $fn$;
 
@@ -285,9 +302,22 @@ CREATE OR REPLACE FUNCTION deedlight_execution_ledger.recover_stale_executions(
   p_stale_after interval,p_authorization jsonb
 ) RETURNS integer LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, deedlight_execution_ledger AS $fn$
+DECLARE v_targets jsonb; v_digest text; v_count integer;
 BEGIN
+  SELECT coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
+      'executionId',execution_id,'sourceIdentity',source_identity,
+      'status',status,'heartbeatAt',heartbeat_at) ORDER BY execution_id),'[]'::jsonb)
+    INTO v_targets
+  FROM deedlight_execution_ledger.executions
+  WHERE status IN ('reserved','running')
+    AND heartbeat_at < pg_catalog.clock_timestamp() - p_stale_after;
+  v_count := pg_catalog.jsonb_array_length(v_targets);
+  v_digest := pg_catalog.encode(deedlight_execution_ledger.digest(
+    pg_catalog.convert_to(v_targets::text,'UTF8'),'sha256'),'hex');
   PERFORM deedlight_execution_ledger.authorize_request(p_authorization,'recover_stale_executions',
-    'deedlight_ledger_recovery',NULL,pg_catalog.jsonb_build_object('staleAfter',p_stale_after::text));
+    'deedlight_ledger_recovery',NULL,
+    pg_catalog.jsonb_build_object('staleAfter',p_stale_after::text,
+      'sourceSetDigest',v_digest,'targetCount',v_count));
   RETURN deedlight_execution_ledger.recover_stale_executions_impl(p_stale_after);
 END $fn$;
 
@@ -295,10 +325,14 @@ CREATE OR REPLACE FUNCTION deedlight_execution_ledger.record_verification(
   p_execution_id uuid,p_verdict text,p_evidence jsonb,p_authorization jsonb
 ) RETURNS void LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, deedlight_execution_ledger AS $fn$
+DECLARE v_source jsonb;
 BEGIN
+  SELECT source_identity INTO STRICT v_source FROM deedlight_execution_ledger.executions
+  WHERE execution_id=p_execution_id;
   PERFORM deedlight_execution_ledger.authorize_request(p_authorization,'record_verification',
     'deedlight_ledger_verifier',p_execution_id,
-    pg_catalog.jsonb_build_object('executionId',p_execution_id,'verdict',p_verdict,'evidence',p_evidence));
+    pg_catalog.jsonb_build_object('executionId',p_execution_id,'verdict',p_verdict,
+      'evidence',p_evidence,'sourceIdentity',v_source));
   PERFORM deedlight_execution_ledger.record_verification_impl(p_execution_id,p_verdict,p_evidence);
 END $fn$;
 
